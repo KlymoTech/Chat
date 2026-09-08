@@ -81,8 +81,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["contact_id"], ["contacts.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("tenant_id", "identity_type", "normalized_value", name="uq_contact_identity_normalized"),
-        sa.UniqueConstraint("tenant_id", "provider", "external_id", name="uq_contact_identity_provider_external"),
+        sa.UniqueConstraint(
+            "tenant_id", "identity_type", "normalized_value", name="uq_contact_identity_normalized"
+        ),
+        sa.UniqueConstraint(
+            "tenant_id", "provider", "external_id", name="uq_contact_identity_provider_external"
+        ),
     )
     op.create_index("ix_contact_identities_tenant_id", "contact_identities", ["tenant_id"])
     op.create_index("ix_contact_identities_contact", "contact_identities", ["tenant_id", "contact_id"])
@@ -108,7 +112,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "tenant_id", "provider", "connection_key", "external_event_id", name="uq_raw_webhook_provider_event"
+            "tenant_id",
+            "provider",
+            "connection_key",
+            "external_event_id",
+            name="uq_raw_webhook_provider_event",
         ),
     )
     op.create_index("ix_raw_webhook_tenant_id", "raw_webhook_events", ["tenant_id"])
@@ -166,9 +174,13 @@ def upgrade() -> None:
     op.create_index("ix_lead_profiles_contact_id", "lead_profiles", ["contact_id"])
     op.create_index("ix_lead_profiles_normalized_email", "lead_profiles", ["normalized_email"])
     op.create_index("ix_lead_profiles_normalized_phone", "lead_profiles", ["normalized_phone"])
-    op.create_index("ix_lead_profiles_source", "lead_profiles", ["tenant_id", "source_channel", "source_provider"])
     op.create_index(
-        "ix_lead_profiles_qualification", "lead_profiles", ["tenant_id", "qualification_status", "qualification_score"]
+        "ix_lead_profiles_source", "lead_profiles", ["tenant_id", "source_channel", "source_provider"]
+    )
+    op.create_index(
+        "ix_lead_profiles_qualification",
+        "lead_profiles",
+        ["tenant_id", "qualification_status", "qualification_score"],
     )
 
     op.create_table(
@@ -245,10 +257,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["connection_id"], ["crm_connections.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("tenant_id", "connection_id", "object_name", "api_name", name="uq_crm_field_schema"),
+        sa.UniqueConstraint(
+            "tenant_id", "connection_id", "object_name", "api_name", name="uq_crm_field_schema"
+        ),
     )
     op.create_index("ix_crm_field_schema_tenant_id", "crm_field_schema", ["tenant_id"])
-    op.create_index("ix_crm_field_schema_connection", "crm_field_schema", ["tenant_id", "connection_id", "object_name"])
+    op.create_index(
+        "ix_crm_field_schema_connection", "crm_field_schema", ["tenant_id", "connection_id", "object_name"]
+    )
 
     op.create_table(
         "crm_field_mappings",
@@ -349,7 +365,11 @@ def upgrade() -> None:
         sa.UniqueConstraint("delivery_id", "attempt_number", name="uq_crm_delivery_attempt_number"),
     )
     op.create_index("ix_crm_delivery_attempts_tenant_id", "crm_delivery_attempts", ["tenant_id"])
-    op.create_index("ix_crm_delivery_attempt_scope", "crm_delivery_attempts", ["tenant_id", "delivery_id", "attempt_number"])
+    op.create_index(
+        "ix_crm_delivery_attempt_scope",
+        "crm_delivery_attempts",
+        ["tenant_id", "delivery_id", "attempt_number"],
+    )
 
     op.create_table(
         "crm_external_references",
@@ -418,7 +438,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_integration_health_tenant_id", "integration_health_snapshots", ["tenant_id"])
-    op.create_index("ix_integration_health_scope", "integration_health_snapshots", ["tenant_id", "connection_id", "checked_at"])
+    op.create_index(
+        "ix_integration_health_scope",
+        "integration_health_snapshots",
+        ["tenant_id", "connection_id", "checked_at"],
+    )
 
     op.create_table(
         "integration_dead_letters",
@@ -436,7 +460,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_integration_dead_letters_tenant_id", "integration_dead_letters", ["tenant_id"])
-    op.create_index("ix_integration_dead_letter_scope", "integration_dead_letters", ["tenant_id", "status", "created_at"])
+    op.create_index(
+        "ix_integration_dead_letter_scope", "integration_dead_letters", ["tenant_id", "status", "created_at"]
+    )
 
     op.create_table(
         "lead_activity_events",

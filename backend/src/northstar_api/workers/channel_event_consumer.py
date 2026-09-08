@@ -22,7 +22,16 @@ from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile, RawWeb
 from northstar_api.lead_crm.qualification import lead_qualification_engine
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import configure_logging
-from northstar_api.models import Agent, Channel, Conversation, ConversationState, Lead, Message, MessageRole, ProcessedEvent
+from northstar_api.models import (
+    Agent,
+    Channel,
+    Conversation,
+    ConversationState,
+    Lead,
+    Message,
+    MessageRole,
+    ProcessedEvent,
+)
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
 
@@ -110,15 +119,18 @@ async def _persist_message(
     )
     if existing:
         return
-    next_sequence = int(
-        await session.scalar(
-            select(func.coalesce(func.max(Message.sequence), 0)).where(
-                Message.tenant_id == event.tenant_id,
-                Message.conversation_id == conversation.id,
+    next_sequence = (
+        int(
+            await session.scalar(
+                select(func.coalesce(func.max(Message.sequence), 0)).where(
+                    Message.tenant_id == event.tenant_id,
+                    Message.conversation_id == conversation.id,
+                )
             )
+            or 0
         )
-        or 0
-    ) + 1
+        + 1
+    )
     session.add(
         Message(
             tenant_id=event.tenant_id,
@@ -274,11 +286,14 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
         if profile.contact_id != contact.id:
             profile.contact_id = contact.id
         if canonical.campaign_attribution:
-            profile.campaign = str(
-                canonical.campaign_attribution.get("name")
-                or canonical.campaign_attribution.get("campaign")
-                or ""
-            ) or None
+            profile.campaign = (
+                str(
+                    canonical.campaign_attribution.get("name")
+                    or canonical.campaign_attribution.get("campaign")
+                    or ""
+                )
+                or None
+            )
         enqueue_event(
             session,
             tenant_id=event.tenant_id,

@@ -78,7 +78,9 @@ class MetaMessagingConnector(ChannelConnector):
                     sender = item.get("sender") if isinstance(item.get("sender"), dict) else {}
                     message = item.get("message") if isinstance(item.get("message"), dict) else {}
                     message_id = str(message.get("mid") or "") or None
-                    event_id = message_id or f"{entry_id}:{item.get('timestamp') or received_at.timestamp()}:{index}"
+                    event_id = (
+                        message_id or f"{entry_id}:{item.get('timestamp') or received_at.timestamp()}:{index}"
+                    )
                     output.append(
                         CanonicalInboundEvent(
                             event_id=uuid.uuid4(),
@@ -90,8 +92,12 @@ class MetaMessagingConnector(ChannelConnector):
                             sender=CanonicalSender(external_id=str(sender.get("id") or "") or None),
                             message=CanonicalMessage(
                                 external_message_id=message_id,
-                                message_type="text" if isinstance(message.get("text"), str) else str(message.get("type") or "unknown"),
-                                text=str(message.get("text")) if isinstance(message.get("text"), str) else None,
+                                message_type="text"
+                                if isinstance(message.get("text"), str)
+                                else str(message.get("type") or "unknown"),
+                                text=str(message.get("text"))
+                                if isinstance(message.get("text"), str)
+                                else None,
                                 provider_timestamp=_timestamp_seconds(item.get("timestamp")),
                             ),
                             correlation_id=correlation_id,
@@ -120,7 +126,9 @@ class MetaMessagingConnector(ChannelConnector):
                         if not isinstance(message, dict):
                             continue
                         sender_id = str(message.get("from") or "") or None
-                        external_id = str(message.get("id") or "") or f"{entry_id}:change:{index}:{message_index}"
+                        external_id = (
+                            str(message.get("id") or "") or f"{entry_id}:change:{index}:{message_index}"
+                        )
                         text_value = message.get("text") if isinstance(message.get("text"), dict) else {}
                         output.append(
                             CanonicalInboundEvent(
@@ -138,7 +146,9 @@ class MetaMessagingConnector(ChannelConnector):
                                 message=CanonicalMessage(
                                     external_message_id=str(message.get("id") or "") or None,
                                     message_type=str(message.get("type") or "unknown"),
-                                    text=str(text_value.get("body")) if text_value.get("body") is not None else None,
+                                    text=str(text_value.get("body"))
+                                    if text_value.get("body") is not None
+                                    else None,
                                     provider_timestamp=_timestamp_seconds(message.get("timestamp")),
                                 ),
                                 correlation_id=correlation_id,
@@ -181,9 +191,17 @@ class TelegramConnector(ChannelConnector):
         sender = message.get("from") if isinstance(message.get("from"), dict) else {}
         chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
         text = message.get("text") or message.get("caption")
-        sender_name = " ".join(
-            part for part in (str(sender.get("first_name") or "").strip(), str(sender.get("last_name") or "").strip()) if part
-        ) or None
+        sender_name = (
+            " ".join(
+                part
+                for part in (
+                    str(sender.get("first_name") or "").strip(),
+                    str(sender.get("last_name") or "").strip(),
+                )
+                if part
+            )
+            or None
+        )
         message_id = message.get("message_id")
         return [
             CanonicalInboundEvent(
@@ -209,7 +227,11 @@ class TelegramConnector(ChannelConnector):
         ]
 
     async def health_check(self, context: ChannelConnectionContext) -> dict[str, str]:
-        return {"status": "healthy" if context.credentials.get("bot_token") and context.credentials.get("webhook_secret") else "configuration_error"}
+        return {
+            "status": "healthy"
+            if context.credentials.get("bot_token") and context.credentials.get("webhook_secret")
+            else "configuration_error"
+        }
 
 
 class SignedAPIConnector(ChannelConnector):
@@ -246,7 +268,9 @@ class SignedAPIConnector(ChannelConnector):
         sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
         message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
         message_text = message.get("text") if message else payload.get("messageText")
-        timestamp = payload.get("timestamp") or message.get("timestamp") if isinstance(message, dict) else None
+        timestamp = (
+            payload.get("timestamp") or message.get("timestamp") if isinstance(message, dict) else None
+        )
         return [
             CanonicalInboundEvent(
                 event_id=uuid.uuid4(),
@@ -270,9 +294,13 @@ class SignedAPIConnector(ChannelConnector):
                 correlation_id=correlation_id,
                 received_at=received_at,
                 conversation_reference=str(payload.get("conversationId") or "") or None,
-                campaign_attribution=dict(payload.get("campaign") or {}) if isinstance(payload.get("campaign"), dict) else {},
+                campaign_attribution=dict(payload.get("campaign") or {})
+                if isinstance(payload.get("campaign"), dict)
+                else {},
                 raw_event_id=raw_event_id,
-                metadata=dict(payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {},
+                metadata=dict(payload.get("metadata") or {})
+                if isinstance(payload.get("metadata"), dict)
+                else {},
             )
         ]
 

@@ -17,7 +17,12 @@ from northstar_api.lead_crm.connectors import (
     CRMFieldDefinition,
     CRMHealthResult,
 )
-from northstar_api.lead_crm.domain import CRMOperation, CRMProvider, IntegrationHealthStatus, NormalizedCRMErrorCode
+from northstar_api.lead_crm.domain import (
+    CRMOperation,
+    CRMProvider,
+    IntegrationHealthStatus,
+    NormalizedCRMErrorCode,
+)
 
 
 class OAuthJSONConnector(CRMConnector):
@@ -87,15 +92,23 @@ class OAuthJSONConnector(CRMConnector):
             async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
                 response = await client.post(self._token_endpoint(context), data=data, headers=headers)
         except httpx.TimeoutException as exc:
-            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "OAuth token request timed out", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.TIMEOUT, "OAuth token request timed out", retryable=True
+            ) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "OAuth token request failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "OAuth token request failed", retryable=True
+            ) from exc
         try:
             body = response.json()
         except ValueError:
             body = {}
         if response.status_code >= 400 or not isinstance(body, dict) or not body.get("access_token"):
-            code = str(body.get("error") or body.get("errorCode") or "oauth_failed") if isinstance(body, dict) else "oauth_failed"
+            code = (
+                str(body.get("error") or body.get("errorCode") or "oauth_failed")
+                if isinstance(body, dict)
+                else "oauth_failed"
+            )
             raise CRMError(
                 NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
                 "OAuth token request was rejected",
@@ -190,7 +203,11 @@ class OAuthJSONConnector(CRMConnector):
         credentials = await self._access_credentials(context)
         token = str(credentials.get("access_token") or "")
         if not token:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Access token is missing", requires_reconnect=True)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Access token is missing",
+                requires_reconnect=True,
+            )
         url = f"{self._base_url(context, credentials).rstrip('/')}/{path.lstrip('/')}"
         try:
             async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
@@ -199,15 +216,25 @@ class OAuthJSONConnector(CRMConnector):
                     url,
                     params=params,
                     json=payload,
-                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
                 )
         except httpx.TimeoutException as exc:
             raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "CRM request timed out", retryable=True) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "CRM request failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "CRM request failed", retryable=True
+            ) from exc
         if response.status_code < 400:
             return response
-        retry_after = int(response.headers["Retry-After"]) if response.headers.get("Retry-After", "").isdigit() else None
+        retry_after = (
+            int(response.headers["Retry-After"])
+            if response.headers.get("Retry-After", "").isdigit()
+            else None
+        )
         if response.status_code == 429:
             raise CRMError(
                 NormalizedCRMErrorCode.RATE_LIMIT_ERROR,
@@ -218,7 +245,9 @@ class OAuthJSONConnector(CRMConnector):
             )
         if response.status_code in {401, 403}:
             raise CRMError(
-                NormalizedCRMErrorCode.AUTHENTICATION_ERROR if response.status_code == 401 else NormalizedCRMErrorCode.AUTHORIZATION_ERROR,
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR
+                if response.status_code == 401
+                else NormalizedCRMErrorCode.AUTHORIZATION_ERROR,
                 "CRM authorization failed",
                 requires_reconnect=response.status_code == 401,
                 http_status=response.status_code,
@@ -230,7 +259,11 @@ class OAuthJSONConnector(CRMConnector):
                 retryable=True,
                 http_status=response.status_code,
             )
-        raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "CRM rejected the request", http_status=response.status_code)
+        raise CRMError(
+            NormalizedCRMErrorCode.VALIDATION_ERROR,
+            "CRM rejected the request",
+            http_status=response.status_code,
+        )
 
     async def health_check(self, context: CRMConnectionContext) -> CRMHealthResult:
         started = time.monotonic()
@@ -243,8 +276,14 @@ class OAuthJSONConnector(CRMConnector):
             )
         except CRMError as exc:
             return CRMHealthResult(
-                status=IntegrationHealthStatus.AUTH_REQUIRED if exc.requires_reconnect else IntegrationHealthStatus.UNHEALTHY,
-                checks={"credentials": "down" if exc.requires_reconnect else "unknown", "oauth": "down" if exc.requires_reconnect else "unknown", "api": "down"},
+                status=IntegrationHealthStatus.AUTH_REQUIRED
+                if exc.requires_reconnect
+                else IntegrationHealthStatus.UNHEALTHY,
+                checks={
+                    "credentials": "down" if exc.requires_reconnect else "unknown",
+                    "oauth": "down" if exc.requires_reconnect else "unknown",
+                    "api": "down",
+                },
                 latency_ms=int((time.monotonic() - started) * 1000),
                 details={"error": exc.code.value},
             )
@@ -256,7 +295,15 @@ class OAuthJSONConnector(CRMConnector):
 
 class SalesforceConnector(OAuthJSONConnector):
     provider = CRMProvider.SALESFORCE
-    capabilities = CRMCapabilities(oauth=True, schema_discovery=True, create=True, update=True, upsert=True, read_back=True, inbound_webhooks=True)
+    capabilities = CRMCapabilities(
+        oauth=True,
+        schema_discovery=True,
+        create=True,
+        update=True,
+        upsert=True,
+        read_back=True,
+        inbound_webhooks=True,
+    )
     authorize_url = "https://login.salesforce.com/services/oauth2/authorize"
     token_url = "https://login.salesforce.com/services/oauth2/token"
     default_scopes = ("api", "refresh_token")
@@ -281,7 +328,9 @@ class SalesforceConnector(OAuthJSONConnector):
     async def _health_request(self, context: CRMConnectionContext) -> None:
         await self._request(context, "GET", "limits")
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "Lead") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "Lead"
+    ) -> list[CRMFieldDefinition]:
         object_name = "Lead" if object_name == "Leads" else object_name
         response = await self._request(context, "GET", f"sobjects/{quote(object_name, safe='')}/describe")
         body = response.json()
@@ -297,32 +346,57 @@ class SalesforceConnector(OAuthJSONConnector):
                     api_name=str(item["name"]),
                     label=str(item.get("label") or item["name"]),
                     data_type=str(item.get("type") or "unknown"),
-                    required=not bool(item.get("nillable", True)) and not bool(item.get("defaultedOnCreate", False)),
+                    required=not bool(item.get("nillable", True))
+                    and not bool(item.get("defaultedOnCreate", False)),
                     nullable=bool(item.get("nillable", True)),
                     read_only=not bool(item.get("createable", False) or item.get("updateable", False)),
                     unique=bool(item.get("unique", False) or item.get("externalId", False)),
                     custom=bool(item.get("custom", False)),
                     max_length=int(item["length"]) if isinstance(item.get("length"), int) else None,
-                    picklist_values=tuple(str(option.get("value")) for option in item.get("picklistValues", []) if isinstance(option, dict) and option.get("active", True)),
+                    picklist_values=tuple(
+                        str(option.get("value"))
+                        for option in item.get("picklistValues", [])
+                        if isinstance(option, dict) and option.get("active", True)
+                    ),
                 )
             )
         return definitions
 
-    async def create_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def create_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         response = await self._request(context, "POST", "sobjects/Lead", payload=payload)
         body = response.json()
         record_id = body.get("id") if isinstance(body, dict) else None
-        return CRMDeliveryResult(True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code)
+        return CRMDeliveryResult(
+            True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code
+        )
 
-    async def update_lead(self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
-        response = await self._request(context, "PATCH", f"sobjects/Lead/{quote(external_id, safe='')}", payload=payload)
+    async def update_lead(
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> CRMDeliveryResult:
+        response = await self._request(
+            context, "PATCH", f"sobjects/Lead/{quote(external_id, safe='')}", payload=payload
+        )
         return CRMDeliveryResult(True, CRMOperation.UPDATE, external_id, response.status_code)
 
-    async def upsert_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def upsert_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         external_field = str(context.configuration.get("externalIdField") or "")
         if external_field and payload.get(external_field) is not None:
             external_value = quote(str(payload[external_field]), safe="")
-            response = await self._request(context, "PATCH", f"sobjects/Lead/{quote(external_field, safe='')}/{external_value}", payload=payload)
+            response = await self._request(
+                context,
+                "PATCH",
+                f"sobjects/Lead/{quote(external_field, safe='')}/{external_value}",
+                payload=payload,
+            )
             location = response.headers.get("Location", "")
             record_id = location.rstrip("/").split("/")[-1] or None
             return CRMDeliveryResult(True, CRMOperation.UPSERT, record_id, response.status_code)
@@ -333,13 +407,23 @@ class SalesforceConnector(OAuthJSONConnector):
         response = await self._request(context, "GET", f"sobjects/Lead/{quote(external_id, safe='')}")
         body = response.json()
         if not isinstance(body, dict):
-            raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Salesforce read-back response is invalid")
+            raise CRMError(
+                NormalizedCRMErrorCode.VALIDATION_ERROR, "Salesforce read-back response is invalid"
+            )
         return body
 
 
 class HubSpotConnector(OAuthJSONConnector):
     provider = CRMProvider.HUBSPOT
-    capabilities = CRMCapabilities(oauth=True, schema_discovery=True, create=True, update=True, upsert=True, read_back=True, inbound_webhooks=True)
+    capabilities = CRMCapabilities(
+        oauth=True,
+        schema_discovery=True,
+        create=True,
+        update=True,
+        upsert=True,
+        read_back=True,
+        inbound_webhooks=True,
+    )
     authorize_url = "https://app.hubspot.com/oauth/authorize"
     token_url = "https://api.hubapi.com/oauth/v1/token"
     default_scopes = ("crm.objects.contacts.read", "crm.objects.contacts.write", "crm.schemas.contacts.read")
@@ -353,7 +437,9 @@ class HubSpotConnector(OAuthJSONConnector):
     async def _health_request(self, context: CRMConnectionContext) -> None:
         await self._request(context, "GET", f"crm/v3/properties/{quote(self._object_type(context), safe='')}")
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "contacts") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "contacts"
+    ) -> list[CRMFieldDefinition]:
         object_type = self._object_type(context) if object_name == "Leads" else object_name
         response = await self._request(context, "GET", f"crm/v3/properties/{quote(object_type, safe='')}")
         body = response.json()
@@ -374,22 +460,49 @@ class HubSpotConnector(OAuthJSONConnector):
                     read_only=read_only,
                     unique=bool(item.get("hasUniqueValue", False)),
                     custom=not bool(item.get("hubspotDefined", False)),
-                    picklist_values=tuple(str(option.get("value")) for option in item.get("options", []) if isinstance(option, dict) and not option.get("hidden", False)),
+                    picklist_values=tuple(
+                        str(option.get("value"))
+                        for option in item.get("options", [])
+                        if isinstance(option, dict) and not option.get("hidden", False)
+                    ),
                 )
             )
         return definitions
 
-    async def create_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
-        response = await self._request(context, "POST", f"crm/v3/objects/{quote(self._object_type(context), safe='')}", payload={"properties": payload})
+    async def create_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
+        response = await self._request(
+            context,
+            "POST",
+            f"crm/v3/objects/{quote(self._object_type(context), safe='')}",
+            payload={"properties": payload},
+        )
         body = response.json()
         record_id = body.get("id") if isinstance(body, dict) else None
-        return CRMDeliveryResult(True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code)
+        return CRMDeliveryResult(
+            True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code
+        )
 
-    async def update_lead(self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
-        response = await self._request(context, "PATCH", f"crm/v3/objects/{quote(self._object_type(context), safe='')}/{quote(external_id, safe='')}", payload={"properties": payload})
+    async def update_lead(
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> CRMDeliveryResult:
+        response = await self._request(
+            context,
+            "PATCH",
+            f"crm/v3/objects/{quote(self._object_type(context), safe='')}/{quote(external_id, safe='')}",
+            payload={"properties": payload},
+        )
         return CRMDeliveryResult(True, CRMOperation.UPDATE, external_id, response.status_code)
 
-    async def upsert_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def upsert_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         unique_field = str(context.configuration.get("uniqueField") or "email")
         unique_value = payload.get(unique_field)
         if unique_value:
@@ -397,18 +510,40 @@ class HubSpotConnector(OAuthJSONConnector):
                 context,
                 "POST",
                 f"crm/v3/objects/{quote(self._object_type(context), safe='')}/search",
-                payload={"filterGroups": [{"filters": [{"propertyName": unique_field, "operator": "EQ", "value": str(unique_value)}]}], "limit": 1},
+                payload={
+                    "filterGroups": [
+                        {
+                            "filters": [
+                                {"propertyName": unique_field, "operator": "EQ", "value": str(unique_value)}
+                            ]
+                        }
+                    ],
+                    "limit": 1,
+                },
             )
             body = response.json()
             results = body.get("results") if isinstance(body, dict) else None
-            if isinstance(results, list) and results and isinstance(results[0], dict) and results[0].get("id"):
-                updated = await self.update_lead(context, str(results[0]["id"]), payload, idempotency_key=idempotency_key)
-                return CRMDeliveryResult(True, CRMOperation.UPSERT, updated.external_record_id, updated.http_status)
+            if (
+                isinstance(results, list)
+                and results
+                and isinstance(results[0], dict)
+                and results[0].get("id")
+            ):
+                updated = await self.update_lead(
+                    context, str(results[0]["id"]), payload, idempotency_key=idempotency_key
+                )
+                return CRMDeliveryResult(
+                    True, CRMOperation.UPSERT, updated.external_record_id, updated.http_status
+                )
         created = await self.create_lead(context, payload, idempotency_key=idempotency_key)
         return CRMDeliveryResult(True, CRMOperation.UPSERT, created.external_record_id, created.http_status)
 
     async def get_lead(self, context: CRMConnectionContext, external_id: str) -> dict[str, Any]:
-        response = await self._request(context, "GET", f"crm/v3/objects/{quote(self._object_type(context), safe='')}/{quote(external_id, safe='')}")
+        response = await self._request(
+            context,
+            "GET",
+            f"crm/v3/objects/{quote(self._object_type(context), safe='')}/{quote(external_id, safe='')}",
+        )
         body = response.json()
         if not isinstance(body, dict):
             raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "HubSpot read-back response is invalid")
@@ -417,16 +552,30 @@ class HubSpotConnector(OAuthJSONConnector):
 
 class Dynamics365Connector(OAuthJSONConnector):
     provider = CRMProvider.DYNAMICS365
-    capabilities = CRMCapabilities(oauth=True, schema_discovery=True, create=True, update=True, upsert=True, read_back=True, inbound_webhooks=True)
+    capabilities = CRMCapabilities(
+        oauth=True,
+        schema_discovery=True,
+        create=True,
+        update=True,
+        upsert=True,
+        read_back=True,
+        inbound_webhooks=True,
+    )
 
     def _tenant_id(self, context: CRMConnectionContext) -> str:
         return str(context.configuration.get("azureTenantId") or "common")
 
     def _authorization_endpoint(self, context: CRMConnectionContext) -> str:
-        return str(context.configuration.get("authorizationUrl") or f"https://login.microsoftonline.com/{self._tenant_id(context)}/oauth2/v2.0/authorize")
+        return str(
+            context.configuration.get("authorizationUrl")
+            or f"https://login.microsoftonline.com/{self._tenant_id(context)}/oauth2/v2.0/authorize"
+        )
 
     def _token_endpoint(self, context: CRMConnectionContext) -> str:
-        return str(context.configuration.get("tokenUrl") or f"https://login.microsoftonline.com/{self._tenant_id(context)}/oauth2/v2.0/token")
+        return str(
+            context.configuration.get("tokenUrl")
+            or f"https://login.microsoftonline.com/{self._tenant_id(context)}/oauth2/v2.0/token"
+        )
 
     def _scopes(self, context: CRMConnectionContext) -> list[str]:
         configured = context.configuration.get("oauthScopes")
@@ -446,13 +595,17 @@ class Dynamics365Connector(OAuthJSONConnector):
     async def _health_request(self, context: CRMConnectionContext) -> None:
         await self._request(context, "GET", "WhoAmI")
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "lead") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "lead"
+    ) -> list[CRMFieldDefinition]:
         logical = "lead" if object_name.lower() in {"lead", "leads"} else object_name
         response = await self._request(
             context,
             "GET",
             f"EntityDefinitions(LogicalName='{quote(logical, safe='')}')/Attributes",
-            params={"$select": "LogicalName,DisplayName,AttributeType,IsValidForCreate,IsValidForUpdate,MaxLength,IsCustomAttribute,RequiredLevel"},
+            params={
+                "$select": "LogicalName,DisplayName,AttributeType,IsValidForCreate,IsValidForUpdate,MaxLength,IsCustomAttribute,RequiredLevel"
+            },
         )
         body = response.json()
         values = body.get("value") if isinstance(body, dict) else None
@@ -469,7 +622,9 @@ class Dynamics365Connector(OAuthJSONConnector):
                 if isinstance(localized, dict):
                     label = localized.get("Label")
             required_level = item.get("RequiredLevel")
-            required = isinstance(required_level, dict) and required_level.get("Value") == "ApplicationRequired"
+            required = (
+                isinstance(required_level, dict) and required_level.get("Value") == "ApplicationRequired"
+            )
             definitions.append(
                 CRMFieldDefinition(
                     api_name=str(item["LogicalName"]),
@@ -484,22 +639,37 @@ class Dynamics365Connector(OAuthJSONConnector):
             )
         return definitions
 
-    async def create_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def create_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         response = await self._request(context, "POST", "leads", payload=payload)
         entity_id = response.headers.get("OData-EntityId", "").rstrip(")").split("(")[-1] or None
         return CRMDeliveryResult(True, CRMOperation.CREATE, entity_id, response.status_code)
 
-    async def update_lead(self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
-        response = await self._request(context, "PATCH", f"leads({quote(external_id, safe='')})", payload=payload)
+    async def update_lead(
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> CRMDeliveryResult:
+        response = await self._request(
+            context, "PATCH", f"leads({quote(external_id, safe='')})", payload=payload
+        )
         return CRMDeliveryResult(True, CRMOperation.UPDATE, external_id, response.status_code)
 
-    async def upsert_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def upsert_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         expression = str(context.configuration.get("alternateKeyExpression") or "")
         if expression:
             try:
                 target = expression.format(**payload)
             except KeyError as exc:
-                raise CRMError(NormalizedCRMErrorCode.MAPPING_ERROR, "Dynamics alternate key field is missing") from exc
+                raise CRMError(
+                    NormalizedCRMErrorCode.MAPPING_ERROR, "Dynamics alternate key field is missing"
+                ) from exc
             response = await self._request(context, "PATCH", f"leads({target})", payload=payload)
             entity_id = response.headers.get("OData-EntityId", "").rstrip(")").split("(")[-1] or None
             return CRMDeliveryResult(True, CRMOperation.UPSERT, entity_id, response.status_code)
@@ -516,51 +686,88 @@ class Dynamics365Connector(OAuthJSONConnector):
 
 class PipedriveConnector(OAuthJSONConnector):
     provider = CRMProvider.PIPEDRIVE
-    capabilities = CRMCapabilities(oauth=True, schema_discovery=True, create=True, update=True, upsert=True, read_back=True, inbound_webhooks=True, webhook_management=True)
+    capabilities = CRMCapabilities(
+        oauth=True,
+        schema_discovery=True,
+        create=True,
+        update=True,
+        upsert=True,
+        read_back=True,
+        inbound_webhooks=True,
+        webhook_management=True,
+    )
     authorize_url = "https://oauth.pipedrive.com/oauth/authorize"
     token_url = "https://oauth.pipedrive.com/oauth/token"
 
     def _base_url(self, context: CRMConnectionContext, credentials: dict[str, Any]) -> str:
-        return str(credentials.get("api_domain") or context.configuration.get("apiDomain") or "https://api.pipedrive.com")
+        return str(
+            credentials.get("api_domain")
+            or context.configuration.get("apiDomain")
+            or "https://api.pipedrive.com"
+        )
 
     async def _health_request(self, context: CRMConnectionContext) -> None:
         await self._request(context, "GET", "v1/users/me")
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "Leads") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "Leads"
+    ) -> list[CRMFieldDefinition]:
         response = await self._request(context, "GET", "v1/leadFields")
         body = response.json()
         values = body.get("data") if isinstance(body, dict) else None
         if not isinstance(values, list):
-            raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Pipedrive lead fields response is invalid")
+            raise CRMError(
+                NormalizedCRMErrorCode.VALIDATION_ERROR, "Pipedrive lead fields response is invalid"
+            )
         return [
             CRMFieldDefinition(
                 api_name=str(item["key"]),
                 label=str(item.get("name") or item["key"]),
                 data_type=str(item.get("field_type") or "unknown"),
                 read_only=not bool(item.get("edit_flag", True)),
-                custom=bool(item.get("id")) and str(item.get("key")) not in {"id", "title", "owner_id", "person_id", "organization_id"},
+                custom=bool(item.get("id"))
+                and str(item.get("key")) not in {"id", "title", "owner_id", "person_id", "organization_id"},
             )
             for item in values
             if isinstance(item, dict) and item.get("key")
         ]
 
-    async def create_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def create_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         response = await self._request(context, "POST", "v1/leads", payload=payload)
         body = response.json()
         data = body.get("data") if isinstance(body, dict) else None
         record_id = data.get("id") if isinstance(data, dict) else None
-        return CRMDeliveryResult(True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code)
+        return CRMDeliveryResult(
+            True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code
+        )
 
-    async def update_lead(self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
-        response = await self._request(context, "PATCH", f"v1/leads/{quote(external_id, safe='')}", payload=payload)
+    async def update_lead(
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> CRMDeliveryResult:
+        response = await self._request(
+            context, "PATCH", f"v1/leads/{quote(external_id, safe='')}", payload=payload
+        )
         return CRMDeliveryResult(True, CRMOperation.UPDATE, external_id, response.status_code)
 
-    async def upsert_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def upsert_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         working = dict(payload)
         record_id = working.pop("id", None)
         if record_id:
-            updated = await self.update_lead(context, str(record_id), working, idempotency_key=idempotency_key)
-            return CRMDeliveryResult(True, CRMOperation.UPSERT, updated.external_record_id, updated.http_status)
+            updated = await self.update_lead(
+                context, str(record_id), working, idempotency_key=idempotency_key
+            )
+            return CRMDeliveryResult(
+                True, CRMOperation.UPSERT, updated.external_record_id, updated.http_status
+            )
         created = await self.create_lead(context, working, idempotency_key=idempotency_key)
         return CRMDeliveryResult(True, CRMOperation.UPSERT, created.external_record_id, created.http_status)
 
@@ -575,7 +782,9 @@ class PipedriveConnector(OAuthJSONConnector):
 
 class FreshsalesConnector(CRMConnector):
     provider = CRMProvider.FRESHSALES
-    capabilities = CRMCapabilities(schema_discovery=True, create=True, update=True, upsert=True, read_back=True)
+    capabilities = CRMCapabilities(
+        schema_discovery=True, create=True, update=True, upsert=True, read_back=True
+    )
 
     def _base_url(self, context: CRMConnectionContext) -> str:
         base = str(context.configuration.get("baseUrl") or "").rstrip("/")
@@ -594,7 +803,11 @@ class FreshsalesConnector(CRMConnector):
     ) -> httpx.Response:
         api_key = str(context.credentials.get("api_key") or "")
         if not api_key:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Freshsales API key is missing", requires_reconnect=True)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Freshsales API key is missing",
+                requires_reconnect=True,
+            )
         try:
             async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
                 response = await client.request(
@@ -602,21 +815,48 @@ class FreshsalesConnector(CRMConnector):
                     f"{self._base_url(context)}/{path.lstrip('/')}",
                     params=params,
                     json=payload,
-                    headers={"Authorization": f"Token token={api_key}", "Accept": "application/json", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Token token={api_key}",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
                 )
         except httpx.TimeoutException as exc:
-            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "Freshsales request timed out", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.TIMEOUT, "Freshsales request timed out", retryable=True
+            ) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "Freshsales request failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "Freshsales request failed", retryable=True
+            ) from exc
         if response.status_code < 400:
             return response
         if response.status_code == 429:
-            raise CRMError(NormalizedCRMErrorCode.RATE_LIMIT_ERROR, "Freshsales rate limit reached", retryable=True, http_status=429)
+            raise CRMError(
+                NormalizedCRMErrorCode.RATE_LIMIT_ERROR,
+                "Freshsales rate limit reached",
+                retryable=True,
+                http_status=429,
+            )
         if response.status_code in {401, 403}:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Freshsales authorization failed", requires_reconnect=True, http_status=response.status_code)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Freshsales authorization failed",
+                requires_reconnect=True,
+                http_status=response.status_code,
+            )
         if response.status_code >= 500:
-            raise CRMError(NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE, "Freshsales is temporarily unavailable", retryable=True, http_status=response.status_code)
-        raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Freshsales rejected the request", http_status=response.status_code)
+            raise CRMError(
+                NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE,
+                "Freshsales is temporarily unavailable",
+                retryable=True,
+                http_status=response.status_code,
+            )
+        raise CRMError(
+            NormalizedCRMErrorCode.VALIDATION_ERROR,
+            "Freshsales rejected the request",
+            http_status=response.status_code,
+        )
 
     async def health_check(self, context: CRMConnectionContext) -> CRMHealthResult:
         started = time.monotonic()
@@ -629,18 +869,24 @@ class FreshsalesConnector(CRMConnector):
             )
         except CRMError as exc:
             return CRMHealthResult(
-                IntegrationHealthStatus.AUTH_REQUIRED if exc.requires_reconnect else IntegrationHealthStatus.UNHEALTHY,
+                IntegrationHealthStatus.AUTH_REQUIRED
+                if exc.requires_reconnect
+                else IntegrationHealthStatus.UNHEALTHY,
                 {"credentials": "down" if exc.requires_reconnect else "unknown", "api": "down"},
                 int((time.monotonic() - started) * 1000),
                 {"error": exc.code.value},
             )
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "contacts") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "contacts"
+    ) -> list[CRMFieldDefinition]:
         response = await self._request(context, "GET", "api/settings/contacts/fields")
         body = response.json()
         values = body.get("fields") if isinstance(body, dict) else None
         if not isinstance(values, list):
-            raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Freshsales field metadata response is invalid")
+            raise CRMError(
+                NormalizedCRMErrorCode.VALIDATION_ERROR, "Freshsales field metadata response is invalid"
+            )
         return [
             CRMFieldDefinition(
                 api_name=str(item.get("name") or item.get("label")),
@@ -655,26 +901,47 @@ class FreshsalesConnector(CRMConnector):
             if isinstance(item, dict) and (item.get("name") or item.get("label"))
         ]
 
-    async def create_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def create_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         response = await self._request(context, "POST", "api/contacts", payload={"contact": payload})
         body = response.json()
         contact = body.get("contact") if isinstance(body, dict) else None
         record_id = contact.get("id") if isinstance(contact, dict) else None
-        return CRMDeliveryResult(True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code)
+        return CRMDeliveryResult(
+            True, CRMOperation.CREATE, str(record_id) if record_id else None, response.status_code
+        )
 
-    async def update_lead(self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
-        response = await self._request(context, "PUT", f"api/contacts/{quote(external_id, safe='')}", payload={"contact": payload})
+    async def update_lead(
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> CRMDeliveryResult:
+        response = await self._request(
+            context, "PUT", f"api/contacts/{quote(external_id, safe='')}", payload={"contact": payload}
+        )
         return CRMDeliveryResult(True, CRMOperation.UPDATE, external_id, response.status_code)
 
-    async def upsert_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def upsert_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         email = payload.get("email")
         if email:
-            response = await self._request(context, "GET", "api/contacts/lookup", params={"email": str(email)})
+            response = await self._request(
+                context, "GET", "api/contacts/lookup", params={"email": str(email)}
+            )
             body = response.json()
             contact = body.get("contact") if isinstance(body, dict) else None
             if isinstance(contact, dict) and contact.get("id"):
-                updated = await self.update_lead(context, str(contact["id"]), payload, idempotency_key=idempotency_key)
-                return CRMDeliveryResult(True, CRMOperation.UPSERT, updated.external_record_id, updated.http_status)
+                updated = await self.update_lead(
+                    context, str(contact["id"]), payload, idempotency_key=idempotency_key
+                )
+                return CRMDeliveryResult(
+                    True, CRMOperation.UPSERT, updated.external_record_id, updated.http_status
+                )
         created = await self.create_lead(context, payload, idempotency_key=idempotency_key)
         return CRMDeliveryResult(True, CRMOperation.UPSERT, created.external_record_id, created.http_status)
 
@@ -683,5 +950,7 @@ class FreshsalesConnector(CRMConnector):
         body = response.json()
         contact = body.get("contact") if isinstance(body, dict) else None
         if not isinstance(contact, dict):
-            raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Freshsales read-back response is invalid")
+            raise CRMError(
+                NormalizedCRMErrorCode.VALIDATION_ERROR, "Freshsales read-back response is invalid"
+            )
         return contact

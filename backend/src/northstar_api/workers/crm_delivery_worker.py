@@ -76,7 +76,9 @@ def _circuit_cooldown(connection: CRMConnection) -> int:
         return 60
 
 
-async def _context(session: AsyncSession, delivery: CRMDelivery) -> tuple[CRMConnection, CRMConnectionContext]:
+async def _context(
+    session: AsyncSession, delivery: CRMDelivery
+) -> tuple[CRMConnection, CRMConnectionContext]:
     connection = await session.scalar(
         select(CRMConnection)
         .where(
@@ -108,7 +110,9 @@ async def _context(session: AsyncSession, delivery: CRMDelivery) -> tuple[CRMCon
     )
     if connector.capabilities.oauth:
         expires_at = int(context.credentials.get("access_token_expires_at") or 0)
-        if not context.credentials.get("access_token") or (expires_at and expires_at <= int(time.time()) + 120):
+        if not context.credentials.get("access_token") or (
+            expires_at and expires_at <= int(time.time()) + 120
+        ):
             refreshed = await connector.refresh_credentials(context)
             connection.credentials_encrypted = credential_store.encrypt(refreshed)
             connection.last_authenticated_at = datetime.now(UTC)
@@ -271,7 +275,9 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
     connection = None
     started = time.monotonic()
     try:
-        delivery = await session.scalar(select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update())
+        delivery = await session.scalar(
+            select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
+        )
         if not delivery:
             return
         connection, context = await _context(session, delivery)
@@ -285,7 +291,9 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
             )
         )
         if not lead or not profile:
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Lead canonical profile is unavailable")
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Lead canonical profile is unavailable"
+            )
         mapping = await session.scalar(
             select(CRMFieldMapping).where(
                 CRMFieldMapping.tenant_id == delivery.tenant_id,

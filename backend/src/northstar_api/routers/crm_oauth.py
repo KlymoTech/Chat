@@ -77,7 +77,9 @@ async def _start_oauth(
             configuration=connection.configuration_json,
             credentials=credentials,
         )
-        code_challenge = state.code_challenge if bool(connection.configuration_json.get("pkce", False)) else None
+        code_challenge = (
+            state.code_challenge if bool(connection.configuration_json.get("pkce", False)) else None
+        )
         authorization_url = connector.build_authorization_url(
             context,
             redirect_uri=redirect_uri,
@@ -131,7 +133,9 @@ async def crm_oauth_callback(
     try:
         saved = await oauth_state_store.consume(state)
     except OAuthStateError as exc:
-        raise HTTPException(status_code=400, detail="OAuth state is invalid, expired, or already used") from exc
+        raise HTTPException(
+            status_code=400, detail="OAuth state is invalid, expired, or already used"
+        ) from exc
     if saved.provider != provider:
         raise HTTPException(status_code=400, detail="OAuth provider does not match the authorization state")
 
@@ -167,7 +171,9 @@ async def crm_oauth_callback(
             context,
             code=code,
             redirect_uri=saved.redirect_uri,
-            code_verifier=saved.code_verifier if bool(connection.configuration_json.get("pkce", False)) else None,
+            code_verifier=saved.code_verifier
+            if bool(connection.configuration_json.get("pkce", False))
+            else None,
         )
         connection.credentials_encrypted = credential_store.encrypt(updated)
         connection.last_authenticated_at = datetime.now(UTC)

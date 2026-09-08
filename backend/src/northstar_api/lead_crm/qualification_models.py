@@ -30,7 +30,9 @@ class LeadQualificationRule(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     conditions_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     actions_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

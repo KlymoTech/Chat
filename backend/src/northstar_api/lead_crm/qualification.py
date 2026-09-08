@@ -58,7 +58,9 @@ class LeadQualificationEngine:
                     return False
                 continue
             if key == "campaign":
-                campaign_name = event.campaign_attribution.get("name") or event.campaign_attribution.get("campaign")
+                campaign_name = event.campaign_attribution.get("name") or event.campaign_attribution.get(
+                    "campaign"
+                )
                 if not self._one_of(campaign_name, expected):
                     return False
                 continue

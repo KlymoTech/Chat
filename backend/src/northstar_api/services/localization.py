@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 _LOCALES: dict[str, dict[str, Any]] = {
     "English": {
         "welcomeTitle": "How can I help you?",
@@ -164,6 +163,10 @@ def localized_question_fallback(question: str, language: str) -> str:
         "Spanish": {"hi": "Hola", "hii": "Hola", "hello": "Hola"},
         "French": {"hi": "Bonjour", "hii": "Bonjour", "hello": "Bonjour"},
         "German": {"hi": "Hallo", "hii": "Hallo", "hello": "Hallo"},
-        "Arabic": {"hi": "\u0645\u0631\u062d\u0628\u064b\u0627", "hii": "\u0645\u0631\u062d\u0628\u064b\u0627", "hello": "\u0645\u0631\u062d\u0628\u064b\u0627"},
+        "Arabic": {
+            "hi": "\u0645\u0631\u062d\u0628\u064b\u0627",
+            "hii": "\u0645\u0631\u062d\u0628\u064b\u0627",
+            "hello": "\u0645\u0631\u062d\u0628\u064b\u0627",
+        },
     }
     return phrases.get(language, {}).get(value, question.strip())

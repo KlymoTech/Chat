@@ -18,7 +18,12 @@ from northstar_api.lead_crm.connectors import (
     CRMError,
     CRMHealthResult,
 )
-from northstar_api.lead_crm.domain import CRMOperation, CRMProvider, IntegrationHealthStatus, NormalizedCRMErrorCode
+from northstar_api.lead_crm.domain import (
+    CRMOperation,
+    CRMProvider,
+    IntegrationHealthStatus,
+    NormalizedCRMErrorCode,
+)
 from northstar_api.lead_crm.safe_http import UnsafeOutboundCRMURL, request_public
 
 
@@ -47,22 +52,34 @@ def _headers(context: CRMConnectionContext) -> dict[str, str]:
     if auth_type == "BEARER":
         token = credentials.get("token") or credentials.get("access_token")
         if not token:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Bearer credential is missing", requires_reconnect=True)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Bearer credential is missing",
+                requires_reconnect=True,
+            )
         headers["Authorization"] = f"Bearer {token}"
     elif auth_type == "BASIC":
         username = credentials.get("username")
         password = credentials.get("password")
         if not username or password is None:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Basic credentials are missing", requires_reconnect=True)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Basic credentials are missing",
+                requires_reconnect=True,
+            )
         headers["Authorization"] = "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
     elif auth_type == "API_KEY_HEADER":
         name = str((configuration.get("auth") or {}).get("name") or "X-API-Key")
         key = credentials.get("api_key")
         if not key:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "API key is missing", requires_reconnect=True)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "API key is missing", requires_reconnect=True
+            )
         headers[name] = str(key)
     elif auth_type not in {"NONE", ""}:
-        raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, f"Unsupported generic auth type: {auth_type}")
+        raise CRMError(
+            NormalizedCRMErrorCode.CONFIGURATION_ERROR, f"Unsupported generic auth type: {auth_type}"
+        )
     headers.setdefault("Content-Type", "application/json")
     headers.setdefault("Accept", "application/json")
     return headers
@@ -71,7 +88,9 @@ def _headers(context: CRMConnectionContext) -> dict[str, str]:
 def _classify_http(status: int, *, retry_after: int | None = None) -> CRMError:
     if status in {401, 403}:
         return CRMError(
-            NormalizedCRMErrorCode.AUTHENTICATION_ERROR if status == 401 else NormalizedCRMErrorCode.AUTHORIZATION_ERROR,
+            NormalizedCRMErrorCode.AUTHENTICATION_ERROR
+            if status == 401
+            else NormalizedCRMErrorCode.AUTHORIZATION_ERROR,
             "CRM rejected authentication or authorization",
             requires_reconnect=status == 401,
             http_status=status,
@@ -96,7 +115,9 @@ def _classify_http(status: int, *, retry_after: int | None = None) -> CRMError:
 
 class GenericRESTConnector(CRMConnector):
     provider = CRMProvider.GENERIC_REST
-    capabilities = CRMCapabilities(schema_discovery=False, create=True, update=True, upsert=True, read_back=True)
+    capabilities = CRMCapabilities(
+        schema_discovery=False, create=True, update=True, upsert=True, read_back=True
+    )
 
     def _url(self, context: CRMConnectionContext, path_key: str, default_path: str = "") -> str:
         base = str(context.configuration.get("baseUrl") or "").rstrip("/") + "/"
@@ -116,7 +137,9 @@ class GenericRESTConnector(CRMConnector):
     ) -> httpx.Response:
         headers = headers_override or _headers(context)
         if idempotency_key:
-            headers[str(context.configuration.get("idempotencyHeader") or "Idempotency-Key")] = idempotency_key
+            headers[str(context.configuration.get("idempotencyHeader") or "Idempotency-Key")] = (
+                idempotency_key
+            )
         timeout = min(max(float(context.configuration.get("timeoutSeconds", 15)), 1), 60)
         try:
             response = await request_public(
@@ -128,14 +151,23 @@ class GenericRESTConnector(CRMConnector):
                 timeout_seconds=timeout,
             )
         except UnsafeOutboundCRMURL as exc:
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM destination is not a permitted public HTTPS URL") from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR,
+                "Generic CRM destination is not a permitted public HTTPS URL",
+            ) from exc
         except httpx.TimeoutException as exc:
             raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "CRM request timed out", retryable=True) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "CRM network request failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "CRM network request failed", retryable=True
+            ) from exc
         if 300 <= response.status_code < 400:
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM redirects are not followed")
-        success_codes = {int(code) for code in context.configuration.get("successStatusCodes", [200, 201, 202, 204])}
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM redirects are not followed"
+            )
+        success_codes = {
+            int(code) for code in context.configuration.get("successStatusCodes", [200, 201, 202, 204])
+        }
         if response.status_code not in success_codes:
             retry_after = None
             raw_retry = response.headers.get("Retry-After")
@@ -155,7 +187,11 @@ class GenericRESTConnector(CRMConnector):
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
         except CRMError as exc:
-            status = IntegrationHealthStatus.AUTH_REQUIRED if exc.requires_reconnect else IntegrationHealthStatus.UNHEALTHY
+            status = (
+                IntegrationHealthStatus.AUTH_REQUIRED
+                if exc.requires_reconnect
+                else IntegrationHealthStatus.UNHEALTHY
+            )
             return CRMHealthResult(
                 status=status,
                 checks={"credentials": "down" if exc.requires_reconnect else "unknown", "api": "down"},
@@ -168,7 +204,9 @@ class GenericRESTConnector(CRMConnector):
     ) -> CRMDeliveryResult:
         url = self._url(context, "createPath", str(context.configuration.get("path") or ""))
         method = str(context.configuration.get("method") or "POST")
-        response = await self._request(context, method=method, url=url, payload=payload, idempotency_key=idempotency_key)
+        response = await self._request(
+            context, method=method, url=url, payload=payload, idempotency_key=idempotency_key
+        )
         body: Any = None
         if response.content:
             try:
@@ -194,9 +232,13 @@ class GenericRESTConnector(CRMConnector):
     ) -> CRMDeliveryResult:
         template = str(context.configuration.get("updatePath") or "")
         if not template:
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM updatePath is not configured")
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM updatePath is not configured"
+            )
         url = self._url(context, "updatePath").replace("{id}", external_id)
-        response = await self._request(context, method="PATCH", url=url, payload=payload, idempotency_key=idempotency_key)
+        response = await self._request(
+            context, method="PATCH", url=url, payload=payload, idempotency_key=idempotency_key
+        )
         return CRMDeliveryResult(True, CRMOperation.UPDATE, external_id, response.status_code)
 
     async def upsert_lead(
@@ -204,7 +246,9 @@ class GenericRESTConnector(CRMConnector):
     ) -> CRMDeliveryResult:
         if context.configuration.get("upsertPath"):
             url = self._url(context, "upsertPath")
-            response = await self._request(context, method="POST", url=url, payload=payload, idempotency_key=idempotency_key)
+            response = await self._request(
+                context, method="POST", url=url, payload=payload, idempotency_key=idempotency_key
+            )
             body = response.json() if response.content else None
             external_id = _extract_path(body, context.configuration.get("externalIdPath"))
             return CRMDeliveryResult(
@@ -226,7 +270,9 @@ class GenericRESTConnector(CRMConnector):
     async def get_lead(self, context: CRMConnectionContext, external_id: str) -> dict[str, Any]:
         template = str(context.configuration.get("getPath") or "")
         if not template:
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM getPath is not configured")
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM getPath is not configured"
+            )
         url = self._url(context, "getPath").replace("{id}", external_id)
         response = await self._request(context, method="GET", url=url)
         try:
@@ -240,7 +286,9 @@ class GenericRESTConnector(CRMConnector):
 
 class GenericWebhookConnector(GenericRESTConnector):
     provider = CRMProvider.GENERIC_WEBHOOK
-    capabilities = CRMCapabilities(create=True, update=False, upsert=True, read_back=False, inbound_webhooks=False)
+    capabilities = CRMCapabilities(
+        create=True, update=False, upsert=True, read_back=False, inbound_webhooks=False
+    )
 
     async def create_lead(
         self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
@@ -248,7 +296,11 @@ class GenericWebhookConnector(GenericRESTConnector):
         url = self._url(context, "path", "")
         secret = str(context.credentials.get("webhook_secret") or "")
         if not secret:
-            raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Webhook signing secret is missing", requires_reconnect=True)
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Webhook signing secret is missing",
+                requires_reconnect=True,
+            )
         timestamp = str(int(time.time()))
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str).encode()
         signature = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()

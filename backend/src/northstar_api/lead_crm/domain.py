@@ -120,23 +120,51 @@ _ALLOWED_DELIVERY_TRANSITIONS: dict[CRMDeliveryStatus, frozenset[CRMDeliveryStat
     CRMDeliveryStatus.CREATED: frozenset({CRMDeliveryStatus.ROUTED, CRMDeliveryStatus.CANCELLED}),
     CRMDeliveryStatus.ROUTED: frozenset({CRMDeliveryStatus.QUEUED, CRMDeliveryStatus.CANCELLED}),
     CRMDeliveryStatus.QUEUED: frozenset({CRMDeliveryStatus.PROCESSING, CRMDeliveryStatus.CANCELLED}),
-    CRMDeliveryStatus.PROCESSING: frozenset({
-        CRMDeliveryStatus.SENT,
-        CRMDeliveryStatus.ACKNOWLEDGED,
-        CRMDeliveryStatus.RETRYING,
-        CRMDeliveryStatus.RATE_LIMITED,
-        CRMDeliveryStatus.AUTH_REQUIRED,
-        CRMDeliveryStatus.MAPPING_ERROR,
-        CRMDeliveryStatus.FAILED,
-    }),
-    CRMDeliveryStatus.SENT: frozenset({CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}),
-    CRMDeliveryStatus.ACKNOWLEDGED: frozenset({CRMDeliveryStatus.VERIFYING, CRMDeliveryStatus.VERIFIED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}),
-    CRMDeliveryStatus.VERIFYING: frozenset({CRMDeliveryStatus.VERIFIED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}),
-    CRMDeliveryStatus.RETRYING: frozenset({CRMDeliveryStatus.QUEUED, CRMDeliveryStatus.PROCESSING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}),
-    CRMDeliveryStatus.RATE_LIMITED: frozenset({CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}),
-    CRMDeliveryStatus.AUTH_REQUIRED: frozenset({CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}),
-    CRMDeliveryStatus.MAPPING_ERROR: frozenset({CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}),
-    CRMDeliveryStatus.FAILED: frozenset({CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}),
+    CRMDeliveryStatus.PROCESSING: frozenset(
+        {
+            CRMDeliveryStatus.SENT,
+            CRMDeliveryStatus.ACKNOWLEDGED,
+            CRMDeliveryStatus.RETRYING,
+            CRMDeliveryStatus.RATE_LIMITED,
+            CRMDeliveryStatus.AUTH_REQUIRED,
+            CRMDeliveryStatus.MAPPING_ERROR,
+            CRMDeliveryStatus.FAILED,
+        }
+    ),
+    CRMDeliveryStatus.SENT: frozenset(
+        {CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}
+    ),
+    CRMDeliveryStatus.ACKNOWLEDGED: frozenset(
+        {
+            CRMDeliveryStatus.VERIFYING,
+            CRMDeliveryStatus.VERIFIED,
+            CRMDeliveryStatus.RETRYING,
+            CRMDeliveryStatus.FAILED,
+        }
+    ),
+    CRMDeliveryStatus.VERIFYING: frozenset(
+        {CRMDeliveryStatus.VERIFIED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}
+    ),
+    CRMDeliveryStatus.RETRYING: frozenset(
+        {
+            CRMDeliveryStatus.QUEUED,
+            CRMDeliveryStatus.PROCESSING,
+            CRMDeliveryStatus.DEAD_LETTER,
+            CRMDeliveryStatus.CANCELLED,
+        }
+    ),
+    CRMDeliveryStatus.RATE_LIMITED: frozenset(
+        {CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}
+    ),
+    CRMDeliveryStatus.AUTH_REQUIRED: frozenset(
+        {CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}
+    ),
+    CRMDeliveryStatus.MAPPING_ERROR: frozenset(
+        {CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}
+    ),
+    CRMDeliveryStatus.FAILED: frozenset(
+        {CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.DEAD_LETTER, CRMDeliveryStatus.CANCELLED}
+    ),
     CRMDeliveryStatus.VERIFIED: frozenset(),
     CRMDeliveryStatus.DEAD_LETTER: frozenset({CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.CANCELLED}),
     CRMDeliveryStatus.CANCELLED: frozenset(),

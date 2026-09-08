@@ -116,7 +116,9 @@ async def create_channel_connection(
     try:
         channel_registry.get(payload.provider)
     except KeyError as exc:
-        raise HTTPException(status_code=409, detail="Channel connector is not available in this runtime") from exc
+        raise HTTPException(
+            status_code=409, detail="Channel connector is not available in this runtime"
+        ) from exc
     encrypted = None
     if payload.credentials:
         try:

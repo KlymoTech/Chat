@@ -11,13 +11,18 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.lead_crm.domain import CRMDeliveryStatus, CRMOperation, LeadLifecycleStatus, QualificationStatus
+from northstar_api.lead_crm.domain import (
+    CRMDeliveryStatus,
+    CRMOperation,
+    LeadLifecycleStatus,
+    QualificationStatus,
+)
 from northstar_api.lead_crm.models import (
+    Contact,
+    ContactIdentity,
     CRMConnection,
     CRMDelivery,
     CRMRoute,
-    Contact,
-    ContactIdentity,
     LeadActivityEvent,
     LeadProfile,
 )
@@ -205,9 +210,13 @@ class LeadDomainService:
             last_name=last_name,
             normalized_email=normalized.email,
             normalized_phone=normalized.phone,
-            lifecycle_status=lead.status if lead.status in {item.value for item in LeadLifecycleStatus} else LeadLifecycleStatus.NEW.value,
+            lifecycle_status=lead.status
+            if lead.status in {item.value for item in LeadLifecycleStatus}
+            else LeadLifecycleStatus.NEW.value,
             qualification_status=(
-                QualificationStatus.QUALIFIED.value if lead.status == LeadLifecycleStatus.QUALIFIED.value else QualificationStatus.PENDING.value
+                QualificationStatus.QUALIFIED.value
+                if lead.status == LeadLifecycleStatus.QUALIFIED.value
+                else QualificationStatus.PENDING.value
             ),
             consent_status="granted" if lead.consent else "unknown",
             custom_fields_json=dict(lead.fields_json or {}),

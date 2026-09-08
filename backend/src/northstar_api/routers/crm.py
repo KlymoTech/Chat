@@ -119,7 +119,9 @@ async def create_crm_connection(
         try:
             encrypted = credential_store.encrypt(payload.credentials)
         except CredentialStoreError as exc:
-            raise HTTPException(status_code=503, detail="CRM credential encryption is not configured") from exc
+            raise HTTPException(
+                status_code=503, detail="CRM credential encryption is not configured"
+            ) from exc
     capabilities = CRMCapabilities()
     try:
         connector = crm_registry.get(payload.provider)
@@ -166,7 +168,9 @@ async def list_crm_connections(principal: CurrentPrincipal, session: DB) -> list
 
 
 @router.get("/crm/connections/{connection_id}", response_model=CRMConnectionOut)
-async def get_crm_connection(connection_id: UUID, principal: CurrentPrincipal, session: DB) -> CRMConnectionOut:
+async def get_crm_connection(
+    connection_id: UUID, principal: CurrentPrincipal, session: DB
+) -> CRMConnectionOut:
     value = await session.scalar(
         select(CRMConnection).where(
             CRMConnection.id == connection_id,
@@ -235,7 +239,11 @@ async def test_crm_connection(connection_id: UUID, principal: AdminPrincipal, se
     )
     connection.last_health_at = datetime.now(UTC)
     connection.status = result.status.value
-    connection.last_error = None if result.status.value == "healthy" else str(result.details.get("error", "Health check failed"))[:1000]
+    connection.last_error = (
+        None
+        if result.status.value == "healthy"
+        else str(result.details.get("error", "Health check failed"))[:1000]
+    )
     await session.commit()
     return {
         "status": result.status.value,
@@ -246,7 +254,9 @@ async def test_crm_connection(connection_id: UUID, principal: AdminPrincipal, se
 
 
 @router.get("/crm/connections/{connection_id}/health")
-async def crm_connection_health(connection_id: UUID, principal: CurrentPrincipal, session: DB) -> dict[str, Any]:
+async def crm_connection_health(
+    connection_id: UUID, principal: CurrentPrincipal, session: DB
+) -> dict[str, Any]:
     connection = await session.scalar(
         select(CRMConnection).where(
             CRMConnection.id == connection_id,
@@ -271,7 +281,9 @@ async def crm_connection_health(connection_id: UUID, principal: CurrentPrincipal
         "provider": connection.provider,
         "status": connection.status,
         "checks": {
-            "credentials": "configured" if connection.credentials_encrypted or connection.credentials_ref else "missing",
+            "credentials": "configured"
+            if connection.credentials_encrypted or connection.credentials_ref
+            else "missing",
             "api": "unknown" if connection.last_health_at is None else connection.status,
             "schema": "unknown",
             "mapping": "unknown",
@@ -335,7 +347,9 @@ async def put_crm_mapping(
 
 
 @router.get("/crm/connections/{connection_id}/mappings", response_model=list[CRMMappingOut])
-async def list_crm_mappings(connection_id: UUID, principal: CurrentPrincipal, session: DB) -> list[CRMMappingOut]:
+async def list_crm_mappings(
+    connection_id: UUID, principal: CurrentPrincipal, session: DB
+) -> list[CRMMappingOut]:
     connection = await session.scalar(
         select(CRMConnection.id).where(
             CRMConnection.id == connection_id,
@@ -378,7 +392,9 @@ async def create_crm_route(payload: CRMRouteCreate, principal: AdminPrincipal, s
         )
     )
     if len(set(owned)) != len(set(payload.connection_ids)):
-        raise HTTPException(status_code=400, detail="Route references a CRM connection outside this workspace")
+        raise HTTPException(
+            status_code=400, detail="Route references a CRM connection outside this workspace"
+        )
     value = CRMRoute(
         tenant_id=principal.tenant_id,
         name=payload.name,
@@ -521,7 +537,9 @@ async def sync_lead(
 
 @router.get("/leads/{lead_id}/deliveries", response_model=list[CRMDeliveryOut])
 async def lead_deliveries(lead_id: UUID, principal: CurrentPrincipal, session: DB) -> list[CRMDeliveryOut]:
-    exists = await session.scalar(select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id))
+    exists = await session.scalar(
+        select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id)
+    )
     if not exists:
         raise HTTPException(status_code=404, detail="Lead not found")
     values = list(
@@ -536,7 +554,9 @@ async def lead_deliveries(lead_id: UUID, principal: CurrentPrincipal, session: D
 
 @router.get("/leads/{lead_id}/activity", response_model=list[LeadActivityOut])
 async def lead_activity(lead_id: UUID, principal: CurrentPrincipal, session: DB) -> list[LeadActivityOut]:
-    exists = await session.scalar(select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id))
+    exists = await session.scalar(
+        select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id)
+    )
     if not exists:
         raise HTTPException(status_code=404, detail="Lead not found")
     values = list(

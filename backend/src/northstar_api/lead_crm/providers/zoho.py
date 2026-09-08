@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -16,7 +15,12 @@ from northstar_api.lead_crm.connectors import (
     CRMFieldDefinition,
     CRMHealthResult,
 )
-from northstar_api.lead_crm.domain import CRMOperation, CRMProvider, IntegrationHealthStatus, NormalizedCRMErrorCode
+from northstar_api.lead_crm.domain import (
+    CRMOperation,
+    CRMProvider,
+    IntegrationHealthStatus,
+    NormalizedCRMErrorCode,
+)
 
 
 class ZohoCRMConnector(CRMConnector):
@@ -112,15 +116,23 @@ class ZohoCRMConnector(CRMConnector):
                     headers={"Accept": "application/json"},
                 )
         except httpx.TimeoutException as exc:
-            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "Zoho OAuth exchange timed out", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.TIMEOUT, "Zoho OAuth exchange timed out", retryable=True
+            ) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho OAuth exchange failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho OAuth exchange failed", retryable=True
+            ) from exc
         try:
             body = response.json()
         except ValueError:
             body = {}
         if response.status_code >= 400 or not isinstance(body, dict) or not body.get("access_token"):
-            code_text = str(body.get("error") or "oauth_exchange_failed") if isinstance(body, dict) else "oauth_exchange_failed"
+            code_text = (
+                str(body.get("error") or "oauth_exchange_failed")
+                if isinstance(body, dict)
+                else "oauth_exchange_failed"
+            )
             raise CRMError(
                 NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
                 "Zoho OAuth authorization was rejected",
@@ -161,15 +173,23 @@ class ZohoCRMConnector(CRMConnector):
                     headers={"Accept": "application/json"},
                 )
         except httpx.TimeoutException as exc:
-            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "Zoho OAuth refresh timed out", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.TIMEOUT, "Zoho OAuth refresh timed out", retryable=True
+            ) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho OAuth refresh failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho OAuth refresh failed", retryable=True
+            ) from exc
         try:
             body = response.json()
         except ValueError:
             body = {}
         if response.status_code >= 400 or not isinstance(body, dict) or not body.get("access_token"):
-            code = str(body.get("error") or body.get("code") or "oauth_refresh_failed") if isinstance(body, dict) else "oauth_refresh_failed"
+            code = (
+                str(body.get("error") or body.get("code") or "oauth_refresh_failed")
+                if isinstance(body, dict)
+                else "oauth_refresh_failed"
+            )
             permanent = code in {"invalid_code", "invalid_client", "invalid_client_secret", "invalid_grant"}
             raise CRMError(
                 NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
@@ -215,9 +235,13 @@ class ZohoCRMConnector(CRMConnector):
             async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
                 response = await client.request(method, url, params=params, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
-            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "Zoho CRM request timed out", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.TIMEOUT, "Zoho CRM request timed out", retryable=True
+            ) from exc
         except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho CRM network request failed", retryable=True) from exc
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho CRM network request failed", retryable=True
+            ) from exc
         if response.status_code < 400:
             return response
         code = None
@@ -231,7 +255,11 @@ class ZohoCRMConnector(CRMConnector):
             pass
         code_text = str(code or f"http_{response.status_code}")
         if response.status_code == 429:
-            retry_after = int(response.headers["Retry-After"]) if response.headers.get("Retry-After", "").isdigit() else None
+            retry_after = (
+                int(response.headers["Retry-After"])
+                if response.headers.get("Retry-After", "").isdigit()
+                else None
+            )
             raise CRMError(
                 NormalizedCRMErrorCode.RATE_LIMIT_ERROR,
                 "Zoho CRM rate limit reached",
@@ -242,7 +270,9 @@ class ZohoCRMConnector(CRMConnector):
             )
         if response.status_code in {401, 403} or code_text in {"OAUTH_SCOPE_MISMATCH", "INVALID_TOKEN"}:
             raise CRMError(
-                NormalizedCRMErrorCode.AUTHORIZATION_ERROR if response.status_code == 403 else NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                NormalizedCRMErrorCode.AUTHORIZATION_ERROR
+                if response.status_code == 403
+                else NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
                 "Zoho CRM authorization failed",
                 requires_reconnect=code_text == "INVALID_TOKEN",
                 http_status=response.status_code,
@@ -261,7 +291,12 @@ class ZohoCRMConnector(CRMConnector):
             if code_text == "DUPLICATE_DATA"
             else NormalizedCRMErrorCode.VALIDATION_ERROR
         )
-        raise CRMError(normalized, "Zoho CRM rejected the request", http_status=response.status_code, provider_code=code_text)
+        raise CRMError(
+            normalized,
+            "Zoho CRM rejected the request",
+            http_status=response.status_code,
+            provider_code=code_text,
+        )
 
     @staticmethod
     def _parse_record_result(response: httpx.Response, operation: CRMOperation) -> CRMDeliveryResult:
@@ -271,13 +306,17 @@ class ZohoCRMConnector(CRMConnector):
             raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Zoho CRM returned invalid JSON") from exc
         records = body.get("data") if isinstance(body, dict) else None
         if not isinstance(records, list) or not records or not isinstance(records[0], dict):
-            raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Zoho CRM returned no record acknowledgement")
+            raise CRMError(
+                NormalizedCRMErrorCode.VALIDATION_ERROR, "Zoho CRM returned no record acknowledgement"
+            )
         result = records[0]
         if result.get("status") != "success":
             code = str(result.get("code") or "unknown")
             retryable = code in {"INTERNAL_ERROR", "LOCKED", "RECORD_LOCKED"}
             raise CRMError(
-                NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE if retryable else NormalizedCRMErrorCode.VALIDATION_ERROR,
+                NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE
+                if retryable
+                else NormalizedCRMErrorCode.VALIDATION_ERROR,
                 "Zoho CRM did not acknowledge the record",
                 retryable=retryable,
                 http_status=response.status_code,
@@ -291,7 +330,8 @@ class ZohoCRMConnector(CRMConnector):
             external_record_id=str(record_id) if record_id is not None else None,
             http_status=response.status_code,
             provider_code=str(result.get("code") or "SUCCESS"),
-            provider_request_id=response.headers.get("X-Request-ID") or response.headers.get("X-ZOHO-REQUEST-ID"),
+            provider_request_id=response.headers.get("X-Request-ID")
+            or response.headers.get("X-ZOHO-REQUEST-ID"),
             metadata={"action": result.get("action"), "message": result.get("message")},
         )
 
@@ -306,15 +346,25 @@ class ZohoCRMConnector(CRMConnector):
                 latency_ms=int((time.monotonic() - started) * 1000),
             )
         except CRMError as exc:
-            status = IntegrationHealthStatus.AUTH_REQUIRED if exc.requires_reconnect else IntegrationHealthStatus.UNHEALTHY
+            status = (
+                IntegrationHealthStatus.AUTH_REQUIRED
+                if exc.requires_reconnect
+                else IntegrationHealthStatus.UNHEALTHY
+            )
             return CRMHealthResult(
                 status=status,
-                checks={"credentials": "down" if exc.requires_reconnect else "unknown", "oauth": "down" if exc.requires_reconnect else "unknown", "api": "down"},
+                checks={
+                    "credentials": "down" if exc.requires_reconnect else "unknown",
+                    "oauth": "down" if exc.requires_reconnect else "unknown",
+                    "api": "down",
+                },
                 latency_ms=int((time.monotonic() - started) * 1000),
                 details={"error": exc.code.value, "providerCode": exc.provider_code},
             )
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "Leads") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "Leads"
+    ) -> list[CRMFieldDefinition]:
         response = await self._request(
             context,
             method="GET",
@@ -355,7 +405,9 @@ class ZohoCRMConnector(CRMConnector):
         self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
     ) -> CRMDeliveryResult:
         trigger = context.configuration.get("trigger", ["workflow"])
-        response = await self._request(context, method="POST", path="Leads", payload={"data": [payload], "trigger": trigger})
+        response = await self._request(
+            context, method="POST", path="Leads", payload={"data": [payload], "trigger": trigger}
+        )
         return self._parse_record_result(response, CRMOperation.CREATE)
 
     async def update_lead(

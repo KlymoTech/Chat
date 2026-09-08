@@ -72,7 +72,9 @@ async def refresh_crm_schema(
     except CRMError as exc:
         connection.last_error = exc.code.value
         await session.commit()
-        raise HTTPException(status_code=502 if exc.retryable else 409, detail="CRM schema discovery failed") from exc
+        raise HTTPException(
+            status_code=502 if exc.retryable else 409, detail="CRM schema discovery failed"
+        ) from exc
     serialized = [
         {
             "apiName": field.api_name,
@@ -137,7 +139,12 @@ async def refresh_crm_schema(
             }
     connection.last_error = None
     await session.commit()
-    return {"connectionId": str(connection_id), "objectName": object_name, "schemaHash": digest, "fields": serialized}
+    return {
+        "connectionId": str(connection_id),
+        "objectName": object_name,
+        "schemaHash": digest,
+        "fields": serialized,
+    }
 
 
 @router.get("/crm/connections/{connection_id}/schema")
@@ -227,11 +234,17 @@ async def validate_crm_mapping(
     required = {field.api_name for field in fields if field.required and not field.read_only}
     mapped_targets: set[str] = set()
     definition = mapping.mapping_json or {}
-    compact = definition.get("fields") if isinstance(definition, dict) and "fields" in definition else definition
+    compact = (
+        definition.get("fields") if isinstance(definition, dict) and "fields" in definition else definition
+    )
     if isinstance(compact, dict):
         mapped_targets.update(str(value) for value in compact.values() if isinstance(value, str))
     elif isinstance(compact, list):
-        mapped_targets.update(str(rule["target"]) for rule in compact if isinstance(rule, dict) and isinstance(rule.get("target"), str))
+        mapped_targets.update(
+            str(rule["target"])
+            for rule in compact
+            if isinstance(rule, dict) and isinstance(rule.get("target"), str)
+        )
     constants = definition.get("constants") if isinstance(definition, dict) else None
     if isinstance(constants, dict):
         mapped_targets.update(str(key) for key in constants)

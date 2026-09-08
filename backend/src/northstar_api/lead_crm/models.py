@@ -4,19 +4,28 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy import JSON
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
 from northstar_api.lead_crm.domain import (
+    ChannelProvider,
     CRMConnectionStatus,
     CRMDeliveryStatus,
     CRMOperation,
     CRMProvider,
-    ChannelProvider,
     IdentityType,
     IntegrationHealthStatus,
     LeadLifecycleStatus,
@@ -36,7 +45,9 @@ class LeadCRMUUIDMixin:
 
 
 class LeadCRMTimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -90,7 +101,11 @@ class RawWebhookEvent(Base, LeadCRMUUIDMixin):
     __tablename__ = "raw_webhook_events"
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "provider", "connection_key", "external_event_id", name="uq_raw_webhook_provider_event"
+            "tenant_id",
+            "provider",
+            "connection_key",
+            "external_event_id",
+            name="uq_raw_webhook_provider_event",
         ),
         Index("ix_raw_webhook_processing", "processing_status", "received_at"),
         Index("ix_raw_webhook_scope", "tenant_id", "provider", "received_at"),
@@ -107,7 +122,9 @@ class RawWebhookEvent(Base, LeadCRMUUIDMixin):
     verification_status: Mapped[str] = mapped_column(String(40), default="pending")
     processing_status: Mapped[str] = mapped_column(String(40), default="received")
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(1000))
     correlation_id: Mapped[str] = mapped_column(String(128), index=True)
@@ -126,7 +143,9 @@ class LeadProfile(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     lead_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
-    contact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), index=True)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), index=True
+    )
     public_id: Mapped[str] = mapped_column(String(64), default=lambda: f"lead_{uuid.uuid4().hex}")
     first_name: Mapped[str | None] = mapped_column(String(100))
     last_name: Mapped[str | None] = mapped_column(String(100))
@@ -166,7 +185,9 @@ class LeadConsent(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     lead_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
-    contact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), index=True)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), index=True
+    )
     consent_type: Mapped[str] = mapped_column(String(80), default="processing")
     status: Mapped[str] = mapped_column(String(40))
     source: Mapped[str | None] = mapped_column(String(80))
@@ -211,7 +232,9 @@ class CRMFieldSchema(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True
+    )
     object_name: Mapped[str] = mapped_column(String(120), default="Leads")
     api_name: Mapped[str] = mapped_column(String(240))
     display_label: Mapped[str] = mapped_column(String(240))
@@ -225,7 +248,9 @@ class CRMFieldSchema(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     picklist_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     schema_hash: Mapped[str | None] = mapped_column(String(64))
-    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    retrieved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class CRMFieldMapping(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
@@ -236,7 +261,9 @@ class CRMFieldMapping(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True
+    )
     object_name: Mapped[str] = mapped_column(String(120), default="Leads")
     version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(40), default="draft")
@@ -272,7 +299,9 @@ class CRMDelivery(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     lead_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_connections.id", ondelete="RESTRICT"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_connections.id", ondelete="RESTRICT"), index=True
+    )
     provider: Mapped[str] = mapped_column(String(60))
     operation: Mapped[str] = mapped_column(String(40), default=CRMOperation.UPSERT.value)
     idempotency_key: Mapped[str] = mapped_column(String(256))
@@ -303,9 +332,13 @@ class CRMDeliveryAttempt(Base, LeadCRMUUIDMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    delivery_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_deliveries.id", ondelete="CASCADE"), index=True)
+    delivery_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_deliveries.id", ondelete="CASCADE"), index=True
+    )
     attempt_number: Mapped[int] = mapped_column(Integer)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     http_status: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
@@ -319,13 +352,19 @@ class CRMDeliveryAttempt(Base, LeadCRMUUIDMixin):
 class CRMExternalReference(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     __tablename__ = "crm_external_references"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "connection_id", "object_name", "external_id", name="uq_crm_external_reference"),
-        UniqueConstraint("tenant_id", "lead_id", "connection_id", "object_name", name="uq_crm_external_lead_connection"),
+        UniqueConstraint(
+            "tenant_id", "connection_id", "object_name", "external_id", name="uq_crm_external_reference"
+        ),
+        UniqueConstraint(
+            "tenant_id", "lead_id", "connection_id", "object_name", name="uq_crm_external_lead_connection"
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     lead_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True
+    )
     provider: Mapped[str] = mapped_column(String(60))
     object_name: Mapped[str] = mapped_column(String(120), default="Leads")
     external_id: Mapped[str] = mapped_column(String(512))
@@ -342,7 +381,9 @@ class CRMWebhookEvent(Base, LeadCRMUUIDMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True
+    )
     provider: Mapped[str] = mapped_column(String(60))
     external_event_id: Mapped[str] = mapped_column(String(512))
     event_type: Mapped[str] = mapped_column(String(160))
@@ -351,7 +392,9 @@ class CRMWebhookEvent(Base, LeadCRMUUIDMixin):
     payload_hash: Mapped[str] = mapped_column(String(64))
     payload_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     correlation_id: Mapped[str] = mapped_column(String(128), index=True)
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(1000))
 
@@ -361,11 +404,15 @@ class IntegrationHealthSnapshot(Base, LeadCRMUUIDMixin):
     __table_args__ = (Index("ix_integration_health_scope", "tenant_id", "connection_id", "checked_at"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("crm_connections.id", ondelete="CASCADE"), index=True
+    )
     status: Mapped[str] = mapped_column(String(40), default=IntegrationHealthStatus.UNKNOWN.value)
     checks_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
-    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class IntegrationDeadLetter(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
@@ -373,7 +420,9 @@ class IntegrationDeadLetter(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     __table_args__ = (Index("ix_integration_dead_letter_scope", "tenant_id", "status", "created_at"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    delivery_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("crm_deliveries.id", ondelete="SET NULL"), index=True)
+    delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("crm_deliveries.id", ondelete="SET NULL"), index=True
+    )
     status: Mapped[str] = mapped_column(String(40), default="open")
     reason_code: Mapped[str | None] = mapped_column(String(80))
     reason_message: Mapped[str | None] = mapped_column(String(1000))
@@ -392,4 +441,6 @@ class LeadActivityEvent(Base, LeadCRMUUIDMixin):
     actor_id: Mapped[str | None] = mapped_column(String(160))
     correlation_id: Mapped[str | None] = mapped_column(String(128), index=True)
     details_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

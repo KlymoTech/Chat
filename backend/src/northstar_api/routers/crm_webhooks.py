@@ -46,7 +46,9 @@ def _credentials(connection: CRMConnection) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="CRM webhook credentials require reconnection") from exc
 
 
-def _verify(connection: CRMConnection, credentials: dict[str, Any], headers: dict[str, str], body: bytes) -> bool:
+def _verify(
+    connection: CRMConnection, credentials: dict[str, Any], headers: dict[str, str], body: bytes
+) -> bool:
     config = connection.configuration_json or {}
     webhook = config.get("inboundWebhook") if isinstance(config.get("inboundWebhook"), dict) else {}
     mode = str(webhook.get("verification") or "HMAC_SHA256").upper()
@@ -55,7 +57,9 @@ def _verify(connection: CRMConnection, credentials: dict[str, Any], headers: dic
     if mode == "BEARER":
         expected = str(credentials.get("webhook_token") or "")
         supplied = headers.get("authorization", "")
-        return bool(expected and supplied.startswith("Bearer ") and hmac.compare_digest(expected, supplied[7:]))
+        return bool(
+            expected and supplied.startswith("Bearer ") and hmac.compare_digest(expected, supplied[7:])
+        )
     if mode == "HEADER_TOKEN":
         header = str(webhook.get("header") or "x-webhook-token").lower()
         expected = str(credentials.get("webhook_token") or "")
