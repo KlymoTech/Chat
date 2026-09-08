@@ -13,6 +13,7 @@ from northstar_api.routers import (
     integrations,
     knowledge,
     leads,
+    qualification,
     whatsapp,
     widget,
 )
@@ -23,6 +24,7 @@ api_router.include_router(agents.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
+api_router.include_router(qualification.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
