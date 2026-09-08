@@ -1,0 +1,50 @@
+name: Lead CRM branch autofix
+
+on:
+  push:
+    branches:
+      - feature/lead-crm-omnichannel-platform
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lead-crm-autofix
+  cancel-in-progress: true
+
+jobs:
+  ruff-autofix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: feature/lead-crm-omnichannel-platform
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv sync --all-groups --locked
+      - name: Apply deterministic Ruff fixes
+        run: |
+          uv run ruff check . --fix
+          uv run ruff format .
+      - name: Commit mechanical formatting changes
+        working-directory: .
+        run: |
+          if git diff --quiet; then
+            echo 'No Ruff changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend
+          git commit -m 'style: apply Ruff fixes to lead CRM implementation'
+          git push origin HEAD:feature/lead-crm-omnichannel-platform
