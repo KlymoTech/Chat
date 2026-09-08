@@ -62,6 +62,34 @@ jobs:
           text = chat.read_text()
           text = text.replace('            return await translator(question, agent.language, agent.model_profile)', '            translated = await translator(question, agent.language, agent.model_profile)\n            return str(translated)')
           chat.write_text(text)
+
+          services = Path('backend/src/northstar_api/lead_crm/services.py')
+          text = services.read_text()
+          old = '''        except IntegrityError:
+            profile = await session.scalar(
+                select(LeadProfile).where(
+                    LeadProfile.tenant_id == lead.tenant_id,
+                    LeadProfile.lead_id == lead.id,
+                )
+            )
+            if profile is None:
+                raise
+            return profile
+'''
+          new = '''        except IntegrityError:
+            existing_profile = await session.scalar(
+                select(LeadProfile).where(
+                    LeadProfile.tenant_id == lead.tenant_id,
+                    LeadProfile.lead_id == lead.id,
+                )
+            )
+            if existing_profile is None:
+                raise
+            return existing_profile
+'''
+          if old not in text:
+              raise SystemExit('LeadProfile race-recovery block not found')
+          services.write_text(text.replace(old, new))
           PY
           cd backend
           uv run ruff check . --fix
