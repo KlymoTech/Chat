@@ -1,0 +1,26 @@
+name: Lead CRM source snapshot
+
+on:
+  push:
+    branches: [feature/lead-crm-omnichannel-platform]
+    paths: [.github/workflows/lead-crm-source-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: git archive --format=tar --output="$RUNNER_TEMP/lead-crm-source.tar" HEAD
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: lead-crm-source-snapshot
+          path: ${{ runner.temp }}/lead-crm-source.tar
+          retention-days: 1
+          if-no-files-found: error
