@@ -10,6 +10,15 @@ from northstar_api.lead_crm.domain import ChannelProvider
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelConnectionContext:
+    tenant_id: UUID
+    connection_id: UUID
+    provider: ChannelProvider
+    configuration: dict[str, Any]
+    credentials: dict[str, Any] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalSender:
     external_id: str | None = None
     name: str | None = None
@@ -47,15 +56,20 @@ class ChannelConnector(ABC):
     provider: ChannelProvider
 
     @abstractmethod
-    async def verify(self, *, headers: dict[str, str], body: bytes) -> bool:
+    async def verify(
+        self,
+        context: ChannelConnectionContext,
+        *,
+        headers: dict[str, str],
+        body: bytes,
+    ) -> bool:
         raise NotImplementedError
 
     @abstractmethod
     async def normalize(
         self,
+        context: ChannelConnectionContext,
         *,
-        tenant_id: UUID,
-        connection_key: str,
         payload: dict[str, Any],
         correlation_id: str,
         received_at: datetime,
@@ -63,13 +77,22 @@ class ChannelConnector(ABC):
     ) -> list[CanonicalInboundEvent]:
         raise NotImplementedError
 
-    async def health_check(self) -> dict[str, str]:
+    async def health_check(self, context: ChannelConnectionContext) -> dict[str, str]:
         return {"status": "unknown"}
 
 
 class ChannelRegistry:
     def __init__(self) -> None:
         self._connectors: dict[ChannelProvider, ChannelConnector] = {}
+        self._defaults_loaded = False
+
+    def _ensure_defaults(self) -> None:
+        if self._defaults_loaded:
+            return
+        self._defaults_loaded = True
+        from northstar_api.lead_crm.channel_providers import register_default_channel_connectors
+
+        register_default_channel_connectors()
 
     def register(self, connector: ChannelConnector) -> None:
         if connector.provider in self._connectors:
@@ -77,10 +100,15 @@ class ChannelRegistry:
         self._connectors[connector.provider] = connector
 
     def get(self, provider: ChannelProvider) -> ChannelConnector:
+        self._ensure_defaults()
         try:
             return self._connectors[provider]
         except KeyError as exc:
             raise KeyError(f"Channel connector is not registered: {provider.value}") from exc
+
+    def providers(self) -> tuple[ChannelProvider, ...]:
+        self._ensure_defaults()
+        return tuple(self._connectors)
 
 
 channel_registry = ChannelRegistry()
