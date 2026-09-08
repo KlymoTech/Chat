@@ -31,7 +31,7 @@ jobs:
         run: |
           git archive --format=tar --output="$RUNNER_TEMP/lead-crm-source.tar" HEAD
           tar -czf "$RUNNER_TEMP/lead-crm-python-packages.tar.gz" -C backend/.venv/lib/python3.13/site-packages .
-          tar -czf "$RUNNER_TEMP/lead-crm-node-packages.tar.gz" node_modules frontend/node_modules
+          tar -czf "$RUNNER_TEMP/lead-crm-node-packages.tar.gz" node_modules
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: lead-crm-offline-verification
