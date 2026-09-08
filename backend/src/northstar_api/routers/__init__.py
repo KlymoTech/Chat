@@ -4,6 +4,7 @@ from northstar_api.routers import (
     agents,
     analytics,
     auth,
+    channels,
     chat,
     conversations,
     crm,
@@ -25,6 +26,7 @@ api_router.include_router(leads.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
+api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
 api_router.include_router(integrations.router)
 api_router.include_router(widget.router)
