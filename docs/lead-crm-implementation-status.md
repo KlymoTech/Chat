@@ -15,14 +15,14 @@ This document is the live implementation tracker for the production-grade Lead +
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Repository mapping and regression baseline | ✅ Repository mapped; baseline CI verification pending after first implementation commits |
-| 2 | Contact/Identity + upgraded Lead domain + migrations | 🟡 In progress |
+| 1 | Repository mapping and regression baseline | ✅ Repository mapped; regression execution remains required after executable integration slice lands |
+| 2 | Contact/Identity + upgraded Lead domain + migrations | 🟡 Domain enums/normalization complete; persistence + migration in progress |
 | 3 | Canonical channel event abstraction | ⏳ Pending |
 | 4 | Lead service + qualification | ⏳ Pending |
-| 5 | CRM connector core/registry/error/capabilities | ⏳ Pending |
+| 5 | CRM connector core/registry/error/capabilities | 🟡 Base contract, registry, capabilities, health/result/error types committed |
 | 6 | CRM connection/OAuth/credential architecture | ⏳ Pending |
 | 7 | Field schema/mapping engine | ⏳ Pending |
-| 8 | CRM routing and delivery persistence | ⏳ Pending |
+| 8 | CRM routing and delivery persistence | 🟡 Delivery state machine committed; persistence/routing pending |
 | 9 | Kafka CRM router consumer | ⏳ Pending |
 | 10 | CRM delivery worker/retry/DLQ/circuit breaker | ⏳ Pending |
 | 11 | Zoho native connector | ⏳ Pending |
@@ -58,15 +58,23 @@ This document is the live implementation tracker for the production-grade Lead +
 6. Channel connectors cannot call CRM connectors directly.
 7. CRM connectors cannot depend on WhatsApp/Instagram/Telegram provider types.
 8. Production credentials must never be logged or returned to the frontend.
+9. Phone normalization does not guess country codes; channel adapters must supply E.164 when provider context makes it known.
+10. Connector capabilities explicitly declare OAuth/schema/upsert/read-back/webhook support.
 
 ## Completion log
 
 ### 2026-09-08
 
-- ✅ Created dedicated implementation branch.
+- ✅ Created dedicated implementation branch `feature/lead-crm-omnichannel-platform`.
 - ✅ Reviewed current Lead API/model, Integration catalog, WhatsApp persistence/workers, outbox publisher, job dispatcher, health endpoints, frontend Leads/Integrations pages, frontend types/API behavior, migrations and tenant RLS foundation.
 - ✅ Confirmed `lead.captured.v1` is published by the existing transactional outbox but currently has no CRM routing/delivery consumer.
-- 🟡 Building provider-neutral Contact/Identity/CRM domain models and migration.
+- ✅ Added `lead_crm` domain package.
+- ✅ Added controlled lead lifecycle, qualification, identity, channel-provider, CRM-provider, connection-health, operation, normalized-error and CRM-delivery enums.
+- ✅ Added strict CRM delivery transition validator so CRM synchronization state is independent of lead lifecycle state.
+- ✅ Added provider-neutral `CRMConnector`, `CRMRegistry`, capability declaration, connection context, schema field, health, delivery-result and normalized `CRMError` contracts.
+- ✅ Added deterministic email/phone normalization helpers without geographic guessing.
+- ✅ Added `docs/architecture/LEAD_CRM_NON_NEGOTIABLES.md` with provider-decoupling, tenant, idempotency, durability, credential, ACK/verification and production-safety invariants.
+- 🟡 Building Contact/Identity, generic channel event, CRM connection/mapping/route/delivery/activity persistence and Alembic RLS migration next.
 
 ## External validation policy
 
