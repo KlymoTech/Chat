@@ -6,10 +6,13 @@ The default Docker Compose topology is a production-shaped local environment: it
 
 ## Lead + Omnichannel + Any-CRM implementation
 
-Active implementation branch: **`feature/lead-crm-omnichannel-platform`**
+Active implementation branch: **`feature/lead-crm-omnichannel-platform`**  
+Status: **IN PROGRESS / RELEASE BLOCKED — NOT MODULE COMPLETE**  
+Draft pull request: **[#30](https://github.com/ooarchitect92/Chat/pull/30)**
 
-Detailed live tracker: **[docs/lead-crm-implementation-status.md](docs/lead-crm-implementation-status.md)**  
-Architecture invariants: **[docs/architecture/LEAD_CRM_NON_NEGOTIABLES.md](docs/architecture/LEAD_CRM_NON_NEGOTIABLES.md)**
+Detailed tracker: **[docs/lead-crm-implementation-status.md](docs/lead-crm-implementation-status.md)**  
+Architecture invariants: **[docs/architecture/LEAD_CRM_NON_NEGOTIABLES.md](docs/architecture/LEAD_CRM_NON_NEGOTIABLES.md)**  
+Implemented verification/recovery behavior: **[runbook](docs/operations/crm-delivery-verification.md)**
 
 The target architecture is:
 
@@ -39,26 +42,26 @@ CRM CONNECTOR
 ANY CRM
 ```
 
-Current branch progress:
+### Verified implementation checkpoint
 
-| Phase | Status | Current implementation |
+Code commit `f650e7379e990d380e0eb2de2e2613eba371a34a` passed [CI run 34257700348](https://github.com/ooarchitect92/Chat/actions/runs/34257700348). That run tested the PR merge, not a production deployment.
+
+| Area | Verified result | Boundary |
 | --- | --- | --- |
-| Repository analysis | ✅ | Existing tenant/RLS, Lead, WhatsApp, Redis, Kafka, Celery, health, UI and migration patterns mapped |
-| Lead/Identity domain | 🟡 | Contact, ContactIdentity, LeadProfile, consent, activity, lifecycle/qualification enums and normalization added |
-| Canonical channel abstraction | 🟡 | Provider-neutral canonical inbound event and ChannelConnector contract added; provider migration remains |
-| Lead service/qualification | 🟡 | Canonical profile/contact creation, qualification and sync-event services added; policy engine expansion remains |
-| CRM connector SDK | ✅ foundation | CRMConnector, registry, capabilities, normalized errors, health/schema/delivery result contracts added |
-| CRM persistence | ✅ foundation | CRM connections, schema, mappings, routes, deliveries, attempts, external refs, webhook events, health snapshots and DLQ models/migration added |
-| CRM routing | 🟡 | Rule evaluator and Kafka `lead.crm.sync.requested.v1` consumer added |
-| CRM delivery worker | 🟡 | Durable ACK/retry/rate-limit/auth/DLQ/read-back worker added; runtime/CI verification and reconciliation remain |
-| Zoho CRM | 🟡 | V8 OAuth refresh, health, field metadata, create/update/upsert/get and read-back code added; live credential validation pending |
-| Generic REST/Webhook | 🟡 | HTTPS/SSRF checks, auth, idempotency/HMAC, ACK/retry response handling added; mock/E2E tests remain |
-| Salesforce/HubSpot/Dynamics/Pipedrive/Freshsales | ⏳ | Pending native connectors |
-| Bidirectional CRM sync | ⏳ | Persistence foundation exists; webhook gateway/conflict logic pending |
-| Frontend Lead/CRM UX | ⏳ | Existing UI preserved; detailed Lead/CRM management screens pending |
-| Kubernetes/CI/E2E | ⏳ | Existing platform deployment preserved; new workers/checks pending |
+| Frontend | Lint, strict types, tests and production build passed | Full requested CRM wizard/lead-detail UX acceptance remains |
+| Backend | Ruff, format, mypy and **107 tests passed** | Includes **25 new CRM acceptance cases**; overall line coverage is **56%**, not complete module acceptance |
+| Delivery/verification | Persisted ACK, positive record-ID proof, GET-only verification retry, separate budgets, payload revision deduplication and recovery guards tested | Injected recording connector and SQLite; no live-provider claim |
+| UI evidence | Separate ACK/verification status, proof scope, read-back attempts/errors and verification-only retry | Seven new presentation tests; broader UX and race validation remain |
+| Deployment | Compose/Kubernetes configuration, application/image scans, Docker smoke and migration/API/column checks passed | Migration head `0010_crm_verification`; not a production upgrade or Kubernetes cluster acceptance |
+| Source/secret security | Configured Gitleaks and Trivy checks passed | Native outbound hardening and full RLS/security matrix still require acceptance |
+| CodeQL | **Blocked**: GitHub rejects SARIF publishing because code scanning is disabled | Administrator action and findings review tracked in [#31](https://github.com/ooarchitect92/Chat/issues/31) |
+| Native CRM connectors | Zoho, Salesforce, HubSpot, Dynamics, Pipedrive and Freshsales code is committed | Full contract/fault tests and authorized live-account verification remain pending |
 
-**Important verification policy:** code committed without usable provider credentials is marked **CODE-COMPLETE / LIVE-VALIDATION-PENDING**. The project must not claim that Zoho or another provider is live-verified until an actual provider call has succeeded. The detailed tracker is the source of truth for completed, in-progress, pending and blocked work.
+Provider acknowledgement and read-back verification are independent. A verification failure must not resend an acknowledged write. Unsupported read-back stays **acknowledged / verification unsupported**, not verified. Default positive proof matches record identity; explicitly configured `verificationFields` additionally compares transmitted values.
+
+**Remaining work is not limited to CodeQL.** The tracker retains the full requested UX, native provider/security contract matrix, channel qualification and bidirectional sync acceptance, production RLS/concurrency, real broker fault injection, operational audit/health/DLQ completeness, upgrade/backfill validation and live-provider gates. Do not merge or label the full module complete merely because this CI checkpoint is green. Documentation-only changes after the checkpoint do not imply that their own checks already passed.
+
+**Important verification policy:** connector code without usable provider-account evidence remains **LIVE-VALIDATION-PENDING**. Registered/importable connectors are not automatically code-complete or live-verified. The detailed tracker is the source of truth for completed, in-progress, pending and blocked work.
 
 ## Security notice
 
@@ -80,7 +83,7 @@ CRM integration credentials must be supplied through the credential-store abstra
 - Durable background work through RabbitMQ/Celery, replayable domain events through Kafka, and Redis-backed coordination.
 - Transactional outbox delivery so committed database state and emitted domain events do not silently diverge.
 - Structured logs, Prometheus metrics, liveness/readiness probes, CI checks, and container health gates.
-- In-progress provider-neutral omnichannel Lead + CRM integration architecture described above.
+- In-progress provider-neutral omnichannel Lead + CRM integration architecture described above, with tested ACK-preserving delivery and verification hardening.
 
 ## Repository map
 
@@ -195,7 +198,9 @@ Production browser login keeps only the short-lived access-token/user session in
 | Kafka | Ordered/replayable domain events including lead/CRM routing events | At-least-once; consumers deduplicate event IDs |
 | Outbox relay | Publishes committed DB events to Kafka | Retries unpublished rows; duplicates possible |
 | CRM router consumer | Converts lead sync events into durable CRM deliveries | Event-idempotent; DB delivery idempotency enforced |
-| CRM delivery worker | Executes provider connector operations, ACK, retries and verification | Database-backed delivery/attempt state; external failures cannot delete lead state |
+| CRM delivery worker | Executes provider connector writes and persists ACK/attempts | Write retry is separate from acknowledged-delivery verification |
+| CRM reconciliation | Recovers stale processing and retries read-back | GET failure must not resend an acknowledged write |
+| Channel/CRM webhook consumers | Process persisted inbound integration events | Deployment wired; full provider/conflict/replay acceptance remains |
 | Analytics consumer | Builds analytics projections | Replayable/idempotent |
 
 RabbitMQ and Kafka are intentionally different: RabbitMQ carries work intended for a worker, while Kafka retains domain facts for replay by multiple consumers. Redis is coordination/security state, not the source of truth for leads or CRM delivery.
@@ -244,12 +249,13 @@ make reset-data
 - [Operations and recovery](docs/operations.md)
 - [Meta WhatsApp setup and operations](docs/whatsapp.md)
 - [Lead/CRM implementation status](docs/lead-crm-implementation-status.md)
+- [CRM delivery verification and recovery](docs/operations/crm-delivery-verification.md)
 - [Lead/CRM non-negotiables](docs/architecture/LEAD_CRM_NON_NEGOTIABLES.md)
 
 ## Production expectations
 
 Before production use, replace single-node data services with durable monitored deployments; require TLS and authenticated broker connections; configure PostgreSQL point-in-time recovery; configure object-store lifecycle/backups; run multiple API/worker replicas; disable local fallbacks/environment seeding; use protected secret management; and place web/API behind trusted TLS ingress.
 
-For the Lead/CRM subsystem specifically, do not activate a connection until authentication, API health, required schema/mapping validation, a test delivery and—where supported—read-back verification succeed. Keep queue/DLQ, token-refresh, provider latency, rate limits, schema drift and last-success/last-failure health visible in operations.
+For the Lead/CRM subsystem specifically, do not activate a connection until authentication, API health, required schema/mapping validation, a test delivery and—where supported—read-back verification succeed. Keep queue/DLQ, token-refresh, provider latency, rate limits, schema drift and last-success/last-failure health visible in operations. Satisfy the open items in the implementation tracker before declaring the module complete or production-ready.
 
 Pin images by digest and promote tested artifacts rather than rebuilding mutable branches. CI validates source/container builds when configured for the branch/PR, but provider credential validation, backup verification, model evaluation, and release approval remain explicit gates.
