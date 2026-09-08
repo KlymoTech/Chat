@@ -468,6 +468,7 @@ async def retry_crm_delivery(delivery_id: UUID, principal: AdminPrincipal, sessi
     value.next_retry_at = datetime.now(UTC)
     value.last_error_message = None
     await session.commit()
+    await session.refresh(value)
     return _delivery_out(value)
 
 
@@ -483,6 +484,7 @@ async def cancel_crm_delivery(delivery_id: UUID, principal: AdminPrincipal, sess
     value.status = CRMDeliveryStatus.CANCELLED.value
     value.next_retry_at = None
     await session.commit()
+    await session.refresh(value)
     return _delivery_out(value)
 
 
