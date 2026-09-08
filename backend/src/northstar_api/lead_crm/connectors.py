@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from northstar_api.lead_crm.domain import CRMOperation, CRMProvider, IntegrationHealthStatus, NormalizedCRMErrorCode
+from northstar_api.lead_crm.domain import (
+    CRMOperation,
+    CRMProvider,
+    IntegrationHealthStatus,
+    NormalizedCRMErrorCode,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +96,7 @@ class CRMConnector(ABC):
 
     async def authenticate(self, context: CRMConnectionContext) -> None:
         """Validate existing credentials if a provider requires a separate check."""
+        return None
 
     def build_authorization_url(
         self,
