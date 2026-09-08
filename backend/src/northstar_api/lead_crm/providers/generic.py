@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import asyncio
+import base64
 import hashlib
 import hmac
-import ipaddress
 import json
-import socket
 import time
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 
@@ -21,6 +19,7 @@ from northstar_api.lead_crm.connectors import (
     CRMHealthResult,
 )
 from northstar_api.lead_crm.domain import CRMOperation, CRMProvider, IntegrationHealthStatus, NormalizedCRMErrorCode
+from northstar_api.lead_crm.safe_http import UnsafeOutboundCRMURL, request_public
 
 
 def _extract_path(value: Any, path: str | None) -> Any:
@@ -40,41 +39,6 @@ def _extract_path(value: Any, path: str | None) -> Any:
     return current
 
 
-async def _validate_public_https_url(url: str) -> None:
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise CRMError(
-            NormalizedCRMErrorCode.CONFIGURATION_ERROR,
-            "Generic CRM endpoints must use an absolute HTTPS URL",
-        )
-    if parsed.username or parsed.password:
-        raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Credentials are not allowed in CRM endpoint URLs")
-    if parsed.port and parsed.port not in {443, 8443}:
-        raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM endpoint port is not allowed")
-
-    def resolve() -> set[str]:
-        values = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
-        return {item[4][0] for item in values}
-
-    try:
-        addresses = await asyncio.to_thread(resolve)
-    except OSError as exc:
-        raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "CRM endpoint DNS resolution failed", retryable=True) from exc
-    if not addresses:
-        raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "CRM endpoint did not resolve", retryable=True)
-    for raw in addresses:
-        address = ipaddress.ip_address(raw)
-        if (
-            address.is_private
-            or address.is_loopback
-            or address.is_link_local
-            or address.is_multicast
-            or address.is_reserved
-            or address.is_unspecified
-        ):
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "CRM endpoint resolves to a non-public address")
-
-
 def _headers(context: CRMConnectionContext) -> dict[str, str]:
     configuration = context.configuration
     credentials = context.credentials
@@ -90,8 +54,6 @@ def _headers(context: CRMConnectionContext) -> dict[str, str]:
         password = credentials.get("password")
         if not username or password is None:
             raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Basic credentials are missing", requires_reconnect=True)
-        import base64
-
         headers["Authorization"] = "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
     elif auth_type == "API_KEY_HEADER":
         name = str((configuration.get("auth") or {}).get("name") or "X-API-Key")
@@ -149,15 +111,24 @@ class GenericRESTConnector(CRMConnector):
         url: str,
         payload: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
+        content: bytes | None = None,
+        headers_override: dict[str, str] | None = None,
     ) -> httpx.Response:
-        await _validate_public_https_url(url)
-        headers = _headers(context)
+        headers = headers_override or _headers(context)
         if idempotency_key:
             headers[str(context.configuration.get("idempotencyHeader") or "Idempotency-Key")] = idempotency_key
         timeout = min(max(float(context.configuration.get("timeoutSeconds", 15)), 1), 60)
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-                response = await client.request(method.upper(), url, headers=headers, json=payload)
+            response = await request_public(
+                method,
+                url,
+                headers=headers,
+                json_body=payload if content is None else None,
+                content=content,
+                timeout_seconds=timeout,
+            )
+        except UnsafeOutboundCRMURL as exc:
+            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Generic CRM destination is not a permitted public HTTPS URL") from exc
         except httpx.TimeoutException as exc:
             raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "CRM request timed out", retryable=True) from exc
         except httpx.HTTPError as exc:
@@ -275,7 +246,6 @@ class GenericWebhookConnector(GenericRESTConnector):
         self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
     ) -> CRMDeliveryResult:
         url = self._url(context, "path", "")
-        await _validate_public_https_url(url)
         secret = str(context.credentials.get("webhook_secret") or "")
         if not secret:
             raise CRMError(NormalizedCRMErrorCode.AUTHENTICATION_ERROR, "Webhook signing secret is missing", requires_reconnect=True)
@@ -291,18 +261,14 @@ class GenericWebhookConnector(GenericRESTConnector):
                 "Idempotency-Key": idempotency_key,
             }
         )
-        timeout = min(max(float(context.configuration.get("timeoutSeconds", 15)), 1), 60)
-        try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-                response = await client.post(url, headers=headers, content=body)
-        except httpx.TimeoutException as exc:
-            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "Webhook timed out", retryable=True) from exc
-        except httpx.HTTPError as exc:
-            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "Webhook delivery failed", retryable=True) from exc
-        success_codes = {int(code) for code in context.configuration.get("successStatusCodes", [200, 201, 202, 204])}
-        if response.status_code not in success_codes:
-            retry_after = int(response.headers["Retry-After"]) if response.headers.get("Retry-After", "").isdigit() else None
-            raise _classify_http(response.status_code, retry_after=retry_after)
+        response = await self._request(
+            context,
+            method="POST",
+            url=url,
+            content=body,
+            headers_override=headers,
+            idempotency_key=idempotency_key,
+        )
         return CRMDeliveryResult(
             accepted=True,
             operation=CRMOperation.UPSERT,
