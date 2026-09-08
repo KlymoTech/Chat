@@ -78,7 +78,7 @@ class IdentityService:
                 parts = name.strip().split(None, 1)
                 first_name = parts[0] if parts else None
                 last_name = parts[1] if len(parts) > 1 else None
-            contact = Contact(
+            candidate = Contact(
                 tenant_id=tenant_id,
                 display_name=name,
                 first_name=first_name,
@@ -91,21 +91,24 @@ class IdentityService:
                 job_title=job_title,
                 last_activity_at=datetime.now(UTC),
             )
-            session.add(contact)
             try:
                 async with session.begin_nested():
+                    session.add(candidate)
                     await session.flush()
+                contact = candidate
             except IntegrityError:
-                contact = None
-                if normalized.email or normalized.phone:
-                    retry_predicates = []
-                    if normalized.email:
-                        retry_predicates.append(Contact.normalized_email == normalized.email)
-                    if normalized.phone:
-                        retry_predicates.append(Contact.normalized_phone == normalized.phone)
-                    contact = await session.scalar(
+                retry_predicates = []
+                if normalized.email:
+                    retry_predicates.append(Contact.normalized_email == normalized.email)
+                if normalized.phone:
+                    retry_predicates.append(Contact.normalized_phone == normalized.phone)
+                contact = (
+                    await session.scalar(
                         select(Contact).where(Contact.tenant_id == tenant_id, or_(*retry_predicates))
                     )
+                    if retry_predicates
+                    else None
+                )
                 if contact is None:
                     raise
         else:
@@ -153,8 +156,6 @@ class IdentityService:
                         session.add(identity)
                         await session.flush()
                 except IntegrityError:
-                    # Another request resolved the same tenant identity first.
-                    # The unique index is the final authority; no outer rollback.
                     pass
         await session.flush()
         return contact
@@ -195,7 +196,7 @@ class LeadDomainService:
             parts = lead.name.strip().split(None, 1)
             first_name = parts[0] if parts else None
             last_name = parts[1] if len(parts) > 1 else None
-        profile = LeadProfile(
+        candidate = LeadProfile(
             tenant_id=lead.tenant_id,
             lead_id=lead.id,
             contact_id=contact.id,
@@ -219,18 +220,19 @@ class LeadDomainService:
         )
         try:
             async with session.begin_nested():
-                session.add(profile)
+                session.add(candidate)
                 await session.flush()
+            profile = candidate
         except IntegrityError:
-            existing = await session.scalar(
+            profile = await session.scalar(
                 select(LeadProfile).where(
                     LeadProfile.tenant_id == lead.tenant_id,
                     LeadProfile.lead_id == lead.id,
                 )
             )
-            if existing is None:
+            if profile is None:
                 raise
-            return existing
+            return profile
         session.add(
             LeadActivityEvent(
                 tenant_id=lead.tenant_id,
@@ -358,7 +360,7 @@ class CRMRouteService:
             select(LeadProfile).where(LeadProfile.tenant_id == tenant_id, LeadProfile.lead_id == lead_id)
         )
         if not profile:
-            profile = await self.ensure_profile(session, lead=lead) if isinstance(self, LeadDomainService) else await LeadDomainService().ensure_profile(session, lead=lead)
+            profile = await lead_domain_service.ensure_profile(session, lead=lead)
         routes = list(
             await session.scalars(
                 select(CRMRoute)
