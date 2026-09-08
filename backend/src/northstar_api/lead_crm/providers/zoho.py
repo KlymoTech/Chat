@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 
@@ -33,15 +34,107 @@ class ZohoCRMConnector(CRMConnector):
 
     @staticmethod
     def _accounts_url(context: CRMConnectionContext) -> str:
-        return str(context.configuration.get("accountsUrl") or context.credentials.get("accounts_url") or "https://accounts.zoho.com").rstrip("/")
+        return str(
+            context.configuration.get("accountsUrl")
+            or context.credentials.get("accounts_url")
+            or "https://accounts.zoho.com"
+        ).rstrip("/")
 
     @staticmethod
     def _api_domain(context: CRMConnectionContext) -> str:
-        return str(context.configuration.get("apiDomain") or context.credentials.get("api_domain") or "https://www.zohoapis.com").rstrip("/")
+        return str(
+            context.configuration.get("apiDomain")
+            or context.credentials.get("api_domain")
+            or "https://www.zohoapis.com"
+        ).rstrip("/")
 
     @staticmethod
     def _version(context: CRMConnectionContext) -> str:
         return str(context.configuration.get("apiVersion") or "v8")
+
+    def build_authorization_url(
+        self,
+        context: CRMConnectionContext,
+        *,
+        redirect_uri: str,
+        state: str,
+        code_challenge: str | None = None,
+    ) -> str:
+        client_id = context.credentials.get("client_id")
+        if not client_id:
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR,
+                "Zoho OAuth client_id is not configured",
+            )
+        scopes = context.configuration.get("oauthScopes") or [
+            "ZohoCRM.modules.ALL",
+            "ZohoCRM.settings.ALL",
+            "ZohoCRM.org.READ",
+        ]
+        params = {
+            "scope": ",".join(str(item) for item in scopes),
+            "client_id": str(client_id),
+            "response_type": "code",
+            "access_type": "offline",
+            "prompt": "consent",
+            "redirect_uri": redirect_uri,
+            "state": state,
+        }
+        return f"{self._accounts_url(context)}/oauth/v2/auth?{urlencode(params)}"
+
+    async def exchange_authorization_code(
+        self,
+        context: CRMConnectionContext,
+        *,
+        code: str,
+        redirect_uri: str,
+        code_verifier: str | None = None,
+    ) -> dict[str, Any]:
+        credentials = dict(context.credentials)
+        client_id = credentials.get("client_id")
+        client_secret = credentials.get("client_secret")
+        if not client_id or not client_secret:
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR,
+                "Zoho OAuth client credentials are incomplete",
+            )
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+                response = await client.post(
+                    f"{self._accounts_url(context)}/oauth/v2/token",
+                    data={
+                        "grant_type": "authorization_code",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "redirect_uri": redirect_uri,
+                        "code": code,
+                    },
+                    headers={"Accept": "application/json"},
+                )
+        except httpx.TimeoutException as exc:
+            raise CRMError(NormalizedCRMErrorCode.TIMEOUT, "Zoho OAuth exchange timed out", retryable=True) from exc
+        except httpx.HTTPError as exc:
+            raise CRMError(NormalizedCRMErrorCode.NETWORK_ERROR, "Zoho OAuth exchange failed", retryable=True) from exc
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        if response.status_code >= 400 or not isinstance(body, dict) or not body.get("access_token"):
+            code_text = str(body.get("error") or "oauth_exchange_failed") if isinstance(body, dict) else "oauth_exchange_failed"
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Zoho OAuth authorization was rejected",
+                requires_reconnect=True,
+                http_status=response.status_code,
+                provider_code=code_text,
+            )
+        credentials["access_token"] = str(body["access_token"])
+        credentials["access_token_expires_at"] = int(time.time()) + int(body.get("expires_in") or 3600)
+        if body.get("refresh_token"):
+            credentials["refresh_token"] = str(body["refresh_token"])
+        if body.get("api_domain"):
+            credentials["api_domain"] = str(body["api_domain"])
+        return credentials
 
     async def refresh_credentials(self, context: CRMConnectionContext) -> dict[str, Any]:
         credentials = dict(context.credentials)
