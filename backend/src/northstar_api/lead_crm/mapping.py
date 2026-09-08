@@ -41,8 +41,8 @@ def canonical_lead(lead: Lead, profile: LeadProfile) -> dict[str, Any]:
         },
         "consentStatus": profile.consent_status,
         "customFields": dict(profile.custom_fields_json or {}),
-        "createdAt": lead.created_at,
-        "updatedAt": lead.updated_at,
+        "createdAt": lead.created_at.isoformat() if lead.created_at else None,
+        "updatedAt": lead.updated_at.isoformat() if lead.updated_at else None,
     }
 
 
@@ -128,7 +128,7 @@ def build_mapped_payload(
         for key, value in defaults.items():
             if key not in output and value not in {None, ""}:
                 output[key] = value
-    elif not output:
+    elif mapping is None:
         # Generic connectors receive a canonical object if no mapping is defined.
         output = canonical
 

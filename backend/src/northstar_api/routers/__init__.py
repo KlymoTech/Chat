@@ -12,6 +12,7 @@ from northstar_api.routers import (
     crm_route_admin,
     crm_schema,
     crm_webhooks,
+    integration_audit,
     integrations,
     knowledge,
     leads,
@@ -34,6 +35,7 @@ api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
+api_router.include_router(integration_audit.router)
 api_router.include_router(integrations.router)
 api_router.include_router(widget.router)
 api_router.include_router(whatsapp.router)

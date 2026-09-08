@@ -3,21 +3,19 @@ from __future__ import annotations
 import asyncio
 import signal
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
-from northstar_api.lead_crm.circuit import record_failure, record_success
-from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMError, crm_registry
-from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
-from northstar_api.lead_crm.domain import CRMDeliveryStatus, CRMProvider, NormalizedCRMErrorCode
-from northstar_api.lead_crm.models import CRMConnection, CRMDelivery, LeadActivityEvent
+from northstar_api.lead_crm.connectors import CRMError
+from northstar_api.lead_crm.domain import CRMDeliveryStatus, NormalizedCRMErrorCode
+from northstar_api.lead_crm.models import CRMConnection, CRMDelivery, CRMDeliveryAttempt, LeadActivityEvent
+from northstar_api.lead_crm.verification import verify_delivery
 from northstar_api.logging import configure_logging
-from northstar_api.services.outbox import enqueue_event
+from northstar_api.workers.crm_delivery_worker import _mark_failure
 
 settings = get_settings()
 configure_logging(settings)
@@ -25,26 +23,6 @@ logger = structlog.get_logger(__name__)
 
 STALE_PROCESSING_AGE = timedelta(minutes=10)
 RECONCILE_BATCH = 50
-
-
-async def _context(connection: CRMConnection) -> CRMConnectionContext:
-    credentials: dict[str, Any] = {}
-    if connection.credentials_encrypted:
-        try:
-            credentials = credential_store.decrypt(connection.credentials_encrypted)
-        except CredentialStoreError as exc:
-            raise CRMError(
-                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
-                "Stored CRM credentials are unreadable",
-                requires_reconnect=True,
-            ) from exc
-    return CRMConnectionContext(
-        tenant_id=connection.tenant_id,
-        connection_id=connection.id,
-        provider=CRMProvider(connection.provider),
-        configuration=dict(connection.configuration_json or {}),
-        credentials=credentials,
-    )
 
 
 async def recover_stale_processing(session: AsyncSession, now: datetime) -> int:
@@ -61,23 +39,51 @@ async def recover_stale_processing(session: AsyncSession, now: datetime) -> int:
         )
     )
     for delivery in rows:
-        delivery.status = CRMDeliveryStatus.RETRYING.value
-        delivery.next_retry_at = now
-        delivery.last_error_code = "stale_processing_recovered"
-        delivery.last_error_message = "Delivery worker stopped before processing completed"
+        if delivery.acknowledged_at is not None:
+            delivery.status = CRMDeliveryStatus.ACKNOWLEDGED.value
+            delivery.verification_status = "pending"
+            delivery.next_verification_at = now
+        else:
+            connection = await session.scalar(
+                select(CRMConnection).where(
+                    CRMConnection.id == delivery.connection_id, CRMConnection.tenant_id == delivery.tenant_id
+                )
+            )
+            await _mark_failure(
+                session,
+                delivery,
+                connection,
+                CRMError(
+                    NormalizedCRMErrorCode.TIMEOUT,
+                    "Delivery worker stopped before processing completed",
+                    retryable=True,
+                ),
+            )
+            attempt = await session.scalar(
+                select(CRMDeliveryAttempt).where(
+                    CRMDeliveryAttempt.tenant_id == delivery.tenant_id,
+                    CRMDeliveryAttempt.delivery_id == delivery.id,
+                    CRMDeliveryAttempt.attempt_number == delivery.attempt_count,
+                )
+            )
+            if attempt is not None and attempt.finished_at is None:
+                attempt.finished_at = now
+                attempt.result_status = "worker_interrupted"
+                attempt.normalized_error_code = "worker_interrupted"
         session.add(
             LeadActivityEvent(
                 tenant_id=delivery.tenant_id,
                 lead_id=delivery.lead_id,
                 event_type="lead.crm.delivery.recovered.v1",
                 correlation_id=delivery.correlation_id,
-                details_json={"deliveryId": str(delivery.id), "previousStatus": "processing"},
+                details_json={"deliveryId": str(delivery.id), "status": delivery.status},
             )
         )
     return len(rows)
 
 
 async def reconcile_verified_records(session: AsyncSession) -> tuple[int, int]:
+    now = datetime.now(UTC)
     rows = list(
         await session.scalars(
             select(CRMDelivery)
@@ -85,7 +91,9 @@ async def reconcile_verified_records(session: AsyncSession) -> tuple[int, int]:
                 CRMDelivery.status.in_(
                     (CRMDeliveryStatus.ACKNOWLEDGED.value, CRMDeliveryStatus.VERIFYING.value)
                 ),
-                CRMDelivery.external_record_id.is_not(None),
+                CRMDelivery.acknowledged_at.is_not(None),
+                CRMDelivery.verification_status.in_(("pending", "retrying")),
+                or_(CRMDelivery.next_verification_at.is_(None), CRMDelivery.next_verification_at <= now),
             )
             .order_by(CRMDelivery.acknowledged_at)
             .with_for_update(skip_locked=True)
@@ -95,97 +103,10 @@ async def reconcile_verified_records(session: AsyncSession) -> tuple[int, int]:
     verified = 0
     deferred = 0
     for delivery in rows:
-        connection = await session.scalar(
-            select(CRMConnection).where(
-                CRMConnection.id == delivery.connection_id,
-                CRMConnection.tenant_id == delivery.tenant_id,
-            )
-        )
-        if connection is None or connection.status == "disabled":
-            delivery.status = CRMDeliveryStatus.FAILED.value
-            delivery.last_error_code = "connection_unavailable"
-            delivery.last_error_message = "CRM connection is unavailable during reconciliation"
-            continue
-        connector = crm_registry.get(CRMProvider(connection.provider))
-        if not connector.capabilities.read_back:
-            delivery.status = CRMDeliveryStatus.VERIFIED.value
-            delivery.verified_at = datetime.now(UTC)
+        if await verify_delivery(session, delivery):
             verified += 1
-            continue
-        context = await _context(connection)
-        delivery.status = CRMDeliveryStatus.VERIFYING.value
-        try:
-            record = await connector.get_lead(context, str(delivery.external_record_id))
-            provider_id = record.get("id")
-            if provider_id is not None and str(provider_id) != delivery.external_record_id:
-                raise CRMError(
-                    NormalizedCRMErrorCode.VALIDATION_ERROR,
-                    "CRM reconciliation returned a different record ID",
-                )
-            delivery.status = CRMDeliveryStatus.VERIFIED.value
-            delivery.verified_at = datetime.now(UTC)
-            delivery.last_error_code = None
-            delivery.last_error_message = None
-            connection.last_success_at = datetime.now(UTC)
-            connection.last_error = None
-            await record_success(
-                session,
-                tenant_id=delivery.tenant_id,
-                connection_id=connection.id,
-            )
-            session.add(
-                LeadActivityEvent(
-                    tenant_id=delivery.tenant_id,
-                    lead_id=delivery.lead_id,
-                    event_type="lead.crm.delivery.verified.v1",
-                    correlation_id=delivery.correlation_id,
-                    details_json={
-                        "deliveryId": str(delivery.id),
-                        "provider": delivery.provider,
-                        "externalRecordId": delivery.external_record_id,
-                        "source": "reconciliation",
-                    },
-                )
-            )
-            enqueue_event(
-                session,
-                tenant_id=delivery.tenant_id,
-                aggregate_type="crm_delivery",
-                aggregate_id=delivery.id,
-                event_type="lead.crm.delivery.verified.v1",
-                payload={
-                    "leadId": str(delivery.lead_id),
-                    "deliveryId": str(delivery.id),
-                    "externalRecordId": delivery.external_record_id,
-                    "provider": delivery.provider,
-                    "source": "reconciliation",
-                },
-            )
-            verified += 1
-        except CRMError as exc:
-            connection.last_failure_at = datetime.now(UTC)
-            connection.last_error = exc.code.value
-            if exc.retryable:
-                delivery.status = CRMDeliveryStatus.ACKNOWLEDGED.value
-                delivery.last_error_code = exc.code.value
-                delivery.last_error_message = "Read-back verification temporarily unavailable"
-                deferred += 1
-                await record_failure(
-                    session,
-                    tenant_id=delivery.tenant_id,
-                    connection_id=connection.id,
-                    threshold=5,
-                    cooldown_seconds=60,
-                )
-            elif exc.requires_reconnect:
-                delivery.status = CRMDeliveryStatus.AUTH_REQUIRED.value
-                delivery.last_error_code = exc.code.value
-                delivery.last_error_message = "CRM credentials require reconnection"
-                connection.status = "auth_required"
-            else:
-                delivery.status = CRMDeliveryStatus.FAILED.value
-                delivery.last_error_code = exc.code.value
-                delivery.last_error_message = "CRM read-back verification failed"
+        elif delivery.verification_status == "retrying":
+            deferred += 1
     return verified, deferred
 
 

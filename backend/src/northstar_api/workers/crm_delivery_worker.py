@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 import signal
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import UUID
 
 import structlog
@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
 from northstar_api.lead_crm.circuit import allow_request, record_failure, record_success
+from northstar_api.lead_crm.connection_context import load_connection_context
 from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMError, crm_registry
-from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import (
     CRMConnectionStatus,
     CRMDeliveryStatus,
@@ -35,6 +35,7 @@ from northstar_api.lead_crm.models import (
     LeadActivityEvent,
     LeadProfile,
 )
+from northstar_api.lead_crm.verification import as_utc, verification_failed, verify_delivery
 from northstar_api.logging import configure_logging
 from northstar_api.models import Lead
 from northstar_api.services.outbox import enqueue_event
@@ -79,51 +80,9 @@ def _circuit_cooldown(connection: CRMConnection) -> int:
 async def _context(
     session: AsyncSession, delivery: CRMDelivery
 ) -> tuple[CRMConnection, CRMConnectionContext]:
-    connection = await session.scalar(
-        select(CRMConnection)
-        .where(
-            CRMConnection.id == delivery.connection_id,
-            CRMConnection.tenant_id == delivery.tenant_id,
-        )
-        .with_for_update()
+    return await load_connection_context(
+        session, tenant_id=delivery.tenant_id, connection_id=delivery.connection_id
     )
-    if not connection or connection.status == CRMConnectionStatus.DISABLED.value:
-        raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "CRM connection is unavailable")
-    credentials: dict[str, Any] = {}
-    if connection.credentials_encrypted:
-        try:
-            credentials = credential_store.decrypt(connection.credentials_encrypted)
-        except CredentialStoreError as exc:
-            raise CRMError(
-                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
-                "Stored CRM credentials are unreadable",
-                requires_reconnect=True,
-            ) from exc
-    provider = CRMProvider(connection.provider)
-    connector = crm_registry.get(provider)
-    context = CRMConnectionContext(
-        tenant_id=delivery.tenant_id,
-        connection_id=connection.id,
-        provider=provider,
-        configuration=dict(connection.configuration_json or {}),
-        credentials=credentials,
-    )
-    if connector.capabilities.oauth:
-        expires_at = int(context.credentials.get("access_token_expires_at") or 0)
-        if not context.credentials.get("access_token") or (
-            expires_at and expires_at <= int(time.time()) + 120
-        ):
-            refreshed = await connector.refresh_credentials(context)
-            connection.credentials_encrypted = credential_store.encrypt(refreshed)
-            connection.last_authenticated_at = datetime.now(UTC)
-            context = CRMConnectionContext(
-                tenant_id=context.tenant_id,
-                connection_id=context.connection_id,
-                provider=context.provider,
-                configuration=context.configuration,
-                credentials=refreshed,
-            )
-    return connection, context
 
 
 async def _mark_failure(
@@ -132,6 +91,9 @@ async def _mark_failure(
     connection: CRMConnection | None,
     error: CRMError,
 ) -> None:
+    if delivery.acknowledged_at is not None:
+        await verification_failed(session, delivery, connection, error)
+        return
     delivery.last_error_code = error.code.value
     delivery.last_error_message = str(error)[:1000]
     delivery.provider_http_status = error.http_status
@@ -160,7 +122,7 @@ async def _mark_failure(
         if connection:
             connection.status = CRMConnectionStatus.DEGRADED.value
     elif error.code == NormalizedCRMErrorCode.RATE_LIMIT_ERROR:
-        if delivery.attempt_count >= (_max_attempts(connection) if connection else 5):
+        if delivery.retry_cycle_attempts >= (_max_attempts(connection) if connection else 5):
             delivery.status = CRMDeliveryStatus.DEAD_LETTER.value
             delivery.next_retry_at = None
         else:
@@ -171,7 +133,7 @@ async def _mark_failure(
             if connection:
                 connection.status = CRMConnectionStatus.RATE_LIMITED.value
     elif error.retryable:
-        if delivery.attempt_count >= (_max_attempts(connection) if connection else 5):
+        if delivery.retry_cycle_attempts >= (_max_attempts(connection) if connection else 5):
             delivery.status = CRMDeliveryStatus.DEAD_LETTER.value
             delivery.next_retry_at = None
         else:
@@ -233,13 +195,19 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
     delivery = await session.scalar(
         select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
     )
+    if delivery is not None and delivery.acknowledged_at is not None:
+        if delivery.status != CRMDeliveryStatus.VERIFIED.value:
+            delivery.status = CRMDeliveryStatus.ACKNOWLEDGED.value
+            await verify_delivery(session, delivery)
+            await session.commit()
+        return
     if not delivery or delivery.status not in {
         CRMDeliveryStatus.QUEUED.value,
         CRMDeliveryStatus.RETRYING.value,
         CRMDeliveryStatus.RATE_LIMITED.value,
     }:
         return
-    if delivery.next_retry_at and delivery.next_retry_at > datetime.now(UTC):
+    if delivery.next_retry_at and as_utc(delivery.next_retry_at) > datetime.now(UTC):
         return
     connection = await session.scalar(
         select(CRMConnection).where(
@@ -264,6 +232,7 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
     delivery.status = CRMDeliveryStatus.PROCESSING.value
     delivery.processing_at = datetime.now(UTC)
     delivery.attempt_count += 1
+    delivery.retry_cycle_attempts += 1
     attempt = CRMDeliveryAttempt(
         tenant_id=delivery.tenant_id,
         delivery_id=delivery.id,
@@ -273,6 +242,7 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
     await session.commit()
 
     connection = None
+    provider_accepted = False
     started = time.monotonic()
     try:
         delivery = await session.scalar(
@@ -301,16 +271,43 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
                 CRMFieldMapping.object_name == "Leads",
             )
         )
-        payload = build_mapped_payload(
-            lead,
-            profile,
-            mapping.mapping_json if mapping else None,
-            provider=delivery.provider,
-            configuration=connection.configuration_json,
-        )
+        if mapping is not None and mapping.status != "active":
+            raise CRMError(
+                NormalizedCRMErrorCode.MAPPING_ERROR,
+                "CRM mapping must be validated against the current schema before delivery",
+            )
+        payload = dict(delivery.payload_json or {})
         if not payload:
-            raise CRMError(NormalizedCRMErrorCode.MAPPING_ERROR, "CRM mapping produced an empty payload")
+            payload = build_mapped_payload(
+                lead,
+                profile,
+                mapping.mapping_json if mapping else None,
+                provider=delivery.provider,
+                configuration=connection.configuration_json,
+            )
+            if not payload:
+                raise CRMError(NormalizedCRMErrorCode.MAPPING_ERROR, "CRM mapping produced an empty payload")
+            delivery.payload_json = json.loads(json.dumps(payload))
+            delivery.mapping_version = mapping.version if mapping else 0
         connector = crm_registry.get(CRMProvider(delivery.provider))
+        reference = await session.scalar(
+            select(CRMExternalReference).where(
+                CRMExternalReference.tenant_id == delivery.tenant_id,
+                CRMExternalReference.lead_id == delivery.lead_id,
+                CRMExternalReference.connection_id == delivery.connection_id,
+                CRMExternalReference.object_name == "Leads",
+            )
+        )
+        if reference and delivery.operation == CRMOperation.UPSERT.value and connector.capabilities.update:
+            delivery.operation = CRMOperation.UPDATE.value
+            delivery.external_record_id = reference.external_id
+        await session.commit()
+        delivery = await session.scalar(
+            select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
+        )
+        if delivery is None or delivery.status != CRMDeliveryStatus.PROCESSING.value:
+            return
+        connection, context = await _context(session, delivery)
         if delivery.operation == CRMOperation.CREATE.value:
             result = await connector.create_lead(context, payload, idempotency_key=delivery.idempotency_key)
         elif delivery.operation == CRMOperation.UPDATE.value:
@@ -330,10 +327,12 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
         if not result.accepted:
             raise CRMError(NormalizedCRMErrorCode.UNKNOWN_ERROR, "CRM did not acknowledge delivery")
 
+        provider_accepted = True
         now = datetime.now(UTC)
         delivery.status = CRMDeliveryStatus.ACKNOWLEDGED.value
         delivery.sent_at = delivery.sent_at or now
         delivery.acknowledged_at = now
+        delivery.verification_status = "pending"
         delivery.external_record_id = result.external_record_id or delivery.external_record_id
         delivery.provider_http_status = result.http_status
         delivery.provider_code = result.provider_code
@@ -415,55 +414,11 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
         )
         await session.commit()
 
-        if connector.capabilities.read_back and delivery.external_record_id:
-            delivery = await session.scalar(
-                select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
-            )
-            if delivery is None:
-                return
-            connection, context = await _context(session, delivery)
-            delivery.status = CRMDeliveryStatus.VERIFYING.value
-            await session.commit()
-            record = await connector.get_lead(context, delivery.external_record_id)
-            provider_id = record.get("id")
-            if provider_id is not None and str(provider_id) != delivery.external_record_id:
-                raise CRMError(
-                    NormalizedCRMErrorCode.VALIDATION_ERROR,
-                    "CRM read-back returned a different record ID",
-                )
-            delivery = await session.scalar(
-                select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
-            )
-            if delivery is None:
-                return
-            delivery.status = CRMDeliveryStatus.VERIFIED.value
-            delivery.verified_at = datetime.now(UTC)
-            session.add(
-                LeadActivityEvent(
-                    tenant_id=delivery.tenant_id,
-                    lead_id=delivery.lead_id,
-                    event_type="lead.crm.delivery.verified.v1",
-                    correlation_id=delivery.correlation_id,
-                    details_json={
-                        "deliveryId": str(delivery.id),
-                        "provider": delivery.provider,
-                        "externalRecordId": delivery.external_record_id,
-                    },
-                )
-            )
-            enqueue_event(
-                session,
-                tenant_id=delivery.tenant_id,
-                aggregate_type="crm_delivery",
-                aggregate_id=delivery.id,
-                event_type="lead.crm.delivery.verified.v1",
-                payload={
-                    "leadId": str(delivery.lead_id),
-                    "deliveryId": str(delivery.id),
-                    "externalRecordId": delivery.external_record_id,
-                    "provider": delivery.provider,
-                },
-            )
+        delivery = await session.scalar(
+            select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
+        )
+        if delivery is not None:
+            await verify_delivery(session, delivery)
             await session.commit()
     except CRMError as exc:
         delivery = await session.scalar(
@@ -484,37 +439,45 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
                 CRMDeliveryAttempt.attempt_number == delivery.attempt_count,
             )
         )
-        if attempt:
-            attempt.finished_at = datetime.now(UTC)
-            attempt.http_status = exc.http_status
-            attempt.latency_ms = int((time.monotonic() - started) * 1000)
-            attempt.result_status = "failed"
-            attempt.normalized_error_code = exc.code.value
-            attempt.provider_error_code = exc.provider_code
+        if stored_attempt and delivery.acknowledged_at is None:
+            stored_attempt.finished_at = datetime.now(UTC)
+            stored_attempt.http_status = exc.http_status
+            stored_attempt.latency_ms = int((time.monotonic() - started) * 1000)
+            stored_attempt.result_status = "failed"
+            stored_attempt.normalized_error_code = exc.code.value
+            stored_attempt.provider_error_code = exc.provider_code
         await _mark_failure(session, delivery, connection, exc)
         await session.commit()
     except Exception as exc:
-        logger.exception(
-            "crm_delivery_unexpected_failure",
-            delivery_id=str(delivery_id),
-            error=type(exc).__name__,
+        logger.error(
+            "crm_delivery_unexpected_failure", delivery_id=str(delivery_id), error=type(exc).__name__
         )
+        await session.rollback()
         delivery = await session.scalar(
             select(CRMDelivery).where(CRMDelivery.id == delivery_id).with_for_update()
         )
-        if delivery:
-            wrapped = CRMError(
-                NormalizedCRMErrorCode.UNKNOWN_ERROR,
-                "Unexpected CRM delivery failure",
-                retryable=True,
-            )
+        if delivery is not None:
             connection = await session.scalar(
                 select(CRMConnection).where(
-                    CRMConnection.id == delivery.connection_id,
-                    CRMConnection.tenant_id == delivery.tenant_id,
+                    CRMConnection.id == delivery.connection_id, CRMConnection.tenant_id == delivery.tenant_id
                 )
             )
-            await _mark_failure(session, delivery, connection, wrapped)
+            if provider_accepted and delivery.acknowledged_at is None:
+                delivery.status = CRMDeliveryStatus.FAILED.value
+                delivery.last_error_code = "ambiguous_provider_ack"
+                delivery.last_error_message = "Provider accepted before local commit failed; reconcile the remote record before retrying"
+                delivery.next_retry_at = None
+            else:
+                await _mark_failure(
+                    session,
+                    delivery,
+                    connection,
+                    CRMError(
+                        NormalizedCRMErrorCode.UNKNOWN_ERROR,
+                        "Unexpected CRM delivery failure",
+                        retryable=True,
+                    ),
+                )
             await session.commit()
 
 

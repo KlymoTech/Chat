@@ -114,6 +114,7 @@ async def consume_forever() -> None:
                             await asyncio.wait_for(stop.wait(), timeout=1.0)
                         except TimeoutError:
                             pass
+                        break  # Do not advance past a failed partition offset.
     finally:
         await consumer.stop()
         await engine.dispose()

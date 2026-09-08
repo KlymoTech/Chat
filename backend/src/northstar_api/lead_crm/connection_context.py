@@ -23,9 +23,9 @@ async def load_connection_context(
     The connection lock is retained until the caller commits or rolls back.
     """
     connection = await session.scalar(
-        select(CRMConnection).where(
-            CRMConnection.id == connection_id, CRMConnection.tenant_id == tenant_id
-        ).with_for_update()
+        select(CRMConnection)
+        .where(CRMConnection.id == connection_id, CRMConnection.tenant_id == tenant_id)
+        .with_for_update()
     )
     if connection is None or connection.status == "disabled":
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "CRM connection is unavailable")
@@ -36,12 +36,16 @@ async def load_connection_context(
         except CredentialStoreError as exc:
             raise CRMError(
                 NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
-                "Stored CRM credentials are unreadable", requires_reconnect=True,
+                "Stored CRM credentials are unreadable",
+                requires_reconnect=True,
             ) from exc
     provider = CRMProvider(connection.provider)
     context = CRMConnectionContext(
-        tenant_id=tenant_id, connection_id=connection_id, provider=provider,
-        configuration=dict(connection.configuration_json or {}), credentials=credentials,
+        tenant_id=tenant_id,
+        connection_id=connection_id,
+        provider=provider,
+        configuration=dict(connection.configuration_json or {}),
+        credentials=credentials,
     )
     connector = crm_registry.get(provider)
     if connector.capabilities.oauth:
@@ -50,20 +54,25 @@ async def load_connection_context(
         except (ValueError, TypeError) as exc:
             raise CRMError(
                 NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
-                "Stored token expiry is invalid", requires_reconnect=True,
+                "Stored token expiry is invalid",
+                requires_reconnect=True,
             ) from exc
         if not credentials.get("access_token") or (expires_at and expires_at <= int(time.time()) + 120):
             refreshed = await connector.refresh_credentials(context)
             if not isinstance(refreshed.get("access_token"), str) or not refreshed["access_token"]:
                 raise CRMError(
                     NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
-                    "Token refresh returned no access token", requires_reconnect=True,
+                    "Token refresh returned no access token",
+                    requires_reconnect=True,
                 )
             credentials.update(refreshed)
             connection.credentials_encrypted = credential_store.encrypt(credentials)
             connection.last_authenticated_at = datetime.now(UTC)
             context = CRMConnectionContext(
-                tenant_id=tenant_id, connection_id=connection_id, provider=provider,
-                configuration=context.configuration, credentials=credentials,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                provider=provider,
+                configuration=context.configuration,
+                credentials=credentials,
             )
     return connection, context

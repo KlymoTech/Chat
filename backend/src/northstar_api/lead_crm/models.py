@@ -293,6 +293,7 @@ class CRMDelivery(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_crm_delivery_idempotency"),
         Index("ix_crm_delivery_dispatch", "status", "next_retry_at", "created_at"),
+        Index("ix_crm_delivery_verification_dispatch", "verification_status", "next_verification_at"),
         Index("ix_crm_delivery_lead", "tenant_id", "lead_id", "created_at"),
         Index("ix_crm_delivery_connection", "tenant_id", "connection_id", "status"),
     )
@@ -319,6 +320,15 @@ class CRMDelivery(Base, LeadCRMUUIDMixin, LeadCRMTimestampMixin):
     provider_http_status: Mapped[int | None] = mapped_column(Integer)
     provider_code: Mapped[str | None] = mapped_column(String(160))
     provider_request_id: Mapped[str | None] = mapped_column(String(240))
+    retry_cycle_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+    verification_status: Mapped[str] = mapped_column(String(40), default="pending")
+    verification_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    verification_cycle_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_verification_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verification_error_code: Mapped[str | None] = mapped_column(String(80))
+    verification_error_message: Mapped[str | None] = mapped_column(String(1000))
+    verification_evidence_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     mapping_version: Mapped[int] = mapped_column(Integer, default=1)
     payload_hash: Mapped[str | None] = mapped_column(String(64))
     correlation_id: Mapped[str | None] = mapped_column(String(128), index=True)

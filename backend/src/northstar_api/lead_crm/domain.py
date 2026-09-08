@@ -134,17 +134,8 @@ _ALLOWED_DELIVERY_TRANSITIONS: dict[CRMDeliveryStatus, frozenset[CRMDeliveryStat
     CRMDeliveryStatus.SENT: frozenset(
         {CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}
     ),
-    CRMDeliveryStatus.ACKNOWLEDGED: frozenset(
-        {
-            CRMDeliveryStatus.VERIFYING,
-            CRMDeliveryStatus.VERIFIED,
-            CRMDeliveryStatus.RETRYING,
-            CRMDeliveryStatus.FAILED,
-        }
-    ),
-    CRMDeliveryStatus.VERIFYING: frozenset(
-        {CRMDeliveryStatus.VERIFIED, CRMDeliveryStatus.RETRYING, CRMDeliveryStatus.FAILED}
-    ),
+    CRMDeliveryStatus.ACKNOWLEDGED: frozenset({CRMDeliveryStatus.VERIFYING}),
+    CRMDeliveryStatus.VERIFYING: frozenset({CRMDeliveryStatus.VERIFIED, CRMDeliveryStatus.ACKNOWLEDGED}),
     CRMDeliveryStatus.RETRYING: frozenset(
         {
             CRMDeliveryStatus.QUEUED,

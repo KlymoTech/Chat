@@ -15,16 +15,32 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from northstar_api.database import Base
 from northstar_api.lead_crm.circuit import allow_request, record_failure, record_success
 from northstar_api.lead_crm.connectors import (
-    CRMCapabilities, CRMConnectionContext, CRMConnector, CRMDeliveryResult, CRMError, CRMHealthResult, crm_registry,
+    CRMCapabilities,
+    CRMConnectionContext,
+    CRMConnector,
+    CRMDeliveryResult,
+    CRMError,
+    CRMHealthResult,
+    crm_registry,
 )
 from northstar_api.lead_crm.domain import (
-    CRMDeliveryStatus, CRMOperation, CRMProvider, IntegrationHealthStatus, NormalizedCRMErrorCode,
+    CRMDeliveryStatus,
+    CRMOperation,
+    CRMProvider,
+    IntegrationHealthStatus,
+    NormalizedCRMErrorCode,
     validate_delivery_transition,
 )
 from northstar_api.lead_crm.mapping import build_mapped_payload
 from northstar_api.lead_crm.models import (
-    ContactIdentity, CRMConnection, CRMDelivery, CRMDeliveryAttempt, CRMExternalReference,
-    CRMFieldMapping, CRMRoute, IntegrationDeadLetter,
+    ContactIdentity,
+    CRMConnection,
+    CRMDelivery,
+    CRMDeliveryAttempt,
+    CRMExternalReference,
+    CRMFieldMapping,
+    CRMRoute,
+    IntegrationDeadLetter,
 )
 from northstar_api.lead_crm.services import crm_route_service, lead_domain_service
 from northstar_api.lead_crm.verification import as_utc, verify_record
@@ -61,7 +77,12 @@ class RecordingConnector(CRMConnector):
         return CRMDeliveryResult(True, CRMOperation.CREATE, "crm-record-1", 201)
 
     async def update_lead(
-        self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
     ) -> CRMDeliveryResult:
         result = await self.create_lead(context, payload, idempotency_key=idempotency_key)
         return CRMDeliveryResult(result.accepted, CRMOperation.UPDATE, external_id, 200)
@@ -70,7 +91,9 @@ class RecordingConnector(CRMConnector):
         self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
     ) -> CRMDeliveryResult:
         result = await self.create_lead(context, payload, idempotency_key=idempotency_key)
-        return CRMDeliveryResult(result.accepted, CRMOperation.UPSERT, result.external_record_id, result.http_status)
+        return CRMDeliveryResult(
+            result.accepted, CRMOperation.UPSERT, result.external_record_id, result.http_status
+        )
 
     async def get_lead(self, context: CRMConnectionContext, external_id: str) -> dict[str, Any]:
         self.reads += 1
@@ -92,18 +115,46 @@ async def case() -> AsyncIterator[tuple[AsyncSession, Lead, CRMConnection, CRMDe
         agent = Agent(tenant_id=tenant.id, name="CRM acceptance agent")
         session.add(agent)
         await session.flush()
-        lead = Lead(tenant_id=tenant.id, agent_id=agent.id, name="Test Lead", email="lead@example.com",
-            phone="+15550101001", status="new", consent=True, fields_json={})
+        lead = Lead(
+            tenant_id=tenant.id,
+            agent_id=agent.id,
+            name="Test Lead",
+            email="lead@example.com",
+            phone="+15550101001",
+            status="new",
+            consent=True,
+            fields_json={},
+        )
         session.add(lead)
         await session.flush()
-        await lead_domain_service.qualify(session, lead=lead, score=85, reason="Acceptance fixture",
-            actor_id=None, correlation_id="acceptance")
-        connection = CRMConnection(tenant_id=tenant.id, public_id=f"crm_{uuid4().hex}",
-            provider="generic_rest", name="CRM acceptance destination", status="healthy", configuration_json={})
+        await lead_domain_service.qualify(
+            session,
+            lead=lead,
+            score=85,
+            reason="Acceptance fixture",
+            actor_id=None,
+            correlation_id="acceptance",
+        )
+        connection = CRMConnection(
+            tenant_id=tenant.id,
+            public_id=f"crm_{uuid4().hex}",
+            provider="generic_rest",
+            name="CRM acceptance destination",
+            status="healthy",
+            configuration_json={},
+        )
         session.add(connection)
         await session.flush()
-        session.add(CRMRoute(tenant_id=tenant.id, name="Qualified leads", enabled=True, priority=10,
-            conditions_json={"qualificationStatus": "qualified"}, actions_json={"connectionIds": [str(connection.id)]}))
+        session.add(
+            CRMRoute(
+                tenant_id=tenant.id,
+                name="Qualified leads",
+                enabled=True,
+                priority=10,
+                conditions_json={"qualificationStatus": "qualified"},
+                actions_json={"connectionIds": [str(connection.id)]},
+            )
+        )
         await session.flush()
         deliveries = await crm_route_service.create_deliveries(session, tenant_id=tenant.id, lead_id=lead.id)
         assert len(deliveries) == 1
@@ -122,10 +173,15 @@ def test_readback_requires_positive_record_identity(record: dict[str, Any]) -> N
         verify_record(context(), record, "crm-record-1", {})
 
 
-@pytest.mark.parametrize("provider,key", [
-    (CRMProvider.ZOHO, "id"), (CRMProvider.GENERIC_REST, "id"),
-    (CRMProvider.SALESFORCE, "Id"), (CRMProvider.DYNAMICS365, "leadid"),
-])
+@pytest.mark.parametrize(
+    "provider,key",
+    [
+        (CRMProvider.ZOHO, "id"),
+        (CRMProvider.GENERIC_REST, "id"),
+        (CRMProvider.SALESFORCE, "Id"),
+        (CRMProvider.DYNAMICS365, "leadid"),
+    ],
+)
 def test_readback_identity_evidence_is_provider_aware(provider: CRMProvider, key: str) -> None:
     evidence = verify_record(context(provider), {key: "crm-record-1"}, "crm-record-1", {})
     assert evidence == {"recordIdMatched": True, "fieldsCompared": [], "scope": "record_identity"}
@@ -133,27 +189,42 @@ def test_readback_identity_evidence_is_provider_aware(provider: CRMProvider, key
 
 def test_readback_distinguishes_field_value_proof_from_identity_only() -> None:
     ctx = context(verificationFields={"email": "properties.email"})
-    evidence = verify_record(ctx, {"id": "crm-record-1", "properties": {"email": "lead@example.com"}},
-        "crm-record-1", {"email": "lead@example.com"})
+    evidence = verify_record(
+        ctx,
+        {"id": "crm-record-1", "properties": {"email": "lead@example.com"}},
+        "crm-record-1",
+        {"email": "lead@example.com"},
+    )
     assert evidence["scope"] == "mapped_fields"
     assert evidence["fieldsCompared"] == ["email"]
     with pytest.raises(CRMError) as failure:
-        verify_record(ctx, {"id": "crm-record-1", "properties": {"email": "outdated@example.com"}},
-            "crm-record-1", {"email": "lead@example.com"})
+        verify_record(
+            ctx,
+            {"id": "crm-record-1", "properties": {"email": "outdated@example.com"}},
+            "crm-record-1",
+            {"email": "lead@example.com"},
+        )
     assert failure.value.retryable
 
 
-@pytest.mark.parametrize("current,target", [
-    (CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.RETRYING),
-    (CRMDeliveryStatus.VERIFYING, CRMDeliveryStatus.RETRYING),
-    (CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.VERIFIED),
-])
-def test_state_machine_cannot_resend_or_skip_proof_after_ack(current: CRMDeliveryStatus, target: CRMDeliveryStatus) -> None:
+@pytest.mark.parametrize(
+    "current,target",
+    [
+        (CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.RETRYING),
+        (CRMDeliveryStatus.VERIFYING, CRMDeliveryStatus.RETRYING),
+        (CRMDeliveryStatus.ACKNOWLEDGED, CRMDeliveryStatus.VERIFIED),
+    ],
+)
+def test_state_machine_cannot_resend_or_skip_proof_after_ack(
+    current: CRMDeliveryStatus, target: CRMDeliveryStatus
+) -> None:
     with pytest.raises(ValueError):
         validate_delivery_transition(current, target)
 
 
-async def test_full_persisted_pipeline_has_outbox_ack_reference_and_verification(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_full_persisted_pipeline_has_outbox_ack_reference_and_verification(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, lead, connection, delivery = case
     connector = RecordingConnector()
     monkeypatch.setattr(crm_registry, "get", lambda _: connector)
@@ -165,18 +236,29 @@ async def test_full_persisted_pipeline_has_outbox_ack_reference_and_verification
     assert delivery.verification_evidence_json["recordIdMatched"] is True
     assert delivery.payload_json == connector.sent[0]
     assert connector.writes == 1 and connector.reads == 1
-    references = list(await session.scalars(select(CRMExternalReference).where(CRMExternalReference.lead_id == lead.id)))
+    references = list(
+        await session.scalars(select(CRMExternalReference).where(CRMExternalReference.lead_id == lead.id))
+    )
     assert len(references) == 1 and references[0].external_id == "crm-record-1"
-    events = set(await session.scalars(select(OutboxEvent.event_type).where(OutboxEvent.tenant_id == lead.tenant_id)))
-    assert {"lead.qualified.v1", "lead.crm.sync.requested.v1", "lead.crm.delivery.created.v1",
-        "lead.crm.delivery.acknowledged.v1", "lead.crm.delivery.verified.v1"} <= events
+    events = set(
+        await session.scalars(select(OutboxEvent.event_type).where(OutboxEvent.tenant_id == lead.tenant_id))
+    )
+    assert {
+        "lead.qualified.v1",
+        "lead.crm.sync.requested.v1",
+        "lead.crm.delivery.created.v1",
+        "lead.crm.delivery.acknowledged.v1",
+        "lead.crm.delivery.verified.v1",
+    } <= events
     await process_delivery(session, delivery.id)
     assert connector.writes == 1 and connector.reads == 1
 
 
 async def test_normalized_contact_is_not_falsely_marked_verified(case) -> None:
     session, lead, _, _ = case
-    identities = list(await session.scalars(select(ContactIdentity).where(ContactIdentity.tenant_id == lead.tenant_id)))
+    identities = list(
+        await session.scalars(select(ContactIdentity).where(ContactIdentity.tenant_id == lead.tenant_id))
+    )
     assert identities and all(identity.verified is False for identity in identities)
 
 
@@ -191,7 +273,9 @@ async def test_same_payload_deduplicates_but_changed_lead_gets_new_delivery(case
     assert changed[0].idempotency_key != delivery.idempotency_key
 
 
-async def test_transient_verification_retries_only_get_never_the_acknowledged_write(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_transient_verification_retries_only_get_never_the_acknowledged_write(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, _, _, delivery = case
     connector = RecordingConnector()
     connector.read_error = CRMError(NormalizedCRMErrorCode.TIMEOUT, "fixture timeout", retryable=True)
@@ -213,7 +297,9 @@ async def test_transient_verification_retries_only_get_never_the_acknowledged_wr
     assert delivery.attempt_count == 1 and delivery.verification_attempt_count == 2
 
 
-async def test_empty_readback_preserves_ack_and_records_verification_dead_letter(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_empty_readback_preserves_ack_and_records_verification_dead_letter(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, _, _, delivery = case
     connector = RecordingConnector()
     connector.record = {}
@@ -221,15 +307,21 @@ async def test_empty_readback_preserves_ack_and_records_verification_dead_letter
     await process_delivery(session, delivery.id)
     assert delivery.status == "acknowledged" and delivery.verified_at is None
     assert delivery.verification_status == "failed" and delivery.next_retry_at is None
-    letter = await session.scalar(select(IntegrationDeadLetter).where(IntegrationDeadLetter.delivery_id == delivery.id))
+    letter = await session.scalar(
+        select(IntegrationDeadLetter).where(IntegrationDeadLetter.delivery_id == delivery.id)
+    )
     assert letter is not None and letter.metadata_json["phase"] == "verification"
-    attempt = await session.scalar(select(CRMDeliveryAttempt).where(CRMDeliveryAttempt.delivery_id == delivery.id))
+    attempt = await session.scalar(
+        select(CRMDeliveryAttempt).where(CRMDeliveryAttempt.delivery_id == delivery.id)
+    )
     assert attempt is not None and attempt.result_status == "acknowledged"
     await run_once(session)
     assert connector.writes == 1 and connector.reads == 1
 
 
-async def test_unsupported_readback_never_becomes_verified_even_in_reconciliation(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_unsupported_readback_never_becomes_verified_even_in_reconciliation(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, _, _, delivery = case
     connector = RecordingConnector(read_back=False)
     monkeypatch.setattr(crm_registry, "get", lambda _: connector)
@@ -241,11 +333,15 @@ async def test_unsupported_readback_never_becomes_verified_even_in_reconciliatio
     assert connector.writes == 1 and connector.reads == 0
 
 
-async def test_verification_retry_budget_is_bounded_independently(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_verification_retry_budget_is_bounded_independently(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, _, connection, delivery = case
     connection.configuration_json = {"verificationMaxAttempts": 2}
     connector = RecordingConnector()
-    connector.read_error = CRMError(NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE, "fixture unavailable", retryable=True)
+    connector.read_error = CRMError(
+        NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE, "fixture unavailable", retryable=True
+    )
     monkeypatch.setattr(crm_registry, "get", lambda _: connector)
     await session.commit()
     await process_delivery(session, delivery.id)
@@ -258,11 +354,15 @@ async def test_verification_retry_budget_is_bounded_independently(case, monkeypa
     assert connector.writes == 1 and connector.reads == 2
 
 
-async def test_write_failure_budget_reaches_dead_letter_with_finished_attempts(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_write_failure_budget_reaches_dead_letter_with_finished_attempts(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, _, connection, delivery = case
     connection.configuration_json = {"maxAttempts": 2}
     connector = RecordingConnector()
-    connector.write_error = CRMError(NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE, "fixture outage", retryable=True)
+    connector.write_error = CRMError(
+        NormalizedCRMErrorCode.PROVIDER_UNAVAILABLE, "fixture outage", retryable=True
+    )
     monkeypatch.setattr(crm_registry, "get", lambda _: connector)
     await session.commit()
     await process_delivery(session, delivery.id)
@@ -271,18 +371,29 @@ async def test_write_failure_budget_reaches_dead_letter_with_finished_attempts(c
     await session.commit()
     await process_delivery(session, delivery.id)
     assert delivery.status == "dead_letter" and delivery.attempt_count == 2
-    attempts = list(await session.scalars(select(CRMDeliveryAttempt).where(CRMDeliveryAttempt.delivery_id == delivery.id)))
+    attempts = list(
+        await session.scalars(select(CRMDeliveryAttempt).where(CRMDeliveryAttempt.delivery_id == delivery.id))
+    )
     assert len(attempts) == 2
     assert all(attempt.finished_at is not None and attempt.result_status == "failed" for attempt in attempts)
     assert connector.writes == 2 and connector.reads == 0
 
 
-async def test_degraded_mapping_cannot_send_and_empty_mapping_does_not_fall_back(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_degraded_mapping_cannot_send_and_empty_mapping_does_not_fall_back(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, lead, connection, delivery = case
     connector = RecordingConnector()
     monkeypatch.setattr(crm_registry, "get", lambda _: connector)
-    session.add(CRMFieldMapping(tenant_id=lead.tenant_id, connection_id=connection.id,
-        object_name="Leads", status="degraded", mapping_json={"fields": {"email": "Email"}}))
+    session.add(
+        CRMFieldMapping(
+            tenant_id=lead.tenant_id,
+            connection_id=connection.id,
+            object_name="Leads",
+            status="degraded",
+            mapping_json={"fields": {"email": "Email"}},
+        )
+    )
     await session.commit()
     await process_delivery(session, delivery.id)
     assert delivery.status == "mapping_error" and connector.writes == 0
@@ -291,7 +402,9 @@ async def test_degraded_mapping_cannot_send_and_empty_mapping_does_not_fall_back
     json.dumps(build_mapped_payload(lead, profile, None, provider="generic_rest"))
 
 
-async def test_manual_verification_retry_and_cancel_preserve_remote_ack(case, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_manual_verification_retry_and_cancel_preserve_remote_ack(
+    case, monkeypatch: pytest.MonkeyPatch
+) -> None:
     session, lead, _, delivery = case
     connector = RecordingConnector()
     connector.record = {}
@@ -311,8 +424,9 @@ async def test_manual_verification_retry_and_cancel_preserve_remote_ack(case, mo
 async def test_half_open_circuit_allows_only_one_leased_probe(case) -> None:
     session, lead, connection, _ = case
     assert await allow_request(session, tenant_id=lead.tenant_id, connection_id=connection.id)
-    circuit = await record_failure(session, tenant_id=lead.tenant_id, connection_id=connection.id,
-        threshold=1, cooldown_seconds=60)
+    circuit = await record_failure(
+        session, tenant_id=lead.tenant_id, connection_id=connection.id, threshold=1, cooldown_seconds=60
+    )
     assert not await allow_request(session, tenant_id=lead.tenant_id, connection_id=connection.id)
     circuit.open_until = datetime.now(UTC) - timedelta(seconds=1)
     await session.commit()
@@ -333,7 +447,9 @@ async def test_tenant_cannot_retry_or_cancel_another_tenants_delivery(case) -> N
     assert delivery.status == "queued"
 
 
-async def test_router_does_not_commit_or_process_later_partition_offsets_after_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_router_does_not_commit_or_process_later_partition_offsets_after_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[int] = []
     stop = SimpleNamespace(stopped=False)
 
@@ -366,8 +482,14 @@ async def test_router_does_not_commit_or_process_later_partition_offsets_after_f
             return None
 
         async def getmany(self, **kwargs):
-            return {"partition": [SimpleNamespace(topic="lead.crm.sync.requested.v1", partition=0,
-                offset=offset, value=b"fixture") for offset in (10, 11)]}
+            return {
+                "partition": [
+                    SimpleNamespace(
+                        topic="lead.crm.sync.requested.v1", partition=0, offset=offset, value=b"fixture"
+                    )
+                    for offset in (10, 11)
+                ]
+            }
 
         def seek(self, partition, offset):
             seeks.append(offset)
@@ -378,18 +500,27 @@ async def test_router_does_not_commit_or_process_later_partition_offsets_after_f
     async def dispose():
         return None
 
-    async def wait_for(awaitable, timeout):
+    async def wait_for(awaitable, **kwargs):
         return await awaitable
 
-    event = SimpleNamespace(event_id=uuid4(), tenant_id=uuid4(), event_type="lead.crm.sync.requested.v1",
-        payload={"leadId": str(uuid4())})
+    event = SimpleNamespace(
+        event_id=uuid4(),
+        tenant_id=uuid4(),
+        event_type="lead.crm.sync.requested.v1",
+        payload={"leadId": str(uuid4())},
+    )
     monkeypatch.setattr(crm_router_consumer, "build_engine", lambda _: SimpleNamespace(dispose=dispose))
     monkeypatch.setattr(crm_router_consumer, "async_sessionmaker", lambda *args, **kwargs: Session)
     monkeypatch.setattr(crm_router_consumer, "AIOKafkaConsumer", lambda *args, **kwargs: Consumer())
     monkeypatch.setattr(crm_router_consumer, "parse_envelope", lambda _: event)
-    monkeypatch.setattr(crm_router_consumer, "asyncio", SimpleNamespace(
-        Event=lambda: stop, wait_for=wait_for,
-        get_running_loop=lambda: SimpleNamespace(add_signal_handler=lambda *args: None),
-    ))
+    monkeypatch.setattr(
+        crm_router_consumer,
+        "asyncio",
+        SimpleNamespace(
+            Event=lambda: stop,
+            wait_for=wait_for,
+            get_running_loop=lambda: SimpleNamespace(add_signal_handler=lambda *args: None),
+        ),
+    )
     await crm_router_consumer.consume_forever()
     assert calls == [1] and seeks == [10] and commits == []

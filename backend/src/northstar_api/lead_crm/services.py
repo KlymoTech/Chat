@@ -17,11 +17,13 @@ from northstar_api.lead_crm.domain import (
     LeadLifecycleStatus,
     QualificationStatus,
 )
+from northstar_api.lead_crm.mapping import canonical_lead
 from northstar_api.lead_crm.models import (
     Contact,
     ContactIdentity,
     CRMConnection,
     CRMDelivery,
+    CRMFieldMapping,
     CRMRoute,
     LeadActivityEvent,
     LeadProfile,
@@ -154,7 +156,7 @@ class IdentityService:
                     provider=identity_provider,
                     normalized_value=value if identity_provider is None else None,
                     external_id=value if identity_provider else None,
-                    verified=identity_type in {"email", "phone"},
+                    verified=False,
                 )
                 try:
                     async with session.begin_nested():
@@ -400,7 +402,19 @@ class CRMRouteService:
             )
             if not connection:
                 continue
-            idempotency_key = f"{tenant_id}:{lead_id}:{connection.id}:upsert:v1"
+            mapping = await session.scalar(
+                select(CRMFieldMapping).where(
+                    CRMFieldMapping.tenant_id == tenant_id,
+                    CRMFieldMapping.connection_id == connection.id,
+                    CRMFieldMapping.object_name == "Leads",
+                )
+            )
+            payload_basis = canonical_lead(lead, profile)
+            payload_basis.pop("createdAt", None)
+            payload_basis.pop("updatedAt", None)
+            payload_basis["mappingVersion"] = mapping.version if mapping else 0
+            digest = _payload_hash(payload_basis)
+            idempotency_key = f"{tenant_id}:{lead_id}:{connection.id}:upsert:{digest}"
             delivery = await session.scalar(
                 select(CRMDelivery).where(
                     CRMDelivery.tenant_id == tenant_id,
@@ -410,13 +424,6 @@ class CRMRouteService:
             if delivery:
                 deliveries.append(delivery)
                 continue
-            payload_basis = {
-                "leadId": str(lead.id),
-                "name": lead.name,
-                "email": lead.email,
-                "phone": lead.phone,
-                "profile": profile.custom_fields_json,
-            }
             candidate = CRMDelivery(
                 tenant_id=tenant_id,
                 lead_id=lead.id,
@@ -426,7 +433,8 @@ class CRMRouteService:
                 idempotency_key=idempotency_key,
                 status=CRMDeliveryStatus.QUEUED.value,
                 queued_at=datetime.now(UTC),
-                payload_hash=_payload_hash(payload_basis),
+                payload_hash=digest,
+                mapping_version=mapping.version if mapping else 0,
                 correlation_id=correlation_id,
             )
             try:

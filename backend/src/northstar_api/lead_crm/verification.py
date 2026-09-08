@@ -65,35 +65,50 @@ def verify_record(
     compared: list[str] = []
     for source, target in fields.items():
         if not isinstance(target, str) or not target:
-            raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Read-back paths must be non-empty strings")
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Read-back paths must be non-empty strings"
+            )
         expected = _extract(payload, str(source))
         actual = _extract(record, target)
         if expected is None or actual is None or actual != expected:
             raise CRMError(
                 NormalizedCRMErrorCode.VALIDATION_ERROR,
-                "CRM read-back values do not match the transmitted payload", retryable=True,
+                "CRM read-back values do not match the transmitted payload",
+                retryable=True,
             )
         compared.append(str(source))
     return {
-        "recordIdMatched": True, "fieldsCompared": compared,
+        "recordIdMatched": True,
+        "fieldsCompared": compared,
         "scope": "mapped_fields" if compared else "record_identity",
     }
 
 
 def _event(session: AsyncSession, delivery: CRMDelivery, event_type: str, **details: Any) -> None:
     summary = {
-        "deliveryId": str(delivery.id), "provider": delivery.provider,
+        "deliveryId": str(delivery.id),
+        "provider": delivery.provider,
         "externalRecordId": delivery.external_record_id,
         "verificationStatus": delivery.verification_status,
-        "verificationAttempt": delivery.verification_attempt_count, **details,
+        "verificationAttempt": delivery.verification_attempt_count,
+        **details,
     }
-    session.add(LeadActivityEvent(
-        tenant_id=delivery.tenant_id, lead_id=delivery.lead_id, event_type=event_type,
-        correlation_id=delivery.correlation_id, details_json=summary,
-    ))
+    session.add(
+        LeadActivityEvent(
+            tenant_id=delivery.tenant_id,
+            lead_id=delivery.lead_id,
+            event_type=event_type,
+            correlation_id=delivery.correlation_id,
+            details_json=summary,
+        )
+    )
     enqueue_event(
-        session, tenant_id=delivery.tenant_id, aggregate_type="crm_delivery", aggregate_id=delivery.id,
-        event_type=event_type, payload={"leadId": str(delivery.lead_id), **summary},
+        session,
+        tenant_id=delivery.tenant_id,
+        aggregate_type="crm_delivery",
+        aggregate_id=delivery.id,
+        event_type=event_type,
+        payload={"leadId": str(delivery.lead_id), **summary},
     )
 
 
@@ -106,7 +121,9 @@ async def verification_failed(
     delivery.next_retry_at = None
     delivery.verified_at = None
     delivery.verification_error_code = error.code.value
-    delivery.verification_error_message = "CRM read-back verification failed; provider acknowledgement is preserved"
+    delivery.verification_error_message = (
+        "CRM read-back verification failed; provider acknowledgement is preserved"
+    )
     delivery.verification_evidence_json = {}
     config = connection.configuration_json if connection else {}
     limit = bounded_int(config.get("verificationMaxAttempts", 5), 5, 1, 20)
@@ -127,16 +144,23 @@ async def verification_failed(
     else:
         delivery.verification_status = "failed"
         delivery.next_verification_at = None
-        existing = await session.scalar(select(IntegrationDeadLetter.id).where(
-            IntegrationDeadLetter.tenant_id == delivery.tenant_id,
-            IntegrationDeadLetter.delivery_id == delivery.id, IntegrationDeadLetter.status == "open",
-        ))
+        existing = await session.scalar(
+            select(IntegrationDeadLetter.id).where(
+                IntegrationDeadLetter.tenant_id == delivery.tenant_id,
+                IntegrationDeadLetter.delivery_id == delivery.id,
+                IntegrationDeadLetter.status == "open",
+            )
+        )
         if existing is None:
-            session.add(IntegrationDeadLetter(
-                tenant_id=delivery.tenant_id, delivery_id=delivery.id, reason_code=error.code.value,
-                reason_message="Read-back verification failed; do not resend the acknowledged write",
-                metadata_json={"phase": "verification", "attempts": delivery.verification_attempt_count},
-            ))
+            session.add(
+                IntegrationDeadLetter(
+                    tenant_id=delivery.tenant_id,
+                    delivery_id=delivery.id,
+                    reason_code=error.code.value,
+                    reason_message="Read-back verification failed; do not resend the acknowledged write",
+                    metadata_json={"phase": "verification", "attempts": delivery.verification_attempt_count},
+                )
+            )
     _event(session, delivery, "lead.crm.verification.failed.v1", errorCode=error.code.value)
 
 
@@ -166,7 +190,9 @@ async def verify_delivery(session: AsyncSession, delivery: CRMDelivery) -> bool:
     started = time.monotonic()
     try:
         if not delivery.external_record_id:
-            raise CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Provider acknowledgement has no record ID")
+            raise CRMError(
+                NormalizedCRMErrorCode.VALIDATION_ERROR, "Provider acknowledgement has no record ID"
+            )
         connection, context = await load_connection_context(
             session, tenant_id=delivery.tenant_id, connection_id=delivery.connection_id
         )
@@ -181,7 +207,10 @@ async def verify_delivery(session: AsyncSession, delivery: CRMDelivery) -> bool:
         delivery.verification_error_message = None
         delivery.verification_evidence_json = evidence
         _event(
-            session, delivery, "lead.crm.delivery.verified.v1", evidence=evidence,
+            session,
+            delivery,
+            "lead.crm.delivery.verified.v1",
+            evidence=evidence,
             latencyMs=int((time.monotonic() - started) * 1000),
         )
         return True
@@ -189,7 +218,9 @@ async def verify_delivery(session: AsyncSession, delivery: CRMDelivery) -> bool:
         await verification_failed(session, delivery, connection, exc)
     except (ValueError, TypeError, KeyError):
         await verification_failed(
-            session, delivery, connection,
+            session,
+            delivery,
+            connection,
             CRMError(NormalizedCRMErrorCode.VALIDATION_ERROR, "Malformed CRM read-back response"),
         )
     return False

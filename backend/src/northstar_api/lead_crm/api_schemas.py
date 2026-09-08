@@ -93,6 +93,12 @@ class CRMDeliveryOut(LeadCRMModel):
     operation: str
     status: CRMDeliveryStatus
     attempt_count: int
+    verification_status: str
+    verification_attempt_count: int
+    next_verification_at: datetime | None
+    verification_error_code: str | None
+    verification_error_message: str | None
+    verification_evidence: dict[str, Any]
     external_record_id: str | None
     queued_at: datetime | None
     sent_at: datetime | None

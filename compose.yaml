@@ -387,6 +387,24 @@ services:
     networks: [data, events]
     security_opt: [no-new-privileges:true]
 
+  crm-webhook-consumer:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.crm_webhook_consumer"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-crm-webhook-consumer
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [data, events]
+    security_opt: [no-new-privileges:true]
+
   postgres:
     image: pgvector/pgvector:0.8.0-pg16@sha256:a132765ec351c65111b5b675928a3a0515a466a40f97277329db8b8209ad8bc9
     restart: unless-stopped

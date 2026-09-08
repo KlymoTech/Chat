@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
+from northstar_api.lead_crm.models import CRMConnection
+from northstar_api.lead_crm.verification import as_utc
 
 
 class CircuitState(str, enum.Enum):
@@ -47,6 +49,13 @@ async def get_or_create_circuit(
     tenant_id: UUID,
     connection_id: UUID,
 ) -> CRMCircuitBreaker:
+    connection = await session.scalar(
+        select(CRMConnection.id)
+        .where(CRMConnection.id == connection_id, CRMConnection.tenant_id == tenant_id)
+        .with_for_update()
+    )
+    if connection is None:
+        raise ValueError("CRM circuit connection does not exist in tenant scope")
     circuit = await session.scalar(
         select(CRMCircuitBreaker).where(
             CRMCircuitBreaker.tenant_id == tenant_id,
@@ -70,14 +79,12 @@ async def allow_request(
     now = datetime.now(UTC)
     if circuit.state == CircuitState.CLOSED.value:
         return True
-    if circuit.state == CircuitState.OPEN.value:
-        if circuit.open_until is None or circuit.open_until > now:
-            return False
-        circuit.state = CircuitState.HALF_OPEN.value
-        return True
-    # Only one delivery can probe a half-open circuit at a time because callers
-    # lock the delivery/connection row before invoking this function.
-    return circuit.state == CircuitState.HALF_OPEN.value
+    if circuit.open_until is None or as_utc(circuit.open_until) > now:
+        return False
+    # Persist a lease so another worker cannot probe the same half-open circuit.
+    circuit.state = CircuitState.HALF_OPEN.value
+    circuit.open_until = now + timedelta(seconds=120)
+    return True
 
 
 async def record_success(

@@ -70,6 +70,12 @@ def _delivery_out(value: CRMDelivery) -> CRMDeliveryOut:
         operation=value.operation,
         status=CRMDeliveryStatus(value.status),
         attempt_count=value.attempt_count,
+        verification_status=value.verification_status,
+        verification_attempt_count=value.verification_attempt_count,
+        next_verification_at=value.next_verification_at,
+        verification_error_code=value.verification_error_code,
+        verification_error_message=value.verification_error_message,
+        verification_evidence=value.verification_evidence_json,
         external_record_id=value.external_record_id,
         queued_at=value.queued_at,
         sent_at=value.sent_at,
@@ -458,15 +464,48 @@ async def list_crm_deliveries(principal: CurrentPrincipal, session: DB) -> list[
 @router.post("/crm/deliveries/{delivery_id}/retry", response_model=CRMDeliveryOut)
 async def retry_crm_delivery(delivery_id: UUID, principal: AdminPrincipal, session: DB) -> CRMDeliveryOut:
     value = await session.scalar(
-        select(CRMDelivery).where(CRMDelivery.id == delivery_id, CRMDelivery.tenant_id == principal.tenant_id)
+        select(CRMDelivery)
+        .where(CRMDelivery.id == delivery_id, CRMDelivery.tenant_id == principal.tenant_id)
+        .with_for_update()
     )
     if not value:
         raise HTTPException(status_code=404, detail="CRM delivery not found")
-    if value.status not in {"failed", "dead_letter", "mapping_error", "auth_required", "rate_limited"}:
-        raise HTTPException(status_code=409, detail="CRM delivery is not retryable from its current state")
-    value.status = CRMDeliveryStatus.RETRYING.value
-    value.next_retry_at = datetime.now(UTC)
-    value.last_error_message = None
+    if value.acknowledged_at is not None:
+        if value.verification_status not in {"failed", "auth_required", "retrying"}:
+            raise HTTPException(status_code=409, detail="CRM verification is not retryable")
+        value.status = CRMDeliveryStatus.ACKNOWLEDGED.value
+        value.verification_status = "pending"
+        value.verification_cycle_attempts = 0
+        value.next_verification_at = datetime.now(UTC)
+        value.verification_error_code = None
+        value.verification_error_message = None
+        phase = "verification"
+    else:
+        if value.status not in {"failed", "dead_letter", "mapping_error", "auth_required", "rate_limited"}:
+            raise HTTPException(
+                status_code=409, detail="CRM delivery is not retryable from its current state"
+            )
+        if value.last_error_code == "ambiguous_provider_ack":
+            raise HTTPException(
+                status_code=409,
+                detail="Reconcile the provider record before retrying an ambiguous acknowledgement",
+            )
+        value.status = CRMDeliveryStatus.RETRYING.value
+        value.retry_cycle_attempts = 0
+        value.next_retry_at = datetime.now(UTC)
+        value.last_error_message = None
+        phase = "delivery"
+    session.add(
+        LeadActivityEvent(
+            tenant_id=principal.tenant_id,
+            lead_id=value.lead_id,
+            event_type="lead.crm.retry.requested.v1",
+            actor_type="user",
+            actor_id=str(principal.user_id),
+            correlation_id=request_id_ctx.get(),
+            details_json={"deliveryId": str(value.id), "phase": phase},
+        )
+    )
     await session.commit()
     await session.refresh(value)
     return _delivery_out(value)
@@ -475,11 +514,19 @@ async def retry_crm_delivery(delivery_id: UUID, principal: AdminPrincipal, sessi
 @router.post("/crm/deliveries/{delivery_id}/cancel", response_model=CRMDeliveryOut)
 async def cancel_crm_delivery(delivery_id: UUID, principal: AdminPrincipal, session: DB) -> CRMDeliveryOut:
     value = await session.scalar(
-        select(CRMDelivery).where(CRMDelivery.id == delivery_id, CRMDelivery.tenant_id == principal.tenant_id)
+        select(CRMDelivery)
+        .where(CRMDelivery.id == delivery_id, CRMDelivery.tenant_id == principal.tenant_id)
+        .with_for_update()
     )
     if not value:
         raise HTTPException(status_code=404, detail="CRM delivery not found")
-    if value.status in {"verified", "cancelled"}:
+    if value.acknowledged_at is not None or value.status in {
+        "processing",
+        "sent",
+        "verifying",
+        "verified",
+        "cancelled",
+    }:
         raise HTTPException(status_code=409, detail="CRM delivery cannot be cancelled")
     value.status = CRMDeliveryStatus.CANCELLED.value
     value.next_retry_at = None
