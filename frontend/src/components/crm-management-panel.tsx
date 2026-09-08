@@ -36,7 +36,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       return;
     }
     if (!connections.some((connection) => connection.id === selectedId)) {
-      setSelectedId(connections[0].id);
+      setSelectedId(connections[0]?.id ?? '');
     }
   }, [connections, selectedId]);
 
