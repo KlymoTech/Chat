@@ -49,7 +49,7 @@ def _retry_delay(attempt: int, retry_after: int | None = None) -> int:
         return min(max(retry_after, 1), 3600)
     base = min(900, 2 ** min(max(attempt, 1), 9))
     jitter_max = max(1, min(10, int(base * 0.2)))
-    return max(1, base + secrets.randbelow(jitter_max + 1))
+    return int(max(1, base + secrets.randbelow(jitter_max + 1)))
 
 
 def _max_attempts(connection: CRMConnection) -> int:
@@ -350,18 +350,18 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
             tenant_id=delivery.tenant_id,
             connection_id=connection.id,
         )
-        attempt = await session.scalar(
+        stored_attempt = await session.scalar(
             select(CRMDeliveryAttempt).where(
                 CRMDeliveryAttempt.delivery_id == delivery.id,
                 CRMDeliveryAttempt.attempt_number == delivery.attempt_count,
             )
         )
-        if attempt:
-            attempt.finished_at = now
-            attempt.http_status = result.http_status
-            attempt.latency_ms = int((time.monotonic() - started) * 1000)
-            attempt.result_status = "acknowledged"
-            attempt.provider_request_id = result.provider_request_id
+        if stored_attempt:
+            stored_attempt.finished_at = now
+            stored_attempt.http_status = result.http_status
+            stored_attempt.latency_ms = int((time.monotonic() - started) * 1000)
+            stored_attempt.result_status = "acknowledged"
+            stored_attempt.provider_request_id = result.provider_request_id
 
         if delivery.external_record_id:
             reference = await session.scalar(
@@ -478,7 +478,7 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
                     CRMConnection.tenant_id == delivery.tenant_id,
                 )
             )
-        attempt = await session.scalar(
+        stored_attempt = await session.scalar(
             select(CRMDeliveryAttempt).where(
                 CRMDeliveryAttempt.delivery_id == delivery.id,
                 CRMDeliveryAttempt.attempt_number == delivery.attempt_count,

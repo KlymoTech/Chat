@@ -322,7 +322,8 @@ class ZohoCRMConnector(CRMConnector):
                 http_status=response.status_code,
                 provider_code=code,
             )
-        details = result.get("details") if isinstance(result.get("details"), dict) else {}
+        details_value = result.get("details")
+        details: dict[str, Any] = dict(details_value) if isinstance(details_value, dict) else {}
         record_id = details.get("id")
         return CRMDeliveryResult(
             accepted=True,

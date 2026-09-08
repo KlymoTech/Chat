@@ -104,9 +104,7 @@ class MetaMessagingConnector(ChannelConnector):
                                     else str(message.get("type") or "unknown")
                                 ),
                                 text=(
-                                    str(message.get("text"))
-                                    if isinstance(message.get("text"), str)
-                                    else None
+                                    str(message.get("text")) if isinstance(message.get("text"), str) else None
                                 ),
                                 provider_timestamp=_timestamp_seconds(item.get("timestamp")),
                             ),
@@ -195,7 +193,9 @@ class TelegramConnector(ChannelConnector):
         raw_event_id: uuid.UUID | None = None,
     ) -> list[CanonicalInboundEvent]:
         update_id = payload.get("update_id")
-        message_value = payload.get("message") or payload.get("edited_message") or payload.get("business_message")
+        message_value = (
+            payload.get("message") or payload.get("edited_message") or payload.get("business_message")
+        )
         if update_id is None or not isinstance(message_value, dict):
             return []
         message = _as_dict(message_value)

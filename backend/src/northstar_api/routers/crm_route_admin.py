@@ -30,7 +30,9 @@ class CRMRoutePatch(BaseModel):
 def _route_out(value: CRMRoute) -> CRMRouteOut:
     actions = dict(value.actions_json or {})
     raw_connection_ids = actions.get("connectionIds")
-    connection_ids = [str(item) for item in raw_connection_ids] if isinstance(raw_connection_ids, list) else []
+    connection_ids = (
+        [str(item) for item in raw_connection_ids] if isinstance(raw_connection_ids, list) else []
+    )
     return CRMRouteOut(
         id=value.id,
         name=value.name,
