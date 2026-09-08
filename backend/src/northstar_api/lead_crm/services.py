@@ -247,10 +247,10 @@ class LeadDomainService:
                 tenant_id=lead.tenant_id,
                 lead_id=lead.id,
                 event_type="lead.profile.created.v1",
-                details_json={"contactId": str(contact.id), "publicId": profile.public_id},
+                details_json={"contactId": str(contact.id), "publicId": candidate.public_id},
             )
         )
-        return profile
+        return candidate
 
     async def qualify(
         self,
