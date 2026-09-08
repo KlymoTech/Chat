@@ -1,0 +1,434 @@
+from __future__ import annotations
+
+import asyncio
+import signal
+from datetime import UTC, datetime
+from uuid import UUID
+
+import structlog
+from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
+from aiokafka.structs import TopicPartition  # type: ignore[import-untyped]
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from northstar_api.config import get_settings
+from northstar_api.database import build_engine, set_tenant_context
+from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channels import CanonicalInboundEvent, ChannelConnectionContext, channel_registry
+from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
+from northstar_api.lead_crm.domain import ChannelProvider, LeadLifecycleStatus, QualificationStatus
+from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile, RawWebhookEvent
+from northstar_api.lead_crm.qualification import lead_qualification_engine
+from northstar_api.lead_crm.services import lead_domain_service
+from northstar_api.logging import configure_logging
+from northstar_api.models import Agent, Channel, Conversation, ConversationState, Lead, Message, MessageRole, ProcessedEvent
+from northstar_api.services.outbox import enqueue_event
+from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
+
+settings = get_settings()
+configure_logging(settings)
+logger = structlog.get_logger(__name__)
+CONSUMER_NAME = "channel-lead-router-v1"
+TOPICS = ["channel.event.received.v1"]
+
+
+def _raw_event_id(event: EventEnvelope) -> UUID:
+    try:
+        return UUID(str(event.payload["rawEventId"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("channel event has no valid rawEventId") from exc
+
+
+def _conversation_channel(provider: ChannelProvider) -> Channel:
+    if provider == ChannelProvider.WHATSAPP:
+        return Channel.WHATSAPP
+    if provider == ChannelProvider.WIDGET:
+        return Channel.WIDGET
+    if provider == ChannelProvider.SLACK:
+        return Channel.SLACK
+    return Channel.API
+
+
+def _visitor_key(event: CanonicalInboundEvent) -> str:
+    source = event.conversation_reference or event.sender.external_id or event.external_event_id
+    return f"{event.provider.value}:{source}"[:128]
+
+
+async def _get_or_create_conversation(
+    session: AsyncSession,
+    *,
+    event: CanonicalInboundEvent,
+    agent: Agent,
+) -> Conversation:
+    visitor_id = _visitor_key(event)
+    conversation = await session.scalar(
+        select(Conversation)
+        .where(
+            Conversation.tenant_id == event.tenant_id,
+            Conversation.agent_id == agent.id,
+            Conversation.visitor_id == visitor_id,
+            Conversation.state == ConversationState.OPEN,
+        )
+        .order_by(Conversation.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if conversation:
+        return conversation
+    conversation = Conversation(
+        tenant_id=event.tenant_id,
+        agent_id=agent.id,
+        visitor_id=visitor_id,
+        visitor_name=event.sender.name or "Messaging customer",
+        visitor_email=event.sender.email,
+        channel=_conversation_channel(event.provider),
+        state=ConversationState.OPEN,
+    )
+    session.add(conversation)
+    await session.flush()
+    return conversation
+
+
+async def _persist_message(
+    session: AsyncSession,
+    *,
+    event: CanonicalInboundEvent,
+    conversation: Conversation,
+) -> None:
+    if event.message is None or event.message.text is None:
+        return
+    idempotency = (
+        f"channel:{event.provider.value}:{event.connection_key}:"
+        f"{event.message.external_message_id or event.external_event_id}"
+    )[:128]
+    existing = await session.scalar(
+        select(Message.id).where(
+            Message.tenant_id == event.tenant_id,
+            Message.idempotency_key == idempotency,
+        )
+    )
+    if existing:
+        return
+    next_sequence = int(
+        await session.scalar(
+            select(func.coalesce(func.max(Message.sequence), 0)).where(
+                Message.tenant_id == event.tenant_id,
+                Message.conversation_id == conversation.id,
+            )
+        )
+        or 0
+    ) + 1
+    session.add(
+        Message(
+            tenant_id=event.tenant_id,
+            conversation_id=conversation.id,
+            sequence=next_sequence,
+            role=MessageRole.USER,
+            content=event.message.text,
+            idempotency_key=idempotency,
+        )
+    )
+
+
+async def _canonical_event(
+    session: AsyncSession,
+    *,
+    raw: RawWebhookEvent,
+    connection: ChannelConnection,
+) -> CanonicalInboundEvent | None:
+    if not connection.credentials_encrypted:
+        credentials = {}
+    else:
+        try:
+            credentials = credential_store.decrypt(connection.credentials_encrypted)
+        except CredentialStoreError as exc:
+            raise ValueError("channel credentials are unreadable") from exc
+    provider = ChannelProvider(connection.provider)
+    connector = channel_registry.get(provider)
+    values = await connector.normalize(
+        ChannelConnectionContext(
+            tenant_id=raw.tenant_id,
+            connection_id=connection.id,
+            provider=provider,
+            configuration=connection.configuration_json,
+            credentials=credentials,
+        ),
+        payload=raw.payload_json,
+        correlation_id=raw.correlation_id,
+        received_at=raw.received_at,
+        raw_event_id=raw.id,
+    )
+    return next((item for item in values if item.external_event_id == raw.external_event_id), None)
+
+
+async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
+    inserted = await session.scalar(
+        pg_insert(ProcessedEvent)
+        .values(event_id=event.event_id, consumer=CONSUMER_NAME)
+        .on_conflict_do_nothing(index_elements=[ProcessedEvent.event_id, ProcessedEvent.consumer])
+        .returning(ProcessedEvent.event_id)
+    )
+    if inserted is None:
+        await session.commit()
+        return
+    await set_tenant_context(session, event.tenant_id)
+    raw_id = _raw_event_id(event)
+    raw = await session.scalar(
+        select(RawWebhookEvent).where(
+            RawWebhookEvent.id == raw_id,
+            RawWebhookEvent.tenant_id == event.tenant_id,
+        )
+    )
+    if not raw:
+        raise ValueError("raw channel event no longer exists")
+    try:
+        connection_id = UUID(raw.connection_key)
+    except ValueError as exc:
+        raise ValueError("raw channel event has invalid connection key") from exc
+    connection = await session.scalar(
+        select(ChannelConnection).where(
+            ChannelConnection.id == connection_id,
+            ChannelConnection.tenant_id == event.tenant_id,
+            ChannelConnection.status != "disabled",
+        )
+    )
+    if not connection:
+        raise ValueError("channel connection is unavailable")
+    canonical = await _canonical_event(session, raw=raw, connection=connection)
+    if canonical is None or canonical.event_type != "message.received":
+        raw.processing_status = "ignored"
+        raw.processed_at = datetime.now(UTC)
+        await session.commit()
+        return
+
+    raw_agent_id = connection.configuration_json.get("agentId")
+    try:
+        agent_id = UUID(str(raw_agent_id))
+    except (TypeError, ValueError) as exc:
+        connection.status = "configuration_error"
+        connection.last_error = "Channel connection must configure a valid agentId"
+        raw.processing_status = "failed"
+        raw.last_error = "agent_not_configured"
+        await session.commit()
+        raise ValueError("channel connection has no valid agentId") from exc
+    agent = await session.scalar(
+        select(Agent).where(Agent.id == agent_id, Agent.tenant_id == event.tenant_id)
+    )
+    if not agent:
+        raise ValueError("channel connection agent does not exist in tenant scope")
+
+    conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+    await _persist_message(session, event=canonical, conversation=conversation)
+    contact = await lead_domain_service.identity.resolve_or_create_contact(
+        session,
+        tenant_id=event.tenant_id,
+        name=canonical.sender.name,
+        email=canonical.sender.email,
+        phone=canonical.sender.phone,
+        provider=canonical.provider.value,
+        provider_external_id=canonical.sender.external_id,
+    )
+    decision = await lead_qualification_engine.decide(
+        session,
+        tenant_id=event.tenant_id,
+        event=canonical,
+        fallback=dict(connection.configuration_json.get("leadCaptureDefault") or {}),
+    )
+    profile = await session.scalar(
+        select(LeadProfile)
+        .where(
+            LeadProfile.tenant_id == event.tenant_id,
+            LeadProfile.contact_id == contact.id,
+        )
+        .order_by(LeadProfile.created_at.desc())
+        .limit(1)
+    )
+    lead: Lead | None = None
+    if profile:
+        lead = await session.scalar(
+            select(Lead).where(Lead.id == profile.lead_id, Lead.tenant_id == event.tenant_id)
+        )
+    if lead is None and decision.create_lead:
+        lead = Lead(
+            tenant_id=event.tenant_id,
+            agent_id=agent.id,
+            conversation_id=conversation.id,
+            name=canonical.sender.name,
+            email=canonical.sender.email,
+            phone=canonical.sender.phone,
+            status=LeadLifecycleStatus.NEW.value,
+            consent=False,
+            fields_json={"channelMetadata": canonical.metadata},
+        )
+        session.add(lead)
+        await session.flush()
+        profile = await lead_domain_service.ensure_profile(
+            session,
+            lead=lead,
+            source_channel=canonical.provider.value,
+            source_provider=canonical.provider.value,
+            source_connection_id=str(connection.id),
+            source_external_id=canonical.sender.external_id,
+        )
+        if profile.contact_id != contact.id:
+            profile.contact_id = contact.id
+        if canonical.campaign_attribution:
+            profile.campaign = str(
+                canonical.campaign_attribution.get("name")
+                or canonical.campaign_attribution.get("campaign")
+                or ""
+            ) or None
+        enqueue_event(
+            session,
+            tenant_id=event.tenant_id,
+            aggregate_type="lead",
+            aggregate_id=lead.id,
+            event_type="lead.created.v1",
+            payload={"leadId": str(lead.id), "agentId": str(agent.id), "source": canonical.provider.value},
+        )
+    elif lead is not None and profile is not None:
+        lead.conversation_id = lead.conversation_id or conversation.id
+        lead.name = lead.name or canonical.sender.name
+        lead.email = lead.email or canonical.sender.email
+        lead.phone = lead.phone or canonical.sender.phone
+        profile.last_touch_at = canonical.received_at
+        profile.source_channel = profile.source_channel or canonical.provider.value
+        profile.source_provider = profile.source_provider or canonical.provider.value
+        profile.source_connection_id = profile.source_connection_id or str(connection.id)
+        profile.source_external_id = profile.source_external_id or canonical.sender.external_id
+
+    if lead is not None and profile is not None and decision.qualify:
+        if decision.sync_to_crm:
+            await lead_domain_service.qualify(
+                session,
+                lead=lead,
+                score=decision.score,
+                reason=decision.reason,
+                actor_id=None,
+                correlation_id=canonical.correlation_id,
+            )
+        else:
+            profile.lifecycle_status = LeadLifecycleStatus.QUALIFIED.value
+            profile.qualification_status = QualificationStatus.QUALIFIED.value
+            profile.qualification_score = decision.score
+            profile.qualification_reason = decision.reason
+            profile.qualified_at = datetime.now(UTC)
+            lead.status = LeadLifecycleStatus.QUALIFIED.value
+            session.add(
+                LeadActivityEvent(
+                    tenant_id=event.tenant_id,
+                    lead_id=lead.id,
+                    event_type="lead.qualified.v1",
+                    correlation_id=canonical.correlation_id,
+                    details_json={"score": decision.score, "reason": decision.reason},
+                )
+            )
+            enqueue_event(
+                session,
+                tenant_id=event.tenant_id,
+                aggregate_type="lead",
+                aggregate_id=lead.id,
+                event_type="lead.qualified.v1",
+                payload={"leadId": str(lead.id), "score": decision.score},
+            )
+    elif lead is not None and decision.sync_to_crm:
+        await lead_domain_service.request_sync(
+            session,
+            lead=lead,
+            reason=decision.reason,
+            correlation_id=canonical.correlation_id,
+        )
+
+    raw.processing_status = "processed"
+    raw.processed_at = datetime.now(UTC)
+    raw.attempt_count += 1
+    enqueue_event(
+        session,
+        tenant_id=event.tenant_id,
+        aggregate_type="raw_webhook_event",
+        aggregate_id=raw.id,
+        event_type="channel.event.processed.v1",
+        payload={
+            "rawEventId": str(raw.id),
+            "provider": canonical.provider.value,
+            "leadId": str(lead.id) if lead else None,
+        },
+    )
+    await session.commit()
+
+
+async def consume_forever() -> None:
+    engine = build_engine(settings)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    consumer = AIOKafkaConsumer(
+        *TOPICS,
+        bootstrap_servers=settings.kafka_bootstrap_servers,
+        group_id=CONSUMER_NAME,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        client_id="northstar-channel-lead-router",
+    )
+    await consumer.start()
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signal_name in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(signal_name, stop.set)
+        except NotImplementedError:
+            pass
+    logger.info("channel_event_consumer_started")
+    try:
+        while not stop.is_set():
+            batch = await consumer.getmany(timeout_ms=1000, max_records=1)
+            for messages in batch.values():
+                for message in messages:
+                    tp = TopicPartition(message.topic, message.partition)
+                    raw_bytes = message.value if isinstance(message.value, bytes) else b""
+                    try:
+                        envelope = parse_envelope(raw_bytes)
+                        if envelope.event_type != message.topic:
+                            raise ValueError("event type does not match Kafka topic")
+                        _raw_event_id(envelope)
+                    except ValueError as exc:
+                        async with factory() as session:
+                            await quarantine_event(
+                                session,
+                                consumer=CONSUMER_NAME,
+                                topic=message.topic,
+                                partition=message.partition,
+                                offset=message.offset,
+                                raw=raw_bytes,
+                                error=exc,
+                            )
+                        await consumer.commit({tp: message.offset + 1})
+                        continue
+                    try:
+                        async with factory() as session:
+                            await _process_event(session, envelope)
+                        await consumer.commit({tp: message.offset + 1})
+                    except Exception as exc:
+                        logger.warning(
+                            "channel_event_retry",
+                            event_id=str(envelope.event_id),
+                            error=type(exc).__name__,
+                        )
+                        consumer.seek(tp, message.offset)
+                        try:
+                            await asyncio.wait_for(stop.wait(), timeout=1.0)
+                        except TimeoutError:
+                            pass
+    finally:
+        await consumer.stop()
+        await engine.dispose()
+        logger.info("channel_event_consumer_stopped")
+
+
+def main() -> None:
+    if not settings.kafka_enabled:
+        raise SystemExit("KAFKA_ENABLED must be true for the channel event consumer")
+    asyncio.run(consume_forever())
+
+
+if __name__ == "__main__":
+    main()
