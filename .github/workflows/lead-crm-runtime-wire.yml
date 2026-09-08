@@ -1,0 +1,68 @@
+name: Lead CRM one-shot runtime wiring
+
+on:
+  push:
+    branches:
+      - feature/lead-crm-omnichannel-platform
+
+permissions:
+  contents: write
+
+jobs:
+  wire-runtime:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: feature/lead-crm-omnichannel-platform
+      - name: Wire Compose, env example and CLI entry points
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          compose = Path('compose.yaml')
+          text = compose.read_text()
+          marker = '  WHATSAPP_DISPATCH_MAX_ATTEMPTS: ${WHATSAPP_DISPATCH_MAX_ATTEMPTS:-8}\n'
+          if 'CRM_CREDENTIAL_ENCRYPTION_KEY:' not in text:
+              text = text.replace(marker, marker + '  CRM_CREDENTIAL_ENCRYPTION_KEY: ${CRM_CREDENTIAL_ENCRYPTION_KEY:-replace-with-at-least-32-random-characters-for-crm}\n')
+          if '\n  crm-router:\n' not in text:
+              services = '''\n  crm-router:\n    <<: *api-runtime\n    command: ["python", "-m", "northstar_api.workers.crm_router_consumer"]\n    environment:\n      <<: *api-environment\n      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}\n      DATABASE_APPLY_RUNTIME_ROLE: "false"\n      OTEL_SERVICE_NAME: northstar-crm-router\n    depends_on:\n      migrate:\n        condition: service_completed_successfully\n      kafka:\n        condition: service_healthy\n    healthcheck:\n      disable: true\n    networks: [data, events]\n    security_opt: [no-new-privileges:true]\n\n  crm-delivery:\n    <<: *api-runtime\n    command: ["python", "-m", "northstar_api.workers.crm_delivery_worker"]\n    environment:\n      <<: *api-environment\n      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}\n      DATABASE_APPLY_RUNTIME_ROLE: "false"\n      OTEL_SERVICE_NAME: northstar-crm-delivery\n    depends_on:\n      migrate:\n        condition: service_completed_successfully\n      redis:\n        condition: service_healthy\n    healthcheck:\n      disable: true\n    networks: [data, events, egress]\n    security_opt: [no-new-privileges:true]\n\n  crm-reconciliation:\n    <<: *api-runtime\n    command: ["python", "-m", "northstar_api.workers.crm_reconciliation"]\n    environment:\n      <<: *api-environment\n      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}\n      DATABASE_APPLY_RUNTIME_ROLE: "false"\n      OTEL_SERVICE_NAME: northstar-crm-reconciliation\n    depends_on:\n      migrate:\n        condition: service_completed_successfully\n    healthcheck:\n      disable: true\n    networks: [data, egress]\n    security_opt: [no-new-privileges:true]\n\n  channel-event-consumer:\n    <<: *api-runtime\n    command: ["python", "-m", "northstar_api.workers.channel_event_consumer"]\n    environment:\n      <<: *api-environment\n      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}\n      DATABASE_APPLY_RUNTIME_ROLE: "false"\n      OTEL_SERVICE_NAME: northstar-channel-event-consumer\n    depends_on:\n      migrate:\n        condition: service_completed_successfully\n      kafka:\n        condition: service_healthy\n    healthcheck:\n      disable: true\n    networks: [data, events]\n    security_opt: [no-new-privileges:true]\n'''
+              text = text.replace('\n  postgres:\n', services + '\n  postgres:\n')
+          compose.write_text(text)
+
+          env_file = Path('.env.example')
+          env = env_file.read_text()
+          if 'CRM_CREDENTIAL_ENCRYPTION_KEY=' not in env:
+              anchor = 'WHATSAPP_DISPATCH_MAX_ATTEMPTS=8\n'
+              addition = 'CRM_CREDENTIAL_ENCRYPTION_KEY=replace-with-at-least-32-random-characters-for-crm\n'
+              env = env.replace(anchor, anchor + addition) if anchor in env else env + '\n' + addition
+              env_file.write_text(env)
+
+          pyproject = Path('backend/pyproject.toml')
+          py = pyproject.read_text()
+          anchor = 'northstar-crm-delivery = "northstar_api.workers.crm_delivery_worker:main"\n'
+          additions = (
+              'northstar-crm-reconciliation = "northstar_api.workers.crm_reconciliation:main"\n'
+              'northstar-channel-events = "northstar_api.workers.channel_event_consumer:main"\n'
+          )
+          if 'northstar-crm-reconciliation' not in py:
+              py = py.replace(anchor, anchor + additions)
+              pyproject.write_text(py)
+          PY
+      - name: Validate Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+      - name: Commit runtime wiring
+        run: |
+          if git diff --quiet; then
+            echo 'Runtime already wired.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add compose.yaml .env.example backend/pyproject.toml
+          git commit -m 'deploy: wire Lead CRM workers into Compose runtime'
+          git push origin HEAD:feature/lead-crm-omnichannel-platform
