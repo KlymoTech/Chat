@@ -46,7 +46,12 @@ def verify_record(
     default_id = {CRMProvider.SALESFORCE: "Id", CRMProvider.DYNAMICS365: "leadid"}.get(context.provider, "id")
     id_path = str(context.configuration.get("readBackIdPath") or default_id)
     actual_id = _extract(record, id_path)
-    if actual_id is None or str(actual_id) != external_id:
+    if (
+        not external_id.strip()
+        or not isinstance(actual_id, (str, int))
+        or isinstance(actual_id, bool)
+        or str(actual_id) != external_id
+    ):
         raise CRMError(
             NormalizedCRMErrorCode.VALIDATION_ERROR,
             "CRM read-back did not prove the acknowledged record ID",
