@@ -99,7 +99,7 @@ async def refresh_crm_schema(
             CRMFieldSchema.object_name == object_name,
         )
     )
-    for field, value in zip(definitions, serialized, strict=True):
+    for field in definitions:
         session.add(
             CRMFieldSchema(
                 tenant_id=principal.tenant_id,
@@ -250,8 +250,6 @@ async def validate_crm_mapping(
         mapped_targets.update(str(key) for key in constants)
     unknown = sorted(target for target in mapped_targets if fields and target not in writable)
     missing_required = sorted(required - mapped_targets)
-    # Zoho defaults are supplied by the provider payload builder and count as
-    # covered when those fields exist in the current schema.
     if connection.provider == "zoho":
         for name in {"First_Name", "Last_Name", "Email", "Mobile", "Company", "Description"}:
             if name in writable:
