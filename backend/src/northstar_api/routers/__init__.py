@@ -9,6 +9,7 @@ from northstar_api.routers import (
     conversations,
     crm,
     crm_oauth,
+    crm_routes,
     crm_schema,
     crm_webhooks,
     integrations,
@@ -27,6 +28,7 @@ api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
 api_router.include_router(qualification.router)
 api_router.include_router(crm.router)
+api_router.include_router(crm_routes.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
