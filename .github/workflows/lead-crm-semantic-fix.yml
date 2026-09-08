@@ -32,11 +32,15 @@ jobs:
 
           native = Path('backend/src/northstar_api/lead_crm/providers/native_v2.py')
           text = native.read_text()
-          text = text.replace('token_url = ""', 'oauth_token_url = ""')
-          text = text.replace('self.token_url', 'self.oauth_token_url')
-          text = text.replace('token_url = "https://login.salesforce.com/services/oauth2/token"', 'oauth_token_url = "https://login.salesforce.com/services/oauth2/token"')
-          text = text.replace('token_url = "https://api.hubapi.com/oauth/v1/token"', 'oauth_token_url = "https://api.hubapi.com/oauth/v1/token"')
-          text = text.replace('token_url = "https://oauth.pipedrive.com/oauth/token"', 'oauth_token_url = "https://oauth.pipedrive.com/oauth/token"')
+          for old in ('token_url', 'oauth_token_url'):
+              text = text.replace(f'{old} = ""', 'oauth_endpoint = ""')
+              text = text.replace(f'self.{old}', 'self.oauth_endpoint')
+          text = text.replace('token_url = "https://login.salesforce.com/services/oauth2/token"', 'oauth_endpoint = "https://login.salesforce.com/services/oauth2/token"')
+          text = text.replace('oauth_token_url = "https://login.salesforce.com/services/oauth2/token"', 'oauth_endpoint = "https://login.salesforce.com/services/oauth2/token"')
+          text = text.replace('token_url = "https://api.hubapi.com/oauth/v1/token"', 'oauth_endpoint = "https://api.hubapi.com/oauth/2026-03/token"')
+          text = text.replace('oauth_token_url = "https://api.hubapi.com/oauth/v1/token"', 'oauth_endpoint = "https://api.hubapi.com/oauth/2026-03/token"')
+          text = text.replace('token_url = "https://oauth.pipedrive.com/oauth/token"', 'oauth_endpoint = "https://oauth.pipedrive.com/oauth/token"')
+          text = text.replace('oauth_token_url = "https://oauth.pipedrive.com/oauth/token"', 'oauth_endpoint = "https://oauth.pipedrive.com/oauth/token"')
           native.write_text(text)
 
           crm = Path('backend/src/northstar_api/routers/crm.py')
