@@ -332,7 +332,7 @@ async def _materialize_webpage_with_vision(source: KnowledgeSource) -> str:
         pages = await asyncio.to_thread(
             crawl_website,
             final_url,
-            10,
+            20, 
         )
     except Exception as exc:
         logger.warning(
