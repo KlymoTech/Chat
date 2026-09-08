@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from northstar_api.lead_crm.connectors import CRMError, crm_registry
-from northstar_api.lead_crm.domain import CRMProvider
+from northstar_api.lead_crm.connectors import crm_registry
 from northstar_api.lead_crm.providers.generic import GenericRESTConnector, GenericWebhookConnector
 from northstar_api.lead_crm.providers.zoho import ZohoCRMConnector
 
