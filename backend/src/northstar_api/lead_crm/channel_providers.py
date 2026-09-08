@@ -18,6 +18,10 @@ from northstar_api.lead_crm.channels import (
 from northstar_api.lead_crm.domain import ChannelProvider
 
 
+def _as_dict(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _timestamp_seconds(value: object) -> datetime | None:
     try:
         raw = float(value)  # type: ignore[arg-type]
@@ -66,17 +70,19 @@ class MetaMessagingConnector(ChannelConnector):
         entries = payload.get("entry")
         if not isinstance(entries, list):
             return output
-        for entry in entries:
-            if not isinstance(entry, dict):
+        for entry_value in entries:
+            if not isinstance(entry_value, dict):
                 continue
+            entry = _as_dict(entry_value)
             entry_id = str(entry.get("id") or "")
             messaging = entry.get("messaging")
             if isinstance(messaging, list):
-                for index, item in enumerate(messaging):
-                    if not isinstance(item, dict):
+                for index, item_value in enumerate(messaging):
+                    if not isinstance(item_value, dict):
                         continue
-                    sender = item.get("sender") if isinstance(item.get("sender"), dict) else {}
-                    message = item.get("message") if isinstance(item.get("message"), dict) else {}
+                    item = _as_dict(item_value)
+                    sender = _as_dict(item.get("sender"))
+                    message = _as_dict(item.get("message"))
                     message_id = str(message.get("mid") or "") or None
                     event_id = (
                         message_id or f"{entry_id}:{item.get('timestamp') or received_at.timestamp()}:{index}"
@@ -92,12 +98,16 @@ class MetaMessagingConnector(ChannelConnector):
                             sender=CanonicalSender(external_id=str(sender.get("id") or "") or None),
                             message=CanonicalMessage(
                                 external_message_id=message_id,
-                                message_type="text"
-                                if isinstance(message.get("text"), str)
-                                else str(message.get("type") or "unknown"),
-                                text=str(message.get("text"))
-                                if isinstance(message.get("text"), str)
-                                else None,
+                                message_type=(
+                                    "text"
+                                    if isinstance(message.get("text"), str)
+                                    else str(message.get("type") or "unknown")
+                                ),
+                                text=(
+                                    str(message.get("text"))
+                                    if isinstance(message.get("text"), str)
+                                    else None
+                                ),
                                 provider_timestamp=_timestamp_seconds(item.get("timestamp")),
                             ),
                             correlation_id=correlation_id,
@@ -109,27 +119,29 @@ class MetaMessagingConnector(ChannelConnector):
                     )
             changes = entry.get("changes")
             if isinstance(changes, list):
-                for index, change in enumerate(changes):
-                    if not isinstance(change, dict):
+                for index, change_value in enumerate(changes):
+                    if not isinstance(change_value, dict):
                         continue
-                    value = change.get("value") if isinstance(change.get("value"), dict) else {}
-                    messages = value.get("messages") if isinstance(value, dict) else None
-                    contacts = value.get("contacts") if isinstance(value, dict) else None
+                    change = _as_dict(change_value)
+                    value = _as_dict(change.get("value"))
+                    messages = value.get("messages")
+                    contacts = value.get("contacts")
                     contact_name = None
                     if isinstance(contacts, list) and contacts and isinstance(contacts[0], dict):
-                        profile = contacts[0].get("profile")
-                        if isinstance(profile, dict):
-                            contact_name = profile.get("name")
+                        profile = _as_dict(contacts[0].get("profile"))
+                        contact_name = profile.get("name")
                     if not isinstance(messages, list):
                         continue
-                    for message_index, message in enumerate(messages):
-                        if not isinstance(message, dict):
+                    for message_index, message_value in enumerate(messages):
+                        if not isinstance(message_value, dict):
                             continue
+                        message = _as_dict(message_value)
                         sender_id = str(message.get("from") or "") or None
                         external_id = (
                             str(message.get("id") or "") or f"{entry_id}:change:{index}:{message_index}"
                         )
-                        text_value = message.get("text") if isinstance(message.get("text"), dict) else {}
+                        text_value = _as_dict(message.get("text"))
+                        body_value = text_value.get("body")
                         output.append(
                             CanonicalInboundEvent(
                                 event_id=uuid.uuid4(),
@@ -146,9 +158,7 @@ class MetaMessagingConnector(ChannelConnector):
                                 message=CanonicalMessage(
                                     external_message_id=str(message.get("id") or "") or None,
                                     message_type=str(message.get("type") or "unknown"),
-                                    text=str(text_value.get("body"))
-                                    if text_value.get("body") is not None
-                                    else None,
+                                    text=str(body_value) if body_value is not None else None,
                                     provider_timestamp=_timestamp_seconds(message.get("timestamp")),
                                 ),
                                 correlation_id=correlation_id,
@@ -185,11 +195,12 @@ class TelegramConnector(ChannelConnector):
         raw_event_id: uuid.UUID | None = None,
     ) -> list[CanonicalInboundEvent]:
         update_id = payload.get("update_id")
-        message = payload.get("message") or payload.get("edited_message") or payload.get("business_message")
-        if update_id is None or not isinstance(message, dict):
+        message_value = payload.get("message") or payload.get("edited_message") or payload.get("business_message")
+        if update_id is None or not isinstance(message_value, dict):
             return []
-        sender = message.get("from") if isinstance(message.get("from"), dict) else {}
-        chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+        message = _as_dict(message_value)
+        sender = _as_dict(message.get("from"))
+        chat = _as_dict(message.get("chat"))
         text = message.get("text") or message.get("caption")
         sender_name = (
             " ".join(
@@ -228,9 +239,11 @@ class TelegramConnector(ChannelConnector):
 
     async def health_check(self, context: ChannelConnectionContext) -> dict[str, str]:
         return {
-            "status": "healthy"
-            if context.credentials.get("bot_token") and context.credentials.get("webhook_secret")
-            else "configuration_error"
+            "status": (
+                "healthy"
+                if context.credentials.get("bot_token") and context.credentials.get("webhook_secret")
+                else "configuration_error"
+            )
         }
 
 
@@ -265,12 +278,12 @@ class SignedAPIConnector(ChannelConnector):
         if not external_event_id:
             stable = json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str).encode()
             external_event_id = hashlib.sha256(stable).hexdigest()
-        sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
-        message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+        sender = _as_dict(payload.get("sender"))
+        message = _as_dict(payload.get("message"))
         message_text = message.get("text") if message else payload.get("messageText")
-        timestamp = (
-            payload.get("timestamp") or message.get("timestamp") if isinstance(message, dict) else None
-        )
+        timestamp = payload.get("timestamp") or message.get("timestamp")
+        campaign_value = payload.get("campaign")
+        metadata_value = payload.get("metadata")
         return [
             CanonicalInboundEvent(
                 event_id=uuid.uuid4(),
@@ -294,13 +307,9 @@ class SignedAPIConnector(ChannelConnector):
                 correlation_id=correlation_id,
                 received_at=received_at,
                 conversation_reference=str(payload.get("conversationId") or "") or None,
-                campaign_attribution=dict(payload.get("campaign") or {})
-                if isinstance(payload.get("campaign"), dict)
-                else {},
+                campaign_attribution=_as_dict(campaign_value),
                 raw_event_id=raw_event_id,
-                metadata=dict(payload.get("metadata") or {})
-                if isinstance(payload.get("metadata"), dict)
-                else {},
+                metadata=_as_dict(metadata_value),
             )
         ]
 
