@@ -1,28 +1,50 @@
-import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, Search, Terminal, Users, Zap } from 'lucide-react';
+import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, RefreshCw, Search, Terminal, Users, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
 import { WhatsAppIntegrationModal } from '@/components/whatsapp-integration-modal';
 import { api } from '@/lib/api';
+import { leadCrmApi, type CRMProviderId } from '@/lib/lead-crm-api';
 import { useApi } from '@/lib/use-api';
 import type { Integration } from '@/types';
 
 const iconMap = { code: Code2, hash: Hash, message: MessageCircle, zap: Zap, book: BookOpen, terminal: Terminal, users: Users, facebook: Facebook, instagram: Instagram };
+const oauthProviders = new Set<CRMProviderId>(['zoho', 'salesforce', 'hubspot', 'dynamics365', 'pipedrive']);
+
+function healthTone(status: string): 'success' | 'warning' | 'brand' | 'neutral' {
+  if (status === 'healthy') return 'success';
+  if (['unhealthy', 'auth_required', 'configuration_error', 'degraded'].includes(status)) return 'warning';
+  if (['connecting', 'rate_limited'].includes(status)) return 'brand';
+  return 'neutral';
+}
 
 export function IntegrationsPage() {
   const result = useApi(() => api.integrations.list());
+  const crmProviders = useApi(() => leadCrmApi.providers());
+  const crmConnections = useApi(() => leadCrmApi.connections());
+  const channelConnections = useApi(() => leadCrmApi.channelConnections());
   const { session } = useAuth();
   const { pushToast } = useToast();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<'all' | Integration['category']>('all');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
-  const canManageWhatsApp = session?.user.role === 'owner' || session?.user.role === 'admin';
+  const [crmProvider, setCrmProvider] = useState<CRMProviderId>('zoho');
+  const [crmName, setCrmName] = useState('');
+  const [crmClientId, setCrmClientId] = useState('');
+  const [crmClientSecret, setCrmClientSecret] = useState('');
+  const [crmApiKey, setCrmApiKey] = useState('');
+  const [crmBaseUrl, setCrmBaseUrl] = useState('');
+  const [channelProvider, setChannelProvider] = useState('telegram');
+  const [channelName, setChannelName] = useState('');
+  const [channelAgentId, setChannelAgentId] = useState('');
+  const [channelSecret, setChannelSecret] = useState('');
+  const canManage = session?.user.role === 'owner' || session?.user.role === 'admin';
   const items = useMemo(() => result.data?.filter((item) => (category === 'all' || item.category === category) && `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) ?? [], [category, result.data, search]);
 
   const activate = async (item: Integration) => {
     if (item.id === 'whatsapp') {
-      if (!canManageWhatsApp) return;
+      if (!canManage) return;
       setWhatsAppOpen(true);
       return;
     }
@@ -33,15 +55,89 @@ export function IntegrationsPage() {
     pushToast(`${item.name} ${next ? 'connected' : 'disconnected'}`);
   };
 
-  if (result.loading) return <PageLoader />;
+  const createCrm = async () => {
+    if (!crmName.trim()) return pushToast('Enter a connection name', 'error');
+    try {
+      const configuration: Record<string, unknown> = {};
+      const credentials: Record<string, unknown> = {};
+      if (crmBaseUrl.trim()) configuration.baseUrl = crmBaseUrl.trim();
+      if (crmClientId.trim()) credentials.client_id = crmClientId.trim();
+      if (crmClientSecret) credentials.client_secret = crmClientSecret;
+      if (crmApiKey) credentials.api_key = crmApiKey;
+      const created = await leadCrmApi.createConnection({ provider: crmProvider, name: crmName.trim(), configuration, credentials });
+      pushToast(`${created.name} created`);
+      setCrmName(''); setCrmClientId(''); setCrmClientSecret(''); setCrmApiKey(''); setCrmBaseUrl('');
+      crmConnections.reload();
+      if (oauthProviders.has(crmProvider)) {
+        const oauth = await leadCrmApi.startOAuth(created.id);
+        window.location.assign(oauth.authorizationUrl);
+      } else {
+        await leadCrmApi.testConnection(created.id);
+        crmConnections.reload();
+      }
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Could not create CRM connection', 'error');
+    }
+  };
+
+  const createChannel = async () => {
+    if (!channelName.trim() || !channelAgentId.trim()) return pushToast('Connection name and Agent ID are required', 'error');
+    try {
+      const credentials: Record<string, unknown> = {};
+      if (channelSecret) {
+        if (channelProvider === 'telegram') credentials.webhook_secret = channelSecret;
+        else if (['instagram', 'facebook_messenger', 'whatsapp'].includes(channelProvider)) credentials.app_secret = channelSecret;
+        else credentials.webhook_secret = channelSecret;
+      }
+      await leadCrmApi.createChannelConnection({
+        provider: channelProvider,
+        name: channelName.trim(),
+        configuration: { agentId: channelAgentId.trim(), leadCaptureDefault: { createLead: true, qualify: false, syncToCRM: false } },
+        credentials,
+      });
+      pushToast(`${channelName.trim()} created`);
+      setChannelName(''); setChannelAgentId(''); setChannelSecret('');
+      channelConnections.reload();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Could not create channel connection', 'error');
+    }
+  };
+
+  const testCrm = async (id: string) => {
+    try { const result = await leadCrmApi.testConnection(id); pushToast(`CRM health: ${result.status}`); crmConnections.reload(); }
+    catch (error) { pushToast(error instanceof Error ? error.message : 'CRM health check failed', 'error'); }
+  };
+  const reconnectCrm = async (id: string) => {
+    try { const result = await leadCrmApi.reconnect(id); window.location.assign(result.authorizationUrl); }
+    catch (error) { pushToast(error instanceof Error ? error.message : 'Could not reconnect CRM', 'error'); }
+  };
+  const refreshSchema = async (id: string) => {
+    try { await leadCrmApi.refreshSchema(id); pushToast('CRM field schema refreshed'); }
+    catch (error) { pushToast(error instanceof Error ? error.message : 'Schema refresh failed', 'error'); }
+  };
+
+  if (result.loading || crmProviders.loading || crmConnections.loading || channelConnections.loading) return <PageLoader />;
   return <div className="page integrations-page">
-    <div className="page-heading"><h2>Integrations</h2><p>Connect Northstar to your channels, content, and workflows.</p></div>
+    <div className="page-heading"><h2>Integrations</h2><p>Connect messaging sources to Northstar and route qualified leads to any CRM through durable, monitored deliveries.</p></div>
+
+    <Card>
+      <div className="page-heading page-heading--split"><div><h3>Messaging channels</h3><p>Webhook connections feed one canonical contact/lead pipeline. Existing WhatsApp Embedded Signup remains available below.</p></div><Badge tone="purple">Omnichannel ingress</Badge></div>
+      {channelConnections.data?.length ? <div className="integration-grid">{channelConnections.data.map((connection) => <Card className="integration-card" key={connection.id}><div className="integration-card__icon"><MessageCircle /></div><div className="integration-card__copy"><span><h3>{connection.name}</h3><Badge tone={healthTone(connection.status)}>{connection.status}</Badge></span><p>{connection.provider} · Last event {connection.last_event_at ? new Date(connection.last_event_at).toLocaleString() : 'not received yet'}</p>{connection.last_error ? <small>{connection.last_error}</small> : null}</div>{canManage ? <Button variant="secondary" size="sm" onClick={() => void leadCrmApi.testChannelConnection(connection.id).then(() => { pushToast('Channel test completed'); channelConnections.reload(); }).catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Channel test failed', 'error'))}>Test</Button> : null}</Card>)}</div> : <p>No provider-neutral channel connections configured yet.</p>}
+      {canManage ? <div className="integration-toolbar"><select value={channelProvider} onChange={(event) => setChannelProvider(event.target.value)} aria-label="Channel provider"><option value="telegram">Telegram</option><option value="instagram">Instagram</option><option value="facebook_messenger">Facebook Messenger</option><option value="api">Developer API</option><option value="custom">Custom webhook</option></select><input value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="Connection name" /><input value={channelAgentId} onChange={(event) => setChannelAgentId(event.target.value)} placeholder="Agent ID" /><input type="password" value={channelSecret} onChange={(event) => setChannelSecret(event.target.value)} placeholder="Webhook/App secret" /><Button onClick={() => void createChannel()}>Add channel</Button></div> : null}
+    </Card>
+
+    <Card>
+      <div className="page-heading page-heading--split"><div><h3>CRM destinations</h3><p>Each connection has independent auth, schema, mapping, routing, health, retry, ACK and verification state.</p></div><Badge tone="purple">Any-CRM egress</Badge></div>
+      {crmConnections.data?.length ? <div className="integration-grid">{crmConnections.data.map((connection) => <Card className="integration-card" key={connection.id}><div className="integration-card__icon"><Database /></div><div className="integration-card__copy"><span><h3>{connection.name}</h3><Badge tone={healthTone(connection.status)}>{connection.status}</Badge></span><p>{connection.provider} · {connection.environment}{connection.last_success_at ? ` · Last success ${new Date(connection.last_success_at).toLocaleString()}` : ''}</p>{connection.last_error ? <small>{connection.last_error}</small> : null}</div>{canManage ? <div><Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void testCrm(connection.id)}>Test</Button> <Button variant="secondary" size="sm" onClick={() => void refreshSchema(connection.id)}>Schema</Button> {oauthProviders.has(connection.provider) ? <Button variant="secondary" size="sm" onClick={() => void reconnectCrm(connection.id)}>Reconnect</Button> : null}</div> : null}</Card>)}</div> : <p>No CRM destinations configured yet.</p>}
+      {canManage ? <div className="integration-toolbar"><select value={crmProvider} onChange={(event) => setCrmProvider(event.target.value as CRMProviderId)} aria-label="CRM provider">{crmProviders.data?.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select><input value={crmName} onChange={(event) => setCrmName(event.target.value)} placeholder="Connection name" />{oauthProviders.has(crmProvider) ? <><input value={crmClientId} onChange={(event) => setCrmClientId(event.target.value)} placeholder="OAuth client ID" /><input type="password" value={crmClientSecret} onChange={(event) => setCrmClientSecret(event.target.value)} placeholder="OAuth client secret" /></> : <><input value={crmBaseUrl} onChange={(event) => setCrmBaseUrl(event.target.value)} placeholder="HTTPS base URL" /><input type="password" value={crmApiKey} onChange={(event) => setCrmApiKey(event.target.value)} placeholder="API key / credential" /></>}<Button onClick={() => void createCrm()}>Add CRM</Button></div> : null}
+    </Card>
+
     <Card className="integration-hero"><div><span className="integration-hero__icon"><PlugZap /></span><span><Badge tone="purple">Integration marketplace</Badge><h3>Your AI agent, everywhere work happens.</h3><p>Keep knowledge in sync and give customers fast answers on every channel.</p></span></div><div className="integration-orbits"><span><Hash /></span><span><Database /></span><span><MessageCircle /></span><span><Zap /></span></div></Card>
     <div className="integration-toolbar"><div className="category-tabs">{(['all', 'channel', 'data', 'automation', 'developer'] as const).map((item) => <button key={item} className={category === item ? 'is-active' : ''} onClick={() => setCategory(item)}>{item === 'all' ? 'All integrations' : item}</button>)}</div><div className="search-box"><Search /><input aria-label="Search integrations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search integrations" /></div></div>
     {result.error ? <Card><EmptyState icon={CircleAlert} title="Couldn't load integrations" description={result.error} action={<Button onClick={result.reload}>Try again</Button>} /></Card> : items.length ? <div className="integration-grid">{items.map((item) => {
       const Icon = iconMap[item.icon as keyof typeof iconMap] ?? PlugZap;
       const connected = overrides[item.id] ?? item.connected;
-      const requiresAdmin = item.id === 'whatsapp' && !canManageWhatsApp;
+      const requiresAdmin = item.id === 'whatsapp' && !canManage;
       return <Card className="integration-card" key={item.id}><div className="integration-card__icon"><Icon /></div><div className="integration-card__copy"><span><h3>{item.name}</h3>{item.comingSoon ? <Badge>Coming soon</Badge> : requiresAdmin ? <Badge>Admin access</Badge> : connected ? <Badge tone="success"><Check /> Connected</Badge> : null}</span><p>{item.description}</p></div><Button variant={connected ? 'secondary' : 'primary'} size="sm" disabled={item.comingSoon || requiresAdmin} title={requiresAdmin ? 'A workspace owner or admin must manage WhatsApp' : undefined} onClick={() => void activate(item)}>{item.comingSoon ? 'Notify me' : requiresAdmin ? 'Admin only' : connected ? 'Manage' : 'Connect'}</Button></Card>;
     })}</div> : <Card><EmptyState icon={PlugZap} title="No integrations found" description="Try another name or category." /></Card>}
     <WhatsAppIntegrationModal open={whatsAppOpen} onClose={() => setWhatsAppOpen(false)} onConnectionChanged={(connected) => setOverrides((values) => ({ ...values, whatsapp: connected }))} />
