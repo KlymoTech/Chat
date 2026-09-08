@@ -90,7 +90,27 @@ class CRMConnector(ABC):
     capabilities: CRMCapabilities
 
     async def authenticate(self, context: CRMConnectionContext) -> None:
-        """Validate or establish credentials. OAuth providers may override this."""
+        """Validate existing credentials if a provider requires a separate check."""
+
+    def build_authorization_url(
+        self,
+        context: CRMConnectionContext,
+        *,
+        redirect_uri: str,
+        state: str,
+        code_challenge: str | None = None,
+    ) -> str:
+        raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "OAuth authorization is not supported")
+
+    async def exchange_authorization_code(
+        self,
+        context: CRMConnectionContext,
+        *,
+        code: str,
+        redirect_uri: str,
+        code_verifier: str | None = None,
+    ) -> dict[str, Any]:
+        raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "OAuth authorization is not supported")
 
     async def refresh_credentials(self, context: CRMConnectionContext) -> dict[str, Any]:
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Credential refresh is not supported")
@@ -99,24 +119,39 @@ class CRMConnector(ABC):
     async def health_check(self, context: CRMConnectionContext) -> CRMHealthResult:
         raise NotImplementedError
 
-    async def discover_schema(self, context: CRMConnectionContext, object_name: str = "Leads") -> list[CRMFieldDefinition]:
+    async def discover_schema(
+        self, context: CRMConnectionContext, object_name: str = "Leads"
+    ) -> list[CRMFieldDefinition]:
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Schema discovery is not supported")
 
     async def validate_mapping(self, fields: list[CRMFieldDefinition], mapping: dict[str, Any]) -> list[str]:
         known = {field.api_name for field in fields if not field.read_only}
         return [target for target in mapping.values() if isinstance(target, str) and target not in known]
 
-    async def search_record(self, context: CRMConnectionContext, criteria: dict[str, Any]) -> dict[str, Any] | None:
+    async def search_record(
+        self, context: CRMConnectionContext, criteria: dict[str, Any]
+    ) -> dict[str, Any] | None:
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Record search is not supported")
 
     @abstractmethod
-    async def create_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def create_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         raise NotImplementedError
 
-    async def update_lead(self, context: CRMConnectionContext, external_id: str, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def update_lead(
+        self,
+        context: CRMConnectionContext,
+        external_id: str,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str,
+    ) -> CRMDeliveryResult:
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Lead update is not supported")
 
-    async def upsert_lead(self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str) -> CRMDeliveryResult:
+    async def upsert_lead(
+        self, context: CRMConnectionContext, payload: dict[str, Any], *, idempotency_key: str
+    ) -> CRMDeliveryResult:
         if not self.capabilities.upsert:
             return await self.create_lead(context, payload, idempotency_key=idempotency_key)
         raise NotImplementedError
@@ -124,7 +159,9 @@ class CRMConnector(ABC):
     async def get_lead(self, context: CRMConnectionContext, external_id: str) -> dict[str, Any]:
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Read-back verification is not supported")
 
-    async def register_webhook(self, context: CRMConnectionContext, configuration: dict[str, Any]) -> dict[str, Any]:
+    async def register_webhook(
+        self, context: CRMConnectionContext, configuration: dict[str, Any]
+    ) -> dict[str, Any]:
         raise CRMError(NormalizedCRMErrorCode.CONFIGURATION_ERROR, "Webhook management is not supported")
 
     async def unregister_webhook(self, context: CRMConnectionContext, webhook_id: str) -> None:
