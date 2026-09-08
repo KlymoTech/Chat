@@ -1,4 +1,4 @@
-import type { Session } from '@/types';
+import type { Lead, PageResult, Session } from '@/types';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
@@ -123,6 +123,16 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const leadCrmApi = {
+  leads: (filters: { page?: number; pageSize?: number; search?: string; status?: string; agentId?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.pageSize) params.set('page_size', String(filters.pageSize));
+    if (filters.search?.trim()) params.set('search', filters.search.trim());
+    if (filters.status && filters.status !== 'all') params.set('status', filters.status);
+    if (filters.agentId) params.set('agent_id', filters.agentId);
+    const query = params.toString();
+    return call<PageResult<Lead>>(`/leads${query ? `?${query}` : ''}`);
+  },
   providers: () => call<CRMProviderInfo[]>('/crm/providers'),
   connections: () => call<CRMConnectionView[]>('/crm/connections'),
   createConnection: (value: { provider: CRMProviderId; name: string; environment?: string; region?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
