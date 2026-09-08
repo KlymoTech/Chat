@@ -33,6 +33,10 @@ CONSUMER_NAME = "crm-webhook-sync-v1"
 TOPICS = ["crm.webhook.received.v1"]
 
 
+def _as_dict(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def _webhook_id(event: EventEnvelope) -> UUID:
     try:
         return UUID(str(event.payload["webhookEventId"]))
@@ -130,8 +134,8 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
     )
     if not connection:
         raise ValueError("CRM webhook connection no longer exists")
-    config = connection.configuration_json or {}
-    inbound = config.get("inboundWebhook") if isinstance(config.get("inboundWebhook"), dict) else {}
+    config = dict(connection.configuration_json or {})
+    inbound = _as_dict(config.get("inboundWebhook"))
     record_id = _extract(webhook.payload_json, str(inbound.get("recordIdPath") or "$.recordId"))
     if record_id is None:
         webhook.processing_status = "ignored"
@@ -168,19 +172,14 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
         _extract(webhook.payload_json, str(inbound.get("modifiedAtPath") or "$.modifiedAt"))
     )
     policy = str(config.get("conflictPolicy") or "CRM_WINS").upper()
-    if policy == "PLATFORM_WINS" and profile.updated_at and modified_at and profile.updated_at > modified_at:
-        webhook.processing_status = "ignored"
-        webhook.last_error = "platform_newer"
-        webhook.processed_at = datetime.now(UTC)
-        await session.commit()
-        return
-    if policy == "LATEST_WINS" and profile.updated_at and modified_at and profile.updated_at > modified_at:
-        webhook.processing_status = "ignored"
-        webhook.last_error = "platform_newer"
-        webhook.processed_at = datetime.now(UTC)
-        await session.commit()
-        return
-    mapping = inbound.get("fieldMapping") if isinstance(inbound.get("fieldMapping"), dict) else {}
+    if policy in {"PLATFORM_WINS", "LATEST_WINS"} and profile.updated_at and modified_at:
+        if profile.updated_at > modified_at:
+            webhook.processing_status = "ignored"
+            webhook.last_error = "platform_newer"
+            webhook.processed_at = datetime.now(UTC)
+            await session.commit()
+            return
+    mapping = _as_dict(inbound.get("fieldMapping"))
     changed: dict[str, Any] = {}
     for target, path in mapping.items():
         if not isinstance(target, str) or not isinstance(path, str):
@@ -240,13 +239,13 @@ async def consume_forever() -> None:
             batch = await consumer.getmany(timeout_ms=1000, max_records=1)
             for messages in batch.values():
                 for message in messages:
-                    tp = TopicPartition(message.topic, message.partition)
+                    topic_partition = TopicPartition(message.topic, message.partition)
                     raw = message.value if isinstance(message.value, bytes) else b""
                     try:
-                        envelope = parse_envelope(raw)
-                        if envelope.event_type != message.topic:
-                            raise ValueError("event type does not match Kafka topic")
-                        _webhook_id(envelope)
+                        event = parse_envelope(raw)
+                        if event.event_type != message.topic:
+                            raise ValueError("event type does not match its Kafka topic")
+                        _webhook_id(event)
                     except ValueError as exc:
                         async with factory() as session:
                             await quarantine_event(
@@ -258,19 +257,19 @@ async def consume_forever() -> None:
                                 raw=raw,
                                 error=exc,
                             )
-                        await consumer.commit({tp: message.offset + 1})
+                        await consumer.commit({topic_partition: message.offset + 1})
                         continue
                     try:
                         async with factory() as session:
-                            await _process(session, envelope)
-                        await consumer.commit({tp: message.offset + 1})
+                            await _process(session, event)
+                        await consumer.commit({topic_partition: message.offset + 1})
                     except Exception as exc:
                         logger.warning(
-                            "crm_webhook_retry",
-                            event_id=str(envelope.event_id),
+                            "crm_webhook_event_retry",
+                            event_id=str(event.event_id),
                             error=type(exc).__name__,
                         )
-                        consumer.seek(tp, message.offset)
+                        consumer.seek(topic_partition, message.offset)
                         try:
                             await asyncio.wait_for(stop.wait(), timeout=1.0)
                         except TimeoutError:
@@ -283,7 +282,7 @@ async def consume_forever() -> None:
 
 def main() -> None:
     if not settings.kafka_enabled:
-        raise SystemExit("KAFKA_ENABLED must be true for CRM webhook sync")
+        raise SystemExit("KAFKA_ENABLED must be true for the CRM webhook consumer")
     asyncio.run(consume_forever())
 
 
