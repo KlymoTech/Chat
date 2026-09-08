@@ -23,7 +23,7 @@ def register_default_connectors() -> None:
         GenericRESTConnector(),
         GenericWebhookConnector(),
     )
-    registered = set(crm_registry.providers()) if crm_registry._defaults_loaded else set()  # noqa: SLF001
+    registered = set(crm_registry._connectors)  # Internal bootstrap only; avoids re-entering providers().
     for connector in connectors:
         if connector.provider not in registered:
             crm_registry.register(connector)
