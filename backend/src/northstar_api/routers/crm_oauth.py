@@ -32,7 +32,7 @@ def _decrypt_credentials(connection: CRMConnection) -> dict[str, Any]:
 def _redirect_uri(request: Request, connection: CRMConnection) -> str:
     configured = str((connection.configuration_json or {}).get("oauthRedirectUri") or "").strip()
     if configured:
-        if not configured.startswith("https://") and request.url.scheme == "https":
+        if request.url.scheme == "https" and not configured.startswith("https://"):
             raise HTTPException(status_code=400, detail="OAuth redirect URI must use HTTPS")
         return configured
     return str(request.url_for("crm_oauth_callback", provider=connection.provider))
@@ -77,11 +77,12 @@ async def _start_oauth(
             configuration=connection.configuration_json,
             credentials=credentials,
         )
+        code_challenge = state.code_challenge if bool(connection.configuration_json.get("pkce", False)) else None
         authorization_url = connector.build_authorization_url(
             context,
             redirect_uri=redirect_uri,
             state=state.state,
-            code_challenge=state.code_challenge,
+            code_challenge=code_challenge,
         )
     except OAuthStateError as exc:
         raise HTTPException(status_code=503, detail="OAuth state service is unavailable") from exc
@@ -122,18 +123,18 @@ async def reconnect_crm(
 @router.get("/oauth/{provider}/callback", name="crm_oauth_callback")
 async def crm_oauth_callback(
     provider: str,
+    session: DB,
     state: str = Query(min_length=20, max_length=512),
     code: str | None = Query(default=None, min_length=1, max_length=4096),
     error: str | None = Query(default=None, max_length=512),
-    session: DB = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
-    assert session is not None
     try:
         saved = await oauth_state_store.consume(state)
     except OAuthStateError as exc:
         raise HTTPException(status_code=400, detail="OAuth state is invalid, expired, or already used") from exc
     if saved.provider != provider:
         raise HTTPException(status_code=400, detail="OAuth provider does not match the authorization state")
+
     await set_tenant_context(session, saved.tenant_id)
     connection = await session.scalar(
         select(CRMConnection).where(
@@ -166,7 +167,7 @@ async def crm_oauth_callback(
             context,
             code=code,
             redirect_uri=saved.redirect_uri,
-            code_verifier=saved.code_verifier,
+            code_verifier=saved.code_verifier if bool(connection.configuration_json.get("pkce", False)) else None,
         )
         connection.credentials_encrypted = credential_store.encrypt(updated)
         connection.last_authenticated_at = datetime.now(UTC)
@@ -181,8 +182,12 @@ async def crm_oauth_callback(
         )
         connection.status = health.status.value
         connection.last_health_at = datetime.now(UTC)
-        connection.last_error = None if health.status.value == "healthy" else str(health.details.get("error") or "Health validation failed")[:1000]
-        if health.status.value == "healthy":
+        connection.last_error = (
+            None
+            if health.status.value == CRMConnectionStatus.HEALTHY.value
+            else str(health.details.get("error") or "Health validation failed")[:1000]
+        )
+        if health.status.value == CRMConnectionStatus.HEALTHY.value:
             connection.last_success_at = datetime.now(UTC)
         else:
             connection.last_failure_at = datetime.now(UTC)
