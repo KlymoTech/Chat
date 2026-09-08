@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,9 +57,7 @@ class IdentityService:
         contact: Contact | None = None
         if predicates:
             contact = await session.scalar(
-                select(Contact).where(Contact.tenant_id == tenant_id, and_(*([predicates[0]] if len(predicates) == 1 else [])))
-            ) if len(predicates) == 1 else await session.scalar(
-                select(Contact).where(Contact.tenant_id == tenant_id).where(predicates[0] | predicates[1])
+                select(Contact).where(Contact.tenant_id == tenant_id, or_(*predicates))
             )
         if contact is None and provider and provider_external_id:
             identity = await session.scalar(
@@ -94,7 +92,22 @@ class IdentityService:
                 last_activity_at=datetime.now(UTC),
             )
             session.add(contact)
-            await session.flush()
+            try:
+                async with session.begin_nested():
+                    await session.flush()
+            except IntegrityError:
+                contact = None
+                if normalized.email or normalized.phone:
+                    retry_predicates = []
+                    if normalized.email:
+                        retry_predicates.append(Contact.normalized_email == normalized.email)
+                    if normalized.phone:
+                        retry_predicates.append(Contact.normalized_phone == normalized.phone)
+                    contact = await session.scalar(
+                        select(Contact).where(Contact.tenant_id == tenant_id, or_(*retry_predicates))
+                    )
+                if contact is None:
+                    raise
         else:
             contact.last_activity_at = datetime.now(UTC)
             if name and not contact.display_name:
@@ -126,17 +139,23 @@ class IdentityService:
                 )
             )
             if exists is None:
-                session.add(
-                    ContactIdentity(
-                        tenant_id=tenant_id,
-                        contact_id=contact.id,
-                        identity_type=identity_type,
-                        provider=identity_provider,
-                        normalized_value=value if identity_provider is None else None,
-                        external_id=value if identity_provider else None,
-                        verified=identity_type in {"email", "phone"},
-                    )
+                identity = ContactIdentity(
+                    tenant_id=tenant_id,
+                    contact_id=contact.id,
+                    identity_type=identity_type,
+                    provider=identity_provider,
+                    normalized_value=value if identity_provider is None else None,
+                    external_id=value if identity_provider else None,
+                    verified=identity_type in {"email", "phone"},
                 )
+                try:
+                    async with session.begin_nested():
+                        session.add(identity)
+                        await session.flush()
+                except IntegrityError:
+                    # Another request resolved the same tenant identity first.
+                    # The unique index is the final authority; no outer rollback.
+                    pass
         await session.flush()
         return contact
 
@@ -198,8 +217,20 @@ class LeadDomainService:
             first_touch_at=lead.created_at,
             last_touch_at=lead.updated_at,
         )
-        session.add(profile)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(profile)
+                await session.flush()
+        except IntegrityError:
+            existing = await session.scalar(
+                select(LeadProfile).where(
+                    LeadProfile.tenant_id == lead.tenant_id,
+                    LeadProfile.lead_id == lead.id,
+                )
+            )
+            if existing is None:
+                raise
+            return existing
         session.add(
             LeadActivityEvent(
                 tenant_id=lead.tenant_id,
@@ -327,7 +358,7 @@ class CRMRouteService:
             select(LeadProfile).where(LeadProfile.tenant_id == tenant_id, LeadProfile.lead_id == lead_id)
         )
         if not profile:
-            profile = await LeadDomainService().ensure_profile(session, lead=lead)
+            profile = await self.ensure_profile(session, lead=lead) if isinstance(self, LeadDomainService) else await LeadDomainService().ensure_profile(session, lead=lead)
         routes = list(
             await session.scalars(
                 select(CRMRoute)
@@ -375,7 +406,7 @@ class CRMRouteService:
                 "phone": lead.phone,
                 "profile": profile.custom_fields_json,
             }
-            delivery = CRMDelivery(
+            candidate = CRMDelivery(
                 tenant_id=tenant_id,
                 lead_id=lead.id,
                 connection_id=connection.id,
@@ -387,12 +418,22 @@ class CRMRouteService:
                 payload_hash=_payload_hash(payload_basis),
                 correlation_id=correlation_id,
             )
-            session.add(delivery)
             try:
-                await session.flush()
+                async with session.begin_nested():
+                    session.add(candidate)
+                    await session.flush()
+                delivery = candidate
             except IntegrityError:
-                await session.rollback()
-                raise
+                delivery = await session.scalar(
+                    select(CRMDelivery).where(
+                        CRMDelivery.tenant_id == tenant_id,
+                        CRMDelivery.idempotency_key == idempotency_key,
+                    )
+                )
+                if delivery is None:
+                    raise
+                deliveries.append(delivery)
+                continue
             session.add(
                 LeadActivityEvent(
                     tenant_id=tenant_id,
