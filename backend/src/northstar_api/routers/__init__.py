@@ -10,6 +10,7 @@ from northstar_api.routers import (
     crm,
     crm_oauth,
     crm_schema,
+    crm_webhooks,
     integrations,
     knowledge,
     leads,
@@ -28,6 +29,7 @@ api_router.include_router(qualification.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
+api_router.include_router(crm_webhooks.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
 api_router.include_router(integrations.router)
