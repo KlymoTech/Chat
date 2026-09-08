@@ -175,51 +175,91 @@ async def _materialize_text(source: KnowledgeSource) -> str:
 
             pages: list[str] = []
 
-            # Existing PDF text extraction
+            # PDF extraction:
+            # Use normal PDF text first.
+            # Use Vision when the page has embedded images
+            # or when normal PDF text is missing.
             extracted_characters = 0
-            for page in reader.pages:
-                text = page.extract_text() or ""
-                extracted_characters += len(text)
+            
 
-                if extracted_characters > settings.knowledge_max_extracted_characters:
-                    raise ValueError("PDF text exceeds the configured extraction limit")
+            with tempfile.TemporaryDirectory() as temp_dir:
+                pdf = fitz.open(stream=data, filetype="pdf")
 
-                if text.strip():
-                    pages.append(text.strip())
+                for page_number, page in enumerate(reader.pages):
+                    # 1. Extract normal/selectable PDF text.
+                    text = page.extract_text() or ""
+                    text = text.strip()
 
-            # NEXORA Vision extraction
-            try:
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    pdf = fitz.open(stream=data, filetype="pdf")
+                    extracted_characters += len(text)
 
-                    for page_number in range(len(pdf)):
-                        page = pdf[page_number]
-
-                        # Render PDF page as PNG
-                        pixmap = page.get_pixmap(
-                            matrix=fitz.Matrix(2, 2),
-                            alpha=False,
+                    if (
+                        extracted_characters
+                        > settings.knowledge_max_extracted_characters
+                    ):
+                        raise ValueError(
+                            "PDF text exceeds the configured extraction limit"
                         )
 
-                        image_path = Path(temp_dir) / f"vision_page_{page_number + 1:03d}.png"
-                        pixmap.save(str(image_path))
+                    # 2. Check whether this page contains embedded images.
+                    fitz_page = pdf[page_number]
+                    has_images = bool(fitz_page.get_images(full=True))
 
-                        # Extract visible text using Vision LLM
-                        vision_text = extract_vision_text(str(image_path))
+                    # 3. If text is available and there are no images,
+                    #    use the normal PDF text only.
+                    if text and not has_images:
+                        pages.append(text)
+                        continue
 
-                        if vision_text.strip():
-                            pages.append(
-                                f"VISUAL CONTENT FROM PDF PAGE {page_number + 1}:\n{vision_text.strip()}"
+                    # 4. Otherwise, render the page and use Vision.
+                    pixmap = fitz_page.get_pixmap(
+                        matrix=fitz.Matrix(2, 2),
+                        alpha=False,
+                    )
+
+                    image_path = (
+                        Path(temp_dir)
+                        / f"vision_page_{page_number + 1:03d}.png"
+                    )
+
+                    pixmap.save(str(image_path))
+
+                    vision_text = await asyncio.to_thread(
+                        extract_vision_text,
+                        str(image_path),
+                    )
+
+                    visual_content = vision_text.strip()
+
+                    # 5. Build ONE clean result for this page.
+                    page_parts: list[str] = []
+
+                    if text:
+                        page_parts.append(text)
+
+                    if visual_content:
+                        page_parts.append(
+                            f"VISUAL CONTENT FROM PDF PAGE "
+                            f"{page_number + 1}:\n{visual_content}"
+                        )
+
+                    if page_parts:
+                        page_content = "\n\n".join(page_parts)
+
+                        extracted_characters += len(
+                            page_content
+                        )
+
+                        if (
+                            extracted_characters
+                            > settings.knowledge_max_extracted_characters
+                        ):
+                            raise ValueError(
+                                "PDF text exceeds the configured extraction limit"
                             )
 
-                    pdf.close()
+                        pages.append(page_content)
 
-            except Exception as exc:
-                logger.warning(
-                    "pdf_vision_extraction_failed",
-                    source_id=str(source.id),
-                    error=type(exc).__name__,
-                )
+                pdf.close()
 
             return "\n\n".join(pages).strip()
         if "wordprocessingml.document" in content_type or source.name.lower().endswith(".docx"):
