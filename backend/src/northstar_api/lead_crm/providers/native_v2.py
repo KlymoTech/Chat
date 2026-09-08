@@ -27,7 +27,7 @@ from northstar_api.lead_crm.domain import (
 
 class OAuthJSONConnector(CRMConnector):
     authorize_url = ""
-    token_url = ""
+    oauth_endpoint = ""
     default_scopes: tuple[str, ...] = ()
 
     def _client_credentials(self, context: CRMConnectionContext) -> tuple[str, str]:
@@ -44,7 +44,7 @@ class OAuthJSONConnector(CRMConnector):
         return str(context.configuration.get("authorizationUrl") or self.authorize_url)
 
     def _token_endpoint(self, context: CRMConnectionContext) -> str:
-        return str(context.configuration.get("tokenUrl") or self.token_url)
+        return str(context.configuration.get("tokenUrl") or self.oauth_endpoint)
 
     def _scopes(self, context: CRMConnectionContext) -> list[str]:
         configured = context.configuration.get("oauthScopes")
@@ -305,7 +305,7 @@ class SalesforceConnector(OAuthJSONConnector):
         inbound_webhooks=True,
     )
     authorize_url = "https://login.salesforce.com/services/oauth2/authorize"
-    token_url = "https://login.salesforce.com/services/oauth2/token"
+    oauth_endpoint = "https://login.salesforce.com/services/oauth2/token"
     default_scopes = ("api", "refresh_token")
 
     def _authorization_endpoint(self, context: CRMConnectionContext) -> str:
@@ -425,7 +425,7 @@ class HubSpotConnector(OAuthJSONConnector):
         inbound_webhooks=True,
     )
     authorize_url = "https://app.hubspot.com/oauth/authorize"
-    token_url = "https://api.hubapi.com/oauth/v1/token"
+    oauth_endpoint = "https://api.hubapi.com/oauth/2026-03/token"
     default_scopes = ("crm.objects.contacts.read", "crm.objects.contacts.write", "crm.schemas.contacts.read")
 
     def _base_url(self, context: CRMConnectionContext, credentials: dict[str, Any]) -> str:
@@ -697,7 +697,7 @@ class PipedriveConnector(OAuthJSONConnector):
         webhook_management=True,
     )
     authorize_url = "https://oauth.pipedrive.com/oauth/authorize"
-    token_url = "https://oauth.pipedrive.com/oauth/token"
+    oauth_endpoint = "https://oauth.pipedrive.com/oauth/token"
 
     def _base_url(self, context: CRMConnectionContext, credentials: dict[str, Any]) -> str:
         return str(

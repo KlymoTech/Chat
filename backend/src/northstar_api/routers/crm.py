@@ -22,7 +22,7 @@ from northstar_api.lead_crm.api_schemas import (
     QualifyLeadRequest,
     SyncLeadRequest,
 )
-from northstar_api.lead_crm.connectors import CRMCapabilities, crm_registry
+from northstar_api.lead_crm.connectors import CRMCapabilities, CRMError, crm_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import CRMConnectionStatus, CRMDeliveryStatus, CRMProvider
 from northstar_api.lead_crm.models import (
@@ -126,8 +126,8 @@ async def create_crm_connection(
     try:
         connector = crm_registry.get(payload.provider)
         capabilities = connector.capabilities
-    except Exception:
-        pass
+    except CRMError:
+        capabilities = CRMCapabilities()
     connection = CRMConnection(
         tenant_id=principal.tenant_id,
         public_id=f"crm_{UUID(int=UUID(bytes=__import__('os').urandom(16)).int).hex}",
