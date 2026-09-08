@@ -37,6 +37,46 @@ export interface CRMConnectionView {
   updated_at: string;
 }
 
+export interface CRMFieldSchemaView {
+  connectionId: string;
+  objectName: string;
+  schemaHash?: string | null;
+  fields: Array<{
+    apiName: string;
+    label: string;
+    dataType: string;
+    required: boolean;
+    nullable: boolean;
+    readOnly: boolean;
+    unique: boolean;
+    custom: boolean;
+    maxLength?: number | null;
+    picklistValues: string[];
+  }>;
+}
+
+export interface CRMMappingView {
+  connection_id: string;
+  object_name: string;
+  version: number;
+  status: string;
+  mapping: Record<string, unknown>;
+  validation: Record<string, unknown>;
+  schema_hash?: string | null;
+}
+
+export interface CRMRouteView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  version: number;
+  conditions: Record<string, unknown>;
+  connection_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CRMDeliveryView {
   id: string;
   lead_id: string;
@@ -142,9 +182,18 @@ export const leadCrmApi = {
   reconnect: (id: string) => call<{ authorizationUrl: string; expiresIn: number }>(`/crm/connections/${id}/reconnect`, { method: 'POST' }),
   disableConnection: (id: string) => call<void>(`/crm/connections/${id}`, { method: 'DELETE' }),
   health: (id: string) => call<CRMConnectionHealth>(`/crm/connections/${id}/health`),
-  refreshSchema: (id: string) => call(`/crm/connections/${id}/schema/refresh`, { method: 'POST' }),
-  mappings: (id: string) => call(`/crm/connections/${id}/mappings`),
-  validateMappings: (id: string) => call(`/crm/connections/${id}/mappings/validate`, { method: 'POST' }),
+  schema: (id: string) => call<CRMFieldSchemaView>(`/crm/connections/${id}/schema`),
+  refreshSchema: (id: string) => call<CRMFieldSchemaView>(`/crm/connections/${id}/schema/refresh`, { method: 'POST' }),
+  mappings: (id: string) => call<CRMMappingView[]>(`/crm/connections/${id}/mappings`),
+  putMapping: (id: string, value: { object_name?: string; mapping: Record<string, unknown> }) =>
+    call<CRMMappingView>(`/crm/connections/${id}/mappings`, { method: 'PUT', body: JSON.stringify(value) }),
+  validateMappings: (id: string) => call<Record<string, unknown>>(`/crm/connections/${id}/mappings/validate`, { method: 'POST' }),
+  routes: () => call<CRMRouteView[]>('/crm/routes'),
+  createRoute: (value: { name: string; enabled?: boolean; priority?: number; conditions?: Record<string, unknown>; connection_ids: string[] }) =>
+    call<CRMRouteView>('/crm/routes', { method: 'POST', body: JSON.stringify(value) }),
+  updateRoute: (id: string, value: { name?: string; enabled?: boolean; priority?: number; conditions?: Record<string, unknown>; connection_ids?: string[] }) =>
+    call<CRMRouteView>(`/crm/routes/${id}`, { method: 'PATCH', body: JSON.stringify(value) }),
+  deleteRoute: (id: string) => call<void>(`/crm/routes/${id}`, { method: 'DELETE' }),
   deliveriesForLead: (leadId: string) => call<CRMDeliveryView[]>(`/leads/${leadId}/deliveries`),
   activityForLead: (leadId: string) => call<LeadActivityView[]>(`/leads/${leadId}/activity`),
   syncLead: (leadId: string, reason = 'manual') => call(`/leads/${leadId}/sync`, { method: 'POST', body: JSON.stringify({ reason }) }),
