@@ -233,15 +233,15 @@ class LeadDomainService:
                 await session.flush()
             profile = candidate
         except IntegrityError:
-            profile = await session.scalar(
+            existing_profile = await session.scalar(
                 select(LeadProfile).where(
                     LeadProfile.tenant_id == lead.tenant_id,
                     LeadProfile.lead_id == lead.id,
                 )
             )
-            if profile is None:
+            if existing_profile is None:
                 raise
-            return profile
+            return existing_profile
         session.add(
             LeadActivityEvent(
                 tenant_id=lead.tenant_id,
