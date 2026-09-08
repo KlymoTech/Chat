@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
 import { api } from '@/lib/api';
+import { getVerificationView } from '@/lib/crm-delivery-status';
 import { leadCrmApi } from '@/lib/lead-crm-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
@@ -27,7 +28,8 @@ function deliveryTone(status: string): 'brand' | 'warning' | 'success' | 'purple
 
 function csvCell(value: unknown): string {
   const text = value == null ? '' : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
+  const safe = /^[\s]*[=+@-]/.test(text) || /^[\t\r\n]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 function downloadCsv(leads: Lead[]): void {
@@ -55,6 +57,7 @@ export function LeadsPage() {
   const [selected, setSelected] = useState<Lead | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [updating, setUpdating] = useState<string>();
+  const [retrying, setRetrying] = useState<string>();
   const { pushToast } = useToast();
 
   const deliveries = useApi(
@@ -101,13 +104,16 @@ export function LeadsPage() {
   };
 
   const retryDelivery = async (deliveryId: string) => {
+    setRetrying(deliveryId);
     try {
-      await leadCrmApi.retryDelivery(deliveryId);
-      pushToast('CRM delivery queued for retry');
+      const result = await leadCrmApi.retryDelivery(deliveryId);
+      pushToast(result?.acknowledged_at ? 'CRM verification queued; the acknowledged write will not be resent' : 'CRM delivery queued for retry');
       deliveries.reload();
       activity.reload();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Could not retry delivery', 'error');
+    } finally {
+      setRetrying(undefined);
     }
   };
 
@@ -161,12 +167,26 @@ export function LeadsPage() {
 
     {selected ? <Card>
       <div className="page-heading page-heading--split">
-        <div><h3>{selected.name || selected.email || 'Lead'} · CRM delivery</h3><p>ACK means the CRM accepted the operation. Verified means the record was read back successfully.</p></div>
-        <div><Button icon={RefreshCw} onClick={() => void syncLead()}>Sync now</Button> <Button variant="secondary" onClick={() => setSelected(null)}>Close</Button></div>
+        <div><h3>{selected.name || selected.email || 'Lead'} · CRM delivery</h3><p>Provider ACK and read-back proof are separate. Identity verification proves the record ID; mapped-field verification additionally compares the configured fields. Verification retries never resend an acknowledged write.</p></div>
+        <div><Button icon={RefreshCw} onClick={() => void syncLead()}>Sync now</Button> <Button variant="secondary" onClick={() => { deliveries.reload(); activity.reload(); }}>Refresh status</Button> <Button variant="secondary" onClick={() => setSelected(null)}>Close</Button></div>
       </div>
-      {deliveries.loading ? <p>Loading CRM deliveries…</p> : deliveries.data?.length ? <div className="leads-table-wrap"><table className="leads-table"><thead><tr><th>Provider</th><th>Status</th><th>External ID</th><th>Attempts</th><th>ACK</th><th>Verified</th><th>Action</th></tr></thead><tbody>{deliveries.data.map((delivery) => <tr key={delivery.id}><td>{delivery.provider}</td><td><Badge tone={deliveryTone(delivery.status)}>{delivery.status}</Badge>{delivery.last_error_message ? <small>{delivery.last_error_message}</small> : null}</td><td>{delivery.external_record_id ?? '—'}</td><td>{delivery.attempt_count}</td><td>{delivery.acknowledged_at ? relativeTime(delivery.acknowledged_at) : '—'}</td><td>{delivery.verified_at ? relativeTime(delivery.verified_at) : '—'}</td><td>{['failed', 'dead_letter', 'mapping_error', 'auth_required', 'rate_limited'].includes(delivery.status) ? <Button variant="secondary" onClick={() => void retryDelivery(delivery.id)}>Retry</Button> : '—'}</td></tr>)}</tbody></table></div> : <EmptyState icon={RefreshCw} title="No CRM deliveries yet" description="Use Sync now or qualify the lead to evaluate CRM routing rules." />}
+      {deliveries.loading ? <p>Loading CRM deliveries…</p> : deliveries.error ? <p role="alert">Could not load CRM deliveries: {deliveries.error}</p> : deliveries.data?.length ? <div className="leads-table-wrap"><table className="leads-table">
+        <thead><tr><th>Provider</th><th>Status</th><th>External ID</th><th>Write attempts</th><th>Provider ACK</th><th>Read-back verification</th><th>Action</th></tr></thead>
+        <tbody>{deliveries.data.map((delivery) => {
+          const verification = getVerificationView(delivery);
+          return <tr key={delivery.id}>
+            <td>{delivery.provider}</td>
+            <td><Badge tone={deliveryTone(delivery.status)}>{delivery.status}</Badge>{delivery.last_error_message ? <small>{delivery.last_error_message}</small> : null}</td>
+            <td>{delivery.external_record_id ?? '—'}</td>
+            <td>{delivery.attempt_count}</td>
+            <td>{delivery.acknowledged_at ? relativeTime(delivery.acknowledged_at) : '—'}</td>
+            <td><Badge tone={verification.proved ? 'success' : verification.error ? 'warning' : 'neutral'}>{verification.label}</Badge><small>Read-back attempts: {verification.attempts}</small>{verification.proved && delivery.verified_at ? <small>{relativeTime(delivery.verified_at)}</small> : null}{verification.nextAttempt ? <small>Next check: {new Date(verification.nextAttempt).toLocaleString()}</small> : null}{verification.error ? <small>{verification.error}</small> : null}</td>
+            <td>{verification.retryable ? <Button variant="secondary" disabled={Boolean(retrying)} onClick={() => void retryDelivery(delivery.id)}>{verification.retryLabel}</Button> : '—'}</td>
+          </tr>;
+        })}</tbody>
+      </table></div> : <EmptyState icon={RefreshCw} title="No CRM deliveries yet" description="Use Sync now or qualify the lead to evaluate CRM routing rules." />}
       <h3>Activity</h3>
-      {activity.loading ? <p>Loading activity…</p> : activity.data?.length ? <div>{activity.data.slice().reverse().map((item) => <p key={item.id}><strong>{item.event_type}</strong> · <time dateTime={item.occurred_at}>{relativeTime(item.occurred_at)}</time></p>)}</div> : <p>No activity recorded yet.</p>}
+      {activity.loading ? <p>Loading activity…</p> : activity.error ? <p role="alert">Could not load activity: {activity.error}</p> : activity.data?.length ? <div>{activity.data.slice().reverse().map((item) => <p key={item.id}><strong>{item.event_type}</strong> · <time dateTime={item.occurred_at}>{relativeTime(item.occurred_at)}</time></p>)}</div> : <p>No activity recorded yet.</p>}
     </Card> : null}
   </div>;
 }
