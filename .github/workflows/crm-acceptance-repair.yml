@@ -38,15 +38,28 @@ jobs:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
       - name: Apply reviewed exact-match patch
-        run: python scripts/_crm_acceptance_patch.py
-      - name: Verify source with locked dependencies
+        run: |
+          python scripts/_crm_acceptance_patch.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/tests/test_crm_acceptance.py')
+          text = path.read_text()
+          path.write_text(text.replace('async def wait_for(awaitable, timeout):', 'async def wait_for(awaitable, **kwargs):'))
+          PY
+      - name: Install locked dependencies
+        working-directory: backend
+        run: uv sync --all-groups --locked --quiet
+      - name: Lint and format source
         working-directory: backend
         run: |
-          uv sync --all-groups --locked
           uv run ruff check . --fix
           uv run ruff format .
-          uv run mypy src
-          uv run pytest --junitxml=crm-acceptance-results.xml
+      - name: Strict type checking
+        working-directory: backend
+        run: uv run mypy src
+      - name: Full backend regression and CRM acceptance tests
+        working-directory: backend
+        run: uv run pytest --junitxml=crm-acceptance-results.xml
       - name: Publish only verified source changes
         run: |
           git config user.name 'github-actions[bot]'
