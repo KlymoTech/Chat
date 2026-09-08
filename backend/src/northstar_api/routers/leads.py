@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.database import get_session
 from northstar_api.dependencies import CurrentPrincipal, WorkspaceWritePrincipal
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
-from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile
+from northstar_api.lead_crm.models import LeadActivityEvent
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import request_id_ctx
 from northstar_api.models import Agent, Conversation, Lead
@@ -124,8 +124,6 @@ async def create_lead(payload: LeadCreate, principal: WorkspaceWritePrincipal, s
         "conversationId": str(lead.conversation_id) if lead.conversation_id else None,
         "sourceChannel": source_channel,
     }
-    # Preserve the existing event for compatibility while introducing the
-    # canonical lead-created event for new consumers.
     enqueue_event(
         session,
         tenant_id=principal.tenant_id,
