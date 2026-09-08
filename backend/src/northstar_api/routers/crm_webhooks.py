@@ -46,11 +46,16 @@ def _credentials(connection: CRMConnection) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="CRM webhook credentials require reconnection") from exc
 
 
+def _webhook_config(connection: CRMConnection) -> dict[str, Any]:
+    config = dict(connection.configuration_json or {})
+    value = config.get("inboundWebhook")
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def _verify(
     connection: CRMConnection, credentials: dict[str, Any], headers: dict[str, str], body: bytes
 ) -> bool:
-    config = connection.configuration_json or {}
-    webhook = config.get("inboundWebhook") if isinstance(config.get("inboundWebhook"), dict) else {}
+    webhook = _webhook_config(connection)
     mode = str(webhook.get("verification") or "HMAC_SHA256").upper()
     if mode == "NONE":
         return bool(webhook.get("allowUnsigned", False))
@@ -110,11 +115,7 @@ async def receive_crm_webhook(
         await session.commit()
         raise HTTPException(status_code=401, detail="CRM webhook verification failed")
 
-    webhook_config = (
-        connection.configuration_json.get("inboundWebhook")
-        if isinstance(connection.configuration_json.get("inboundWebhook"), dict)
-        else {}
-    )
+    webhook_config = _webhook_config(connection)
     event_id = _extract(payload, str(webhook_config.get("eventIdPath") or "$.eventId"))
     if event_id is None:
         event_id = hashlib.sha256(body).hexdigest()
