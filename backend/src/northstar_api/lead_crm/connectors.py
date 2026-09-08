@@ -134,6 +134,15 @@ class CRMConnector(ABC):
 class CRMRegistry:
     def __init__(self) -> None:
         self._connectors: dict[CRMProvider, CRMConnector] = {}
+        self._defaults_loaded = False
+
+    def _ensure_defaults(self) -> None:
+        if self._defaults_loaded:
+            return
+        self._defaults_loaded = True
+        from northstar_api.lead_crm.providers import register_default_connectors
+
+        register_default_connectors()
 
     def register(self, connector: CRMConnector) -> None:
         if connector.provider in self._connectors:
@@ -141,6 +150,7 @@ class CRMRegistry:
         self._connectors[connector.provider] = connector
 
     def get(self, provider: CRMProvider) -> CRMConnector:
+        self._ensure_defaults()
         try:
             return self._connectors[provider]
         except KeyError as exc:
@@ -150,6 +160,7 @@ class CRMRegistry:
             ) from exc
 
     def providers(self) -> tuple[CRMProvider, ...]:
+        self._ensure_defaults()
         return tuple(self._connectors)
 
 
