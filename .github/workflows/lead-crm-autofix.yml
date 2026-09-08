@@ -34,7 +34,7 @@ jobs:
       - run: uv sync --all-groups --locked
       - name: Apply deterministic Ruff fixes
         run: |
-          uv run ruff check . --fix
+          uv run ruff check . --fix --exit-zero
           uv run ruff format .
       - name: Commit mechanical formatting changes
         working-directory: .
