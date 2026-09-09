@@ -110,7 +110,7 @@ export function AppShell() {
       <main className="content"><Outlet key={activeWorkspace?.id ?? 'workspace-loading'} /></main>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {navigation.slice(0, 5).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
+      {navigation.slice(0, 6).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
     </nav>
     <button className="command-fab" aria-label="Open command palette"><Command /></button>
   </div>;
