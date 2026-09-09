@@ -8,6 +8,34 @@ permissions:
   contents: read
 
 jobs:
+  frontend-education-courses:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Lint Education Courses frontend surface
+        run: >-
+          npx eslint
+          src/pages/CoursesPage.tsx
+          src/pages/CoursesPage.test.tsx
+          src/lib/education-api.ts
+          src/App.tsx
+          src/components/app-shell.tsx
+          --max-warnings 0
+        working-directory: frontend
+      - name: Type-check frontend
+        run: npm run typecheck --workspace @northstar/web
+      - name: Run Education Courses frontend tests
+        run: npm run test --workspace @northstar/web -- src/pages/CoursesPage.test.tsx
+      - name: Build frontend
+        run: npm run build --workspace @northstar/web
+
   backend-education-courses:
     runs-on: ubuntu-24.04
     env:
@@ -39,6 +67,7 @@ jobs:
           src/northstar_api/education.py
           src/northstar_api/education_schemas.py
           src/northstar_api/routers/education.py
+          src/northstar_api/routers/__init__.py
           src/northstar_api/security.py
           tests/test_education_courses.py
           migrations/versions/0016_education_courses.py
@@ -49,6 +78,7 @@ jobs:
           src/northstar_api/education.py
           src/northstar_api/education_schemas.py
           src/northstar_api/routers/education.py
+          src/northstar_api/routers/__init__.py
           src/northstar_api/security.py
           tests/test_education_courses.py
           migrations/versions/0016_education_courses.py
