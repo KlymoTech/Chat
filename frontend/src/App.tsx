@@ -4,6 +4,7 @@ import { useAuth } from '@/components/providers';
 import { AgentBuilderPage } from '@/pages/AgentBuilderPage';
 import { AgentsPage } from '@/pages/AgentsPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
+import { BatchesPage } from '@/pages/BatchesPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
 import { DeployPage } from '@/pages/DeployPage';
@@ -39,6 +40,7 @@ export function App() {
       <Route path="agents" element={<AgentsPage />} />
       <Route path="agents/:agentId/:tab?" element={<AgentBuilderPage />} />
       <Route path="education/courses" element={<CoursesPage />} />
+      <Route path="education/batches" element={<BatchesPage />} />
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
