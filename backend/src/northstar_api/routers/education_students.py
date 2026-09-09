@@ -13,6 +13,7 @@ from northstar_api.dependencies import require_permissions
 from northstar_api.education_student_schemas import StudentCreate, StudentOut, StudentPatch
 from northstar_api.education_students import EducationStudent, StudentStatus
 from northstar_api.security import Principal
+from northstar_api.services.education_enrollment import has_non_terminal_enrollment
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/education/students", tags=["education"])
@@ -44,6 +45,25 @@ async def _scoped_student(
     if student is None:
         raise HTTPException(status_code=404, detail="Student not found")
     return student
+
+
+async def _ensure_student_has_no_live_enrollments(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    student_id: UUID,
+) -> None:
+    if await has_non_terminal_enrollment(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        student_id=student_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Resolve non-terminal Enrollments before archiving this Student",
+        )
 
 
 def _student_out(student: EducationStudent) -> StudentOut:
@@ -149,12 +169,21 @@ async def update_student(
     principal: EducationManagePrincipal,
     session: DB,
 ) -> StudentOut:
+    workspace_id = _workspace_id(principal)
     student = await _scoped_student(
         session,
         tenant_id=principal.tenant_id,
-        workspace_id=_workspace_id(principal),
+        workspace_id=workspace_id,
         student_id=student_id,
     )
+    if payload.status == StudentStatus.ARCHIVED and student.status != StudentStatus.ARCHIVED.value:
+        await _ensure_student_has_no_live_enrollments(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            student_id=student.id,
+        )
+
     changed_fields: list[str] = []
     for field_name in payload.model_fields_set:
         value = getattr(payload, field_name)
@@ -203,13 +232,20 @@ async def archive_student(
     principal: EducationManagePrincipal,
     session: DB,
 ) -> Response:
+    workspace_id = _workspace_id(principal)
     student = await _scoped_student(
         session,
         tenant_id=principal.tenant_id,
-        workspace_id=_workspace_id(principal),
+        workspace_id=workspace_id,
         student_id=student_id,
     )
     if student.status != StudentStatus.ARCHIVED.value:
+        await _ensure_student_has_no_live_enrollments(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            student_id=student.id,
+        )
         student.status = StudentStatus.ARCHIVED.value
         enqueue_event(
             session,
