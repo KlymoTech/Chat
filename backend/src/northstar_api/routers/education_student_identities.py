@@ -209,11 +209,11 @@ async def create_student_identity(
         ),
     )
     session.add(identity)
-    if identity.is_primary:
-        await session.flush()
-        await _demote_other_primaries(session, identity=identity)
     try:
         await session.flush()
+        if identity.is_primary:
+            await _demote_other_primaries(session, identity=identity)
+            await session.flush()
     except IntegrityError:
         await session.rollback()
         raise HTTPException(
