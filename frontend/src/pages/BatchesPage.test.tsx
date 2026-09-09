@@ -200,8 +200,8 @@ describe('BatchesPage', () => {
     expect(await screen.findByText('CPA 2026 Cohort A')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create batch' }));
     const dialog = screen.getByRole('dialog');
-    await user.type(within(dialog).getByLabelText('Batch code'), 'CPA-BAD-DATES');
-    await user.type(within(dialog).getByLabelText('Batch name'), 'Bad Date Batch');
+    fireEvent.change(within(dialog).getByLabelText('Batch code'), { target: { value: 'CPA-BAD-DATES' } });
+    fireEvent.change(within(dialog).getByLabelText('Batch name'), { target: { value: 'Bad Date Batch' } });
     fireEvent.change(within(dialog).getByLabelText('Start date'), { target: { value: '2026-12-01' } });
     fireEvent.change(within(dialog).getByLabelText('End date'), { target: { value: '2026-11-01' } });
     await user.click(within(dialog).getByRole('button', { name: 'Create batch' }));
