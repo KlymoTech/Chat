@@ -289,7 +289,9 @@ async def test_enrollment_lifecycle_integrity_and_workspace_isolation(
     else:
         workspaces = await client.get("/api/v1/workspaces", headers=auth_headers)
         assert workspaces.status_code == 200, workspaces.text
-        secondary_id = next(item["id"] for item in workspaces.json() if item["slug"] == "enrollment-isolation")
+        secondary_id = next(
+            item["id"] for item in workspaces.json() if item["slug"] == "enrollment-isolation"
+        )
     secondary_headers = {**auth_headers, "X-Workspace-ID": secondary_id}
 
     cross_workspace_get = await client.get(
