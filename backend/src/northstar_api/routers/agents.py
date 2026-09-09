@@ -67,6 +67,9 @@ LEGACY_APPEARANCE_CHANNELS = {
     "zapier",
 }
 
+GENERIC_SUPPORT_INSTRUCTIONS = (
+    "Help visitors with accurate, concise answers. Use trusted knowledge first and clearly say when information is unavailable."
+)
 PURPOSE_STARTER_INSTRUCTIONS: dict[AgentPurpose, str] = {
     AgentPurpose.SUPPORT: (
         "Answer customer questions using trusted knowledge. Be clear, helpful, and escalate when information is missing."
@@ -115,6 +118,15 @@ def _create_purpose(payload: AgentCreateWithChannel) -> AgentPurpose:
     if payload.template == "lead":
         return AgentPurpose.LEAD_GENERATION
     return AgentPurpose.SUPPORT
+
+
+def _starter_instructions(payload: AgentCreateWithChannel, purpose: AgentPurpose) -> str:
+    # Before Agent Purpose existed, an omitted/blank template created a generic
+    # support Agent while template="support" selected the specialized support
+    # starter. Keep both behaviors so this schema extension is non-breaking.
+    if purpose == AgentPurpose.SUPPORT and payload.template != "support":
+        return GENERIC_SUPPORT_INSTRUCTIONS
+    return PURPOSE_STARTER_INSTRUCTIONS[purpose]
 
 
 async def _channel_binding(session: AsyncSession, agent: Agent) -> AgentChannelBinding:
@@ -258,7 +270,7 @@ async def create_agent(
         if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS
         else "website"
     )
-    instructions = PURPOSE_STARTER_INSTRUCTIONS[purpose]
+    instructions = _starter_instructions(payload, purpose)
     # Education Agents cannot be made live before the enrollment authorization
     # layer exists. Creating them in draft prevents private knowledge from being
     # exposed through the existing generic runtime while Education is provisioned.
