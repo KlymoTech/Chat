@@ -1,0 +1,89 @@
+name: Agent Purpose Isolated Validation
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-agent-purpose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Lint Agent Purpose frontend surface
+        run: >-
+          npx eslint
+          src/pages/AgentsPage.tsx
+          src/pages/AgentsPage.test.tsx
+          src/pages/AgentBuilderPage.tsx
+          src/pages/AgentBuilderPurpose.test.tsx
+          src/lib/demo-data.ts
+          src/types.ts
+          --max-warnings 0
+        working-directory: frontend
+      - name: Type-check frontend
+        run: npm run typecheck --workspace @northstar/web
+      - name: Run Agent Purpose frontend tests
+        run: >-
+          npm run test --workspace @northstar/web --
+          src/pages/AgentsPage.test.tsx
+          src/pages/AgentBuilderPurpose.test.tsx
+      - name: Build frontend
+        run: npm run build --workspace @northstar/web
+
+  backend-agent-purpose:
+    runs-on: ubuntu-24.04
+    env:
+      APP_ENV: test
+      DATABASE_URL: sqlite+aiosqlite:///./agent-purpose-test.db
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      ALLOW_DETERMINISTIC_EMBEDDINGS: 'true'
+      RATE_LIMIT_FAIL_OPEN: 'true'
+      CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Resolve test environment despite existing stale lockfile
+        run: uv sync --all-groups
+      - name: Lint Agent Purpose backend surface
+        run: >-
+          uv run ruff check
+          src/northstar_api/agent_purpose.py
+          src/northstar_api/routers/agents.py
+          tests/test_agent_purpose.py
+          migrations/versions/0015_agent_purpose.py
+          migrations/env.py
+      - name: Format-check Agent Purpose backend surface
+        run: >-
+          uv run ruff format --check
+          src/northstar_api/agent_purpose.py
+          src/northstar_api/routers/agents.py
+          tests/test_agent_purpose.py
+          migrations/versions/0015_agent_purpose.py
+          migrations/env.py
+      - name: Type-check Agent Purpose backend surface
+        run: uv run mypy src/northstar_api/agent_purpose.py src/northstar_api/routers/agents.py
+      - name: Verify migration graph
+        run: uv run alembic heads | grep 0015_agent_purpose
+      - name: Run Agent Purpose backend tests
+        run: uv run pytest tests/test_agent_purpose.py -q
