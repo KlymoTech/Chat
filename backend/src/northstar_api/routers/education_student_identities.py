@@ -302,6 +302,10 @@ async def update_student_identity(
     if identity.is_primary:
         await _demote_other_primaries(session, identity=identity)
     else:
+        # The shared session has autoflush disabled. Persist the identity's new
+        # status/primary state before querying for a replacement, otherwise the
+        # database can still report this identity as the current primary.
+        await session.flush()
         await _ensure_primary_exists(
             session,
             student_id=student_id,
@@ -363,6 +367,9 @@ async def revoke_student_identity(
     if identity.status != StudentIdentityStatus.REVOKED.value:
         identity.status = StudentIdentityStatus.REVOKED.value
         identity.is_primary = False
+        # Flush first because AsyncSession is configured with autoflush=False;
+        # primary failover must query against the newly revoked state.
+        await session.flush()
         await _ensure_primary_exists(
             session,
             student_id=student_id,
