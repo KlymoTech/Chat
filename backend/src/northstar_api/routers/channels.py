@@ -9,35 +9,47 @@ from uuid import UUID
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session, set_tenant_context
-from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
+from northstar_api.dependencies import CurrentPrincipal, require_permissions
 from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_scope import AgentChannelBinding, WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.lead_crm.models import RawWebhookEvent
+from northstar_api.models import Agent
+from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(tags=["channels"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+ChannelsViewPrincipal = Annotated[Principal, Depends(require_permissions("integrations.view"))]
+ChannelsManagePrincipal = Annotated[Principal, Depends(require_permissions("integrations.manage"))]
 MAX_WEBHOOK_BYTES = 1_048_576
 
 
 class ChannelConnectionCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     provider: ChannelProvider
     name: str = Field(min_length=1, max_length=160)
+    agent_id: UUID | None = Field(default=None, alias="agentId")
     configuration: dict[str, Any] = Field(default_factory=dict)
     credentials: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChannelConnectionOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: UUID
     public_id: str
+    workspace_id: UUID
+    agent_id: UUID | None
     provider: str
     name: str
     status: str
@@ -50,10 +62,20 @@ class ChannelConnectionOut(BaseModel):
     updated_at: datetime
 
 
-def _out(value: ChannelConnection) -> ChannelConnectionOut:
+def _canonical_agent_channel(provider: ChannelProvider) -> str:
+    if provider == ChannelProvider.WIDGET:
+        return "website"
+    if provider == ChannelProvider.FACEBOOK_MESSENGER:
+        return "facebook"
+    return provider.value
+
+
+def _out(value: ChannelConnection, scope: WorkspaceChannelConnection) -> ChannelConnectionOut:
     return ChannelConnectionOut(
         id=value.id,
         public_id=value.public_id,
+        workspace_id=scope.workspace_id,
+        agent_id=scope.agent_id,
         provider=value.provider,
         name=value.name,
         status=value.status,
@@ -86,6 +108,64 @@ def _context(value: ChannelConnection, credentials: dict[str, Any]) -> ChannelCo
     )
 
 
+async def _scoped_connection(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    connection_id: UUID,
+) -> tuple[ChannelConnection, WorkspaceChannelConnection] | None:
+    row = (
+        await session.execute(
+            select(ChannelConnection, WorkspaceChannelConnection)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelConnection.id == connection_id,
+                ChannelConnection.tenant_id == tenant_id,
+                WorkspaceChannelConnection.tenant_id == tenant_id,
+                WorkspaceChannelConnection.workspace_id == workspace_id,
+            )
+        )
+    ).first()
+    return (row[0], row[1]) if row else None
+
+
+async def _validate_agent_channel(
+    session: AsyncSession,
+    principal: Principal,
+    provider: ChannelProvider,
+    agent_id: UUID | None,
+) -> None:
+    if agent_id is None:
+        return
+    agent = await session.scalar(
+        select(Agent).where(
+            Agent.id == agent_id,
+            Agent.tenant_id == principal.tenant_id,
+            Agent.workspace_id == principal.workspace_id,
+            Agent.deleted_at.is_(None),
+        )
+    )
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found in this workspace")
+    binding = await session.scalar(
+        select(AgentChannelBinding).where(
+            AgentChannelBinding.tenant_id == principal.tenant_id,
+            AgentChannelBinding.workspace_id == principal.workspace_id,
+            AgentChannelBinding.agent_id == agent_id,
+        )
+    )
+    expected = _canonical_agent_channel(provider)
+    if binding and binding.channel_type != expected:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent is assigned to {binding.channel_type}; it cannot use a {expected} connection",
+        )
+
+
 @router.get("/channels/providers")
 async def channel_providers(_: CurrentPrincipal) -> list[dict[str, Any]]:
     registered = set(channel_registry.providers())
@@ -102,73 +182,107 @@ async def channel_providers(_: CurrentPrincipal) -> list[dict[str, Any]]:
 @router.post("/channels/connections", response_model=ChannelConnectionOut, status_code=201)
 async def create_channel_connection(
     payload: ChannelConnectionCreate,
-    principal: AdminPrincipal,
+    principal: ChannelsManagePrincipal,
     session: DB,
 ) -> ChannelConnectionOut:
+    await _validate_agent_channel(session, principal, payload.provider, payload.agent_id)
     duplicate = await session.scalar(
-        select(ChannelConnection.id).where(
+        select(ChannelConnection.id)
+        .join(
+            WorkspaceChannelConnection,
+            WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+        )
+        .where(
             ChannelConnection.tenant_id == principal.tenant_id,
             ChannelConnection.name == payload.name,
+            WorkspaceChannelConnection.workspace_id == principal.workspace_id,
         )
     )
     if duplicate:
-        raise HTTPException(status_code=409, detail="A channel connection with that name already exists")
+        raise HTTPException(status_code=409, detail="A channel connection with that name already exists in this workspace")
     try:
         channel_registry.get(payload.provider)
     except KeyError as exc:
-        raise HTTPException(
-            status_code=409, detail="Channel connector is not available in this runtime"
-        ) from exc
+        raise HTTPException(status_code=409, detail="Channel connector is not available in this runtime") from exc
     encrypted = None
     if payload.credentials:
         try:
             encrypted = credential_store.encrypt(payload.credentials)
         except CredentialStoreError as exc:
             raise HTTPException(status_code=503, detail="Credential encryption is not configured") from exc
+
+    stored_name = payload.name
+    tenant_conflict = await session.scalar(
+        select(ChannelConnection.id).where(
+            ChannelConnection.tenant_id == principal.tenant_id,
+            ChannelConnection.name == stored_name,
+        )
+    )
+    if tenant_conflict:
+        stored_name = f"{payload.name} [{str(principal.workspace_id)[:8]}]"
+
     value = ChannelConnection(
         tenant_id=principal.tenant_id,
         public_id=f"chn_{uuid.uuid4().hex}",
         provider=payload.provider.value,
-        name=payload.name,
+        name=stored_name,
         status="configured" if encrypted or payload.configuration else "draft",
         credentials_encrypted=encrypted,
         configuration_json=payload.configuration,
     )
     session.add(value)
+    await session.flush()
+    scope = WorkspaceChannelConnection(
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        agent_id=payload.agent_id,
+        connection_id=value.id,
+    )
+    session.add(scope)
     await session.commit()
     await session.refresh(value)
-    return _out(value)
+    await session.refresh(scope)
+    return _out(value, scope)
 
 
 @router.get("/channels/connections", response_model=list[ChannelConnectionOut])
 async def list_channel_connections(
-    principal: CurrentPrincipal,
+    principal: ChannelsViewPrincipal,
     session: DB,
 ) -> list[ChannelConnectionOut]:
-    values = list(
-        await session.scalars(
-            select(ChannelConnection)
-            .where(ChannelConnection.tenant_id == principal.tenant_id)
+    rows = (
+        await session.execute(
+            select(ChannelConnection, WorkspaceChannelConnection)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.workspace_id == principal.workspace_id,
+            )
             .order_by(ChannelConnection.created_at.desc())
         )
-    )
-    return [_out(value) for value in values]
+    ).all()
+    return [_out(value, scope) for value, scope in rows]
 
 
 @router.post("/channels/connections/{connection_id}/test")
 async def test_channel_connection(
     connection_id: UUID,
-    principal: AdminPrincipal,
+    principal: ChannelsManagePrincipal,
     session: DB,
 ) -> dict[str, Any]:
-    value = await session.scalar(
-        select(ChannelConnection).where(
-            ChannelConnection.id == connection_id,
-            ChannelConnection.tenant_id == principal.tenant_id,
-        )
+    scoped = await _scoped_connection(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
     )
-    if not value:
-        raise HTTPException(status_code=404, detail="Channel connection not found")
+    if not scoped:
+        raise HTTPException(status_code=404, detail="Channel connection not found in this workspace")
+    value, _ = scoped
     credentials = _credentials(value)
     connector = channel_registry.get(ChannelProvider(value.provider))
     result = await connector.health_check(_context(value, credentials))
@@ -182,21 +296,48 @@ async def test_channel_connection(
 @router.delete("/channels/connections/{connection_id}", status_code=204)
 async def disable_channel_connection(
     connection_id: UUID,
-    principal: AdminPrincipal,
+    principal: ChannelsManagePrincipal,
     session: DB,
 ) -> None:
-    value = await session.scalar(
-        select(ChannelConnection).where(
-            ChannelConnection.id == connection_id,
-            ChannelConnection.tenant_id == principal.tenant_id,
-        )
+    scoped = await _scoped_connection(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
     )
-    if not value:
-        raise HTTPException(status_code=404, detail="Channel connection not found")
+    if not scoped:
+        raise HTTPException(status_code=404, detail="Channel connection not found in this workspace")
+    value, _ = scoped
     value.status = "disabled"
     value.credentials_encrypted = None
     value.credentials_ref = None
     await session.commit()
+
+
+async def _external_connection(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    provider: ChannelProvider,
+    public_id: str,
+) -> tuple[ChannelConnection, WorkspaceChannelConnection] | None:
+    row = (
+        await session.execute(
+            select(ChannelConnection, WorkspaceChannelConnection)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelConnection.tenant_id == tenant_id,
+                ChannelConnection.public_id == public_id,
+                ChannelConnection.provider == provider.value,
+                ChannelConnection.status != "disabled",
+                WorkspaceChannelConnection.tenant_id == tenant_id,
+            )
+        )
+    ).first()
+    return (row[0], row[1]) if row else None
 
 
 @router.get("/webhooks/channels/{tenant_id}/{provider}/{public_id}", include_in_schema=False)
@@ -216,16 +357,12 @@ async def verify_meta_channel_webhook(
     }:
         raise HTTPException(status_code=404, detail="Webhook verification is not supported")
     await set_tenant_context(session, tenant_id)
-    value = await session.scalar(
-        select(ChannelConnection).where(
-            ChannelConnection.tenant_id == tenant_id,
-            ChannelConnection.public_id == public_id,
-            ChannelConnection.provider == provider.value,
-            ChannelConnection.status != "disabled",
-        )
+    scoped = await _external_connection(
+        session, tenant_id=tenant_id, provider=provider, public_id=public_id
     )
-    if not value:
+    if not scoped:
         raise HTTPException(status_code=404, detail="Channel connection not found")
+    value, _ = scoped
     credentials = _credentials(value)
     expected = str(credentials.get("verify_token") or "")
     if (
@@ -258,16 +395,12 @@ async def receive_channel_webhook(
         raise HTTPException(status_code=400, detail="Webhook payload must be an object")
 
     await set_tenant_context(session, tenant_id)
-    connection = await session.scalar(
-        select(ChannelConnection).where(
-            ChannelConnection.tenant_id == tenant_id,
-            ChannelConnection.public_id == public_id,
-            ChannelConnection.provider == provider.value,
-            ChannelConnection.status != "disabled",
-        )
+    scoped = await _external_connection(
+        session, tenant_id=tenant_id, provider=provider, public_id=public_id
     )
-    if not connection:
+    if not scoped:
         raise HTTPException(status_code=404, detail="Channel connection not found")
+    connection, scope = scoped
     credentials = _credentials(connection)
     connector = channel_registry.get(provider)
     headers = {key.lower(): value for key, value in request.headers.items()}
@@ -332,7 +465,13 @@ async def receive_channel_webhook(
             aggregate_type="raw_webhook_event",
             aggregate_id=raw_event.id,
             event_type="channel.event.received.v1",
-            payload={"rawEventId": str(raw_event.id), "provider": provider.value},
+            payload={
+                "rawEventId": str(raw_event.id),
+                "provider": provider.value,
+                "workspaceId": str(scope.workspace_id),
+                "agentId": str(scope.agent_id) if scope.agent_id else None,
+                "channelConnectionId": str(connection.id),
+            },
         )
         stored += 1
 
@@ -344,4 +483,6 @@ async def receive_channel_webhook(
         "acknowledged": True,
         "acceptedEvents": stored,
         "correlationId": correlation_id,
+        "workspaceId": str(scope.workspace_id),
+        "agentId": str(scope.agent_id) if scope.agent_id else None,
     }
