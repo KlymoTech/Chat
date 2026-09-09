@@ -5,6 +5,7 @@ import { AgentBuilderPage } from '@/pages/AgentBuilderPage';
 import { AgentsPage } from '@/pages/AgentsPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
+import { CoursesPage } from '@/pages/CoursesPage';
 import { DeployPage } from '@/pages/DeployPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
 import { HelpArticlePage } from '@/pages/HelpArticlePage';
@@ -37,6 +38,7 @@ export function App() {
       <Route index element={<OverviewPage />} />
       <Route path="agents" element={<AgentsPage />} />
       <Route path="agents/:agentId/:tab?" element={<AgentBuilderPage />} />
+      <Route path="education/courses" element={<CoursesPage />} />
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
