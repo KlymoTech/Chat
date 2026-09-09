@@ -1,5 +1,6 @@
-import { Archive, Pencil, Plus, RotateCcw, Search, UserRound, X } from 'lucide-react';
+import { Archive, Link2, Pencil, Plus, RotateCcw, Search, UserRound, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { StudentIdentitiesModal } from '@/components/student-identities-modal';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader } from '@/components/ui';
 import {
@@ -57,6 +58,7 @@ export function StudentsPage() {
   const [status, setStatus] = useState<StudentFilter>('all');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<EducationStudent | null>(null);
+  const [identityStudent, setIdentityStudent] = useState<EducationStudent | null>(null);
   const [form, setForm] = useState<StudentFormState>(emptyForm);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -232,7 +234,7 @@ export function StudentsPage() {
     <div className="page-heading page-heading--split">
       <div>
         <h2>Students</h2>
-        <p>Manage durable student profiles in the active workspace. Identities and enrollments are added separately.</p>
+        <p>Manage durable student profiles and their verified channel identities in the active workspace.</p>
       </div>
       <Button icon={Plus} onClick={openCreate}>Add student</Button>
     </div>
@@ -286,6 +288,7 @@ export function StudentsPage() {
           <td><Badge tone={student.status === 'active' ? 'success' : 'neutral'}>{student.status}</Badge></td>
           <td><time dateTime={student.updatedAt}>{relativeTime(student.updatedAt)}</time></td>
           <td><div className="student-actions">
+            <Button variant="secondary" size="sm" icon={Link2} onClick={() => setIdentityStudent(student)}>Identities</Button>
             <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEdit(student)}>Edit</Button>
             {student.status === 'active'
               ? <Button variant="ghost" size="sm" icon={Archive} onClick={() => setArchiveTarget(student)}>Archive</Button>
@@ -303,10 +306,16 @@ export function StudentsPage() {
         title={students.data?.length ? 'No matching students' : 'Add your first student'}
         description={students.data?.length
           ? 'Try another search or status filter.'
-          : 'Create durable student profiles now. Channel identities and course/batch enrollments will attach to these records later.'}
+          : 'Create a durable Student profile, then link verified channel identities to it.'}
         action={!students.data?.length ? <Button icon={Plus} onClick={openCreate}>Add student</Button> : undefined}
       />}
     </Card>
+
+    <StudentIdentitiesModal
+      student={identityStudent}
+      open={Boolean(identityStudent)}
+      onClose={() => setIdentityStudent(null)}
+    />
 
     <Modal
       open={editorOpen}
