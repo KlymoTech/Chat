@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from northstar_api import agent_purpose, education, help_models, models  # noqa: F401
+from northstar_api import agent_purpose, education, education_batches, help_models, models  # noqa: F401
 from northstar_api.config import get_settings
 from northstar_api.database import Base
 
