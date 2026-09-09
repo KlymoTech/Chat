@@ -275,7 +275,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
     onClose={close}
     title={student ? `${student.name} · Enrollments` : 'Student enrollments'}
     description="Assign Course, Batch, Education Agent, validity, and access status. Runtime identity and RAG authorization are enforced separately."
-    size="xl"
+    size="lg"
     closeDisabled={saving || Boolean(actingId)}
     footer={<Button variant="secondary" onClick={close} disabled={saving || Boolean(actingId)}>Close</Button>}
   >
