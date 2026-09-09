@@ -11,6 +11,7 @@ const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/agents', label: 'Agents', icon: Sparkles },
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
+  { to: '/education/batches', label: 'Batches', icon: GraduationCap },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
