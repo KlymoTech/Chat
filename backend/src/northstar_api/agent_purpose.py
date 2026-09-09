@@ -46,18 +46,14 @@ class AgentPurposeSetting(Base):
         ),
     )
 
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
-    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
     )
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    purpose: Mapped[str] = mapped_column(
-        String(40), nullable=False, default=AgentPurpose.SUPPORT.value
-    )
+    purpose: Mapped[str] = mapped_column(String(40), nullable=False, default=AgentPurpose.SUPPORT.value)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -99,9 +95,7 @@ async def set_agent_purpose(
     """Create/update the authoritative purpose record for an Agent."""
 
     value = await session.scalar(
-        select(AgentPurposeSetting)
-        .where(AgentPurposeSetting.agent_id == agent.id)
-        .with_for_update()
+        select(AgentPurposeSetting).where(AgentPurposeSetting.agent_id == agent.id).with_for_update()
     )
     if value is None:
         value = AgentPurposeSetting(
