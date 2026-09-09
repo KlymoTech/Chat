@@ -78,7 +78,7 @@ function validateIdentifier(type: StudentIdentityType, rawIdentifier: string): s
 export function StudentIdentitiesModal({ student, open, onClose }: StudentIdentitiesModalProps) {
   const { pushToast } = useToast();
   const [identities, setIdentities] = useState<EducationStudentIdentity[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState<'all' | StudentIdentityStatus>('all');
   const [form, setForm] = useState<IdentityFormState>(emptyForm);
@@ -105,15 +105,31 @@ export function StudentIdentitiesModal({ student, open, onClose }: StudentIdenti
   };
 
   useEffect(() => {
-    if (!open || !student) return;
-    setFilter('all');
-    setForm(emptyForm);
-    setFormError('');
-    void load();
-  }, [open, student?.id]);
+    if (!open || !student) return undefined;
+    let cancelled = false;
+    void educationStudentIdentityApi.list(student.id)
+      .then((records) => {
+        if (cancelled) return;
+        setIdentities(records);
+        setLoadError('');
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setLoadError(error instanceof Error ? error.message : 'Student identities could not be loaded.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, student]);
 
   const close = () => {
     if (saving || actingId) return;
+    setFilter('all');
+    setForm(emptyForm);
+    setFormError('');
+    setLoadError('');
+    setLoading(true);
     onClose();
   };
 
