@@ -47,7 +47,7 @@ async def _scoped_course(
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
     if require_active and course.status != CourseStatus.ACTIVE.value:
-        raise HTTPException(status_code=409, detail="Archived courses cannot receive new batches")
+        raise HTTPException(status_code=409, detail="Archived courses cannot receive active batches")
     return course
 
 
@@ -191,15 +191,25 @@ async def update_batch(
     principal: EducationManagePrincipal,
     session: DB,
 ) -> BatchOut:
+    workspace_id = _workspace_id(principal)
     batch = await _scoped_batch(
         session,
         tenant_id=principal.tenant_id,
-        workspace_id=_workspace_id(principal),
+        workspace_id=workspace_id,
         batch_id=batch_id,
     )
     next_starts_on = payload.starts_on if "starts_on" in payload.model_fields_set else batch.starts_on
     next_ends_on = payload.ends_on if "ends_on" in payload.model_fields_set else batch.ends_on
     _validate_date_range(next_starts_on, next_ends_on)
+
+    if payload.status == BatchStatus.ACTIVE and batch.status != BatchStatus.ACTIVE.value:
+        await _scoped_course(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            course_id=batch.course_id,
+            require_active=True,
+        )
 
     changed_fields: list[str] = []
     for field_name in payload.model_fields_set:
