@@ -17,35 +17,85 @@ from northstar_api.models import Role, WorkspaceRole
 
 WORKSPACE_ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[str]] = {
     WorkspaceRole.ADMIN: frozenset({"*"}),
-    WorkspaceRole.MANAGER: frozenset({
-        "workspace.view", "members.view", "agents.view", "agents.create", "agents.update",
-        "agents.deploy", "knowledge.view", "knowledge.manage", "conversations.view",
-        "conversations.reply", "conversations.resolve", "conversations.assign", "leads.view",
-        "leads.update", "leads.export", "integrations.view", "crm.view", "analytics.view",
-        "education.view", "education.manage", "settings.view",
-    }),
-    WorkspaceRole.OPERATOR: frozenset({
-        "workspace.view", "agents.view", "knowledge.view", "conversations.view",
-        "conversations.reply", "conversations.resolve", "conversations.assign", "leads.view",
-        "leads.update", "education.view",
-    }),
-    WorkspaceRole.ANALYST: frozenset({
-        "workspace.view", "agents.view", "knowledge.view", "conversations.view", "leads.view",
-        "leads.export", "analytics.view", "integrations.view", "crm.view", "education.view",
-    }),
-    WorkspaceRole.VIEWER: frozenset({
-        "workspace.view", "agents.view", "knowledge.view", "conversations.view", "leads.view",
-        "analytics.view", "education.view",
-    }),
+    WorkspaceRole.MANAGER: frozenset(
+        {
+            "workspace.view",
+            "members.view",
+            "agents.view",
+            "agents.create",
+            "agents.update",
+            "agents.deploy",
+            "knowledge.view",
+            "knowledge.manage",
+            "conversations.view",
+            "conversations.reply",
+            "conversations.resolve",
+            "conversations.assign",
+            "leads.view",
+            "leads.update",
+            "leads.export",
+            "integrations.view",
+            "crm.view",
+            "analytics.view",
+            "education.view",
+            "education.manage",
+            "settings.view",
+        }
+    ),
+    WorkspaceRole.OPERATOR: frozenset(
+        {
+            "workspace.view",
+            "agents.view",
+            "knowledge.view",
+            "conversations.view",
+            "conversations.reply",
+            "conversations.resolve",
+            "conversations.assign",
+            "leads.view",
+            "leads.update",
+            "education.view",
+        }
+    ),
+    WorkspaceRole.ANALYST: frozenset(
+        {
+            "workspace.view",
+            "agents.view",
+            "knowledge.view",
+            "conversations.view",
+            "leads.view",
+            "leads.export",
+            "analytics.view",
+            "integrations.view",
+            "crm.view",
+            "education.view",
+        }
+    ),
+    WorkspaceRole.VIEWER: frozenset(
+        {
+            "workspace.view",
+            "agents.view",
+            "knowledge.view",
+            "conversations.view",
+            "leads.view",
+            "analytics.view",
+            "education.view",
+        }
+    ),
 }
 
 TENANT_ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
     Role.OWNER: frozenset({"*"}),
     Role.ADMIN: frozenset({"*"}),
     Role.BILLING_ADMIN: frozenset({"workspace.view", "billing.view", "billing.manage", "usage.view"}),
-    Role.SECURITY_ADMIN: frozenset({
-        "workspace.view", "members.view", "security.view", "security.manage", "audit.view",
-    }),
+    Role.SECURITY_ADMIN: frozenset(
+        {
+            "workspace.view",
+            "members.view",
+            "security.view",
+            "security.manage",
+            "audit.view",
+        }
+    ),
     Role.MEMBER: frozenset(),
     Role.ANALYST: frozenset(),
 }
