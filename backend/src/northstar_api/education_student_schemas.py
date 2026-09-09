@@ -41,6 +41,10 @@ def _normalize_custom_fields(value: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _normalize_email(value: EmailStr | None) -> str | None:
+    return str(value).strip().lower() if value is not None else None
+
+
 class StudentCreate(APIModel):
     student_number: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=2, max_length=160)
@@ -59,8 +63,8 @@ class StudentCreate(APIModel):
 
     @field_validator("email")
     @classmethod
-    def normalize_email(cls, value: EmailStr | None) -> EmailStr | None:
-        return EmailStr(str(value).strip().lower()) if value is not None else None
+    def normalize_email(cls, value: EmailStr | None) -> str | None:
+        return _normalize_email(value)
 
     @field_validator("custom_fields")
     @classmethod
@@ -87,8 +91,8 @@ class StudentPatch(APIModel):
 
     @field_validator("email")
     @classmethod
-    def normalize_email(cls, value: EmailStr | None) -> EmailStr | None:
-        return EmailStr(str(value).strip().lower()) if value is not None else None
+    def normalize_email(cls, value: EmailStr | None) -> str | None:
+        return _normalize_email(value)
 
     @field_validator("custom_fields")
     @classmethod
