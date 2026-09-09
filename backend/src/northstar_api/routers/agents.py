@@ -23,7 +23,6 @@ from northstar_api.models import (
     default_appearance,
 )
 from northstar_api.schemas import (
-    APIModel,
     AgentAppearance,
     AgentCreate,
     AgentDuplicate,
@@ -31,6 +30,7 @@ from northstar_api.schemas import (
     AgentOut,
     AgentPatch,
     AgentSecurity,
+    APIModel,
 )
 from northstar_api.security import Principal
 from northstar_api.services.localization import localized_appearance
