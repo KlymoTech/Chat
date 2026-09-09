@@ -112,12 +112,16 @@ class AgentChannelOut(APIModel):
 def _create_purpose(payload: AgentCreateWithChannel) -> AgentPurpose:
     if payload.purpose is not None:
         return payload.purpose
+    # Preserve the old template contract for API clients that predate purpose.
     if payload.template == "lead":
         return AgentPurpose.LEAD_GENERATION
     return AgentPurpose.SUPPORT
 
 
 def _starter_instructions(payload: AgentCreateWithChannel, purpose: AgentPurpose) -> str:
+    # Before Agent Purpose existed, an omitted/blank template created a generic
+    # support Agent while template="support" selected the specialized support
+    # starter. Keep both behaviors so this schema extension is non-breaking.
     if purpose == AgentPurpose.SUPPORT and payload.template != "support":
         return GENERIC_SUPPORT_INSTRUCTIONS
     return PURPOSE_STARTER_INSTRUCTIONS[purpose]
@@ -255,10 +259,15 @@ async def create_agent(
     purpose = _create_purpose(payload)
     appearance = default_appearance()
     appearance.update(localized_appearance(payload.language))
+    # Keep the legacy appearance field for old clients. Telegram is represented
+    # only by the relational binding until the legacy AgentAppearance schema is retired.
     appearance["deploymentChannel"] = (
         payload.deployment_channel if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS else "website"
     )
     instructions = _starter_instructions(payload, purpose)
+    # Education Agents cannot be made live before the enrollment authorization
+    # layer exists. Creating them in draft prevents private knowledge from being
+    # exposed through the existing generic runtime while Education is provisioned.
     initial_status = AgentStatus.DRAFT if purpose == AgentPurpose.EDUCATION else AgentStatus.ACTIVE
     agent = Agent(
         tenant_id=principal.tenant_id,
