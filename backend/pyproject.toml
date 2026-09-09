@@ -54,6 +54,11 @@ northstar-outbox = "northstar_api.workers.outbox_publisher:main"
 northstar-analytics = "northstar_api.workers.analytics_consumer:main"
 northstar-job-dispatcher = "northstar_api.workers.job_dispatcher:main"
 northstar-object-cleaner = "northstar_api.workers.object_cleaner:main"
+northstar-crm-router = "northstar_api.workers.crm_router_consumer:main"
+northstar-crm-delivery = "northstar_api.workers.crm_delivery_worker:main"
+northstar-crm-reconciliation = "northstar_api.workers.crm_reconciliation:main"
+northstar-crm-webhooks = "northstar_api.workers.crm_webhook_consumer:main"
+northstar-channel-router = "northstar_api.workers.channel_event_consumer:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

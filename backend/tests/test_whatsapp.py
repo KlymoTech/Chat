@@ -533,6 +533,12 @@ async def test_embedded_signup_and_signed_idempotent_webhook(
     )
     assert created_agent.status_code == 201, created_agent.text
     agent_id = created_agent.json()["id"]
+    drafted_agent = await client.patch(
+        f"/api/v1/agents/{agent_id}",
+        headers=auth_headers,
+        json={"status": "draft"},
+    )
+    assert drafted_agent.status_code == 200, drafted_agent.text
     draft_bootstrap = await client.get("/api/v1/integrations/whatsapp/bootstrap", headers=auth_headers)
     draft_connection = await client.post(
         "/api/v1/integrations/whatsapp/complete",

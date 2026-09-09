@@ -234,7 +234,6 @@ async def test_agent_knowledge_and_grounded_sse(client: AsyncClient, auth_header
     assert unrelated_answer == "I don't have enough verified information to answer that."
     assert not any(item["type"] == "citation" for item in unrelated_payloads)
 
-
     origin_headers = {"Origin": "http://testserver"}
     bootstrap = await client.get(
         f"/api/v1/widget/{agent['publicId']}/bootstrap",

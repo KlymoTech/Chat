@@ -97,17 +97,9 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
         )
     ).all()
 
-    positive_feedback = sum(
-        int(count)
-        for value, count in feedback
-        if int(value) == 1
-    )
+    positive_feedback = sum(int(count) for value, count in feedback if int(value) == 1)
 
-    negative_feedback = sum(
-        int(count)
-        for value, count in feedback
-        if int(value) == -1
-    )
+    negative_feedback = sum(int(count) for value, count in feedback if int(value) == -1)
 
     feedback_total = positive_feedback + negative_feedback
 

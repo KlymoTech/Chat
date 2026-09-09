@@ -12,6 +12,11 @@ resources:
   - outbox-relay.yaml
   - analytics-consumer.yaml
   - object-cleaner.yaml
+  - crm-router.yaml
+  - crm-delivery.yaml
+  - crm-reconciliation.yaml
+  - channel-event-consumer.yaml
+  - crm-webhook-consumer.yaml
   - availability.yaml
   - autoscaling.yaml
   - network-policies.yaml
@@ -42,14 +47,14 @@ patches:
         value: {type: RuntimeDefault}
   - target:
       kind: Deployment
-      name: northstar-(api|web|worker|analytics-consumer|object-cleaner)
+      name: northstar-(api|web|worker|analytics-consumer|object-cleaner|crm-delivery|crm-reconciliation)
     patch: |-
       - op: add
         path: /spec/strategy
         value: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
   - target:
       kind: Deployment
-      name: northstar-(job-dispatcher|outbox-relay)
+      name: northstar-(job-dispatcher|outbox-relay|crm-router|channel-event-consumer|crm-webhook-consumer)
     patch: |-
       - op: add
         path: /spec/strategy
