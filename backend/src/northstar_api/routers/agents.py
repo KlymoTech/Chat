@@ -33,6 +33,10 @@ from northstar_api.schemas import (
     APIModel,
 )
 from northstar_api.security import Principal
+from northstar_api.services.education_enrollment import (
+    has_active_agent_enrollment_configuration,
+    has_non_terminal_enrollment,
+)
 from northstar_api.services.localization import localized_appearance
 from northstar_api.services.outbox import enqueue_event
 
@@ -472,16 +476,35 @@ async def update_agent(
     )
     requested_purpose = payload.purpose or current_purpose
     if payload.status == AgentStatus.ACTIVE and requested_purpose == AgentPurpose.EDUCATION:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Education agents remain draft until Course/Batch/Enrollment authorization is configured."
-            ),
+        configured = await has_active_agent_enrollment_configuration(
+            session,
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
         )
+        if not configured:
+            raise HTTPException(
+                status_code=409,
+                detail="Create and activate at least one valid Student Enrollment before activating this Education Agent.",
+            )
 
     patch = payload.model_dump(exclude_unset=True)
     if "purpose" in patch:
         assert payload.purpose is not None
+        if (
+            payload.purpose != current_purpose
+            and current_purpose == AgentPurpose.EDUCATION
+            and await has_non_terminal_enrollment(
+                session,
+                tenant_id=agent.tenant_id,
+                workspace_id=agent.workspace_id,
+                agent_id=agent.id,
+            )
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Resolve non-terminal Education Enrollments before changing this Agent purpose.",
+            )
         await set_agent_purpose(session, agent=agent, purpose=payload.purpose)
         patch.pop("purpose")
         if payload.purpose == AgentPurpose.EDUCATION and agent.status == AgentStatus.ACTIVE:
@@ -553,6 +576,16 @@ async def delete_agent(agent_id: UUID, principal: AgentsDeletePrincipal, session
     from datetime import UTC, datetime
 
     agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    if await has_non_terminal_enrollment(
+        session,
+        tenant_id=agent.tenant_id,
+        workspace_id=agent.workspace_id,
+        agent_id=agent.id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Resolve non-terminal Education Enrollments before deleting this Agent.",
+        )
     agent.deleted_at = datetime.now(UTC)
     enqueue_event(
         session,
