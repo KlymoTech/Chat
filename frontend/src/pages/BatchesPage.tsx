@@ -309,7 +309,7 @@ export function BatchesPage() {
         <Button type="submit" form="batch-editor-form" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Create batch'}</Button>
       </>}
     >
-      <form id="batch-editor-form" className="batch-editor" onSubmit={(event) => void submitBatch(event)}>
+      <form id="batch-editor-form" className="batch-editor" noValidate onSubmit={(event) => void submitBatch(event)}>
         <Field label="Course" htmlFor="batch-course" hint={editing ? 'Course cannot be changed after creation.' : 'Only active courses can receive new batches.'}>
           <select
             id="batch-course"
