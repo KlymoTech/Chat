@@ -67,7 +67,7 @@ async def test_agent_purpose_create_read_update_duplicate_and_safety(
         json={"status": "active"},
     )
     assert unsafe_activation.status_code == 409
-    assert "Education agents remain draft" in unsafe_activation.text
+    assert "valid Student Enrollment" in unsafe_activation.json()["error"]["message"]
 
     support = await client.patch(
         f"/api/v1/agents/{lead_agent['id']}",

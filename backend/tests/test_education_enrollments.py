@@ -378,14 +378,14 @@ async def test_archived_student_enrollment_history_is_read_only(
         json={"endsOn": "2027-04-30"},
     )
     assert edit_archived_history.status_code == 409, edit_archived_history.text
-    assert "Reactivate the Student" in edit_archived_history.json()["detail"]
+    assert "Reactivate the Student" in edit_archived_history.json()["error"]["message"]
 
     revoke_archived_history = await client.delete(
         f"/api/v1/education/enrollments/{enrollment_id}",
         headers=headers,
     )
     assert revoke_archived_history.status_code == 409, revoke_archived_history.text
-    assert "Reactivate the Student" in revoke_archived_history.json()["detail"]
+    assert "Reactivate the Student" in revoke_archived_history.json()["error"]["message"]
 
     unchanged_history = await client.get(
         f"/api/v1/education/enrollments/{enrollment_id}",
