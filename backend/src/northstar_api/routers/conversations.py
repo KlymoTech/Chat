@@ -16,6 +16,7 @@ from northstar_api.dependencies import require_permissions
 from northstar_api.models import (
     Channel,
     Conversation,
+    ConversationState,
     Message,
     MessageRole,
     WhatsAppConnection,
@@ -31,6 +32,7 @@ from northstar_api.schemas import (
     PageResult,
 )
 from northstar_api.security import Principal
+from northstar_api.services.conversation_resolution import conversation_resolution_service
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.whatsapp import token_expiry_is_current
 from northstar_api.workers.tasks import send_whatsapp_human_reply
@@ -75,6 +77,28 @@ def conversation_options() -> Load:
     # SQLAlchemy's public type hint is the abstract loader base, while this
     # factory returns a concrete Load instance at runtime.
     return cast(Load, selectinload(Conversation.messages).selectinload(Message.citations))
+
+
+def conversation_scope(principal: Principal, conversation_id: UUID) -> tuple[object, ...]:
+    return (
+        Conversation.id == conversation_id,
+        Conversation.tenant_id == principal.tenant_id,
+        Conversation.workspace_id == principal.workspace_id,
+        *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
+    )
+
+
+async def locked_conversation(
+    session: AsyncSession,
+    principal: Principal,
+    conversation_id: UUID,
+) -> Conversation | None:
+    return await session.scalar(
+        select(Conversation)
+        .options(conversation_options())
+        .where(*conversation_scope(principal, conversation_id))
+        .with_for_update()
+    )
 
 
 @router.get("", response_model=PageResult[ConversationOut])
@@ -134,15 +158,34 @@ async def get_conversation(
     conversation = await session.scalar(
         select(Conversation)
         .options(conversation_options())
-        .where(
-            Conversation.id == conversation_id,
-            Conversation.tenant_id == principal.tenant_id,
-            Conversation.workspace_id == principal.workspace_id,
-            *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
-        )
+        .where(*conversation_scope(principal, conversation_id))
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation_response(conversation)
+
+
+@router.post("/{conversation_id}/resolve", response_model=ConversationOut)
+async def resolve_conversation(
+    conversation_id: UUID,
+    principal: ConversationsResolvePrincipal,
+    session: DB,
+) -> ConversationOut:
+    """Resolve a conversation and atomically create/finalize its linked Lead.
+
+    The conversation and every message remain stored. Repeating this request is
+    idempotent: it reconciles the existing Lead rather than creating another.
+    """
+    conversation = await locked_conversation(session, principal, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await conversation_resolution_service.resolve(
+        session,
+        conversation=conversation,
+        actor_user_id=principal.user_id,
+    )
+    await session.commit()
+    await session.refresh(conversation)
     return conversation_response(conversation)
 
 
@@ -153,36 +196,51 @@ async def update_conversation(
     principal: ConversationsResolvePrincipal,
     session: DB,
 ) -> ConversationOut:
-    conversation = await session.scalar(
-        select(Conversation)
-        .options(conversation_options())
-        .where(
-            Conversation.id == conversation_id,
-            Conversation.tenant_id == principal.tenant_id,
-            Conversation.workspace_id == principal.workspace_id,
-            *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
-        )
-    )
+    conversation = await locked_conversation(session, principal, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
     previous_state = conversation.state
-    for name, value in payload.model_dump(exclude_unset=True).items():
+    patch = payload.model_dump(exclude_unset=True)
+    requested_state = payload.state
+    patch.pop("state", None)
+    for name, value in patch.items():
         setattr(conversation, "unread_count" if name == "unread" else name, value)
-    if payload.state and payload.state != previous_state:
-        conversation.ended_at = datetime.now(UTC) if payload.state.value == "resolved" else None
+
+    if requested_state == ConversationState.RESOLVED:
+        await conversation_resolution_service.resolve(
+            session,
+            conversation=conversation,
+            actor_user_id=principal.user_id,
+        )
+    elif requested_state is not None and requested_state != previous_state:
+        conversation.state = requested_state
+        conversation.ended_at = None
+        event_payload = {
+            "conversationId": str(conversation.id),
+            "workspaceId": str(conversation.workspace_id),
+            "agentId": str(conversation.agent_id),
+            "previousState": previous_state.value,
+            "state": requested_state.value,
+        }
         enqueue_event(
             session,
             tenant_id=principal.tenant_id,
             aggregate_type="conversation",
             aggregate_id=conversation.id,
             event_type="conversation.state.changed.v1",
-            payload={
-                "conversationId": str(conversation.id),
-                "agentId": str(conversation.agent_id),
-                "previousState": previous_state.value,
-                "state": conversation.state.value,
-            },
+            payload=event_payload,
         )
+        if previous_state == ConversationState.RESOLVED and requested_state == ConversationState.OPEN:
+            enqueue_event(
+                session,
+                tenant_id=principal.tenant_id,
+                aggregate_type="conversation",
+                aggregate_id=conversation.id,
+                event_type="conversation.reopened.v1",
+                payload=event_payload,
+            )
+
     await session.commit()
     await session.refresh(conversation)
     return conversation_response(conversation)
@@ -197,12 +255,7 @@ async def reply_to_conversation(
 ) -> MessageOut:
     conversation = await session.scalar(
         select(Conversation)
-        .where(
-            Conversation.id == conversation_id,
-            Conversation.tenant_id == principal.tenant_id,
-            Conversation.workspace_id == principal.workspace_id,
-            *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
-        )
+        .where(*conversation_scope(principal, conversation_id))
         .with_for_update()
     )
     if not conversation:
@@ -302,6 +355,7 @@ async def reply_to_conversation(
         event_type="chat.message.created.v1",
         payload={
             "conversationId": str(conversation.id),
+            "workspaceId": str(conversation.workspace_id),
             "agentId": str(conversation.agent_id),
             "messageId": str(message.id),
             "role": "agent",
