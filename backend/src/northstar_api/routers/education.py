@@ -14,6 +14,7 @@ from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_schemas import CourseCreate, CourseOut, CoursePatch
 from northstar_api.security import Principal
+from northstar_api.services.education_enrollment import has_non_terminal_enrollment
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/education/courses", tags=["education"])
@@ -68,6 +69,25 @@ async def _ensure_course_has_no_active_batches(
         raise HTTPException(
             status_code=409,
             detail="Archive active batches before archiving this course",
+        )
+
+
+async def _ensure_course_has_no_live_enrollments(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    course_id: UUID,
+) -> None:
+    if await has_non_terminal_enrollment(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        course_id=course_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Resolve non-terminal Enrollments before archiving this Course",
         )
 
 
@@ -181,6 +201,12 @@ async def update_course(
         course_id=course_id,
     )
     if payload.status == CourseStatus.ARCHIVED and course.status != CourseStatus.ARCHIVED.value:
+        await _ensure_course_has_no_live_enrollments(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            course_id=course.id,
+        )
         await _ensure_course_has_no_active_batches(
             session,
             tenant_id=principal.tenant_id,
@@ -242,6 +268,12 @@ async def archive_course(
         course_id=course_id,
     )
     if course.status != CourseStatus.ARCHIVED.value:
+        await _ensure_course_has_no_live_enrollments(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            course_id=course.id,
+        )
         await _ensure_course_has_no_active_batches(
             session,
             tenant_id=principal.tenant_id,
