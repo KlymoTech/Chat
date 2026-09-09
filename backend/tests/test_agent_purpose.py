@@ -142,6 +142,38 @@ async def test_legacy_lead_template_maps_to_lead_generation_purpose(
     assert created.json()["purpose"] == "lead_generation"
 
 
+async def test_legacy_general_and_support_templates_keep_their_original_instructions(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    general = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={
+            "name": "Legacy General Agent",
+            "description": "No template should retain the old generic starter",
+        },
+    )
+    assert general.status_code == 201, general.text
+    general_payload = general.json()
+    assert general_payload["purpose"] == "support"
+    assert general_payload["instructions"].startswith("Help visitors with accurate, concise answers")
+
+    support = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={
+            "name": "Legacy Support Template Agent",
+            "description": "Explicit support template keeps its specialist starter",
+            "template": "support",
+        },
+    )
+    assert support.status_code == 201, support.text
+    support_payload = support.json()
+    assert support_payload["purpose"] == "support"
+    assert support_payload["instructions"].startswith("Answer customer questions using trusted knowledge")
+
+
 async def test_education_agent_is_created_in_draft(
     client: AsyncClient,
     auth_headers: dict[str, str],
