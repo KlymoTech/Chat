@@ -15,6 +15,7 @@ from northstar_api.routers import (
     crm_webhooks,
     education,
     education_batches,
+    education_enrollments,
     education_student_identities,
     education_students,
     help,
@@ -35,6 +36,7 @@ api_router.include_router(education.router)
 api_router.include_router(education_batches.router)
 api_router.include_router(education_students.router)
 api_router.include_router(education_student_identities.router)
+api_router.include_router(education_enrollments.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
