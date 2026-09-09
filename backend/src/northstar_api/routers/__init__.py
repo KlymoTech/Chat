@@ -14,6 +14,7 @@ from northstar_api.routers import (
     crm_scoped,
     crm_webhooks,
     education,
+    education_batches,
     help,
     integration_audit,
     integrations,
@@ -29,6 +30,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(agents.router)
 api_router.include_router(education.router)
+api_router.include_router(education_batches.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
