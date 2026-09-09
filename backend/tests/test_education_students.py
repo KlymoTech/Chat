@@ -118,9 +118,7 @@ async def test_student_lifecycle_is_workspace_scoped(
         workspaces = await client.get("/api/v1/workspaces", headers=auth_headers)
         assert workspaces.status_code == 200, workspaces.text
         secondary_id = next(
-            item["id"]
-            for item in workspaces.json()
-            if item["slug"] == "education-student-isolation"
+            item["id"] for item in workspaces.json() if item["slug"] == "education-student-isolation"
         )
     secondary_headers = {**auth_headers, "X-Workspace-ID": secondary_id}
 
