@@ -37,7 +37,8 @@ class ConversationResolutionService:
         actor_user_id: UUID | None = None,
     ) -> ConversationResolutionResult:
         now = datetime.now(UTC)
-        was_resolved = conversation.state == ConversationState.RESOLVED
+        previous_state = conversation.state
+        was_resolved = previous_state == ConversationState.RESOLVED
 
         conversation.state = ConversationState.RESOLVED
         conversation.ended_at = conversation.ended_at or now
@@ -163,7 +164,7 @@ class ConversationResolutionService:
                     event_type="conversation.state.changed.v1",
                     payload={
                         **conversation_payload,
-                        "previousState": "open",
+                        "previousState": previous_state.value,
                         "state": ConversationState.RESOLVED.value,
                     },
                 )
