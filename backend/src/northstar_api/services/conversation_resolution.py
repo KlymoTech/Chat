@@ -137,6 +137,16 @@ class ConversationResolutionService:
                 event_type="lead.created.v1",
                 payload=lead_payload,
             )
+            # CRM routing is intentionally asynchronous. A local Lead is committed
+            # even when no CRM is configured or the remote CRM is unavailable.
+            enqueue_event(
+                session,
+                tenant_id=conversation.tenant_id,
+                aggregate_type="lead",
+                aggregate_id=lead.id,
+                event_type="lead.crm.sync.requested.v1",
+                payload={**lead_payload, "reason": "conversation_resolved"},
+            )
 
         if not was_resolved or lead_created:
             conversation_payload = {
