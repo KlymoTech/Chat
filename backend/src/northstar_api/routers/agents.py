@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
+from northstar_api.lead_crm.channel_scope import AgentChannelBinding
 from northstar_api.models import (
     Agent,
     AgentStatus,
@@ -21,6 +22,7 @@ from northstar_api.models import (
     default_appearance,
 )
 from northstar_api.schemas import (
+    APIModel,
     AgentAppearance,
     AgentCreate,
     AgentDuplicate,
@@ -39,6 +41,70 @@ AgentsViewPrincipal = Annotated[Principal, Depends(require_permissions("agents.v
 AgentsCreatePrincipal = Annotated[Principal, Depends(require_permissions("agents.create"))]
 AgentsUpdatePrincipal = Annotated[Principal, Depends(require_permissions("agents.update"))]
 AgentsDeletePrincipal = Annotated[Principal, Depends(require_permissions("agents.delete"))]
+
+AgentChannelType = Literal[
+    "website",
+    "whatsapp",
+    "telegram",
+    "instagram",
+    "facebook",
+    "slack",
+    "teams",
+    "api",
+    "notion",
+    "zapier",
+]
+LEGACY_APPEARANCE_CHANNELS = {
+    "website",
+    "whatsapp",
+    "instagram",
+    "facebook",
+    "slack",
+    "teams",
+    "api",
+    "notion",
+    "zapier",
+}
+
+
+class AgentCreateWithChannel(AgentCreate):
+    deployment_channel: AgentChannelType = "website"
+
+
+class AgentDuplicateWithChannel(AgentDuplicate):
+    deployment_channel: AgentChannelType = "website"
+
+
+class AgentChannelPatch(APIModel):
+    channel_type: AgentChannelType
+
+
+class AgentChannelOut(APIModel):
+    agent_id: UUID
+    workspace_id: UUID
+    channel_type: AgentChannelType
+
+
+async def _channel_binding(session: AsyncSession, agent: Agent) -> AgentChannelBinding:
+    value = await session.scalar(
+        select(AgentChannelBinding).where(
+            AgentChannelBinding.tenant_id == agent.tenant_id,
+            AgentChannelBinding.workspace_id == agent.workspace_id,
+            AgentChannelBinding.agent_id == agent.id,
+        )
+    )
+    if value is None:
+        raw = str((agent.appearance or {}).get("deploymentChannel") or "website").lower()
+        supported = {"website", "whatsapp", "telegram", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"}
+        value = AgentChannelBinding(
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
+            channel_type=raw if raw in supported else "website",
+        )
+        session.add(value)
+        await session.flush()
+    return value
 
 
 async def agent_response(session: AsyncSession, agent: Agent) -> AgentOut:
@@ -121,20 +187,24 @@ async def list_agents(principal: AgentsViewPrincipal, session: DB) -> list[Agent
     if principal.agent_ids is not None:
         conditions.append(Agent.id.in_(principal.agent_ids))
     agents = (
-        await session.scalars(
-            select(Agent)
-            .where(*conditions)
-            .order_by(Agent.updated_at.desc())
-        )
+        await session.scalars(select(Agent).where(*conditions).order_by(Agent.updated_at.desc()))
     ).all()
     return [await agent_response(session, agent) for agent in agents]
 
 
 @router.post("", response_model=AgentOut, status_code=201)
-async def create_agent(payload: AgentCreate, principal: AgentsCreatePrincipal, session: DB) -> AgentOut:
+async def create_agent(
+    payload: AgentCreateWithChannel,
+    principal: AgentsCreatePrincipal,
+    session: DB,
+) -> AgentOut:
     appearance = default_appearance()
     appearance.update(localized_appearance(payload.language))
-    appearance["deploymentChannel"] = payload.deployment_channel
+    # Keep the legacy appearance field for old clients. Telegram is represented
+    # only by the relational binding until the legacy AgentAppearance schema is retired.
+    appearance["deploymentChannel"] = (
+        payload.deployment_channel if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS else "website"
+    )
     instructions = {
         "support": "Answer customer questions using trusted knowledge. Be clear, helpful, and escalate when information is missing.",
         "lead": "Qualify each lead with one useful question at a time, understand their needs, and recommend the appropriate next step.",
@@ -156,6 +226,15 @@ async def create_agent(payload: AgentCreate, principal: AgentsCreatePrincipal, s
     session.add(agent)
     try:
         await session.flush()
+        session.add(
+            AgentChannelBinding(
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                agent_id=agent.id,
+                channel_type=payload.deployment_channel,
+            )
+        )
+        await session.flush()
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=409, detail="An agent with this name already exists") from None
@@ -165,7 +244,11 @@ async def create_agent(payload: AgentCreate, principal: AgentsCreatePrincipal, s
         aggregate_type="agent",
         aggregate_id=agent.id,
         event_type="agent.created.v1",
-        payload={"agentId": str(agent.id)},
+        payload={
+            "agentId": str(agent.id),
+            "workspaceId": str(principal.workspace_id),
+            "channelType": payload.deployment_channel,
+        },
     )
     await session.commit()
     return await agent_response(session, agent)
@@ -185,15 +268,80 @@ async def get_agent(agent_id: UUID, principal: AgentsViewPrincipal, session: DB)
     )
 
 
+@router.get("/{agent_id}/channel", response_model=AgentChannelOut)
+async def get_agent_channel(
+    agent_id: UUID,
+    principal: AgentsViewPrincipal,
+    session: DB,
+) -> AgentChannelOut:
+    agent = await scoped_agent(
+        session,
+        principal.tenant_id,
+        agent_id,
+        workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
+    )
+    binding = await _channel_binding(session, agent)
+    await session.commit()
+    return AgentChannelOut(
+        agent_id=agent.id,
+        workspace_id=agent.workspace_id,
+        channel_type=binding.channel_type,
+    )
+
+
+@router.patch("/{agent_id}/channel", response_model=AgentChannelOut)
+async def update_agent_channel(
+    agent_id: UUID,
+    payload: AgentChannelPatch,
+    principal: AgentsUpdatePrincipal,
+    session: DB,
+) -> AgentChannelOut:
+    agent = await scoped_agent(
+        session,
+        principal.tenant_id,
+        agent_id,
+        workspace_id=principal.workspace_id,
+    )
+    binding = await _channel_binding(session, agent)
+    binding.channel_type = payload.channel_type
+    if payload.channel_type in LEGACY_APPEARANCE_CHANNELS:
+        appearance = deepcopy(agent.appearance)
+        appearance["deploymentChannel"] = payload.channel_type
+        agent.appearance = appearance
+    enqueue_event(
+        session,
+        tenant_id=principal.tenant_id,
+        aggregate_type="agent",
+        aggregate_id=agent.id,
+        event_type="agent.channel.changed.v1",
+        payload={
+            "agentId": str(agent.id),
+            "workspaceId": str(agent.workspace_id),
+            "channelType": payload.channel_type,
+        },
+    )
+    await session.commit()
+    return AgentChannelOut(
+        agent_id=agent.id,
+        workspace_id=agent.workspace_id,
+        channel_type=binding.channel_type,
+    )
+
+
 @router.post("/{agent_id}/duplicate", response_model=AgentOut, status_code=201)
 async def duplicate_agent(
-    agent_id: UUID, payload: AgentDuplicate, principal: AgentsCreatePrincipal, session: DB
+    agent_id: UUID,
+    payload: AgentDuplicateWithChannel,
+    principal: AgentsCreatePrincipal,
+    session: DB,
 ) -> AgentOut:
     source = await scoped_agent(
         session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
     )
     appearance = deepcopy(source.appearance)
-    appearance["deploymentChannel"] = payload.deployment_channel
+    if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS:
+        appearance["deploymentChannel"] = payload.deployment_channel
     duplicate = Agent(
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
@@ -211,6 +359,15 @@ async def duplicate_agent(
     session.add(duplicate)
     try:
         await session.flush()
+        session.add(
+            AgentChannelBinding(
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                agent_id=duplicate.id,
+                channel_type=payload.deployment_channel,
+            )
+        )
+        await session.flush()
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=409, detail="An agent with this name already exists") from None
@@ -223,6 +380,7 @@ async def duplicate_agent(
         payload={
             "agentId": str(duplicate.id),
             "sourceAgentId": str(source.id),
+            "workspaceId": str(principal.workspace_id),
             "deploymentChannel": payload.deployment_channel,
         },
     )
@@ -242,15 +400,15 @@ async def update_agent(
     if "model" in patch:
         configured_model = get_settings().nvidia_model
         if payload.model and payload.model.model != configured_model:
-            raise HTTPException(
-                status_code=422, detail=f"This deployment only permits model {configured_model}"
-            )
+            raise HTTPException(status_code=422, detail=f"This deployment only permits model {configured_model}")
         assert payload.model is not None
         agent.model_profile = payload.model.model_dump(by_alias=True)
         patch.pop("model")
     if "appearance" in patch:
         assert payload.appearance is not None
         agent.appearance = payload.appearance.model_dump(by_alias=True)
+        binding = await _channel_binding(session, agent)
+        binding.channel_type = payload.appearance.deployment_channel
         patch.pop("appearance")
     if "security" in patch:
         assert payload.security is not None
