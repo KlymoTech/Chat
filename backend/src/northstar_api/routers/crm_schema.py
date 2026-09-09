@@ -10,14 +10,18 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
-from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMError, crm_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import CRMProvider
 from northstar_api.lead_crm.models import CRMConnection, CRMFieldMapping, CRMFieldSchema
+from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection
+from northstar_api.security import Principal
 
 router = APIRouter(tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+CRMViewPrincipal = Annotated[Principal, Depends(require_permissions("crm.view"))]
+CRMManagePrincipal = Annotated[Principal, Depends(require_permissions("crm.manage"))]
 
 
 def _schema_hash(fields: list[dict[str, Any]]) -> str:
@@ -26,16 +30,24 @@ def _schema_hash(fields: list[dict[str, Any]]) -> str:
 
 
 async def _connection_context(
-    session: AsyncSession, *, tenant_id: UUID, connection_id: UUID
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    connection_id: UUID,
 ) -> tuple[CRMConnection, CRMConnectionContext]:
     connection = await session.scalar(
-        select(CRMConnection).where(
+        select(CRMConnection)
+        .join(WorkspaceCRMConnection, WorkspaceCRMConnection.connection_id == CRMConnection.id)
+        .where(
             CRMConnection.id == connection_id,
             CRMConnection.tenant_id == tenant_id,
+            WorkspaceCRMConnection.tenant_id == tenant_id,
+            WorkspaceCRMConnection.workspace_id == workspace_id,
         )
     )
     if not connection:
-        raise HTTPException(status_code=404, detail="CRM connection not found")
+        raise HTTPException(status_code=404, detail="CRM connection not found in this workspace")
     credentials: dict[str, Any] = {}
     if connection.credentials_encrypted:
         try:
@@ -56,15 +68,39 @@ async def _connection_context(
     )
 
 
+async def _assert_scoped_connection(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    connection_id: UUID,
+) -> None:
+    connection = await session.scalar(
+        select(CRMConnection.id)
+        .join(WorkspaceCRMConnection, WorkspaceCRMConnection.connection_id == CRMConnection.id)
+        .where(
+            CRMConnection.id == connection_id,
+            CRMConnection.tenant_id == tenant_id,
+            WorkspaceCRMConnection.tenant_id == tenant_id,
+            WorkspaceCRMConnection.workspace_id == workspace_id,
+        )
+    )
+    if not connection:
+        raise HTTPException(status_code=404, detail="CRM connection not found in this workspace")
+
+
 @router.post("/crm/connections/{connection_id}/schema/refresh")
 async def refresh_crm_schema(
     connection_id: UUID,
-    principal: AdminPrincipal,
+    principal: CRMManagePrincipal,
     session: DB,
     object_name: str = "Leads",
 ) -> dict[str, Any]:
     connection, context = await _connection_context(
-        session, tenant_id=principal.tenant_id, connection_id=connection_id
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
     )
     connector = crm_registry.get(context.provider)
     try:
@@ -141,6 +177,7 @@ async def refresh_crm_schema(
     await session.commit()
     return {
         "connectionId": str(connection_id),
+        "workspaceId": str(principal.workspace_id),
         "objectName": object_name,
         "schemaHash": digest,
         "fields": serialized,
@@ -150,18 +187,16 @@ async def refresh_crm_schema(
 @router.get("/crm/connections/{connection_id}/schema")
 async def get_crm_schema(
     connection_id: UUID,
-    principal: CurrentPrincipal,
+    principal: CRMViewPrincipal,
     session: DB,
     object_name: str = "Leads",
 ) -> dict[str, Any]:
-    connection = await session.scalar(
-        select(CRMConnection.id).where(
-            CRMConnection.id == connection_id,
-            CRMConnection.tenant_id == principal.tenant_id,
-        )
+    await _assert_scoped_connection(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
     )
-    if not connection:
-        raise HTTPException(status_code=404, detail="CRM connection not found")
     fields = list(
         await session.scalars(
             select(CRMFieldSchema)
@@ -175,6 +210,7 @@ async def get_crm_schema(
     )
     return {
         "connectionId": str(connection_id),
+        "workspaceId": str(principal.workspace_id),
         "objectName": object_name,
         "schemaHash": fields[0].schema_hash if fields else None,
         "fields": [
@@ -198,18 +234,16 @@ async def get_crm_schema(
 @router.post("/crm/connections/{connection_id}/mappings/validate")
 async def validate_crm_mapping(
     connection_id: UUID,
-    principal: AdminPrincipal,
+    principal: CRMManagePrincipal,
     session: DB,
     object_name: str = "Leads",
 ) -> dict[str, Any]:
-    connection = await session.scalar(
-        select(CRMConnection).where(
-            CRMConnection.id == connection_id,
-            CRMConnection.tenant_id == principal.tenant_id,
-        )
+    connection, _ = await _connection_context(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
     )
-    if not connection:
-        raise HTTPException(status_code=404, detail="CRM connection not found")
     mapping = await session.scalar(
         select(CRMFieldMapping).where(
             CRMFieldMapping.tenant_id == principal.tenant_id,
@@ -234,9 +268,7 @@ async def validate_crm_mapping(
     required = {field.api_name for field in fields if field.required and not field.read_only}
     mapped_targets: set[str] = set()
     definition = mapping.mapping_json or {}
-    compact = (
-        definition.get("fields") if isinstance(definition, dict) and "fields" in definition else definition
-    )
+    compact = definition.get("fields") if isinstance(definition, dict) and "fields" in definition else definition
     if isinstance(compact, dict):
         mapped_targets.update(str(value) for value in compact.values() if isinstance(value, str))
     elif isinstance(compact, list):
@@ -263,6 +295,7 @@ async def validate_crm_mapping(
         "unknownOrReadOnlyTargets": unknown,
         "missingRequiredTargets": missing_required,
         "schemaHash": current_hash,
+        "workspaceId": str(principal.workspace_id),
     }
     if valid and connection.status in {"draft", "connecting", "degraded", "configuration_error"}:
         connection.status = "healthy" if connection.last_health_at else "connecting"
