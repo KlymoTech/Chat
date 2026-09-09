@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -202,11 +202,7 @@ async def create_student_identity(
         label=payload.label,
         status=payload.status.value,
         is_primary=payload.is_primary or has_identity is None,
-        verified_at=(
-            datetime.now(timezone.utc)
-            if payload.status is StudentIdentityStatus.VERIFIED
-            else None
-        ),
+        verified_at=(datetime.now(UTC) if payload.status is StudentIdentityStatus.VERIFIED else None),
     )
     session.add(identity)
     try:
@@ -290,7 +286,7 @@ async def update_student_identity(
             identity.status = next_status
             changed_fields.append("status")
             if payload.status is StudentIdentityStatus.VERIFIED:
-                identity.verified_at = datetime.now(timezone.utc)
+                identity.verified_at = datetime.now(UTC)
             elif payload.status is StudentIdentityStatus.PENDING:
                 identity.verified_at = None
             if payload.status is StudentIdentityStatus.REVOKED:
