@@ -1,5 +1,5 @@
 import {
-  BarChart3, Bell, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, Inbox,
+  BarChart3, Bell, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
   LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, Sparkles, X,
 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
@@ -10,6 +10,7 @@ import { useAuth, useToast, useWorkspace } from '@/components/providers';
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/agents', label: 'Agents', icon: Sparkles },
+  { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
