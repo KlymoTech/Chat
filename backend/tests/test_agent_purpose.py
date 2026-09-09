@@ -97,9 +97,7 @@ async def test_agent_purpose_create_read_update_duplicate_and_safety(
         persisted = list(
             await session.scalars(
                 select(AgentPurposeSetting).where(
-                    AgentPurposeSetting.agent_id.in_(
-                        [UUID(lead_agent["id"]), UUID(duplicate_agent["id"])]
-                    )
+                    AgentPurposeSetting.agent_id.in_([UUID(lead_agent["id"]), UUID(duplicate_agent["id"])])
                 )
             )
         )
@@ -115,10 +113,7 @@ async def test_agent_purpose_create_read_update_duplicate_and_safety(
             )
         )
         assert len(purpose_events) == 2
-        transitions = {
-            (item.payload["previousPurpose"], item.payload["purpose"])
-            for item in purpose_events
-        }
+        transitions = {(item.payload["previousPurpose"], item.payload["purpose"]) for item in purpose_events}
         assert transitions == {
             ("lead_generation", "education"),
             ("education", "support"),
