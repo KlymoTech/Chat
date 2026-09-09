@@ -45,12 +45,8 @@ def upgrade() -> None:
             "agent_purpose_settings",
             ["tenant_id", "workspace_id", "purpose"],
         )
-        op.create_index(
-            "ix_agent_purpose_settings_tenant_id", "agent_purpose_settings", ["tenant_id"]
-        )
-        op.create_index(
-            "ix_agent_purpose_settings_workspace_id", "agent_purpose_settings", ["workspace_id"]
-        )
+        op.create_index("ix_agent_purpose_settings_tenant_id", "agent_purpose_settings", ["tenant_id"])
+        op.create_index("ix_agent_purpose_settings_workspace_id", "agent_purpose_settings", ["workspace_id"])
 
     # Existing Agents predate purpose semantics. Default them to Support rather
     # than guessing from names/instructions so no Agent is accidentally treated
@@ -59,9 +55,7 @@ def upgrade() -> None:
     agents = sa.Table("agents", meta, autoload_with=bind)
     settings = sa.Table("agent_purpose_settings", meta, autoload_with=bind)
     existing = {row[0] for row in bind.execute(sa.select(settings.c.agent_id))}
-    for agent in bind.execute(
-        sa.select(agents.c.id, agents.c.tenant_id, agents.c.workspace_id)
-    ).mappings():
+    for agent in bind.execute(sa.select(agents.c.id, agents.c.tenant_id, agents.c.workspace_id)).mappings():
         if agent["id"] in existing:
             continue
         bind.execute(
