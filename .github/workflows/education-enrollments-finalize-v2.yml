@@ -1,0 +1,49 @@
+name: Education Enrollments One-Time Finalizer V2
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-enrollment-guards:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Reuse the reviewed Enrollment finalizer patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          source = Path('.github/workflows/education-enrollments-finalize.yml').read_text(encoding='utf-8')
+          marker = "          python - <<'PY'\n"
+          start = source.index(marker) + len(marker)
+          end = source.index("\n          PY", start)
+          script = dedent(source[start:end]) + "\n"
+          Path('/tmp/finalize_enrollments.py').write_text(script, encoding='utf-8')
+          PY
+          python /tmp/finalize_enrollments.py
+      - name: Format backend files with Ruff
+        run: |
+          python -m pip install --disable-pip-version-check --quiet ruff==0.15.7
+          ruff format backend/src/northstar_api/routers/education_enrollments.py backend/tests/test_education_enrollments.py
+      - name: Commit final Enrollment corrections
+        run: |
+          if git diff --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/northstar_api/routers/education_enrollments.py backend/tests/test_education_enrollments.py frontend/src/components/student-enrollments-modal.tsx frontend/src/components/student-enrollments-modal.test.tsx
+          git commit -m "fix: make archived student enrollments read only"
+          git push origin HEAD:main
