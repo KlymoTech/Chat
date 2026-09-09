@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/providers';
@@ -81,10 +81,11 @@ describe('CoursesPage', () => {
 
     expect(await screen.findByText('CMA Part 1')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create course' }));
-    await user.type(screen.getByLabelText('Course code'), 'cpa-core');
-    await user.type(screen.getByLabelText('Course name'), 'CPA Core');
-    await user.type(screen.getByLabelText('Description'), 'CPA foundation curriculum');
-    await user.click(screen.getByRole('button', { name: 'Create course' }));
+    const createDialog = screen.getByRole('dialog', { name: 'Create course' });
+    await user.type(within(createDialog).getByLabelText('Course code'), 'cpa-core');
+    await user.type(within(createDialog).getByLabelText('Course name'), 'CPA Core');
+    await user.type(within(createDialog).getByLabelText('Description'), 'CPA foundation curriculum');
+    await user.click(within(createDialog).getByRole('button', { name: 'Create course' }));
 
     await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith({
       code: 'CPA-CORE',
@@ -95,10 +96,11 @@ describe('CoursesPage', () => {
 
     const editButtons = screen.getAllByRole('button', { name: 'Edit' });
     await user.click(editButtons.at(-1)!);
-    const nameInput = screen.getByLabelText('Course name');
+    const editDialog = screen.getByRole('dialog', { name: 'Edit course' });
+    const nameInput = within(editDialog).getByLabelText('Course name');
     await user.clear(nameInput);
     await user.type(nameInput, 'CPA Core Program');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(within(editDialog).getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith('course-2', {
       code: 'CPA-CORE',
