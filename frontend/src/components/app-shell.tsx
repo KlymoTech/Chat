@@ -1,6 +1,6 @@
 import {
   BarChart3, Bell, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
-  LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, Sparkles, X,
+  LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, Sparkles, UsersRound, X,
 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -12,6 +12,7 @@ const navigation = [
   { to: '/agents', label: 'Agents', icon: Sparkles },
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/education/batches', label: 'Batches', icon: GraduationCap },
+  { to: '/education/students', label: 'Students', icon: UsersRound },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
