@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func, select
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,10 @@ class AgentPurposeSetting(Base):
     __tablename__ = "agent_purpose_settings"
     __table_args__ = (
         UniqueConstraint("agent_id", name="uq_agent_purpose_settings_agent"),
+        CheckConstraint(
+            "purpose IN ('support', 'lead_generation', 'education')",
+            name="ck_agent_purpose_settings_purpose",
+        ),
         Index(
             "ix_agent_purpose_settings_scope",
             "tenant_id",
