@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -79,4 +78,4 @@ async def find_workspace_student_identity(
         .join(EducationStudent, EducationStudent.id == EducationStudentIdentity.student_id)
         .where(*conditions)
     )
-    return cast(EducationStudentIdentity | None, identity)
+    return identity
