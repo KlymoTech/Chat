@@ -1,0 +1,76 @@
+name: Education Courses Isolated Validation
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-education-courses:
+    runs-on: ubuntu-24.04
+    env:
+      APP_ENV: test
+      DATABASE_URL: sqlite+aiosqlite:///./education-courses-test.db
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      ALLOW_DETERMINISTIC_EMBEDDINGS: 'true'
+      RATE_LIMIT_FAIL_OPEN: 'true'
+      CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Resolve backend environment
+        run: uv sync --all-groups
+      - name: Lint Education Courses backend surface
+        run: >-
+          uv run ruff check
+          src/northstar_api/education.py
+          src/northstar_api/education_schemas.py
+          src/northstar_api/routers/education.py
+          src/northstar_api/security.py
+          tests/test_education_courses.py
+          migrations/versions/0016_education_courses.py
+          migrations/env.py
+      - name: Format-check Education Courses backend surface
+        run: >-
+          uv run ruff format --check
+          src/northstar_api/education.py
+          src/northstar_api/education_schemas.py
+          src/northstar_api/routers/education.py
+          src/northstar_api/security.py
+          tests/test_education_courses.py
+          migrations/versions/0016_education_courses.py
+          migrations/env.py
+      - name: Type-check Education Courses backend surface
+        run: >-
+          uv run mypy
+          src/northstar_api/education.py
+          src/northstar_api/education_schemas.py
+          src/northstar_api/routers/education.py
+      - name: Verify migration graph
+        run: uv run alembic heads | grep 0016_education_courses
+      - name: Isolate Course API from unrelated broken Help router
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/northstar_api/routers/__init__.py")
+          content = path.read_text(encoding="utf-8")
+          content = content.replace("    help,\n", "")
+          content = content.replace("api_router.include_router(help.router)\n", "")
+          path.write_text(content, encoding="utf-8")
+          PY
+      - name: Run Education Courses backend tests
+        run: uv run pytest tests/test_education_courses.py -q
