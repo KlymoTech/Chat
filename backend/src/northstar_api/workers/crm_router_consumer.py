@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
-from northstar_api.lead_crm.services import crm_route_service
+from northstar_api.lead_crm.workspace_routing import workspace_crm_route_service
 from northstar_api.logging import configure_logging
 from northstar_api.models import ProcessedEvent
 from northstar_api.workers.event_utils import parse_envelope, quarantine_event
@@ -87,7 +87,7 @@ async def consume_forever() -> None:
                                 .returning(ProcessedEvent.event_id)
                             )
                             if inserted is not None:
-                                deliveries = await crm_route_service.create_deliveries(
+                                deliveries = await workspace_crm_route_service.create_deliveries(
                                     session,
                                     tenant_id=event.tenant_id,
                                     lead_id=lead_id,
