@@ -158,6 +158,8 @@ async def update_student(
     changed_fields: list[str] = []
     for field_name in payload.model_fields_set:
         value = getattr(payload, field_name)
+        if field_name != "email" and value is None:
+            continue
         if field_name == "status" and value is not None:
             value = value.value
         if field_name == "email" and value is not None:
