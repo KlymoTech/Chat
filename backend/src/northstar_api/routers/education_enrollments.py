@@ -13,7 +13,6 @@ from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education import CourseStatus, EducationCourse
-from northstar_api.education_batch_schemas import BatchOut
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_enrollment_schemas import EnrollmentCreate, EnrollmentOut, EnrollmentPatch
 from northstar_api.education_enrollments import EducationEnrollment, EnrollmentStatus
