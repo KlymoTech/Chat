@@ -22,20 +22,20 @@ WORKSPACE_ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[str]] = {
         "agents.deploy", "knowledge.view", "knowledge.manage", "conversations.view",
         "conversations.reply", "conversations.resolve", "conversations.assign", "leads.view",
         "leads.update", "leads.export", "integrations.view", "crm.view", "analytics.view",
-        "settings.view",
+        "education.view", "education.manage", "settings.view",
     }),
     WorkspaceRole.OPERATOR: frozenset({
         "workspace.view", "agents.view", "knowledge.view", "conversations.view",
         "conversations.reply", "conversations.resolve", "conversations.assign", "leads.view",
-        "leads.update",
+        "leads.update", "education.view",
     }),
     WorkspaceRole.ANALYST: frozenset({
         "workspace.view", "agents.view", "knowledge.view", "conversations.view", "leads.view",
-        "leads.export", "analytics.view", "integrations.view", "crm.view",
+        "leads.export", "analytics.view", "integrations.view", "crm.view", "education.view",
     }),
     WorkspaceRole.VIEWER: frozenset({
         "workspace.view", "agents.view", "knowledge.view", "conversations.view", "leads.view",
-        "analytics.view",
+        "analytics.view", "education.view",
     }),
 }
 
