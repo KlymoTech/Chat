@@ -1,0 +1,145 @@
+name: Education Enrollments One-Time Finalizer
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-enrollment-guards:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Apply final Education Enrollment guards and regression assertions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              content = path.read_text(encoding="utf-8")
+              if old not in content:
+                  raise SystemExit(f"Expected source block not found in {path}: {old[:100]!r}")
+              path.write_text(content.replace(old, new, 1), encoding="utf-8")
+
+          router = Path("backend/src/northstar_api/routers/education_enrollments.py")
+          replace_once(
+              router,
+              "    return enrollment\n\n\nasync def _validate_assignment(\n",
+              "    return enrollment\n\n\nasync def _require_active_student_for_enrollment_mutation(\n"
+              "    session: AsyncSession,\n"
+              "    *,\n"
+              "    tenant_id: UUID,\n"
+              "    workspace_id: UUID,\n"
+              "    enrollment: EducationEnrollment,\n"
+              ") -> None:\n"
+              "    student_status = await session.scalar(\n"
+              "        select(EducationStudent.status).where(\n"
+              "            EducationStudent.id == enrollment.student_id,\n"
+              "            EducationStudent.tenant_id == tenant_id,\n"
+              "            EducationStudent.workspace_id == workspace_id,\n"
+              "        )\n"
+              "    )\n"
+              "    if student_status != StudentStatus.ACTIVE.value:\n"
+              "        raise HTTPException(\n"
+              "            status_code=409,\n"
+              "            detail=\"Reactivate the Student before changing enrollment access\",\n"
+              "        )\n\n\n"
+              "async def _validate_assignment(\n",
+          )
+          content = router.read_text(encoding="utf-8")
+          marker = "    current_status = EnrollmentStatus(enrollment.status)\n"
+          if content.count(marker) != 2:
+              raise SystemExit(f"Expected exactly two Enrollment mutation status markers, found {content.count(marker)}")
+          guard = (
+              "    await _require_active_student_for_enrollment_mutation(\n"
+              "        session,\n"
+              "        tenant_id=principal.tenant_id,\n"
+              "        workspace_id=workspace_id,\n"
+              "        enrollment=enrollment,\n"
+              "    )\n"
+          )
+          router.write_text(content.replace(marker, guard + marker), encoding="utf-8")
+
+          modal = Path("frontend/src/components/student-enrollments-modal.tsx")
+          content = modal.read_text(encoding="utf-8")
+          replacements = {
+              "  const updateStatus = async (enrollment: EducationEnrollment, status: EnrollmentStatus, message: string) => {\n    setActingId(enrollment.id);":
+                  "  const updateStatus = async (enrollment: EducationEnrollment, status: EnrollmentStatus, message: string) => {\n    if (!student || student.status !== 'active') {\n      pushToast('Reactivate the Student before changing enrollment access.', 'error');\n      return;\n    }\n    setActingId(enrollment.id);",
+              "  const revoke = async (enrollment: EducationEnrollment) => {\n    setActingId(enrollment.id);":
+                  "  const revoke = async (enrollment: EducationEnrollment) => {\n    if (!student || student.status !== 'active') {\n      pushToast('Reactivate the Student before changing enrollment access.', 'error');\n      return;\n    }\n    setActingId(enrollment.id);",
+              "{['pending', 'suspended', 'expired'].includes(enrollment.status) ? <Button":
+                  "{student.status === 'active' && ['pending', 'suspended', 'expired'].includes(enrollment.status) ? <Button",
+              "{enrollment.status === 'active' ? <Button variant=\"secondary\" size=\"sm\" icon={PauseCircle}":
+                  "{student.status === 'active' && enrollment.status === 'active' ? <Button variant=\"secondary\" size=\"sm\" icon={PauseCircle}",
+              "{['pending', 'active', 'suspended'].includes(enrollment.status) ? <Button":
+                  "{student.status === 'active' && ['pending', 'active', 'suspended'].includes(enrollment.status) ? <Button",
+              "{['active', 'suspended', 'expired'].includes(enrollment.status) ? <Button":
+                  "{student.status === 'active' && ['active', 'suspended', 'expired'].includes(enrollment.status) ? <Button",
+              "{enrollment.status === 'revoked' ? <Button":
+                  "{student.status === 'active' && enrollment.status === 'revoked' ? <Button",
+              "{enrollment.status !== 'revoked' && enrollment.status !== 'graduated' ? <Button":
+                  "{student.status === 'active' && enrollment.status !== 'revoked' && enrollment.status !== 'graduated' ? <Button",
+          }
+          for old, new in replacements.items():
+              if old not in content:
+                  raise SystemExit(f"Expected modal source block not found: {old[:100]!r}")
+              content = content.replace(old, new, 1)
+          modal.write_text(content, encoding="utf-8")
+
+          frontend_test = Path("frontend/src/components/student-enrollments-modal.test.tsx")
+          content = frontend_test.read_text(encoding="utf-8")
+          old = "    expect(await within(dialog).findByText('CPA · CPA')).toBeInTheDocument();"
+          new = "    expect(await within(dialog).findByRole('option', { name: 'CPA · CPA' })).toBeInTheDocument();"
+          if old not in content:
+              raise SystemExit("First Enrollment modal wait assertion was not found")
+          content = content.replace(old, new, 1)
+          old = "    await within(dialog).findByText('CPA · CPA');"
+          new = "    await within(dialog).findByRole('button', { name: 'Activate' });"
+          if old not in content:
+              raise SystemExit("Lifecycle Enrollment modal wait assertion was not found")
+          content = content.replace(old, new, 1)
+          old = "    expect(within(dialog).queryByRole('button', { name: 'Add enrollment' })).not.toBeInTheDocument();\n    expect(within(dialog).getByText('CPA · CPA')).toBeInTheDocument();"
+          new = (
+              "    expect(within(dialog).queryByRole('button', { name: 'Add enrollment' })).not.toBeInTheDocument();\n"
+              "    for (const action of ['Edit', 'Activate', 'Suspend', 'Expire', 'Graduate', 'Restore', 'Revoke']) {\n"
+              "      expect(within(dialog).queryByRole('button', { name: action })).not.toBeInTheDocument();\n"
+              "    }\n"
+              "    expect(within(dialog).getByText('CPA · CPA')).toBeInTheDocument();\n"
+              "    expect(enrollmentMocks.update).not.toHaveBeenCalled();\n"
+              "    expect(enrollmentMocks.revoke).not.toHaveBeenCalled();"
+          )
+          if old not in content:
+              raise SystemExit("Archived Student frontend assertion block was not found")
+          frontend_test.write_text(content.replace(old, new, 1), encoding="utf-8")
+
+          backend_test = Path("backend/tests/test_education_enrollments.py")
+          content = backend_test.read_text(encoding="utf-8")
+          test_name = "test_archived_student_enrollment_history_is_read_only"
+          if test_name not in content:
+              content += '''\n\nasync def test_archived_student_enrollment_history_is_read_only(\n    client: AsyncClient,\n    auth_headers: dict[str, str],\n) -> None:\n    workspace = await client.get("/api/v1/workspace", headers=auth_headers)\n    assert workspace.status_code == 200, workspace.text\n    headers = {**auth_headers, "X-Workspace-ID": workspace.json()["id"]}\n\n    course = await _create_course(client, headers, "ENR-ARCHIVE")\n    batch = await _create_batch(\n        client,\n        headers,\n        course_id=course["id"],\n        code="ENR-ARCHIVE-A",\n    )\n    student = await _create_student(client, headers, "ENR-ARCHIVE-1001")\n    education_agent = await _create_agent(\n        client,\n        headers,\n        name="Archived Student Education Agent",\n        purpose="education",\n    )\n\n    created = await client.post(\n        "/api/v1/education/enrollments",\n        headers=headers,\n        json={\n            "studentId": student["id"],\n            "courseId": course["id"],\n            "batchId": batch["id"],\n            "agentId": education_agent["id"],\n            "startsOn": "2026-09-15",\n            "endsOn": "2027-03-31",\n        },\n    )\n    assert created.status_code == 201, created.text\n    enrollment_id = created.json()["id"]\n\n    expired = await client.patch(\n        f"/api/v1/education/enrollments/{enrollment_id}",\n        headers=headers,\n        json={"status": "expired"},\n    )\n    assert expired.status_code == 200, expired.text\n    assert expired.json()["status"] == "expired"\n\n    archived = await client.delete(\n        f"/api/v1/education/students/{student['id']}",\n        headers=headers,\n    )\n    assert archived.status_code == 204, archived.text\n\n    history = await client.get(\n        f"/api/v1/education/enrollments/{enrollment_id}",\n        headers=headers,\n    )\n    assert history.status_code == 200, history.text\n    assert history.json()["status"] == "expired"\n\n    edit_archived_history = await client.patch(\n        f"/api/v1/education/enrollments/{enrollment_id}",\n        headers=headers,\n        json={"endsOn": "2027-04-30"},\n    )\n    assert edit_archived_history.status_code == 409, edit_archived_history.text\n    assert "Reactivate the Student" in edit_archived_history.json()["detail"]\n\n    revoke_archived_history = await client.delete(\n        f"/api/v1/education/enrollments/{enrollment_id}",\n        headers=headers,\n    )\n    assert revoke_archived_history.status_code == 409, revoke_archived_history.text\n    assert "Reactivate the Student" in revoke_archived_history.json()["detail"]\n\n    unchanged_history = await client.get(\n        f"/api/v1/education/enrollments/{enrollment_id}",\n        headers=headers,\n    )\n    assert unchanged_history.status_code == 200, unchanged_history.text\n    assert unchanged_history.json()["status"] == "expired"\n    assert unchanged_history.json()["endsOn"] == "2027-03-31"\n'''
+              backend_test.write_text(content, encoding="utf-8")
+          PY
+      - name: Format backend files touched by finalizer
+        uses: astral-sh/ruff-action@eaf0ecdd668ceea36159ff9d3d7d284a82fa0f1d
+        with:
+          version: '0.15.7'
+          args: format backend/src/northstar_api/routers/education_enrollments.py backend/tests/test_education_enrollments.py
+      - name: Commit final Enrollment corrections
+        run: |
+          if git diff --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/northstar_api/routers/education_enrollments.py backend/tests/test_education_enrollments.py frontend/src/components/student-enrollments-modal.tsx frontend/src/components/student-enrollments-modal.test.tsx
+          git commit -m "fix: make archived student enrollments read only"
+          git push origin HEAD:main
