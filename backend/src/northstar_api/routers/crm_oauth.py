@@ -15,6 +15,7 @@ from northstar_api.lead_crm.credentials import CredentialStoreError, credential_
 from northstar_api.lead_crm.domain import CRMConnectionStatus, CRMProvider
 from northstar_api.lead_crm.models import CRMConnection
 from northstar_api.lead_crm.oauth import OAuthStateError, oauth_state_store
+from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection
 
 router = APIRouter(prefix="/crm", tags=["crm-oauth"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -45,13 +46,17 @@ async def _start_oauth(
     session: AsyncSession,
 ) -> dict[str, Any]:
     connection = await session.scalar(
-        select(CRMConnection).where(
+        select(CRMConnection)
+        .join(WorkspaceCRMConnection, WorkspaceCRMConnection.connection_id == CRMConnection.id)
+        .where(
             CRMConnection.id == connection_id,
             CRMConnection.tenant_id == principal.tenant_id,
+            WorkspaceCRMConnection.tenant_id == principal.tenant_id,
+            WorkspaceCRMConnection.workspace_id == principal.workspace_id,
         )
     )
     if not connection:
-        raise HTTPException(status_code=404, detail="CRM connection not found")
+        raise HTTPException(status_code=404, detail="CRM connection not found in this workspace")
     try:
         provider = CRMProvider(connection.provider)
         connector = crm_registry.get(provider)
@@ -99,6 +104,7 @@ async def _start_oauth(
         "expiresIn": oauth_state_store.ttl_seconds,
         "connectionId": str(connection.id),
         "provider": provider.value,
+        "workspaceId": str(principal.workspace_id),
     }
 
 
@@ -141,10 +147,13 @@ async def crm_oauth_callback(
 
     await set_tenant_context(session, saved.tenant_id)
     connection = await session.scalar(
-        select(CRMConnection).where(
+        select(CRMConnection)
+        .join(WorkspaceCRMConnection, WorkspaceCRMConnection.connection_id == CRMConnection.id)
+        .where(
             CRMConnection.id == saved.connection_id,
             CRMConnection.tenant_id == saved.tenant_id,
             CRMConnection.provider == provider,
+            WorkspaceCRMConnection.tenant_id == saved.tenant_id,
         )
     )
     if not connection:
