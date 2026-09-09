@@ -9,12 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
-from northstar_api.dependencies import AdminPrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.api_schemas import CRMRouteOut
 from northstar_api.lead_crm.models import CRMConnection, CRMRoute
+from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection, WorkspaceCRMRoute
+from northstar_api.security import Principal
 
 router = APIRouter(tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+CRMManagePrincipal = Annotated[Principal, Depends(require_permissions("crm.manage"))]
 
 
 class CRMRoutePatch(BaseModel):
@@ -30,9 +33,7 @@ class CRMRoutePatch(BaseModel):
 def _route_out(value: CRMRoute) -> CRMRouteOut:
     actions = dict(value.actions_json or {})
     raw_connection_ids = actions.get("connectionIds")
-    connection_ids = (
-        [str(item) for item in raw_connection_ids] if isinstance(raw_connection_ids, list) else []
-    )
+    connection_ids = [str(item) for item in raw_connection_ids] if isinstance(raw_connection_ids, list) else []
     return CRMRouteOut(
         id=value.id,
         name=value.name,
@@ -47,44 +48,69 @@ def _route_out(value: CRMRoute) -> CRMRouteOut:
 
 
 async def _assert_connections_owned(
-    session: AsyncSession, *, tenant_id: UUID, connection_ids: list[UUID]
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    connection_ids: list[UUID],
 ) -> None:
     if not connection_ids:
         return
     owned = set(
         await session.scalars(
-            select(CRMConnection.id).where(
+            select(CRMConnection.id)
+            .join(WorkspaceCRMConnection, WorkspaceCRMConnection.connection_id == CRMConnection.id)
+            .where(
                 CRMConnection.tenant_id == tenant_id,
                 CRMConnection.id.in_(connection_ids),
+                WorkspaceCRMConnection.tenant_id == tenant_id,
+                WorkspaceCRMConnection.workspace_id == workspace_id,
             )
         )
     )
     if owned != set(connection_ids):
-        raise HTTPException(
-            status_code=400,
-            detail="Route references a CRM connection outside this workspace",
+        raise HTTPException(status_code=400, detail="Route references a CRM connection outside this workspace")
+
+
+async def _route(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    route_id: UUID,
+) -> CRMRoute | None:
+    return await session.scalar(
+        select(CRMRoute)
+        .join(WorkspaceCRMRoute, WorkspaceCRMRoute.route_id == CRMRoute.id)
+        .where(
+            CRMRoute.id == route_id,
+            CRMRoute.tenant_id == tenant_id,
+            WorkspaceCRMRoute.tenant_id == tenant_id,
+            WorkspaceCRMRoute.workspace_id == workspace_id,
         )
+    )
 
 
 @router.patch("/crm/routes/{route_id}", response_model=CRMRouteOut)
 async def patch_crm_route(
     route_id: UUID,
     payload: CRMRoutePatch,
-    principal: AdminPrincipal,
+    principal: CRMManagePrincipal,
     session: DB,
 ) -> CRMRouteOut:
-    value = await session.scalar(
-        select(CRMRoute).where(
-            CRMRoute.id == route_id,
-            CRMRoute.tenant_id == principal.tenant_id,
-        )
+    value = await _route(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        route_id=route_id,
     )
     if value is None:
-        raise HTTPException(status_code=404, detail="CRM route not found")
+        raise HTTPException(status_code=404, detail="CRM route not found in this workspace")
     if payload.connection_ids is not None:
         await _assert_connections_owned(
             session,
             tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
             connection_ids=payload.connection_ids,
         )
         value.actions_json = {"connectionIds": [str(item) for item in payload.connection_ids]}
@@ -105,16 +131,16 @@ async def patch_crm_route(
 @router.delete("/crm/routes/{route_id}", status_code=204)
 async def delete_crm_route(
     route_id: UUID,
-    principal: AdminPrincipal,
+    principal: CRMManagePrincipal,
     session: DB,
 ) -> None:
-    value = await session.scalar(
-        select(CRMRoute).where(
-            CRMRoute.id == route_id,
-            CRMRoute.tenant_id == principal.tenant_id,
-        )
+    value = await _route(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        route_id=route_id,
     )
     if value is None:
-        raise HTTPException(status_code=404, detail="CRM route not found")
+        raise HTTPException(status_code=404, detail="CRM route not found in this workspace")
     await session.delete(value)
     await session.commit()
