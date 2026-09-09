@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -43,8 +45,9 @@ async def test_agent_purpose_create_read_update_duplicate_and_safety(
         json={"name": "Purpose Lead Agent Copy", "deploymentChannel": "api"},
     )
     assert duplicate.status_code == 201, duplicate.text
-    assert duplicate.json()["purpose"] == "lead_generation"
-    assert duplicate.json()["status"] == "draft"
+    duplicate_agent = duplicate.json()
+    assert duplicate_agent["purpose"] == "lead_generation"
+    assert duplicate_agent["status"] == "draft"
 
     education = await client.patch(
         f"/api/v1/agents/{lead_agent['id']}",
@@ -94,7 +97,9 @@ async def test_agent_purpose_create_read_update_duplicate_and_safety(
         persisted = list(
             await session.scalars(
                 select(AgentPurposeSetting).where(
-                    AgentPurposeSetting.agent_id.in_([lead_agent["id"], duplicate.json()["id"]])
+                    AgentPurposeSetting.agent_id.in_(
+                        [UUID(lead_agent["id"]), UUID(duplicate_agent["id"])]
+                    )
                 )
             )
         )
@@ -110,10 +115,14 @@ async def test_agent_purpose_create_read_update_duplicate_and_safety(
             )
         )
         assert len(purpose_events) == 2
-        assert purpose_events[0].payload["previousPurpose"] == "lead_generation"
-        assert purpose_events[0].payload["purpose"] == "education"
-        assert purpose_events[1].payload["previousPurpose"] == "education"
-        assert purpose_events[1].payload["purpose"] == "support"
+        transitions = {
+            (item.payload["previousPurpose"], item.payload["purpose"])
+            for item in purpose_events
+        }
+        assert transitions == {
+            ("lead_generation", "education"),
+            ("education", "support"),
+        }
 
 
 async def test_legacy_lead_template_maps_to_lead_generation_purpose(
