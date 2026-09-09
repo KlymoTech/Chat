@@ -10,7 +10,7 @@ export const demoAgents: Agent[] = [
     name: 'Northstar Guide',
     description: 'Customer support and product expert',
     instructions: `You are Northstar Guide, a precise and approachable AI support agent. Answer using the connected knowledge base before relying on general knowledge.\n\nStart with the direct answer, then add helpful context. Keep responses concise, friendly, and professional. If the evidence is incomplete, say so clearly and offer to connect the visitor with a person. Never invent policies, pricing, or product capabilities.\n\nCite the relevant source whenever one is available.`,
-    status: 'active', tone: 'friendly', language: 'English', avatar: 'N', conversations: 1284,
+    status: 'active', purpose: 'support', tone: 'friendly', language: 'English', avatar: 'N', conversations: 1284,
     resolutionRate: 87, knowledgeCount: 12, lastUpdated: isoAgo(0, 2), createdAt: isoAgo(48),
     appearance: {
       primaryColor: '#146cf6', surfaceColor: '#f6f8fb', position: 'bottom-right', launcherStyle: 'spark',
@@ -21,13 +21,13 @@ export const demoAgents: Agent[] = [
     security: { allowedDomains: ['localhost', 'northstar.example'], rateLimitPerMinute: 30, collectEmail: false, maskSensitiveData: true, retentionDays: 90 },
   },
   {
-    id: 'agent-sales', publicId: 'sales-concierge', name: 'Sales Concierge', description: 'Qualifies leads and recommends plans', instructions: 'Help visitors choose the right plan. Ask one useful qualifying question at a time.', status: 'active', tone: 'professional', language: 'English', avatar: 'S', conversations: 608, resolutionRate: 82, knowledgeCount: 8, lastUpdated: isoAgo(1), createdAt: isoAgo(32),
+    id: 'agent-sales', publicId: 'sales-concierge', name: 'Sales Concierge', description: 'Qualifies leads and recommends plans', instructions: 'Help visitors choose the right plan. Ask one useful qualifying question at a time.', status: 'active', purpose: 'lead_generation', tone: 'professional', language: 'English', avatar: 'S', conversations: 608, resolutionRate: 82, knowledgeCount: 8, lastUpdated: isoAgo(1), createdAt: isoAgo(32),
     appearance: { primaryColor: '#705cf6', surfaceColor: '#f7f6ff', position: 'bottom-right', launcherStyle: 'bubble', welcomeTitle: 'Find your perfect plan', welcomeMessage: 'Tell me what you want to accomplish.', placeholder: 'Describe your goals…', suggestedQuestions: ['Compare plans', 'Book a demo', 'Do you support teams?'], showBranding: true },
     model: { provider: 'nvidia', model: 'nvidia/nemotron-3-ultra-550b-a55b', temperature: 0.65, topP: 0.9, maxTokens: 4096, enableThinking: true, citationMode: 'always' },
     security: { allowedDomains: [], rateLimitPerMinute: 20, collectEmail: true, maskSensitiveData: true, retentionDays: 90 },
   },
   {
-    id: 'agent-onboarding', publicId: 'onboarding-coach', name: 'Onboarding Coach', description: 'Guides customers through first steps', instructions: 'Guide users through onboarding with short numbered steps.', status: 'draft', tone: 'empathetic', language: 'English', avatar: 'O', conversations: 0, resolutionRate: 0, knowledgeCount: 3, lastUpdated: isoAgo(4), createdAt: isoAgo(7),
+    id: 'agent-onboarding', publicId: 'onboarding-coach', name: 'Onboarding Coach', description: 'Guides customers through first steps', instructions: 'Guide users through onboarding with short numbered steps.', status: 'draft', purpose: 'support', tone: 'empathetic', language: 'English', avatar: 'O', conversations: 0, resolutionRate: 0, knowledgeCount: 3, lastUpdated: isoAgo(4), createdAt: isoAgo(7),
     appearance: { primaryColor: '#0f9f84', surfaceColor: '#f2fbf8', position: 'bottom-left', launcherStyle: 'spark', welcomeTitle: 'Let’s get you started', welcomeMessage: 'I can guide you through setup.', placeholder: 'What are you setting up?', suggestedQuestions: ['Create my first agent', 'Add knowledge', 'Invite my team'], showBranding: true },
     model: { provider: 'nvidia', model: 'nvidia/nemotron-3-ultra-550b-a55b', temperature: 0.6, topP: 0.9, maxTokens: 4096, enableThinking: true, citationMode: 'when-available' },
     security: { allowedDomains: [], rateLimitPerMinute: 30, collectEmail: false, maskSensitiveData: true, retentionDays: 30 },
