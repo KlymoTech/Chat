@@ -11,6 +11,7 @@ from northstar_api import (
     agent_purpose,  # noqa: F401
     education,  # noqa: F401
     education_batches,  # noqa: F401
+    education_student_identities,  # noqa: F401
     education_students,  # noqa: F401
     help_models,  # noqa: F401
     models,  # noqa: F401
