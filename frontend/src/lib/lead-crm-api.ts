@@ -85,14 +85,24 @@ export interface CRMDeliveryView {
   provider: CRMProviderId;
   operation: string;
   status: string;
+  verification_status?: string;
+  verification_attempt_count?: number;
+  next_verification_at?: string | null;
+  verification_error_code?: string | null;
+  verification_error_message?: string | null;
+  verification_evidence?: Record<string, unknown>;
   external_record_id?: string | null;
   attempt_count: number;
   queued_at?: string | null;
   sent_at?: string | null;
   acknowledged_at?: string | null;
   verified_at?: string | null;
+  next_retry_at?: string | null;
   last_error_code?: string | null;
   last_error_message?: string | null;
+  provider_http_status?: number | null;
+  provider_code?: string | null;
+  provider_request_id?: string | null;
   created_at: string;
 }
 
@@ -122,6 +132,8 @@ export interface ChannelProviderInfo { id: string; name: string; runtimeRegister
 export interface ChannelConnectionView {
   id: string;
   public_id: string;
+  workspace_id: string;
+  agent_id?: string | null;
   provider: string;
   name: string;
   status: string;
@@ -166,13 +178,15 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const leadCrmApi = {
-  leads: (filters: { page?: number; pageSize?: number; search?: string; status?: string; agentId?: string } = {}) => {
+  leads: (filters: { page?: number; pageSize?: number; search?: string; status?: string; agentId?: string; channel?: string; crmStatus?: string } = {}) => {
     const params = new URLSearchParams();
     if (filters.page) params.set('page', String(filters.page));
     if (filters.pageSize) params.set('page_size', String(filters.pageSize));
     if (filters.search?.trim()) params.set('search', filters.search.trim());
     if (filters.status && filters.status !== 'all') params.set('status', filters.status);
-    if (filters.agentId) params.set('agent_id', filters.agentId);
+    if (filters.agentId && filters.agentId !== 'all') params.set('agent_id', filters.agentId);
+    if (filters.channel && filters.channel !== 'all') params.set('channel', filters.channel);
+    if (filters.crmStatus && filters.crmStatus !== 'all') params.set('crm_status', filters.crmStatus);
     const query = params.toString();
     return call<PageResult<Lead>>(`/leads${query ? `?${query}` : ''}`);
   },
@@ -181,8 +195,8 @@ export const leadCrmApi = {
   createConnection: (value: { provider: CRMProviderId; name: string; environment?: string; region?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
     call<CRMConnectionView>('/crm/connections', { method: 'POST', body: JSON.stringify(value) }),
   testConnection: (id: string) => call<CRMConnectionHealth>(`/crm/connections/${id}/test`, { method: 'POST' }),
-  startOAuth: (id: string) => call<{ authorizationUrl: string; expiresIn: number }>(`/crm/connections/${id}/oauth/start`, { method: 'POST' }),
-  reconnect: (id: string) => call<{ authorizationUrl: string; expiresIn: number }>(`/crm/connections/${id}/reconnect`, { method: 'POST' }),
+  startOAuth: (id: string) => call<{ authorizationUrl: string; expiresIn: number; workspaceId?: string }>(`/crm/connections/${id}/oauth/start`, { method: 'POST' }),
+  reconnect: (id: string) => call<{ authorizationUrl: string; expiresIn: number; workspaceId?: string }>(`/crm/connections/${id}/reconnect`, { method: 'POST' }),
   disableConnection: (id: string) => call<void>(`/crm/connections/${id}`, { method: 'DELETE' }),
   health: (id: string) => call<CRMConnectionHealth>(`/crm/connections/${id}/health`),
   schema: (id: string) => call<CRMFieldSchemaView>(`/crm/connections/${id}/schema`),
@@ -205,7 +219,7 @@ export const leadCrmApi = {
   cancelDelivery: (id: string) => call<CRMDeliveryView>(`/crm/deliveries/${id}/cancel`, { method: 'POST' }),
   channelProviders: () => call<ChannelProviderInfo[]>('/channels/providers'),
   channelConnections: () => call<ChannelConnectionView[]>('/channels/connections'),
-  createChannelConnection: (value: { provider: string; name: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
+  createChannelConnection: (value: { provider: string; name: string; agentId?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
     call<ChannelConnectionView>('/channels/connections', { method: 'POST', body: JSON.stringify(value) }),
   testChannelConnection: (id: string) => call<Record<string, string>>(`/channels/connections/${id}/test`, { method: 'POST' }),
   disableChannelConnection: (id: string) => call<void>(`/channels/connections/${id}`, { method: 'DELETE' }),
