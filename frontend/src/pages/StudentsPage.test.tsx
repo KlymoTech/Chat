@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/providers';
@@ -151,13 +151,13 @@ describe('StudentsPage', () => {
     expect(await screen.findByText('Asha Verma')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add student' }));
     const dialog = screen.getByRole('dialog');
-    await user.type(within(dialog).getByLabelText('Student ID'), 'NS-2001');
-    await user.type(within(dialog).getByLabelText('Student name'), 'Duplicate Fields');
+    fireEvent.change(within(dialog).getByLabelText('Student ID'), { target: { value: 'NS-2001' } });
+    fireEvent.change(within(dialog).getByLabelText('Student name'), { target: { value: 'Duplicate Fields' } });
     await user.click(within(dialog).getByRole('button', { name: 'Add field' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add field' }));
     const names = within(dialog).getAllByLabelText('Custom field name');
-    await user.type(names[0]!, 'Language');
-    await user.type(names[1]!, 'language');
+    fireEvent.change(names[0]!, { target: { value: 'Language' } });
+    fireEvent.change(names[1]!, { target: { value: 'language' } });
     await user.click(within(dialog).getByRole('button', { name: 'Add student' }));
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Custom field names must be unique.');
