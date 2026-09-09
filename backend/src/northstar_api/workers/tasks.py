@@ -158,6 +158,7 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 select(Conversation)
                 .where(
                     Conversation.tenant_id == receipt.tenant_id,
+                    Conversation.workspace_id == receipt.workspace_id,
                     Conversation.agent_id == connection.agent_id,
                     Conversation.channel == Channel.WHATSAPP,
                     Conversation.visitor_id == receipt.sender_wa_id,
@@ -169,6 +170,7 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             prepared = await chat_coordinator.prepare(
                 session,
                 tenant_id=receipt.tenant_id,
+                workspace_id=receipt.workspace_id,
                 request=ChatStreamRequest(
                     agent_id=connection.agent_id,
                     message=receipt.message_text,

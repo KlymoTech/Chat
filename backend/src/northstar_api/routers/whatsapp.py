@@ -215,6 +215,7 @@ async def _durably_receive(
         return existing
     receipt = WhatsAppInboundMessage(
         tenant_id=tenant_id,
+        workspace_id=connection.workspace_id,
         connection_id=connection_id,
         phone_number_id=phone_number_id,
         provider_message_id=item.provider_message_id,

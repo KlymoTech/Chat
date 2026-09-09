@@ -110,6 +110,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             session.add(
                 DocumentChunk(
                     tenant_id=source.tenant_id,
+                    workspace_id=source.workspace_id,
                     agent_id=source.agent_id,
                     source_id=source.id,
                     ordinal=ordinal,

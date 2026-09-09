@@ -1,11 +1,11 @@
 import {
-  BarChart3, Bell, ChevronDown, CircleHelp, Code2, Command, ContactRound, Inbox, LayoutDashboard, LogOut,
-  PanelLeftClose, PanelLeftOpen, PlugZap, Search, Settings2, Sparkles,
+  BarChart3, Bell, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, Inbox,
+  LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, Sparkles, X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
-import { useAuth } from '@/components/providers';
+import { useAuth, useToast, useWorkspace } from '@/components/providers';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
@@ -30,9 +30,28 @@ function pageTitle(pathname: string): string {
 export function AppShell() {
   const [expanded, setExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [workspaceSlug, setWorkspaceSlug] = useState('');
   const { session, logout } = useAuth();
+  const { pushToast } = useToast();
+  const { workspaces, activeWorkspace, loading, selectWorkspace, createWorkspace } = useWorkspace();
   const location = useLocation(); const navigate = useNavigate();
   const initials = useMemo(() => (session?.user.name || 'NS').split(' ').map((item) => item[0]).join('').slice(0, 2).toUpperCase(), [session]);
+  const submitWorkspace = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = workspaceName.trim();
+    const slug = workspaceSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+    if (name.length < 2 || slug.length < 2) return;
+    try {
+      await createWorkspace({ name, slug });
+      setCreatingWorkspace(false); setWorkspaceOpen(false); setWorkspaceName(''); setWorkspaceSlug('');
+      pushToast('Workspace created');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Workspace could not be created', 'error');
+    }
+  };
   return <div className={`app-shell ${expanded ? 'app-shell--expanded' : ''}`}>
     <aside className="rail" aria-label="Primary navigation">
       <Link to="/" className="rail__brand" aria-label="Northstar AI home"><Brand compact /></Link>
@@ -47,7 +66,35 @@ export function AppShell() {
     </aside>
     <div className="app-main">
       <header className="topbar">
-        <div className="topbar__left"><div className="mobile-brand"><Brand /></div><div><span className="topbar__eyebrow">Workspace</span><h1>{pageTitle(location.pathname)}</h1></div></div>
+        <div className="topbar__left">
+          <div className="mobile-brand"><Brand /></div>
+          <div className="workspace-switcher">
+            <button className="workspace-switcher__button" type="button" onClick={() => setWorkspaceOpen((value) => !value)} aria-expanded={workspaceOpen} aria-haspopup="menu">
+              <span className="workspace-switcher__mark"><Building2 /></span>
+              <span><small>Workspace</small><strong>{loading ? 'Loading…' : activeWorkspace?.name ?? 'Select workspace'}</strong></span>
+              <ChevronDown />
+            </button>
+            {workspaceOpen ? <div className="workspace-switcher__popover">
+              <div className="workspace-switcher__heading"><span><small>Account</small><strong>{activeWorkspace?.tenantName ?? session?.user.name}</strong></span><button type="button" onClick={() => setWorkspaceOpen(false)} aria-label="Close workspace menu"><X /></button></div>
+              {!creatingWorkspace ? <>
+                <div className="workspace-switcher__list" role="menu">
+                  {workspaces.map((workspace) => <button key={workspace.id} type="button" role="menuitemradio" aria-checked={workspace.id === activeWorkspace?.id} onClick={() => { selectWorkspace(workspace.id); setWorkspaceOpen(false); }}>
+                    <span className="workspace-switcher__initial">{workspace.name.charAt(0).toUpperCase()}</span>
+                    <span><strong>{workspace.name}</strong><small>{workspace.role?.replace('_', ' ') ?? 'workspace'}</small></span>
+                    {workspace.id === activeWorkspace?.id ? <Check /> : null}
+                  </button>)}
+                </div>
+                <div className="workspace-switcher__actions">{session?.user.role === 'owner' || session?.user.role === 'admin' ? <button type="button" onClick={() => setCreatingWorkspace(true)}><Plus />Create workspace</button> : null}<Link to="/workspace" onClick={() => setWorkspaceOpen(false)}><Settings2 />Manage workspaces</Link></div>
+              </> : <form className="workspace-switcher__form" onSubmit={(event) => void submitWorkspace(event)}>
+                <strong>Create workspace</strong>
+                <label>Name<input autoFocus value={workspaceName} onChange={(event) => { const name = event.target.value; setWorkspaceName(name); setWorkspaceSlug(name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')); }} placeholder="CPA Division" /></label>
+                <label>Slug<input value={workspaceSlug} onChange={(event) => setWorkspaceSlug(event.target.value)} placeholder="cpa-division" /></label>
+                <div><button type="button" onClick={() => setCreatingWorkspace(false)}>Cancel</button><button type="submit" disabled={workspaceName.trim().length < 2 || workspaceSlug.trim().length < 2}>Create</button></div>
+              </form>}
+            </div> : null}
+          </div>
+          <div className="topbar__page"><span className="topbar__eyebrow">{activeWorkspace?.name ?? 'Workspace'}</span><h1>{pageTitle(location.pathname)}</h1></div>
+        </div>
         <div className="topbar__actions">
           <button className="search-trigger" aria-label="Search"><Search /><span>Search</span><kbd>⌘ K</kbd></button>
           <button className="icon-button" aria-label="Notifications"><Bell /><span className="notification-dot" /></button>
@@ -57,7 +104,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className="content"><Outlet /></main>
+      <main className="content"><Outlet key={activeWorkspace?.id ?? 'workspace-loading'} /></main>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {navigation.slice(0, 5).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}

@@ -1,6 +1,7 @@
 import { demoAgents, demoAnalytics, demoConversations, demoIntegrations, demoKnowledge, demoLeads } from '@/lib/demo-data';
 import { clone, readStorage, writeStorage } from '@/lib/storage';
 import { localizeAgentAppearance } from '@/lib/widget-localization';
+import { activeWorkspaceId } from '@/lib/workspace-api';
 import type {
   Agent, AgentPatch, AnalyticsSummary, ChatStreamEvent, ChatStreamRequest, Conversation, ConversationState,
   CompleteWhatsAppSignupInput, CreateAgentInput, DuplicateAgentInput, Integration, KnowledgeKind, KnowledgeSource, Lead, PageResult, Session,
@@ -103,10 +104,11 @@ async function refreshSession(active: Session): Promise<Session> {
 async function request<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
   const { skipAuth = false, skipRefresh = false, ...init } = options;
   const active = session();
+  const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: init.credentials ?? 'include',
-    headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(!skipAuth && active ? { Authorization: `Bearer ${active.accessToken}` } : {}), ...init.headers },
+    headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(!skipAuth && active ? { Authorization: `Bearer ${active.accessToken}` } : {}), ...(!skipAuth && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}), ...init.headers },
   });
   if (response.status === 401 && !skipAuth && !skipRefresh && active) {
     await refreshSession(active);
@@ -376,7 +378,8 @@ export const api = {
     const { language, ...requestInput } = input;
     try {
       const active = session();
-      const response = await fetch(`${API_URL}/chat/stream`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}) }, body: JSON.stringify(requestInput) });
+      const workspaceId = activeWorkspaceId();
+      const response = await fetch(`${API_URL}/chat/stream`, { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}), ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}) }, body: JSON.stringify(requestInput) });
       yield* parseChatEvents(response);
       return;
     } catch (error) {

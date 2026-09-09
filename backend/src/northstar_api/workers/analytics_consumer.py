@@ -8,14 +8,14 @@ from uuid import UUID
 import structlog
 from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
 from aiokafka.structs import TopicPartition  # type: ignore[import-untyped]
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
 from northstar_api.logging import configure_logging
-from northstar_api.models import AgentHealthDaily, ProcessedEvent
+from northstar_api.models import Agent, AgentHealthDaily, ProcessedEvent
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
 
 settings = get_settings()
@@ -84,6 +84,14 @@ def _analytics_deltas(event: EventEnvelope) -> dict[str, int]:
 
 async def _project_event(session: AsyncSession, event: EventEnvelope) -> None:
     agent_id = _agent_id(event)
+    workspace_id = await session.scalar(
+        select(Agent.workspace_id).where(
+            Agent.id == agent_id,
+            Agent.tenant_id == event.tenant_id,
+        )
+    )
+    if workspace_id is None:
+        raise ValueError("event agent does not exist in tenant scope")
     deltas = _analytics_deltas(event)
     inserted = await session.scalar(
         pg_insert(ProcessedEvent)
@@ -104,13 +112,14 @@ async def _project_event(session: AsyncSession, event: EventEnvelope) -> None:
         pg_insert(AgentHealthDaily)
         .values(
             tenant_id=event.tenant_id,
+            workspace_id=workspace_id,
             agent_id=agent_id,
             day=event.occurred_at.date(),
             **deltas,
         )
         .on_conflict_do_update(
             index_elements=[
-                AgentHealthDaily.tenant_id,
+                AgentHealthDaily.workspace_id,
                 AgentHealthDaily.agent_id,
                 AgentHealthDaily.day,
             ],

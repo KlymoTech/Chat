@@ -1,6 +1,7 @@
 import { ApiError, AUTH_SESSION_EVENT, api, apiConfig } from '@/lib/api';
 import { demoHelpArticle, demoHelpCategory, demoHelpHome, demoHelpSearch } from '@/lib/help-demo-data';
 import { readStorage, writeStorage } from '@/lib/storage';
+import { activeWorkspaceId } from '@/lib/workspace-api';
 import type { Session } from '@/types';
 import type {
   CreateHelpSupportRequestInput,
@@ -42,6 +43,7 @@ async function refreshSession(active: Session): Promise<Session> {
 
 async function helpRequest<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   const active = currentSession();
+  const workspaceId = activeWorkspaceId();
   const response = await fetch(`${apiConfig.baseUrl}${path}`, {
     ...init,
     credentials: init.credentials ?? 'include',
@@ -49,6 +51,7 @@ async function helpRequest<T>(path: string, init: RequestInit = {}, retried = fa
       Accept: 'application/json',
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}),
+      ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
       ...init.headers,
     },
   });

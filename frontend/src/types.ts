@@ -8,7 +8,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'owner' | 'admin' | 'member' | 'analyst';
+  role: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst';
   avatarUrl?: string;
 }
 
@@ -75,6 +75,7 @@ export interface AgentSecurity {
 
 export interface Agent {
   id: string;
+  workspaceId?: string;
   publicId: string;
   name: string;
   description: string;
@@ -95,6 +96,7 @@ export interface Agent {
 
 export interface KnowledgeSource {
   id: string;
+  workspaceId?: string;
   agentId: string;
   name: string;
   kind: KnowledgeKind;
@@ -119,6 +121,7 @@ export interface ChatMessage {
 
 export interface Conversation {
   id: string;
+  workspaceId?: string;
   agentId: string;
   visitorName: string;
   visitorEmail?: string;
@@ -195,6 +198,7 @@ export interface CompleteWhatsAppSignupInput {
 
 export interface Lead {
   id: string;
+  workspaceId?: string;
   agentId: string;
   conversationId?: string;
   name?: string;

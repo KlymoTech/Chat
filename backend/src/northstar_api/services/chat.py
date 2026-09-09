@@ -67,11 +67,19 @@ class ChatCoordinator:
         session: AsyncSession,
         *,
         tenant_id: UUID,
+        workspace_id: UUID | None = None,
+        allowed_agent_ids: frozenset[UUID] | None = None,
         request: ChatStreamRequest,
         channel: Channel = Channel.WIDGET,
     ) -> PreparedChat:
         started = time.perf_counter()
-        agent = await self._get_agent(session, tenant_id, request.agent_id)
+        agent = await self._get_agent(
+            session,
+            tenant_id,
+            request.agent_id,
+            workspace_id=workspace_id,
+            allowed_agent_ids=allowed_agent_ids,
+        )
         raw_message = request.message.strip()
         message_fingerprint = hashlib.sha256(raw_message.encode("utf-8")).hexdigest()
         message = (
@@ -284,6 +292,7 @@ class ChatCoordinator:
         )
         user_message = Message(
             tenant_id=tenant_id,
+            workspace_id=agent.workspace_id,
             conversation_id=conversation.id,
             sequence=sequence + 1,
             role=MessageRole.USER,
@@ -296,6 +305,7 @@ class ChatCoordinator:
         lease_id = uuid4().hex
         assistant = Message(
             tenant_id=tenant_id,
+            workspace_id=agent.workspace_id,
             conversation_id=conversation.id,
             sequence=sequence + 2,
             role=MessageRole.ASSISTANT,
@@ -385,6 +395,7 @@ class ChatCoordinator:
             session.add(
                 MessageCitation(
                     tenant_id=tenant_id,
+                    workspace_id=agent.workspace_id,
                     message_id=assistant.id,
                     source_id=UUID(item.source_id) if item.source_id else None,
                     fact_id=UUID(item.entity_id) if item.kind == "fact" else None,
@@ -419,15 +430,26 @@ class ChatCoordinator:
             evidence if show_citations else [],
         )
 
-    async def _get_agent(self, session: AsyncSession, tenant_id: UUID, identifier: UUID | str) -> Agent:
+    async def _get_agent(
+        self,
+        session: AsyncSession,
+        tenant_id: UUID,
+        identifier: UUID | str,
+        *,
+        workspace_id: UUID | None = None,
+        allowed_agent_ids: frozenset[UUID] | None = None,
+    ) -> Agent:
         conditions = [Agent.public_id == str(identifier)]
         try:
             conditions.append(Agent.id == UUID(str(identifier)))
         except ValueError:
             pass
-        agent = await session.scalar(
-            select(Agent).where(Agent.tenant_id == tenant_id, Agent.deleted_at.is_(None), or_(*conditions))
-        )
+        scope = [Agent.tenant_id == tenant_id, Agent.deleted_at.is_(None), or_(*conditions)]
+        if workspace_id:
+            scope.append(Agent.workspace_id == workspace_id)
+        if allowed_agent_ids is not None:
+            scope.append(Agent.id.in_(allowed_agent_ids))
+        agent = await session.scalar(select(Agent).where(*scope))
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
         return agent
@@ -491,6 +513,7 @@ class ChatCoordinator:
         if not conversation:
             conversation = Conversation(
                 tenant_id=tenant_id,
+                workspace_id=agent.workspace_id,
                 agent_id=agent.id,
                 visitor_id=request.visitor_id,
                 channel=channel,

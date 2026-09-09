@@ -6,13 +6,13 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load, selectinload
 
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
-from northstar_api.dependencies import CurrentPrincipal, WorkspaceWritePrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.models import (
     Channel,
     Conversation,
@@ -30,12 +30,16 @@ from northstar_api.schemas import (
     MessageOut,
     PageResult,
 )
+from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.whatsapp import token_expiry_is_current
 from northstar_api.workers.tasks import send_whatsapp_human_reply
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+ConversationsViewPrincipal = Annotated[Principal, Depends(require_permissions("conversations.view"))]
+ConversationsResolvePrincipal = Annotated[Principal, Depends(require_permissions("conversations.resolve"))]
+ConversationsReplyPrincipal = Annotated[Principal, Depends(require_permissions("conversations.reply"))]
 
 
 def conversation_response(conversation: Conversation) -> ConversationOut:
@@ -52,6 +56,7 @@ def conversation_response(conversation: Conversation) -> ConversationOut:
     preview = messages[-1].content[:240] if messages else "No messages yet"
     return ConversationOut(
         id=conversation.id,
+        workspace_id=conversation.workspace_id,
         agent_id=conversation.agent_id,
         visitor_name=conversation.visitor_name,
         visitor_email=conversation.visitor_email,
@@ -74,18 +79,44 @@ def conversation_options() -> Load:
 
 @router.get("", response_model=PageResult[ConversationOut])
 async def list_conversations(
-    principal: CurrentPrincipal,
+    principal: ConversationsViewPrincipal,
     session: DB,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
+    agent_id: UUID | None = Query(default=None),
+    channel: Channel | None = Query(default=None),
+    state: str | None = Query(default=None, max_length=40),
+    search: str | None = Query(default=None, max_length=320),
 ) -> PageResult[ConversationOut]:
-    condition = Conversation.tenant_id == principal.tenant_id
-    total = int(await session.scalar(select(func.count()).select_from(Conversation).where(condition)) or 0)
+    conditions = [
+        Conversation.tenant_id == principal.tenant_id,
+        Conversation.workspace_id == principal.workspace_id,
+    ]
+    if principal.agent_ids is not None:
+        conditions.append(Conversation.agent_id.in_(principal.agent_ids))
+    if agent_id:
+        conditions.append(Conversation.agent_id == agent_id)
+    if channel:
+        conditions.append(Conversation.channel == channel)
+    if state:
+        conditions.append(Conversation.state == state)
+    if search and search.strip():
+        pattern = f"%{search.strip()}%"
+        conditions.append(
+            or_(
+                Conversation.visitor_name.ilike(pattern),
+                Conversation.visitor_email.ilike(pattern),
+                Conversation.visitor_id.ilike(pattern),
+            )
+        )
+    total = int(
+        await session.scalar(select(func.count()).select_from(Conversation).where(*conditions)) or 0
+    )
     rows = (
         await session.scalars(
             select(Conversation)
             .options(conversation_options())
-            .where(condition)
+            .where(*conditions)
             .order_by(Conversation.updated_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -98,12 +129,17 @@ async def list_conversations(
 
 @router.get("/{conversation_id}", response_model=ConversationOut)
 async def get_conversation(
-    conversation_id: UUID, principal: CurrentPrincipal, session: DB
+    conversation_id: UUID, principal: ConversationsViewPrincipal, session: DB
 ) -> ConversationOut:
     conversation = await session.scalar(
         select(Conversation)
         .options(conversation_options())
-        .where(Conversation.id == conversation_id, Conversation.tenant_id == principal.tenant_id)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == principal.tenant_id,
+            Conversation.workspace_id == principal.workspace_id,
+            *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
+        )
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -114,13 +150,18 @@ async def get_conversation(
 async def update_conversation(
     conversation_id: UUID,
     payload: ConversationPatch,
-    principal: WorkspaceWritePrincipal,
+    principal: ConversationsResolvePrincipal,
     session: DB,
 ) -> ConversationOut:
     conversation = await session.scalar(
         select(Conversation)
         .options(conversation_options())
-        .where(Conversation.id == conversation_id, Conversation.tenant_id == principal.tenant_id)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == principal.tenant_id,
+            Conversation.workspace_id == principal.workspace_id,
+            *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
+        )
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -151,7 +192,7 @@ async def update_conversation(
 async def reply_to_conversation(
     conversation_id: UUID,
     payload: ConversationReplyCreate,
-    principal: WorkspaceWritePrincipal,
+    principal: ConversationsReplyPrincipal,
     session: DB,
 ) -> MessageOut:
     conversation = await session.scalar(
@@ -159,6 +200,8 @@ async def reply_to_conversation(
         .where(
             Conversation.id == conversation_id,
             Conversation.tenant_id == principal.tenant_id,
+            Conversation.workspace_id == principal.workspace_id,
+            *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
         )
         .with_for_update()
     )
@@ -172,6 +215,7 @@ async def reply_to_conversation(
             select(WhatsAppConnection)
             .where(
                 WhatsAppConnection.tenant_id == principal.tenant_id,
+                WhatsAppConnection.workspace_id == principal.workspace_id,
                 WhatsAppConnection.agent_id == conversation.agent_id,
                 WhatsAppConnection.status == "connected",
             )
@@ -194,6 +238,7 @@ async def reply_to_conversation(
                 )
             ).where(
                 WhatsAppInboundMessage.tenant_id == principal.tenant_id,
+                WhatsAppInboundMessage.workspace_id == principal.workspace_id,
                 WhatsAppInboundMessage.connection_id == whatsapp_connection.id,
                 WhatsAppInboundMessage.conversation_id == conversation.id,
                 WhatsAppInboundMessage.status.not_in(("ignored", "cancelled")),
@@ -226,6 +271,7 @@ async def reply_to_conversation(
     )
     message = Message(
         tenant_id=principal.tenant_id,
+        workspace_id=conversation.workspace_id,
         conversation_id=conversation.id,
         sequence=sequence + 1,
         role=MessageRole.AGENT,
@@ -239,6 +285,7 @@ async def reply_to_conversation(
     if whatsapp_connection:
         delivery = WhatsAppOutboundDelivery(
             tenant_id=principal.tenant_id,
+            workspace_id=conversation.workspace_id,
             connection_id=whatsapp_connection.id,
             phone_number_id=whatsapp_connection.phone_number_id,
             message_id=message.id,

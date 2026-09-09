@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
-from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.models import (
     Agent,
     AgentStatus,
@@ -29,11 +29,16 @@ from northstar_api.schemas import (
     AgentPatch,
     AgentSecurity,
 )
+from northstar_api.security import Principal
 from northstar_api.services.localization import localized_appearance
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+AgentsViewPrincipal = Annotated[Principal, Depends(require_permissions("agents.view"))]
+AgentsCreatePrincipal = Annotated[Principal, Depends(require_permissions("agents.create"))]
+AgentsUpdatePrincipal = Annotated[Principal, Depends(require_permissions("agents.update"))]
+AgentsDeletePrincipal = Annotated[Principal, Depends(require_permissions("agents.delete"))]
 
 
 async def agent_response(session: AsyncSession, agent: Agent) -> AgentOut:
@@ -67,6 +72,7 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOut:
     )
     return AgentOut(
         id=agent.id,
+        workspace_id=agent.workspace_id,
         public_id=agent.public_id,
         name=agent.name,
         description=agent.description,
@@ -86,21 +92,38 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOut:
     )
 
 
-async def scoped_agent(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> Agent:
-    agent = await session.scalar(
-        select(Agent).where(Agent.id == agent_id, Agent.tenant_id == tenant_id, Agent.deleted_at.is_(None))
-    )
+async def scoped_agent(
+    session: AsyncSession,
+    tenant_id: UUID,
+    agent_id: UUID,
+    *,
+    workspace_id: UUID | None = None,
+    allowed_agent_ids: frozenset[UUID] | None = None,
+) -> Agent:
+    conditions = [Agent.id == agent_id, Agent.tenant_id == tenant_id, Agent.deleted_at.is_(None)]
+    if workspace_id:
+        conditions.append(Agent.workspace_id == workspace_id)
+    if allowed_agent_ids is not None:
+        conditions.append(Agent.id.in_(allowed_agent_ids))
+    agent = await session.scalar(select(Agent).where(*conditions))
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
 
 
 @router.get("", response_model=list[AgentOut])
-async def list_agents(principal: CurrentPrincipal, session: DB) -> list[AgentOut]:
+async def list_agents(principal: AgentsViewPrincipal, session: DB) -> list[AgentOut]:
+    conditions = [
+        Agent.tenant_id == principal.tenant_id,
+        Agent.workspace_id == principal.workspace_id,
+        Agent.deleted_at.is_(None),
+    ]
+    if principal.agent_ids is not None:
+        conditions.append(Agent.id.in_(principal.agent_ids))
     agents = (
         await session.scalars(
             select(Agent)
-            .where(Agent.tenant_id == principal.tenant_id, Agent.deleted_at.is_(None))
+            .where(*conditions)
             .order_by(Agent.updated_at.desc())
         )
     ).all()
@@ -108,7 +131,7 @@ async def list_agents(principal: CurrentPrincipal, session: DB) -> list[AgentOut
 
 
 @router.post("", response_model=AgentOut, status_code=201)
-async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session: DB) -> AgentOut:
+async def create_agent(payload: AgentCreate, principal: AgentsCreatePrincipal, session: DB) -> AgentOut:
     appearance = default_appearance()
     appearance.update(localized_appearance(payload.language))
     appearance["deploymentChannel"] = payload.deployment_channel
@@ -121,6 +144,7 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
     )
     agent = Agent(
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         name=payload.name.strip(),
         description=payload.description.strip(),
         instructions=instructions,
@@ -148,19 +172,31 @@ async def create_agent(payload: AgentCreate, principal: AdminPrincipal, session:
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
-async def get_agent(agent_id: UUID, principal: CurrentPrincipal, session: DB) -> AgentOut:
-    return await agent_response(session, await scoped_agent(session, principal.tenant_id, agent_id))
+async def get_agent(agent_id: UUID, principal: AgentsViewPrincipal, session: DB) -> AgentOut:
+    return await agent_response(
+        session,
+        await scoped_agent(
+            session,
+            principal.tenant_id,
+            agent_id,
+            workspace_id=principal.workspace_id,
+            allowed_agent_ids=principal.agent_ids,
+        ),
+    )
 
 
 @router.post("/{agent_id}/duplicate", response_model=AgentOut, status_code=201)
 async def duplicate_agent(
-    agent_id: UUID, payload: AgentDuplicate, principal: AdminPrincipal, session: DB
+    agent_id: UUID, payload: AgentDuplicate, principal: AgentsCreatePrincipal, session: DB
 ) -> AgentOut:
-    source = await scoped_agent(session, principal.tenant_id, agent_id)
+    source = await scoped_agent(
+        session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
+    )
     appearance = deepcopy(source.appearance)
     appearance["deploymentChannel"] = payload.deployment_channel
     duplicate = Agent(
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         name=payload.name.strip(),
         description=source.description,
         instructions=source.instructions,
@@ -197,9 +233,11 @@ async def duplicate_agent(
 
 @router.patch("/{agent_id}", response_model=AgentOut)
 async def update_agent(
-    agent_id: UUID, payload: AgentPatch, principal: AdminPrincipal, session: DB
+    agent_id: UUID, payload: AgentPatch, principal: AgentsUpdatePrincipal, session: DB
 ) -> AgentOut:
-    agent = await scoped_agent(session, principal.tenant_id, agent_id)
+    agent = await scoped_agent(
+        session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
+    )
     patch = payload.model_dump(exclude_unset=True)
     if "model" in patch:
         configured_model = get_settings().nvidia_model
@@ -242,10 +280,12 @@ async def update_agent(
 
 
 @router.delete("/{agent_id}", status_code=204)
-async def delete_agent(agent_id: UUID, principal: AdminPrincipal, session: DB) -> Response:
+async def delete_agent(agent_id: UUID, principal: AgentsDeletePrincipal, session: DB) -> Response:
     from datetime import UTC, datetime
 
-    agent = await scoped_agent(session, principal.tenant_id, agent_id)
+    agent = await scoped_agent(
+        session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
+    )
     agent.deleted_at = datetime.now(UTC)
     enqueue_event(
         session,

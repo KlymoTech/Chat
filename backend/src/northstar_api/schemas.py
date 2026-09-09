@@ -184,6 +184,7 @@ class AgentPatch(APIModel):
 
 class AgentOut(APIModel):
     id: UUID
+    workspace_id: UUID
     public_id: str
     name: str
     description: str
@@ -219,6 +220,7 @@ class KnowledgeCreate(APIModel):
 
 class KnowledgeOut(APIModel):
     id: UUID
+    workspace_id: UUID
     agent_id: UUID
     name: str
     kind: KnowledgeKind
@@ -321,6 +323,7 @@ class MessageOut(APIModel):
 
 class ConversationOut(APIModel):
     id: UUID
+    workspace_id: UUID
     agent_id: UUID
     visitor_name: str
     visitor_email: EmailStr | None = None
@@ -378,6 +381,7 @@ class LeadPatch(APIModel):
 
 class LeadOut(APIModel):
     id: UUID
+    workspace_id: UUID
     agent_id: UUID
     conversation_id: UUID | None
     name: str | None

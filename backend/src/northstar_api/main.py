@@ -66,6 +66,7 @@ app.add_middleware(
         "Content-Type",
         "Idempotency-Key",
         "X-Request-ID",
+        "X-Workspace-ID",
     ],
     expose_headers=["X-Request-ID", "Retry-After"],
 )

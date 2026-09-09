@@ -8,23 +8,27 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
-from northstar_api.dependencies import CurrentPrincipal, WorkspaceWritePrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.lead_crm.models import LeadActivityEvent
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import request_id_ctx
 from northstar_api.models import Agent, Conversation, Lead
 from northstar_api.schemas import LeadCreate, LeadOut, LeadPatch, PageResult
+from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+LeadsViewPrincipal = Annotated[Principal, Depends(require_permissions("leads.view"))]
+LeadsUpdatePrincipal = Annotated[Principal, Depends(require_permissions("leads.update"))]
 VALID_LEAD_STATUSES = {item.value for item in LeadLifecycleStatus}
 
 
 def lead_response(lead: Lead) -> LeadOut:
     return LeadOut(
         id=lead.id,
+        workspace_id=lead.workspace_id,
         agent_id=lead.agent_id,
         conversation_id=lead.conversation_id,
         name=lead.name,
@@ -40,7 +44,7 @@ def lead_response(lead: Lead) -> LeadOut:
 
 @router.get("", response_model=PageResult[LeadOut])
 async def list_leads(
-    principal: CurrentPrincipal,
+    principal: LeadsViewPrincipal,
     session: DB,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
@@ -48,7 +52,12 @@ async def list_leads(
     status: str | None = Query(default=None, max_length=40),
     agent_id: UUID | None = Query(default=None),
 ) -> PageResult[LeadOut]:
-    conditions = [Lead.tenant_id == principal.tenant_id]
+    conditions = [
+        Lead.tenant_id == principal.tenant_id,
+        Lead.workspace_id == principal.workspace_id,
+    ]
+    if principal.agent_ids is not None:
+        conditions.append(Lead.agent_id.in_(principal.agent_ids))
     if status:
         if status not in VALID_LEAD_STATUSES:
             raise HTTPException(status_code=400, detail="Unsupported lead status")
@@ -80,9 +89,13 @@ async def list_leads(
 
 
 @router.post("", response_model=LeadOut, status_code=201)
-async def create_lead(payload: LeadCreate, principal: WorkspaceWritePrincipal, session: DB) -> LeadOut:
+async def create_lead(payload: LeadCreate, principal: LeadsUpdatePrincipal, session: DB) -> LeadOut:
     agent = await session.scalar(
-        select(Agent).where(Agent.id == payload.agent_id, Agent.tenant_id == principal.tenant_id)
+        select(Agent).where(
+            Agent.id == payload.agent_id,
+            Agent.tenant_id == principal.tenant_id,
+            Agent.workspace_id == principal.workspace_id,
+        )
     )
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -92,6 +105,7 @@ async def create_lead(payload: LeadCreate, principal: WorkspaceWritePrincipal, s
             select(Conversation).where(
                 Conversation.id == payload.conversation_id,
                 Conversation.tenant_id == principal.tenant_id,
+                Conversation.workspace_id == principal.workspace_id,
                 Conversation.agent_id == payload.agent_id,
             )
         )
@@ -99,6 +113,7 @@ async def create_lead(payload: LeadCreate, principal: WorkspaceWritePrincipal, s
             raise HTTPException(status_code=404, detail="Conversation not found")
     lead = Lead(
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         agent_id=payload.agent_id,
         conversation_id=payload.conversation_id,
         name=payload.name,
@@ -148,12 +163,19 @@ async def create_lead(payload: LeadCreate, principal: WorkspaceWritePrincipal, s
 async def update_lead(
     lead_id: UUID,
     payload: LeadPatch,
-    principal: WorkspaceWritePrincipal,
+    principal: LeadsUpdatePrincipal,
     session: DB,
 ) -> LeadOut:
     if payload.status not in VALID_LEAD_STATUSES:
         raise HTTPException(status_code=400, detail="Unsupported lead status")
-    lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id))
+    lead = await session.scalar(
+        select(Lead).where(
+            Lead.id == lead_id,
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+            *((Lead.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
+        )
+    )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     previous = lead.status

@@ -55,8 +55,23 @@ def enum_column(enum_type: type[enum.Enum], name: str) -> SAEnum:
 class Role(str, enum.Enum):
     OWNER = "owner"
     ADMIN = "admin"
+    BILLING_ADMIN = "billing_admin"
+    SECURITY_ADMIN = "security_admin"
     MEMBER = "member"
     ANALYST = "analyst"
+
+
+class WorkspaceRole(str, enum.Enum):
+    ADMIN = "workspace_admin"
+    MANAGER = "manager"
+    OPERATOR = "operator"
+    ANALYST = "analyst"
+    VIEWER = "viewer"
+
+
+class WorkspaceStatus(str, enum.Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
 
 
 class AgentStatus(str, enum.Enum):
@@ -151,6 +166,9 @@ class Tenant(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     memberships: Mapped[list[TenantMembership]] = relationship(
         back_populates="tenant", cascade="all, delete-orphan"
     )
+    workspaces: Mapped[list[Workspace]] = relationship(
+        back_populates="tenant", cascade="all, delete-orphan"
+    )
     agents: Mapped[list[Agent]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
 
 
@@ -167,6 +185,9 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     memberships: Mapped[list[TenantMembership]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    workspace_memberships: Mapped[list[WorkspaceMembership]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class TenantMembership(Base, TimestampMixin):
@@ -181,6 +202,66 @@ class TenantMembership(Base, TimestampMixin):
 
     tenant: Mapped[Tenant] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")
+
+
+class Workspace(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "workspaces"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "slug", name="uq_workspaces_tenant_slug"),
+        Index("ix_workspaces_tenant_status", "tenant_id", "status"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    slug: Mapped[str] = mapped_column(String(80))
+    status: Mapped[WorkspaceStatus] = mapped_column(
+        enum_column(WorkspaceStatus, "workspace_status"), default=WorkspaceStatus.ACTIVE
+    )
+    timezone: Mapped[str] = mapped_column(String(80), default="Asia/Calcutta")
+    default_language: Mapped[str] = mapped_column(String(60), default="English")
+    date_format: Mapped[str] = mapped_column(String(24), default="DD/MM/YYYY")
+    settings_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+    branding_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    tenant: Mapped[Tenant] = relationship(back_populates="workspaces")
+    memberships: Mapped[list[WorkspaceMembership]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
+    agents: Mapped[list[Agent]] = relationship(back_populates="workspace")
+
+
+class WorkspaceMembership(Base, TimestampMixin):
+    __tablename__ = "workspace_memberships"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_memberships_workspace_user"),
+        Index("ix_workspace_memberships_tenant_user", "tenant_id", "user_id"),
+    )
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    role: Mapped[WorkspaceRole] = mapped_column(
+        enum_column(WorkspaceRole, "workspace_membership_role"), default=WorkspaceRole.VIEWER
+    )
+    all_agents_access: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    workspace: Mapped[Workspace] = relationship(back_populates="memberships")
+    user: Mapped[User] = relationship(back_populates="workspace_memberships")
+
+
+class WorkspaceMemberAgentAccess(Base, TimestampMixin):
+    __tablename__ = "workspace_member_agent_access"
+    __table_args__ = (Index("ix_workspace_agent_access_user", "workspace_id", "user_id"),)
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True)
 
 
 def default_appearance() -> dict[str, Any]:
@@ -251,11 +332,14 @@ def default_security() -> dict[str, Any]:
 class Agent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "agents"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "name"),
-        Index("ix_agents_tenant_status", "tenant_id", "status"),
+        UniqueConstraint("workspace_id", "name", name="uq_agents_workspace_name"),
+        Index("ix_agents_workspace_status", "workspace_id", "status"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     public_id: Mapped[str] = mapped_column(String(48), unique=True, default=lambda: f"agt_{uuid.uuid4().hex}")
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(500), default="")
@@ -275,6 +359,7 @@ class Agent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     tenant: Mapped[Tenant] = relationship(back_populates="agents")
+    workspace: Mapped[Workspace] = relationship(back_populates="agents")
     knowledge_sources: Mapped[list[KnowledgeSource]] = relationship(
         back_populates="agent", cascade="all, delete-orphan"
     )
@@ -289,6 +374,7 @@ class KnowledgeSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(240))
     kind: Mapped[KnowledgeKind] = mapped_column(enum_column(KnowledgeKind, "knowledge_kind"))
@@ -317,6 +403,7 @@ class DocumentChunk(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("knowledge_sources.id", ondelete="CASCADE"), index=True
@@ -338,6 +425,7 @@ class KnowledgeFact(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (Index("ix_knowledge_facts_scope", "tenant_id", "agent_id", "status", "revision"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("knowledge_sources.id", ondelete="SET NULL"), index=True
@@ -362,6 +450,7 @@ class IngestionJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "ingestion_jobs"
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("knowledge_sources.id", ondelete="CASCADE"), index=True
     )
@@ -378,9 +467,12 @@ class IngestionJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "conversations"
-    __table_args__ = (Index("ix_conversations_scope_updated", "tenant_id", "agent_id", "updated_at"),)
+    __table_args__ = (
+        Index("ix_conversations_scope_updated", "tenant_id", "workspace_id", "agent_id", "updated_at"),
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
     public_id: Mapped[str] = mapped_column(String(48), unique=True, default=lambda: f"cnv_{uuid.uuid4().hex}")
     visitor_id: Mapped[str | None] = mapped_column(String(128), index=True)
@@ -425,6 +517,7 @@ class Message(Base, UUIDPrimaryKeyMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
@@ -454,6 +547,7 @@ class MessageCitation(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "message_citations"
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("knowledge_sources.id", ondelete="SET NULL")
@@ -473,6 +567,7 @@ class MessageFeedback(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (UniqueConstraint("tenant_id", "message_id"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     message_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
     value: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str | None] = mapped_column(String(500))
@@ -480,9 +575,12 @@ class MessageFeedback(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 class Lead(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "leads"
-    __table_args__ = (Index("ix_leads_scope_created", "tenant_id", "agent_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_leads_scope_created", "tenant_id", "workspace_id", "agent_id", "created_at"),
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="SET NULL"), index=True
@@ -497,9 +595,10 @@ class Lead(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 class IntegrationConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "integration_connections"
-    __table_args__ = (UniqueConstraint("tenant_id", "integration_id"),)
+    __table_args__ = (UniqueConstraint("workspace_id", "integration_id"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     integration_id: Mapped[str] = mapped_column(String(80))
     connected: Mapped[bool] = mapped_column(Boolean, default=False)
     config_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
@@ -510,12 +609,13 @@ class WhatsAppConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "whatsapp_connections"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "agent_id", name="uq_whatsapp_connections_tenant_agent"),
+        UniqueConstraint("workspace_id", "agent_id", name="uq_whatsapp_connections_workspace_agent"),
         UniqueConstraint("phone_number_id", name="uq_whatsapp_connections_phone_number_id"),
         Index("ix_whatsapp_connections_scope", "tenant_id", "agent_id"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
     waba_id: Mapped[str] = mapped_column(String(80))
     phone_number_id: Mapped[str] = mapped_column(String(80))
@@ -542,6 +642,7 @@ class WhatsAppInboundMessage(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     connection_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("whatsapp_connections.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -577,6 +678,7 @@ class WhatsAppOutboundDelivery(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     connection_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("whatsapp_connections.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -594,9 +696,10 @@ class WhatsAppOutboundDelivery(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
 class AgentHealthDaily(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "agent_health_daily"
-    __table_args__ = (UniqueConstraint("tenant_id", "agent_id", "day"),)
+    __table_args__ = (UniqueConstraint("workspace_id", "agent_id", "day"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     day: Mapped[date] = mapped_column(Date)
     conversations: Mapped[int] = mapped_column(Integer, default=0)
@@ -613,6 +716,9 @@ class OutboxEvent(Base, UUIDPrimaryKeyMixin):
     __table_args__ = (Index("ix_outbox_unpublished", "published_at", "occurred_at"),)
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     aggregate_type: Mapped[str] = mapped_column(String(80))
     aggregate_id: Mapped[str] = mapped_column(String(80))
     event_type: Mapped[str] = mapped_column(String(160))

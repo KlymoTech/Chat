@@ -16,6 +16,7 @@ interface LeadFilters {
 
 const apiMocks = vi.hoisted(() => ({
   listLeads: vi.fn<(filters?: LeadFilters) => Promise<PageResult<Lead>>>(),
+  listFallbackLeads: vi.fn<() => Promise<PageResult<Lead>>>(),
   listAgents: vi.fn<() => Promise<Agent[]>>(),
   updateStatus: vi.fn<(leadId: string, status: string) => Promise<Lead>>(),
   deliveriesForLead: vi.fn<() => Promise<never[]>>(),
@@ -27,7 +28,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({
   api: {
     agents: { list: apiMocks.listAgents },
-    leads: { updateStatus: apiMocks.updateStatus },
+    leads: { list: apiMocks.listFallbackLeads, updateStatus: apiMocks.updateStatus },
   },
 }));
 
@@ -45,6 +46,9 @@ describe('LeadsPage', () => {
   beforeEach(() => {
     const leads = structuredClone(demoLeads);
     apiMocks.listAgents.mockResolvedValue(structuredClone(demoAgents));
+    apiMocks.listFallbackLeads.mockResolvedValue({
+      items: structuredClone(demoLeads), total: demoLeads.length, page: 1, pageSize: 50,
+    });
     apiMocks.listLeads.mockImplementation(async (filters = {}) => {
       const search = filters.search?.trim().toLowerCase();
       const status = filters.status;
@@ -78,5 +82,15 @@ describe('LeadsPage', () => {
     expect(await screen.findByText('Nora Reed')).toBeInTheDocument();
     await user.selectOptions(screen.getByRole('combobox', { name: 'Status for Nora Reed' }), 'converted');
     await waitFor(() => expect(apiMocks.updateStatus).toHaveBeenCalledWith('lead-1', 'converted'));
+  });
+
+  it('uses the configured app fallback when the CRM API is unavailable', async () => {
+    apiMocks.listLeads.mockRejectedValueOnce(new Error('Request failed (502)'));
+
+    render(<ToastProvider><LeadsPage /></ToastProvider>);
+
+    expect(await screen.findByText('Nora Reed')).toBeInTheDocument();
+    expect(screen.queryByText('Leads are unavailable')).not.toBeInTheDocument();
+    expect(apiMocks.listFallbackLeads).toHaveBeenCalledOnce();
   });
 });

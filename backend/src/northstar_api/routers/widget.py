@@ -174,6 +174,7 @@ async def _create_session(
         )
     conversation = Conversation(
         tenant_id=agent.tenant_id,
+        workspace_id=agent.workspace_id,
         agent_id=agent.id,
         visitor_id=payload.visitor_id,
         visitor_name=payload.visitor_name or "Anonymous visitor",

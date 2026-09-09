@@ -13,25 +13,32 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
-from northstar_api.dependencies import WorkspaceWritePrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.models import Channel, Conversation, Message, MessageFeedback
 from northstar_api.schemas import ChatStreamRequest, FeedbackCreate, OpenAICompletionRequest
+from northstar_api.security import Principal
 from northstar_api.services.chat import chat_coordinator, token_chunks
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.streaming import chat_sse_response
 
 router = APIRouter(tags=["chat"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+ChatPrincipal = Annotated[Principal, Depends(require_permissions("conversations.reply"))]
 
 
 @router.post("/chat/stream")
 async def stream_chat(
     payload: ChatStreamRequest,
     session: DB,
-    principal: WorkspaceWritePrincipal,
+    principal: ChatPrincipal,
 ) -> StreamingResponse:
     prepared = await chat_coordinator.prepare(
-        session, tenant_id=principal.tenant_id, request=payload, channel=Channel.WIDGET
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
+        request=payload,
+        channel=Channel.WIDGET,
     )
     return chat_sse_response(prepared)
 
@@ -41,10 +48,14 @@ async def message_feedback(
     message_id: uuid.UUID,
     payload: FeedbackCreate,
     session: DB,
-    principal: WorkspaceWritePrincipal,
+    principal: ChatPrincipal,
 ) -> None:
     message = await session.scalar(
-        select(Message).where(Message.id == message_id, Message.tenant_id == principal.tenant_id)
+        select(Message).where(
+            Message.id == message_id,
+            Message.tenant_id == principal.tenant_id,
+            Message.workspace_id == principal.workspace_id,
+        )
     )
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
@@ -52,13 +63,18 @@ async def message_feedback(
         select(Conversation.agent_id).where(
             Conversation.id == message.conversation_id,
             Conversation.tenant_id == principal.tenant_id,
+            Conversation.workspace_id == principal.workspace_id,
         )
     )
     if not agent_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    if principal.agent_ids is not None and agent_id not in principal.agent_ids:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     existing = await session.scalar(
         select(MessageFeedback).where(
-            MessageFeedback.message_id == message_id, MessageFeedback.tenant_id == principal.tenant_id
+            MessageFeedback.message_id == message_id,
+            MessageFeedback.tenant_id == principal.tenant_id,
+            MessageFeedback.workspace_id == principal.workspace_id,
         )
     )
     previous_value = existing.value if existing else None
@@ -68,6 +84,7 @@ async def message_feedback(
         session.add(
             MessageFeedback(
                 tenant_id=principal.tenant_id,
+                workspace_id=message.workspace_id,
                 message_id=message_id,
                 value=payload.value,
                 reason=payload.reason,
@@ -93,7 +110,7 @@ async def message_feedback(
 async def openai_completion(
     payload: OpenAICompletionRequest,
     session: DB,
-    principal: WorkspaceWritePrincipal,
+    principal: ChatPrincipal,
 ) -> Response:
     question = next((item.content for item in reversed(payload.messages) if item.role == "user"), None)
     if not question:
@@ -101,6 +118,8 @@ async def openai_completion(
     prepared = await chat_coordinator.prepare(
         session,
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
         request=ChatStreamRequest(agent_id=payload.model, message=question, visitor_id=payload.user),
         channel=Channel.API,
     )

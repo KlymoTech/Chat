@@ -9,7 +9,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
-from northstar_api.dependencies import CurrentPrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.models import (
     Conversation,
     ConversationState,
@@ -18,23 +18,29 @@ from northstar_api.models import (
     MessageRole,
 )
 from northstar_api.schemas import AnalyticsPoint, AnalyticsSummary, ChannelMetric, TopQuestion
+from northstar_api.security import Principal
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+AnalyticsPrincipal = Annotated[Principal, Depends(require_permissions("analytics.view"))]
 
 
 @router.get("/summary", response_model=AnalyticsSummary)
-async def analytics_summary(principal: CurrentPrincipal, session: DB) -> AnalyticsSummary:
+async def analytics_summary(principal: AnalyticsPrincipal, session: DB) -> AnalyticsSummary:
     now = datetime.now(UTC)
     current_start = now - timedelta(days=30)
     previous_start = current_start - timedelta(days=30)
-    scope = Conversation.tenant_id == principal.tenant_id
+    scope = (
+        Conversation.tenant_id == principal.tenant_id,
+        Conversation.workspace_id == principal.workspace_id,
+        *((Conversation.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
+    )
 
     current_count = int(
         await session.scalar(
             select(func.count())
             .select_from(Conversation)
-            .where(scope, Conversation.started_at >= current_start)
+            .where(*scope, Conversation.started_at >= current_start)
         )
         or 0
     )
@@ -42,7 +48,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
         await session.scalar(
             select(func.count())
             .select_from(Conversation)
-            .where(scope, Conversation.started_at >= previous_start, Conversation.started_at < current_start)
+            .where(*scope, Conversation.started_at >= previous_start, Conversation.started_at < current_start)
         )
         or 0
     )
@@ -51,7 +57,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
             select(func.count())
             .select_from(Conversation)
             .where(
-                scope,
+                *scope,
                 Conversation.started_at >= current_start,
                 Conversation.state == ConversationState.RESOLVED,
             )
@@ -63,7 +69,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
             select(func.count())
             .select_from(Conversation)
             .where(
-                scope,
+                *scope,
                 Conversation.started_at >= previous_start,
                 Conversation.started_at < current_start,
                 Conversation.state == ConversationState.RESOLVED,
@@ -77,6 +83,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
             .join(Conversation, Conversation.id == Message.conversation_id)
             .where(
                 Conversation.tenant_id == principal.tenant_id,
+                Conversation.workspace_id == principal.workspace_id,
                 Message.role == MessageRole.ASSISTANT,
                 Message.created_at >= current_start,
             )
@@ -91,6 +98,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
             )
             .where(
                 MessageFeedback.tenant_id == principal.tenant_id,
+                MessageFeedback.workspace_id == principal.workspace_id,
                 MessageFeedback.created_at >= current_start,
             )
             .group_by(MessageFeedback.value)
@@ -115,7 +123,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
     conversations = (
         await session.scalars(
             select(Conversation)
-            .where(scope, Conversation.started_at >= current_start)
+            .where(*scope, Conversation.started_at >= current_start)
             .order_by(Conversation.started_at)
         )
     ).all()
@@ -148,6 +156,7 @@ async def analytics_summary(principal: CurrentPrincipal, session: DB) -> Analyti
             .join(Conversation, Conversation.id == Message.conversation_id)
             .where(
                 Conversation.tenant_id == principal.tenant_id,
+                Conversation.workspace_id == principal.workspace_id,
                 Message.role == MessageRole.USER,
                 Message.created_at >= current_start,
             )

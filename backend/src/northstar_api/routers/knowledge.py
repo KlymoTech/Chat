@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
-from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.models import (
     FactStatus,
     IngestionJob,
@@ -33,6 +33,7 @@ from northstar_api.schemas import (
     UploadPresignOut,
     UploadPresignRequest,
 )
+from northstar_api.security import Principal
 from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
@@ -40,11 +41,13 @@ from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(tags=["knowledge"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+KnowledgeViewPrincipal = Annotated[Principal, Depends(require_permissions("knowledge.view"))]
+KnowledgeManagePrincipal = Annotated[Principal, Depends(require_permissions("knowledge.manage"))]
 logger = structlog.get_logger(__name__)
 
 
 @router.post("/uploads/presign", response_model=UploadPresignOut)
-async def presign_upload(payload: UploadPresignRequest, principal: AdminPrincipal) -> UploadPresignOut:
+async def presign_upload(payload: UploadPresignRequest, principal: KnowledgeManagePrincipal) -> UploadPresignOut:
     settings = get_settings()
     if payload.size_bytes > settings.upload_max_bytes:
         raise HTTPException(status_code=413, detail="Upload exceeds the configured size limit")
@@ -66,6 +69,7 @@ async def presign_upload(payload: UploadPresignRequest, principal: AdminPrincipa
 def source_response(source: KnowledgeSource) -> KnowledgeOut:
     return KnowledgeOut(
         id=source.id,
+        workspace_id=source.workspace_id,
         agent_id=source.agent_id,
         name=source.name,
         kind=source.kind,
@@ -80,12 +84,16 @@ def source_response(source: KnowledgeSource) -> KnowledgeOut:
 
 
 @router.get("/agents/{agent_id}/knowledge", response_model=list[KnowledgeOut])
-async def list_knowledge(agent_id: UUID, principal: CurrentPrincipal, session: DB) -> list[KnowledgeOut]:
-    await scoped_agent(session, principal.tenant_id, agent_id)
+async def list_knowledge(agent_id: UUID, principal: KnowledgeViewPrincipal, session: DB) -> list[KnowledgeOut]:
+    await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     sources = (
         await session.scalars(
             select(KnowledgeSource)
-            .where(KnowledgeSource.tenant_id == principal.tenant_id, KnowledgeSource.agent_id == agent_id)
+            .where(
+                KnowledgeSource.tenant_id == principal.tenant_id,
+                KnowledgeSource.workspace_id == principal.workspace_id,
+                KnowledgeSource.agent_id == agent_id,
+            )
             .order_by(KnowledgeSource.updated_at.desc())
         )
     ).all()
@@ -94,9 +102,9 @@ async def list_knowledge(agent_id: UUID, principal: CurrentPrincipal, session: D
 
 @router.post("/agents/{agent_id}/knowledge", response_model=KnowledgeOut, status_code=201)
 async def add_knowledge(
-    agent_id: UUID, payload: KnowledgeCreate, principal: AdminPrincipal, session: DB
+    agent_id: UUID, payload: KnowledgeCreate, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeOut:
-    await scoped_agent(session, principal.tenant_id, agent_id)
+    await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     if payload.kind == KnowledgeKind.TEXT and not payload.content:
         raise HTTPException(status_code=422, detail="Text sources require content")
     if payload.kind in (KnowledgeKind.URL, KnowledgeKind.SITEMAP) and not payload.url:
@@ -122,6 +130,7 @@ async def add_knowledge(
     raw_identity = payload.content or str(payload.url or object_key)
     source = KnowledgeSource(
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         agent_id=agent_id,
         name=payload.name.strip(),
         kind=payload.kind,
@@ -136,6 +145,7 @@ async def add_knowledge(
     await session.flush()
     job = IngestionJob(
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         source_id=source.id,
         status=JobStatus.QUEUED,
         idempotency_key=f"ingest:{source.id}:{source.revision}:{source.checksum}",
@@ -172,10 +182,12 @@ async def add_knowledge(
 
 
 @router.delete("/knowledge/{source_id}", status_code=204)
-async def delete_knowledge(source_id: UUID, principal: AdminPrincipal, session: DB) -> Response:
+async def delete_knowledge(source_id: UUID, principal: KnowledgeManagePrincipal, session: DB) -> Response:
     source = await session.scalar(
         select(KnowledgeSource).where(
-            KnowledgeSource.id == source_id, KnowledgeSource.tenant_id == principal.tenant_id
+            KnowledgeSource.id == source_id,
+            KnowledgeSource.tenant_id == principal.tenant_id,
+            KnowledgeSource.workspace_id == principal.workspace_id,
         )
     )
     if not source:
@@ -209,13 +221,15 @@ def _size_label(size_bytes: int) -> str:
 @router.get("/agents/{agent_id}/facts", response_model=list[FactOut])
 async def list_facts(
     agent_id: UUID,
-    principal: CurrentPrincipal,
+    principal: KnowledgeViewPrincipal,
     session: DB,
     fact_status: FactStatus | None = None,
 ) -> list[KnowledgeFact]:
-    await scoped_agent(session, principal.tenant_id, agent_id)
+    await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     query = select(KnowledgeFact).where(
-        KnowledgeFact.tenant_id == principal.tenant_id, KnowledgeFact.agent_id == agent_id
+        KnowledgeFact.tenant_id == principal.tenant_id,
+        KnowledgeFact.workspace_id == principal.workspace_id,
+        KnowledgeFact.agent_id == agent_id,
     )
     if fact_status:
         query = query.where(KnowledgeFact.status == fact_status)
@@ -224,12 +238,13 @@ async def list_facts(
 
 @router.post("/agents/{agent_id}/facts", response_model=FactOut, status_code=201)
 async def create_fact(
-    agent_id: UUID, payload: FactCreate, principal: AdminPrincipal, session: DB
+    agent_id: UUID, payload: FactCreate, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeFact:
-    agent = await scoped_agent(session, principal.tenant_id, agent_id)
+    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     vector = await nvidia_adapter.embed_query(f"{payload.question}\n{payload.answer}")
     fact = KnowledgeFact(
         tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
         agent_id=agent_id,
         question=payload.question.strip(),
         answer=payload.answer.strip(),
@@ -257,11 +272,13 @@ async def create_fact(
 
 @router.patch("/facts/{fact_id}", response_model=FactOut)
 async def update_fact(
-    fact_id: UUID, payload: FactPatch, principal: AdminPrincipal, session: DB
+    fact_id: UUID, payload: FactPatch, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeFact:
     fact = await session.scalar(
         select(KnowledgeFact).where(
-            KnowledgeFact.id == fact_id, KnowledgeFact.tenant_id == principal.tenant_id
+            KnowledgeFact.id == fact_id,
+            KnowledgeFact.tenant_id == principal.tenant_id,
+            KnowledgeFact.workspace_id == principal.workspace_id,
         )
     )
     if not fact:
@@ -289,9 +306,13 @@ async def update_fact(
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)
-async def get_job(job_id: UUID, principal: CurrentPrincipal, session: DB) -> JobOut:
+async def get_job(job_id: UUID, principal: KnowledgeViewPrincipal, session: DB) -> JobOut:
     job = await session.scalar(
-        select(IngestionJob).where(IngestionJob.id == job_id, IngestionJob.tenant_id == principal.tenant_id)
+        select(IngestionJob).where(
+            IngestionJob.id == job_id,
+            IngestionJob.tenant_id == principal.tenant_id,
+            IngestionJob.workspace_id == principal.workspace_id,
+        )
     )
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

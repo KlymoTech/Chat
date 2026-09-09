@@ -103,13 +103,12 @@ async def login(payload: LoginRequest, request: Request, response: Response, ses
         )
         if not membership:
             raise HTTPException(status_code=403, detail="Requested workspace is unavailable")
-    elif len(user.memberships) == 1:
-        membership = user.memberships[0]
     else:
-        raise HTTPException(
-            status_code=409,
-            detail="This account belongs to multiple workspaces; provide the workspace slug",
-        )
+        # Tenant/account selection remains deterministic. Operational workspace
+        # selection happens after authentication through /workspaces and the
+        # X-Workspace-ID request context, so users never need a workspace slug
+        # merely to sign in.
+        membership = min(user.memberships, key=lambda item: (item.created_at, str(item.tenant_id)))
     user.last_login_at = datetime.now(UTC)
     access_token, expires_at = create_access_token(user.id, membership.tenant_id, membership.role)
     refresh_token, _ = create_refresh_token(user.id, membership.tenant_id, membership.role)

@@ -542,7 +542,13 @@ async def qualify_lead(
     principal: WorkspaceWritePrincipal,
     session: DB,
 ) -> dict[str, Any]:
-    lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id))
+    lead = await session.scalar(
+        select(Lead).where(
+            Lead.id == lead_id,
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+        )
+    )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     profile = await lead_domain_service.qualify(
@@ -570,7 +576,13 @@ async def sync_lead(
     principal: WorkspaceWritePrincipal,
     session: DB,
 ) -> dict[str, Any]:
-    lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id))
+    lead = await session.scalar(
+        select(Lead).where(
+            Lead.id == lead_id,
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+        )
+    )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     await lead_domain_service.request_sync(
@@ -587,7 +599,11 @@ async def sync_lead(
 @router.get("/leads/{lead_id}/deliveries", response_model=list[CRMDeliveryOut])
 async def lead_deliveries(lead_id: UUID, principal: CurrentPrincipal, session: DB) -> list[CRMDeliveryOut]:
     exists = await session.scalar(
-        select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id)
+        select(Lead.id).where(
+            Lead.id == lead_id,
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+        )
     )
     if not exists:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -604,7 +620,11 @@ async def lead_deliveries(lead_id: UUID, principal: CurrentPrincipal, session: D
 @router.get("/leads/{lead_id}/activity", response_model=list[LeadActivityOut])
 async def lead_activity(lead_id: UUID, principal: CurrentPrincipal, session: DB) -> list[LeadActivityOut]:
     exists = await session.scalar(
-        select(Lead.id).where(Lead.id == lead_id, Lead.tenant_id == principal.tenant_id)
+        select(Lead.id).where(
+            Lead.id == lead_id,
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+        )
     )
     if not exists:
         raise HTTPException(status_code=404, detail="Lead not found")

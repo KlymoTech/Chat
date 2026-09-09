@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
@@ -13,7 +13,42 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from jwt import InvalidTokenError
 
 from northstar_api.config import Settings, get_settings
-from northstar_api.models import Role
+from northstar_api.models import Role, WorkspaceRole
+
+WORKSPACE_ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[str]] = {
+    WorkspaceRole.ADMIN: frozenset({"*"}),
+    WorkspaceRole.MANAGER: frozenset({
+        "workspace.view", "members.view", "agents.view", "agents.create", "agents.update",
+        "agents.deploy", "knowledge.view", "knowledge.manage", "conversations.view",
+        "conversations.reply", "conversations.resolve", "conversations.assign", "leads.view",
+        "leads.update", "leads.export", "integrations.view", "crm.view", "analytics.view",
+        "settings.view",
+    }),
+    WorkspaceRole.OPERATOR: frozenset({
+        "workspace.view", "agents.view", "knowledge.view", "conversations.view",
+        "conversations.reply", "conversations.resolve", "conversations.assign", "leads.view",
+        "leads.update",
+    }),
+    WorkspaceRole.ANALYST: frozenset({
+        "workspace.view", "agents.view", "knowledge.view", "conversations.view", "leads.view",
+        "leads.export", "analytics.view", "integrations.view", "crm.view",
+    }),
+    WorkspaceRole.VIEWER: frozenset({
+        "workspace.view", "agents.view", "knowledge.view", "conversations.view", "leads.view",
+        "analytics.view",
+    }),
+}
+
+TENANT_ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
+    Role.OWNER: frozenset({"*"}),
+    Role.ADMIN: frozenset({"*"}),
+    Role.BILLING_ADMIN: frozenset({"workspace.view", "billing.view", "billing.manage", "usage.view"}),
+    Role.SECURITY_ADMIN: frozenset({
+        "workspace.view", "members.view", "security.view", "security.manage", "audit.view",
+    }),
+    Role.MEMBER: frozenset(),
+    Role.ANALYST: frozenset(),
+}
 
 password_hasher = PasswordHasher(time_cost=3, memory_cost=65_536, parallelism=4, hash_len=32, salt_len=16)
 _DUMMY_HASH = password_hasher.hash("not-a-real-password-for-timing-equalization")
@@ -25,6 +60,13 @@ class Principal:
     tenant_id: UUID
     role: Role
     token_id: str
+    workspace_id: UUID | None = None
+    workspace_role: WorkspaceRole | None = None
+    permissions: frozenset[str] = field(default_factory=frozenset)
+    agent_ids: frozenset[UUID] | None = None
+
+    def can(self, permission: str) -> bool:
+        return "*" in self.permissions or permission in self.permissions
 
 
 @dataclass(frozen=True, slots=True)

@@ -29,8 +29,13 @@ export interface WhiteLabelSettings {
 
 export interface WorkspaceSettings {
   id: string;
+  tenantId?: string;
+  tenantName?: string;
   name: string;
   slug: string;
+  status?: 'active' | 'archived';
+  role?: 'workspace_admin' | 'manager' | 'operator' | 'analyst' | 'viewer';
+  permissions?: string[];
   plan: string;
   memberCount: number;
   preferences: WorkspacePreferences;
@@ -38,10 +43,19 @@ export interface WorkspaceSettings {
 }
 
 export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel'>>;
+export interface WorkspaceCreate {
+  name: string;
+  slug: string;
+  timezone?: string;
+  defaultLanguage?: string;
+  dateFormat?: WorkspacePreferences['dateFormat'];
+}
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const STORAGE_KEY = 'northstar.workspace';
+const ACTIVE_WORKSPACE_KEY = 'northstar.active-workspace-id';
 const SESSION_KEY = 'northstar.session';
+export const WORKSPACE_CHANGED_EVENT = 'northstar:active-workspace-changed';
 
 class WorkspaceRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'WorkspaceRequestError'; }
@@ -77,15 +91,26 @@ function bearer(): string | undefined {
   return readStorage<{ accessToken?: string } | null>(SESSION_KEY, null)?.accessToken;
 }
 
-async function remote<T>(method: 'GET' | 'PATCH', body?: unknown): Promise<T> {
+export function activeWorkspaceId(): string | null {
+  return readStorage<string | null>(ACTIVE_WORKSPACE_KEY, null);
+}
+
+export function persistActiveWorkspace(workspaceId: string): void {
+  writeStorage(ACTIVE_WORKSPACE_KEY, workspaceId);
+  window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: workspaceId }));
+}
+
+async function remote<T>(path: string, method: 'GET' | 'POST' | 'PATCH', body?: unknown, includeWorkspace = true): Promise<T> {
   const token = bearer();
-  const response = await fetch(`${API_URL}/workspace`, {
+  const workspaceId = activeWorkspaceId();
+  const response = await fetch(`${API_URL}${path}`, {
     method,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(includeWorkspace && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -99,7 +124,7 @@ async function remote<T>(method: 'GET' | 'PATCH', body?: unknown): Promise<T> {
 export const workspaceApi = {
   async get(): Promise<WorkspaceSettings> {
     try {
-      const value = await remote<WorkspaceSettings>('GET');
+      const value = await remote<WorkspaceSettings>('/workspace', 'GET');
       writeStorage(STORAGE_KEY, value);
       return value;
     } catch {
@@ -116,7 +141,7 @@ export const workspaceApi = {
     };
     writeStorage(STORAGE_KEY, optimistic);
     try {
-      const value = await remote<WorkspaceSettings>('PATCH', patch);
+      const value = await remote<WorkspaceSettings>('/workspace', 'PATCH', patch);
       writeStorage(STORAGE_KEY, value);
       window.dispatchEvent(new CustomEvent('northstar:workspace-changed', { detail: value }));
       return value;
@@ -125,6 +150,21 @@ export const workspaceApi = {
       window.dispatchEvent(new CustomEvent('northstar:workspace-changed', { detail: optimistic }));
       return optimistic;
     }
+  },
+  async list(): Promise<WorkspaceSettings[]> {
+    try {
+      const values = await remote<WorkspaceSettings[]>('/workspaces', 'GET', undefined, false);
+      if (values.length > 0) return values;
+    } catch {
+      // Keep demo/offline mode usable with its locally persisted workspace.
+    }
+    return [localWorkspace()];
+  },
+  async create(input: WorkspaceCreate): Promise<WorkspaceSettings> {
+    const value = await remote<WorkspaceSettings>('/workspaces', 'POST', input, false);
+    persistActiveWorkspace(value.id);
+    writeStorage(STORAGE_KEY, value);
+    return value;
   },
 };
 

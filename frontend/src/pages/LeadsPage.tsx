@@ -7,9 +7,39 @@ import { getVerificationView } from '@/lib/crm-delivery-status';
 import { leadCrmApi } from '@/lib/lead-crm-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
-import type { Lead } from '@/types';
+import type { Lead, PageResult } from '@/types';
 
 const commonStatuses = ['new', 'identified', 'engaged', 'contacted', 'qualified', 'unqualified', 'converted', 'lost', 'archived'];
+
+interface LeadFilters {
+  page: number;
+  pageSize: number;
+  search: string;
+  status: string;
+}
+
+async function loadLeads(filters: LeadFilters): Promise<PageResult<Lead>> {
+  try {
+    return await leadCrmApi.leads(filters);
+  } catch {
+    // Keep the richer CRM query when the API is running, while preserving the
+    // application's configured demo fallback during standalone Vite previews.
+    const fallback = await api.leads.list();
+    const search = filters.search.trim().toLowerCase();
+    const filtered = fallback.items.filter((lead) => {
+      const matchesSearch = !search || `${lead.name ?? ''} ${lead.email ?? ''} ${lead.phone ?? ''}`.toLowerCase().includes(search);
+      const matchesStatus = filters.status === 'all' || lead.status === filters.status;
+      return matchesSearch && matchesStatus;
+    });
+    const start = (filters.page - 1) * filters.pageSize;
+    return {
+      items: filtered.slice(start, start + filters.pageSize),
+      total: filtered.length,
+      page: filters.page,
+      pageSize: filters.pageSize,
+    };
+  }
+}
 
 function statusTone(status: string): 'brand' | 'warning' | 'success' | 'purple' | 'neutral' {
   if (status === 'new' || status === 'identified') return 'brand';
@@ -52,7 +82,7 @@ export function LeadsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
-  const leads = useApi(() => leadCrmApi.leads({ page, pageSize: 50, search, status }), [page, search, status]);
+  const leads = useApi(() => loadLeads({ page, pageSize: 50, search, status }), [page, search, status]);
   const agents = useApi(() => api.agents.list());
   const [selected, setSelected] = useState<Lead | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});

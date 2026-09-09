@@ -1,4 +1,5 @@
 import type { Lead, PageResult, Session } from '@/types';
+import { activeWorkspaceId } from '@/lib/workspace-api';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
@@ -144,6 +145,7 @@ function currentSession(): Session | null {
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const active = currentSession();
+  const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: 'include',
@@ -151,6 +153,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
       Accept: 'application/json',
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}),
+      ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
       ...init.headers,
     },
   });

@@ -1,6 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, CircleAlert, Info, X } from 'lucide-react';
 import { api, AUTH_SESSION_EVENT } from '@/lib/api';
+import {
+  activeWorkspaceId,
+  persistActiveWorkspace,
+  workspaceApi,
+  type WorkspaceCreate,
+  type WorkspaceSettings,
+} from '@/lib/workspace-api';
 import type { Session } from '@/types';
 
 interface AuthContextValue {
@@ -31,6 +38,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext);
   if (!value) throw new Error('useAuth must be used inside AuthProvider');
+  return value;
+}
+
+interface WorkspaceContextValue {
+  workspaces: WorkspaceSettings[];
+  activeWorkspace: WorkspaceSettings | null;
+  loading: boolean;
+  selectWorkspace: (workspaceId: string) => void;
+  refreshWorkspaces: () => Promise<void>;
+  createWorkspace: (input: WorkspaceCreate) => Promise<WorkspaceSettings>;
+}
+
+const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+
+export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
+  const [workspaces, setWorkspaces] = useState<WorkspaceSettings[]>([]);
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceSettings | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!session) {
+      setWorkspaces([]);
+      setActiveWorkspace(null);
+      return;
+    }
+    setLoading(true);
+    try {
+      const values = await workspaceApi.list();
+      const savedId = activeWorkspaceId();
+      const selected = values.find((item) => item.id === savedId) ?? values[0] ?? null;
+      setWorkspaces(values);
+      setActiveWorkspace(selected);
+      if (selected) persistActiveWorkspace(selected.id);
+    } finally {
+      setLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const selectWorkspace = useCallback((workspaceId: string) => {
+    const selected = workspaces.find((item) => item.id === workspaceId);
+    if (!selected || selected.id === activeWorkspace?.id) return;
+    persistActiveWorkspace(selected.id);
+    setActiveWorkspace(selected);
+  }, [activeWorkspace?.id, workspaces]);
+
+  const createWorkspace = useCallback(async (input: WorkspaceCreate) => {
+    const created = await workspaceApi.create(input);
+    setWorkspaces((current) => [...current.filter((item) => item.id !== created.id), created]);
+    setActiveWorkspace(created);
+    return created;
+  }, []);
+
+  const value = useMemo(() => ({
+    workspaces,
+    activeWorkspace,
+    loading,
+    selectWorkspace,
+    refreshWorkspaces: load,
+    createWorkspace,
+  }), [workspaces, activeWorkspace, loading, selectWorkspace, load, createWorkspace]);
+  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+}
+
+export function useWorkspace(): WorkspaceContextValue {
+  const value = useContext(WorkspaceContext);
+  if (!value) throw new Error('useWorkspace must be used inside WorkspaceProvider');
   return value;
 }
 

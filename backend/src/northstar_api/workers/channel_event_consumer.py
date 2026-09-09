@@ -75,6 +75,7 @@ async def _get_or_create_conversation(
         select(Conversation)
         .where(
             Conversation.tenant_id == event.tenant_id,
+            Conversation.workspace_id == agent.workspace_id,
             Conversation.agent_id == agent.id,
             Conversation.visitor_id == visitor_id,
             Conversation.state == ConversationState.OPEN,
@@ -87,6 +88,7 @@ async def _get_or_create_conversation(
         return conversation
     conversation = Conversation(
         tenant_id=event.tenant_id,
+        workspace_id=agent.workspace_id,
         agent_id=agent.id,
         visitor_id=visitor_id,
         visitor_name=event.sender.name or "Messaging customer",
@@ -114,6 +116,7 @@ async def _persist_message(
     existing = await session.scalar(
         select(Message.id).where(
             Message.tenant_id == event.tenant_id,
+            Message.workspace_id == conversation.workspace_id,
             Message.idempotency_key == idempotency,
         )
     )
@@ -124,6 +127,7 @@ async def _persist_message(
             await session.scalar(
                 select(func.coalesce(func.max(Message.sequence), 0)).where(
                     Message.tenant_id == event.tenant_id,
+                    Message.workspace_id == conversation.workspace_id,
                     Message.conversation_id == conversation.id,
                 )
             )
@@ -134,6 +138,7 @@ async def _persist_message(
     session.add(
         Message(
             tenant_id=event.tenant_id,
+            workspace_id=conversation.workspace_id,
             conversation_id=conversation.id,
             sequence=next_sequence,
             role=MessageRole.USER,
@@ -225,7 +230,10 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
         await session.commit()
         raise ValueError("channel connection has no valid agentId") from exc
     agent = await session.scalar(
-        select(Agent).where(Agent.id == agent_id, Agent.tenant_id == event.tenant_id)
+        select(Agent).where(
+            Agent.id == agent_id,
+            Agent.tenant_id == event.tenant_id,
+        )
     )
     if not agent:
         raise ValueError("channel connection agent does not exist in tenant scope")
@@ -259,11 +267,16 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
     lead: Lead | None = None
     if profile:
         lead = await session.scalar(
-            select(Lead).where(Lead.id == profile.lead_id, Lead.tenant_id == event.tenant_id)
+            select(Lead).where(
+                Lead.id == profile.lead_id,
+                Lead.tenant_id == event.tenant_id,
+                Lead.workspace_id == agent.workspace_id,
+            )
         )
     if lead is None and decision.create_lead:
         lead = Lead(
             tenant_id=event.tenant_id,
+            workspace_id=agent.workspace_id,
             agent_id=agent.id,
             conversation_id=conversation.id,
             name=canonical.sender.name,

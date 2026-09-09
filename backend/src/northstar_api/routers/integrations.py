@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from northstar_api.config import get_settings
 from northstar_api.database import engine, get_session
-from northstar_api.dependencies import AdminPrincipal, CurrentPrincipal
+from northstar_api.dependencies import AdminPrincipal, require_permissions
 from northstar_api.models import (
     Agent,
     AgentStatus,
@@ -35,7 +35,7 @@ from northstar_api.schemas import (
     WhatsAppConnectionOut,
     WhatsAppStatusOut,
 )
-from northstar_api.security import create_whatsapp_signup_token, decode_token
+from northstar_api.security import Principal, create_whatsapp_signup_token, decode_token
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.whatsapp import (
@@ -49,6 +49,8 @@ from northstar_api.workers.tasks import whatsapp_thread_lock_key
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+IntegrationsViewPrincipal = Annotated[Principal, Depends(require_permissions("integrations.view"))]
+IntegrationsManagePrincipal = Annotated[Principal, Depends(require_permissions("integrations.manage"))]
 _local_setup_lock = asyncio.Lock()
 
 CATALOG: tuple[dict[str, Any], ...] = (
@@ -156,12 +158,17 @@ async def serialize_whatsapp_setup(
 WhatsAppSetupLock = Annotated[None, Depends(serialize_whatsapp_setup)]
 
 
-async def integration_list(session: AsyncSession, tenant_id: UUID) -> list[IntegrationOut]:
+async def integration_list(
+    session: AsyncSession, tenant_id: UUID, workspace_id: UUID
+) -> list[IntegrationOut]:
     states = {
         item.integration_id: item.connected
         for item in (
             await session.scalars(
-                select(IntegrationConnection).where(IntegrationConnection.tenant_id == tenant_id)
+                select(IntegrationConnection).where(
+                    IntegrationConnection.tenant_id == tenant_id,
+                    IntegrationConnection.workspace_id == workspace_id,
+                )
             )
         ).all()
     }
@@ -169,6 +176,7 @@ async def integration_list(session: AsyncSession, tenant_id: UUID) -> list[Integ
         await session.scalars(
             select(WhatsAppConnection).where(
                 WhatsAppConnection.tenant_id == tenant_id,
+                WhatsAppConnection.workspace_id == workspace_id,
                 WhatsAppConnection.status == "connected",
             )
         )
@@ -187,13 +195,14 @@ async def integration_list(session: AsyncSession, tenant_id: UUID) -> list[Integ
 
 
 @router.get("", response_model=list[IntegrationOut])
-async def list_integrations(principal: CurrentPrincipal, session: DB) -> list[IntegrationOut]:
-    return await integration_list(session, principal.tenant_id)
+async def list_integrations(principal: IntegrationsViewPrincipal, session: DB) -> list[IntegrationOut]:
+    assert principal.workspace_id is not None
+    return await integration_list(session, principal.tenant_id, principal.workspace_id)
 
 
 @router.patch("/{integration_id}", response_model=IntegrationOut)
 async def update_integration(
-    integration_id: str, payload: IntegrationPatch, principal: AdminPrincipal, session: DB
+    integration_id: str, payload: IntegrationPatch, principal: IntegrationsManagePrincipal, session: DB
 ) -> IntegrationOut:
     catalog_entry = next((item for item in CATALOG if item["id"] == integration_id), None)
     if not catalog_entry:
@@ -208,12 +217,16 @@ async def update_integration(
     connection = await session.scalar(
         select(IntegrationConnection).where(
             IntegrationConnection.tenant_id == principal.tenant_id,
+            IntegrationConnection.workspace_id == principal.workspace_id,
             IntegrationConnection.integration_id == integration_id,
         )
     )
     if not connection:
         connection = IntegrationConnection(
-            tenant_id=principal.tenant_id, integration_id=integration_id, connected=payload.connected
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            integration_id=integration_id,
+            connected=payload.connected,
         )
         session.add(connection)
     else:
@@ -255,12 +268,17 @@ def whatsapp_connection_response(
     )
 
 
-async def whatsapp_status(session: AsyncSession, tenant_id: UUID) -> WhatsAppStatusOut:
+async def whatsapp_status(
+    session: AsyncSession, tenant_id: UUID, workspace_id: UUID
+) -> WhatsAppStatusOut:
     settings = get_settings()
     connections = list(
         await session.scalars(
             select(WhatsAppConnection)
-            .where(WhatsAppConnection.tenant_id == tenant_id)
+            .where(
+                WhatsAppConnection.tenant_id == tenant_id,
+                WhatsAppConnection.workspace_id == workspace_id,
+            )
             .order_by(WhatsAppConnection.connected_at, WhatsAppConnection.id)
         )
     )
@@ -285,9 +303,10 @@ async def whatsapp_status(session: AsyncSession, tenant_id: UUID) -> WhatsAppSta
 
 
 @router.get("/whatsapp/bootstrap", response_model=WhatsAppBootstrapOut)
-async def whatsapp_bootstrap(principal: AdminPrincipal, session: DB) -> WhatsAppBootstrapOut:
+async def whatsapp_bootstrap(principal: IntegrationsManagePrincipal, session: DB) -> WhatsAppBootstrapOut:
     settings = get_settings()
-    status = await whatsapp_status(session, principal.tenant_id)
+    assert principal.workspace_id is not None
+    status = await whatsapp_status(session, principal.tenant_id, principal.workspace_id)
     signup_session = None
     if status.enabled:
         signup_session, _ = create_whatsapp_signup_token(principal.user_id, principal.tenant_id, settings)
@@ -304,14 +323,15 @@ async def whatsapp_bootstrap(principal: AdminPrincipal, session: DB) -> WhatsApp
 
 
 @router.get("/whatsapp/status", response_model=WhatsAppStatusOut)
-async def get_whatsapp_status(principal: CurrentPrincipal, session: DB) -> WhatsAppStatusOut:
-    return await whatsapp_status(session, principal.tenant_id)
+async def get_whatsapp_status(principal: IntegrationsViewPrincipal, session: DB) -> WhatsAppStatusOut:
+    assert principal.workspace_id is not None
+    return await whatsapp_status(session, principal.tenant_id, principal.workspace_id)
 
 
 @router.post("/whatsapp/complete", response_model=WhatsAppConnectionOut)
 async def complete_whatsapp_signup(
     payload: WhatsAppCompleteRequest,
-    principal: AdminPrincipal,
+    principal: IntegrationsManagePrincipal,
     session: DB,
     _setup_lock: WhatsAppSetupLock,
 ) -> WhatsAppConnectionOut:
@@ -327,6 +347,7 @@ async def complete_whatsapp_signup(
         select(Agent).where(
             Agent.id == payload.agent_id,
             Agent.tenant_id == principal.tenant_id,
+            Agent.workspace_id == principal.workspace_id,
             Agent.deleted_at.is_(None),
         )
     )
@@ -340,6 +361,7 @@ async def complete_whatsapp_signup(
     current_connection = await session.scalar(
         select(WhatsAppConnection).where(
             WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
             WhatsAppConnection.agent_id == payload.agent_id,
         )
     )
@@ -395,6 +417,7 @@ async def complete_whatsapp_signup(
     if not connection:
         connection = WhatsAppConnection(
             tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
             agent_id=payload.agent_id,
             waba_id=payload.waba_id,
             phone_number_id=payload.phone_number_id,
@@ -421,12 +444,14 @@ async def complete_whatsapp_signup(
     integration = await session.scalar(
         select(IntegrationConnection).where(
             IntegrationConnection.tenant_id == principal.tenant_id,
+            IntegrationConnection.workspace_id == principal.workspace_id,
             IntegrationConnection.integration_id == "whatsapp",
         )
     )
     if not integration:
         integration = IntegrationConnection(
             tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
             integration_id="whatsapp",
             connected=True,
         )
@@ -492,7 +517,7 @@ async def _consume_whatsapp_signup_session(
 
 
 @router.delete("/whatsapp/{agent_id}", status_code=204)
-async def disconnect_whatsapp(agent_id: UUID, principal: AdminPrincipal, session: DB) -> None:
+async def disconnect_whatsapp(agent_id: UUID, principal: IntegrationsManagePrincipal, session: DB) -> None:
     if engine.dialect.name == "postgresql":
         async with engine.connect() as setup_lock_connection:
             async with setup_lock_connection.begin():
@@ -509,12 +534,15 @@ async def disconnect_whatsapp(agent_id: UUID, principal: AdminPrincipal, session
 
 
 @router.delete("/whatsapp", status_code=204, include_in_schema=False)
-async def disconnect_single_whatsapp(principal: AdminPrincipal, session: DB) -> None:
+async def disconnect_single_whatsapp(principal: IntegrationsManagePrincipal, session: DB) -> None:
     """Compatibility route for clients created before per-bot connections."""
 
     agent_ids = list(
         await session.scalars(
-            select(WhatsAppConnection.agent_id).where(WhatsAppConnection.tenant_id == principal.tenant_id)
+            select(WhatsAppConnection.agent_id).where(
+                WhatsAppConnection.tenant_id == principal.tenant_id,
+                WhatsAppConnection.workspace_id == principal.workspace_id,
+            )
         )
     )
     if not agent_ids:
@@ -538,6 +566,7 @@ async def _disconnect_whatsapp_locked(
     connection = await session.scalar(
         select(WhatsAppConnection).where(
             WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
             WhatsAppConnection.agent_id == agent_id,
         )
     )
@@ -555,6 +584,7 @@ async def _disconnect_whatsapp_locked(
         .where(
             WhatsAppConnection.id == connection.id,
             WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
         )
         .with_for_update()
     )
@@ -598,6 +628,7 @@ async def _disconnect_whatsapp_locked(
         .where(
             WhatsAppConnection.id == connection.id,
             WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
         )
         .with_for_update()
     )
@@ -613,6 +644,7 @@ async def _disconnect_whatsapp_locked(
         update(Message)
         .where(
             Message.tenant_id == principal.tenant_id,
+            Message.workspace_id == principal.workspace_id,
             Message.id.in_(active_message_ids),
         )
         .values(finish_reason="cancelled")
@@ -629,6 +661,7 @@ async def _disconnect_whatsapp_locked(
         update(Conversation)
         .where(
             Conversation.tenant_id == principal.tenant_id,
+            Conversation.workspace_id == principal.workspace_id,
             Conversation.agent_id == connection.agent_id,
             Conversation.channel == Channel.WHATSAPP,
             Conversation.state != ConversationState.RESOLVED,
@@ -690,6 +723,7 @@ async def _disconnect_whatsapp_locked(
     integration = await session.scalar(
         select(IntegrationConnection).where(
             IntegrationConnection.tenant_id == principal.tenant_id,
+            IntegrationConnection.workspace_id == principal.workspace_id,
             IntegrationConnection.integration_id == "whatsapp",
         )
     )
@@ -697,6 +731,7 @@ async def _disconnect_whatsapp_locked(
         remaining_connection = await session.scalar(
             select(WhatsAppConnection.id).where(
                 WhatsAppConnection.tenant_id == principal.tenant_id,
+                WhatsAppConnection.workspace_id == principal.workspace_id,
                 WhatsAppConnection.id != connection.id,
                 WhatsAppConnection.status == "connected",
             )
