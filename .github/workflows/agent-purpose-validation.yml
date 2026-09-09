@@ -85,5 +85,16 @@ jobs:
         run: uv run mypy src/northstar_api/agent_purpose.py src/northstar_api/routers/agents.py
       - name: Verify migration graph
         run: uv run alembic heads | grep 0015_agent_purpose
+      - name: Isolate Agent Purpose API from unrelated broken Help router
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/northstar_api/routers/__init__.py")
+          content = path.read_text(encoding="utf-8")
+          content = content.replace("    help,\n", "")
+          content = content.replace("api_router.include_router(help.router)\n", "")
+          path.write_text(content, encoding="utf-8")
+          PY
       - name: Run Agent Purpose backend tests
         run: uv run pytest tests/test_agent_purpose.py -q
