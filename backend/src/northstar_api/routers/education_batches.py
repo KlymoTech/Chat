@@ -15,6 +15,7 @@ from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batch_schemas import BatchCreate, BatchOut, BatchPatch
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.security import Principal
+from northstar_api.services.education_enrollment import has_non_terminal_enrollment
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/education/batches", tags=["education"])
@@ -68,6 +69,25 @@ async def _scoped_batch(
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch not found")
     return batch
+
+
+async def _ensure_batch_has_no_live_enrollments(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    batch_id: UUID,
+) -> None:
+    if await has_non_terminal_enrollment(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        batch_id=batch_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Resolve non-terminal Enrollments before archiving this Batch",
+        )
 
 
 def _batch_out(batch: EducationBatch) -> BatchOut:
@@ -210,6 +230,13 @@ async def update_batch(
             course_id=batch.course_id,
             require_active=True,
         )
+    if payload.status == BatchStatus.ARCHIVED and batch.status != BatchStatus.ARCHIVED.value:
+        await _ensure_batch_has_no_live_enrollments(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            batch_id=batch.id,
+        )
 
     changed_fields: list[str] = []
     for field_name in payload.model_fields_set:
@@ -263,6 +290,12 @@ async def archive_batch(
         batch_id=batch_id,
     )
     if batch.status != BatchStatus.ARCHIVED.value:
+        await _ensure_batch_has_no_live_enrollments(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=batch.workspace_id,
+            batch_id=batch.id,
+        )
         batch.status = BatchStatus.ARCHIVED.value
         enqueue_event(
             session,
