@@ -245,6 +245,10 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
   };
 
   const updateStatus = async (enrollment: EducationEnrollment, status: EnrollmentStatus, message: string) => {
+    if (!student || student.status !== 'active') {
+      pushToast('Reactivate the Student before changing enrollment access.', 'error');
+      return;
+    }
     setActingId(enrollment.id);
     try {
       await educationEnrollmentApi.update(enrollment.id, { status });
@@ -258,6 +262,10 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
   };
 
   const revoke = async (enrollment: EducationEnrollment) => {
+    if (!student || student.status !== 'active') {
+      pushToast('Reactivate the Student before changing enrollment access.', 'error');
+      return;
+    }
     setActingId(enrollment.id);
     try {
       await educationEnrollmentApi.revoke(enrollment.id);
@@ -375,12 +383,12 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
               </div>
               <div className="enrollment-row__actions">
                 {['pending', 'suspended'].includes(enrollment.status) && student.status === 'active' ? <Button variant="ghost" size="sm" icon={Pencil} disabled={busy} onClick={() => startEdit(enrollment)}>Edit</Button> : null}
-                {['pending', 'suspended', 'expired'].includes(enrollment.status) ? <Button variant="secondary" size="sm" icon={CheckCircle2} disabled={busy} onClick={() => void updateStatus(enrollment, 'active', 'Enrollment activated')}>Activate</Button> : null}
-                {enrollment.status === 'active' ? <Button variant="secondary" size="sm" icon={PauseCircle} disabled={busy} onClick={() => void updateStatus(enrollment, 'suspended', 'Enrollment suspended')}>Suspend</Button> : null}
-                {['pending', 'active', 'suspended'].includes(enrollment.status) ? <Button variant="ghost" size="sm" icon={Clock3} disabled={busy} onClick={() => void updateStatus(enrollment, 'expired', 'Enrollment expired')}>Expire</Button> : null}
-                {['active', 'suspended', 'expired'].includes(enrollment.status) ? <Button variant="ghost" size="sm" icon={GraduationCap} disabled={busy} onClick={() => void updateStatus(enrollment, 'graduated', 'Student graduated from this enrollment')}>Graduate</Button> : null}
-                {enrollment.status === 'revoked' ? <Button variant="secondary" size="sm" icon={RefreshCw} disabled={busy} onClick={() => void updateStatus(enrollment, 'pending', 'Enrollment restored to pending')}>Restore</Button> : null}
-                {enrollment.status !== 'revoked' && enrollment.status !== 'graduated' ? <Button variant="danger" size="sm" icon={Ban} disabled={busy} onClick={() => void revoke(enrollment)}>Revoke</Button> : null}
+                {student.status === 'active' && ['pending', 'suspended', 'expired'].includes(enrollment.status) ? <Button variant="secondary" size="sm" icon={CheckCircle2} disabled={busy} onClick={() => void updateStatus(enrollment, 'active', 'Enrollment activated')}>Activate</Button> : null}
+                {student.status === 'active' && enrollment.status === 'active' ? <Button variant="secondary" size="sm" icon={PauseCircle} disabled={busy} onClick={() => void updateStatus(enrollment, 'suspended', 'Enrollment suspended')}>Suspend</Button> : null}
+                {student.status === 'active' && ['pending', 'active', 'suspended'].includes(enrollment.status) ? <Button variant="ghost" size="sm" icon={Clock3} disabled={busy} onClick={() => void updateStatus(enrollment, 'expired', 'Enrollment expired')}>Expire</Button> : null}
+                {student.status === 'active' && ['active', 'suspended', 'expired'].includes(enrollment.status) ? <Button variant="ghost" size="sm" icon={GraduationCap} disabled={busy} onClick={() => void updateStatus(enrollment, 'graduated', 'Student graduated from this enrollment')}>Graduate</Button> : null}
+                {student.status === 'active' && enrollment.status === 'revoked' ? <Button variant="secondary" size="sm" icon={RefreshCw} disabled={busy} onClick={() => void updateStatus(enrollment, 'pending', 'Enrollment restored to pending')}>Restore</Button> : null}
+                {student.status === 'active' && enrollment.status !== 'revoked' && enrollment.status !== 'graduated' ? <Button variant="danger" size="sm" icon={Ban} disabled={busy} onClick={() => void revoke(enrollment)}>Revoke</Button> : null}
               </div>
             </article>;
           })}

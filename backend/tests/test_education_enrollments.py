@@ -311,3 +311,86 @@ async def test_enrollment_lifecycle_integrity_and_workspace_isolation(
         },
     )
     assert cross_workspace_create.status_code == 404, cross_workspace_create.text
+
+
+async def test_archived_student_enrollment_history_is_read_only(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    assert workspace.status_code == 200, workspace.text
+    headers = {**auth_headers, "X-Workspace-ID": workspace.json()["id"]}
+
+    course = await _create_course(client, headers, "ENR-ARCHIVE")
+    batch = await _create_batch(
+        client,
+        headers,
+        course_id=course["id"],
+        code="ENR-ARCHIVE-A",
+    )
+    student = await _create_student(client, headers, "ENR-ARCHIVE-1001")
+    education_agent = await _create_agent(
+        client,
+        headers,
+        name="Archived Student Education Agent",
+        purpose="education",
+    )
+
+    created = await client.post(
+        "/api/v1/education/enrollments",
+        headers=headers,
+        json={
+            "studentId": student["id"],
+            "courseId": course["id"],
+            "batchId": batch["id"],
+            "agentId": education_agent["id"],
+            "startsOn": "2026-09-15",
+            "endsOn": "2027-03-31",
+        },
+    )
+    assert created.status_code == 201, created.text
+    enrollment_id = created.json()["id"]
+
+    expired = await client.patch(
+        f"/api/v1/education/enrollments/{enrollment_id}",
+        headers=headers,
+        json={"status": "expired"},
+    )
+    assert expired.status_code == 200, expired.text
+    assert expired.json()["status"] == "expired"
+
+    archived = await client.delete(
+        f"/api/v1/education/students/{student['id']}",
+        headers=headers,
+    )
+    assert archived.status_code == 204, archived.text
+
+    history = await client.get(
+        f"/api/v1/education/enrollments/{enrollment_id}",
+        headers=headers,
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["status"] == "expired"
+
+    edit_archived_history = await client.patch(
+        f"/api/v1/education/enrollments/{enrollment_id}",
+        headers=headers,
+        json={"endsOn": "2027-04-30"},
+    )
+    assert edit_archived_history.status_code == 409, edit_archived_history.text
+    assert "Reactivate the Student" in edit_archived_history.json()["detail"]
+
+    revoke_archived_history = await client.delete(
+        f"/api/v1/education/enrollments/{enrollment_id}",
+        headers=headers,
+    )
+    assert revoke_archived_history.status_code == 409, revoke_archived_history.text
+    assert "Reactivate the Student" in revoke_archived_history.json()["detail"]
+
+    unchanged_history = await client.get(
+        f"/api/v1/education/enrollments/{enrollment_id}",
+        headers=headers,
+    )
+    assert unchanged_history.status_code == 200, unchanged_history.text
+    assert unchanged_history.json()["status"] == "expired"
+    assert unchanged_history.json()["endsOn"] == "2027-03-31"

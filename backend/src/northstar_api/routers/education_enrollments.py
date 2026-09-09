@@ -119,6 +119,27 @@ async def _scoped_enrollment(
     return enrollment
 
 
+async def _require_active_student_for_enrollment_mutation(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    enrollment: EducationEnrollment,
+) -> None:
+    student_status = await session.scalar(
+        select(EducationStudent.status).where(
+            EducationStudent.id == enrollment.student_id,
+            EducationStudent.tenant_id == tenant_id,
+            EducationStudent.workspace_id == workspace_id,
+        )
+    )
+    if student_status != StudentStatus.ACTIVE.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Reactivate the Student before changing enrollment access",
+        )
+
+
 async def _validate_assignment(
     session: AsyncSession,
     *,
@@ -183,11 +204,17 @@ async def _validate_assignment(
 
     if require_active_domain:
         if student.status != StudentStatus.ACTIVE.value:
-            raise HTTPException(status_code=409, detail="Reactivate the Student before assigning enrollment access")
+            raise HTTPException(
+                status_code=409, detail="Reactivate the Student before assigning enrollment access"
+            )
         if course.status != CourseStatus.ACTIVE.value:
-            raise HTTPException(status_code=409, detail="Reactivate the Course before assigning enrollment access")
+            raise HTTPException(
+                status_code=409, detail="Reactivate the Course before assigning enrollment access"
+            )
         if batch.status != BatchStatus.ACTIVE.value:
-            raise HTTPException(status_code=409, detail="Reactivate the Batch before assigning enrollment access")
+            raise HTTPException(
+                status_code=409, detail="Reactivate the Batch before assigning enrollment access"
+            )
 
     return student, course, batch, agent
 
@@ -316,6 +343,12 @@ async def update_enrollment(
         workspace_id=workspace_id,
         enrollment_id=enrollment_id,
     )
+    await _require_active_student_for_enrollment_mutation(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        enrollment=enrollment,
+    )
     current_status = EnrollmentStatus(enrollment.status)
     next_status = payload.status or current_status
     _validate_transition(current_status, next_status)
@@ -370,7 +403,9 @@ async def update_enrollment(
         return _enrollment_out(enrollment)
 
     status_changed = enrollment.status != current_status.value
-    event_type = "education.enrollment.status_changed.v1" if status_changed else "education.enrollment.updated.v1"
+    event_type = (
+        "education.enrollment.status_changed.v1" if status_changed else "education.enrollment.updated.v1"
+    )
     enqueue_event(
         session,
         tenant_id=principal.tenant_id,
@@ -413,6 +448,12 @@ async def revoke_enrollment(
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
         enrollment_id=enrollment_id,
+    )
+    await _require_active_student_for_enrollment_mutation(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        enrollment=enrollment,
     )
     current_status = EnrollmentStatus(enrollment.status)
     if current_status is EnrollmentStatus.GRADUATED:

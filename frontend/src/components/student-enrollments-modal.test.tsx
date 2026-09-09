@@ -164,7 +164,7 @@ describe('StudentEnrollmentsModal', () => {
     const user = userEvent.setup();
     render(<ToastProvider><StudentEnrollmentsModal student={student} open onClose={vi.fn()} /></ToastProvider>);
     const dialog = screen.getByRole('dialog');
-    expect(await within(dialog).findByText('CPA · CPA')).toBeInTheDocument();
+    expect(await within(dialog).findByRole('option', { name: 'CPA · CPA' })).toBeInTheDocument();
 
     const agentSelect = within(dialog).getByLabelText('Education Agent');
     expect(within(agentSelect).getByRole('option', { name: /Education Mentor/ })).toBeInTheDocument();
@@ -195,7 +195,7 @@ describe('StudentEnrollmentsModal', () => {
     const user = userEvent.setup();
     render(<ToastProvider><StudentEnrollmentsModal student={student} open onClose={vi.fn()} /></ToastProvider>);
     const dialog = screen.getByRole('dialog');
-    await within(dialog).findByText('CPA · CPA');
+    await within(dialog).findByRole('button', { name: 'Activate' });
 
     await user.click(within(dialog).getByRole('button', { name: 'Activate' }));
     await waitFor(() => expect(enrollmentMocks.update).toHaveBeenCalledWith('enrollment-1', { status: 'active' }));
@@ -218,6 +218,11 @@ describe('StudentEnrollmentsModal', () => {
     const dialog = screen.getByRole('dialog');
     expect(await within(dialog).findByText('Student is archived')).toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: 'Add enrollment' })).not.toBeInTheDocument();
+    for (const action of ['Edit', 'Activate', 'Suspend', 'Expire', 'Graduate', 'Restore', 'Revoke']) {
+      expect(within(dialog).queryByRole('button', { name: action })).not.toBeInTheDocument();
+    }
     expect(within(dialog).getByText('CPA · CPA')).toBeInTheDocument();
+    expect(enrollmentMocks.update).not.toHaveBeenCalled();
+    expect(enrollmentMocks.revoke).not.toHaveBeenCalled();
   });
 });
