@@ -83,12 +83,14 @@ PURPOSE_STARTER_INSTRUCTIONS: dict[AgentPurpose, str] = {
 
 
 class AgentCreateWithChannel(AgentCreate):
-    deployment_channel: AgentChannelType = "website"
+    # This endpoint intentionally widens the legacy AgentCreate channel contract with Telegram.
+    deployment_channel: AgentChannelType = "website"  # type: ignore[assignment]
     purpose: AgentPurpose | None = None
 
 
 class AgentDuplicateWithChannel(AgentDuplicate):
-    deployment_channel: AgentChannelType = "website"
+    # This endpoint intentionally widens the legacy AgentDuplicate channel contract with Telegram.
+    deployment_channel: AgentChannelType = "website"  # type: ignore[assignment]
 
 
 class AgentPatchWithPurpose(AgentPatch):
