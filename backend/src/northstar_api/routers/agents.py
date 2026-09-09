@@ -67,9 +67,7 @@ LEGACY_APPEARANCE_CHANNELS = {
     "zapier",
 }
 
-GENERIC_SUPPORT_INSTRUCTIONS = (
-    "Help visitors with accurate, concise answers. Use trusted knowledge first and clearly say when information is unavailable."
-)
+GENERIC_SUPPORT_INSTRUCTIONS = "Help visitors with accurate, concise answers. Use trusted knowledge first and clearly say when information is unavailable."
 PURPOSE_STARTER_INSTRUCTIONS: dict[AgentPurpose, str] = {
     AgentPurpose.SUPPORT: (
         "Answer customer questions using trusted knowledge. Be clear, helpful, and escalate when information is missing."
@@ -114,16 +112,12 @@ class AgentChannelOut(APIModel):
 def _create_purpose(payload: AgentCreateWithChannel) -> AgentPurpose:
     if payload.purpose is not None:
         return payload.purpose
-    # Preserve the old template contract for API clients that predate purpose.
     if payload.template == "lead":
         return AgentPurpose.LEAD_GENERATION
     return AgentPurpose.SUPPORT
 
 
 def _starter_instructions(payload: AgentCreateWithChannel, purpose: AgentPurpose) -> str:
-    # Before Agent Purpose existed, an omitted/blank template created a generic
-    # support Agent while template="support" selected the specialized support
-    # starter. Keep both behaviors so this schema extension is non-breaking.
     if purpose == AgentPurpose.SUPPORT and payload.template != "support":
         return GENERIC_SUPPORT_INSTRUCTIONS
     return PURPOSE_STARTER_INSTRUCTIONS[purpose]
@@ -248,9 +242,7 @@ async def list_agents(principal: AgentsViewPrincipal, session: DB) -> list[Agent
     ]
     if principal.agent_ids is not None:
         conditions.append(Agent.id.in_(principal.agent_ids))
-    agents = (
-        await session.scalars(select(Agent).where(*conditions).order_by(Agent.updated_at.desc()))
-    ).all()
+    agents = (await session.scalars(select(Agent).where(*conditions).order_by(Agent.updated_at.desc()))).all()
     return [await agent_response(session, agent) for agent in agents]
 
 
@@ -263,17 +255,10 @@ async def create_agent(
     purpose = _create_purpose(payload)
     appearance = default_appearance()
     appearance.update(localized_appearance(payload.language))
-    # Keep the legacy appearance field for old clients. Telegram is represented
-    # only by the relational binding until the legacy AgentAppearance schema is retired.
     appearance["deploymentChannel"] = (
-        payload.deployment_channel
-        if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS
-        else "website"
+        payload.deployment_channel if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS else "website"
     )
     instructions = _starter_instructions(payload, purpose)
-    # Education Agents cannot be made live before the enrollment authorization
-    # layer exists. Creating them in draft prevents private knowledge from being
-    # exposed through the existing generic runtime while Education is provisioned.
     initial_status = AgentStatus.DRAFT if purpose == AgentPurpose.EDUCATION else AgentStatus.ACTIVE
     agent = Agent(
         tenant_id=principal.tenant_id,
@@ -320,9 +305,7 @@ async def create_agent(
 
 
 @router.get("/{agent_id}", response_model=AgentOutWithPurpose)
-async def get_agent(
-    agent_id: UUID, principal: AgentsViewPrincipal, session: DB
-) -> AgentOutWithPurpose:
+async def get_agent(agent_id: UUID, principal: AgentsViewPrincipal, session: DB) -> AgentOutWithPurpose:
     return await agent_response(
         session,
         await scoped_agent(
@@ -403,9 +386,7 @@ async def duplicate_agent(
     principal: AgentsCreatePrincipal,
     session: DB,
 ) -> AgentOutWithPurpose:
-    source = await scoped_agent(
-        session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
-    )
+    source = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     source_purpose = await get_agent_purpose(
         session,
         tenant_id=source.tenant_id,
@@ -471,9 +452,7 @@ async def update_agent(
     principal: AgentsUpdatePrincipal,
     session: DB,
 ) -> AgentOutWithPurpose:
-    agent = await scoped_agent(
-        session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
-    )
+    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     current_purpose = await get_agent_purpose(
         session,
         tenant_id=agent.tenant_id,
@@ -562,9 +541,7 @@ async def update_agent(
 async def delete_agent(agent_id: UUID, principal: AgentsDeletePrincipal, session: DB) -> Response:
     from datetime import UTC, datetime
 
-    agent = await scoped_agent(
-        session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id
-    )
+    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     agent.deleted_at = datetime.now(UTC)
     enqueue_event(
         session,
