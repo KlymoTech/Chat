@@ -20,6 +20,7 @@ import { LeadsPage } from '@/pages/LeadsPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { StudentsPage } from '@/pages/StudentsPage';
 import { WhiteLabelPage } from '@/pages/WhiteLabelPage';
 import { WorkspacePage } from '@/pages/WorkspacePage';
 import { WidgetDemoPage } from '@/pages/WidgetDemoPage';
@@ -41,6 +42,7 @@ export function App() {
       <Route path="agents/:agentId/:tab?" element={<AgentBuilderPage />} />
       <Route path="education/courses" element={<CoursesPage />} />
       <Route path="education/batches" element={<BatchesPage />} />
+      <Route path="education/students" element={<StudentsPage />} />
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
