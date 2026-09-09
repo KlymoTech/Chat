@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education import CourseStatus, EducationCourse
+from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_schemas import CourseCreate, CourseOut, CoursePatch
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
@@ -44,6 +45,30 @@ async def _scoped_course(
     if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
     return course
+
+
+async def _ensure_course_has_no_active_batches(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    course_id: UUID,
+) -> None:
+    active_batch_id = await session.scalar(
+        select(EducationBatch.id)
+        .where(
+            EducationBatch.tenant_id == tenant_id,
+            EducationBatch.workspace_id == workspace_id,
+            EducationBatch.course_id == course_id,
+            EducationBatch.status == BatchStatus.ACTIVE.value,
+        )
+        .limit(1)
+    )
+    if active_batch_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Archive active batches before archiving this course",
+        )
 
 
 def _course_out(course: EducationCourse) -> CourseOut:
@@ -148,12 +173,21 @@ async def update_course(
     principal: EducationManagePrincipal,
     session: DB,
 ) -> CourseOut:
+    workspace_id = _workspace_id(principal)
     course = await _scoped_course(
         session,
         tenant_id=principal.tenant_id,
-        workspace_id=_workspace_id(principal),
+        workspace_id=workspace_id,
         course_id=course_id,
     )
+    if payload.status == CourseStatus.ARCHIVED and course.status != CourseStatus.ARCHIVED.value:
+        await _ensure_course_has_no_active_batches(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            course_id=course.id,
+        )
+
     changed_fields: list[str] = []
     for field_name in payload.model_fields_set:
         value = getattr(payload, field_name)
@@ -200,13 +234,20 @@ async def archive_course(
     principal: EducationManagePrincipal,
     session: DB,
 ) -> Response:
+    workspace_id = _workspace_id(principal)
     course = await _scoped_course(
         session,
         tenant_id=principal.tenant_id,
-        workspace_id=_workspace_id(principal),
+        workspace_id=workspace_id,
         course_id=course_id,
     )
     if course.status != CourseStatus.ARCHIVED.value:
+        await _ensure_course_has_no_active_batches(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            course_id=course.id,
+        )
         course.status = CourseStatus.ARCHIVED.value
         enqueue_event(
             session,
