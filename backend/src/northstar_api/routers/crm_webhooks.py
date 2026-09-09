@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.database import get_session, set_tenant_context
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.models import CRMConnection, CRMWebhookEvent
+from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(tags=["crm-webhooks"])
@@ -62,9 +63,7 @@ def _verify(
     if mode == "BEARER":
         expected = str(credentials.get("webhook_token") or "")
         supplied = headers.get("authorization", "")
-        return bool(
-            expected and supplied.startswith("Bearer ") and hmac.compare_digest(expected, supplied[7:])
-        )
+        return bool(expected and supplied.startswith("Bearer ") and hmac.compare_digest(expected, supplied[7:]))
     if mode == "HEADER_TOKEN":
         header = str(webhook.get("header") or "x-webhook-token").lower()
         expected = str(credentials.get("webhook_token") or "")
@@ -97,16 +96,22 @@ async def receive_crm_webhook(
         raise HTTPException(status_code=400, detail="Webhook payload must be an object")
 
     await set_tenant_context(session, tenant_id)
-    connection = await session.scalar(
-        select(CRMConnection).where(
-            CRMConnection.tenant_id == tenant_id,
-            CRMConnection.public_id == public_id,
-            CRMConnection.provider == provider,
-            CRMConnection.status != "disabled",
+    row = (
+        await session.execute(
+            select(CRMConnection, WorkspaceCRMConnection)
+            .join(WorkspaceCRMConnection, WorkspaceCRMConnection.connection_id == CRMConnection.id)
+            .where(
+                CRMConnection.tenant_id == tenant_id,
+                CRMConnection.public_id == public_id,
+                CRMConnection.provider == provider,
+                CRMConnection.status != "disabled",
+                WorkspaceCRMConnection.tenant_id == tenant_id,
+            )
         )
-    )
-    if not connection:
+    ).first()
+    if not row:
         raise HTTPException(status_code=404, detail="CRM connection not found")
+    connection, workspace_scope = row
     credentials = _credentials(connection)
     headers = {key.lower(): value for key, value in request.headers.items()}
     if not _verify(connection, credentials, headers, body):
@@ -129,7 +134,12 @@ async def receive_crm_webhook(
         )
     )
     if existing:
-        return {"acknowledged": True, "duplicate": True, "correlationId": correlation_id}
+        return {
+            "acknowledged": True,
+            "duplicate": True,
+            "correlationId": correlation_id,
+            "workspaceId": str(workspace_scope.workspace_id),
+        }
 
     value = CRMWebhookEvent(
         tenant_id=tenant_id,
@@ -149,7 +159,12 @@ async def receive_crm_webhook(
             session.add(value)
             await session.flush()
     except IntegrityError:
-        return {"acknowledged": True, "duplicate": True, "correlationId": correlation_id}
+        return {
+            "acknowledged": True,
+            "duplicate": True,
+            "correlationId": correlation_id,
+            "workspaceId": str(workspace_scope.workspace_id),
+        }
     enqueue_event(
         session,
         tenant_id=tenant_id,
@@ -158,6 +173,7 @@ async def receive_crm_webhook(
         event_type="crm.webhook.received.v1",
         payload={
             "webhookEventId": str(value.id),
+            "workspaceId": str(workspace_scope.workspace_id),
             "connectionId": str(connection.id),
             "provider": provider,
         },
@@ -165,4 +181,9 @@ async def receive_crm_webhook(
     connection.last_success_at = datetime.now(UTC)
     connection.last_error = None
     await session.commit()
-    return {"acknowledged": True, "duplicate": False, "correlationId": correlation_id}
+    return {
+        "acknowledged": True,
+        "duplicate": False,
+        "correlationId": correlation_id,
+        "workspaceId": str(workspace_scope.workspace_id),
+    }
