@@ -15,6 +15,8 @@ class EmailSettings(BaseSettings):
     email_from_name: str = "Northstar"
     email_verification_frontend_url: str = "http://localhost:5173/verify-email"
     email_verification_ttl_hours: int = Field(default=24, ge=1, le=168)
+    password_reset_frontend_url: str = "http://localhost:5173/reset-password"
+    password_reset_ttl_minutes: int = Field(default=60, ge=10, le=1440)
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_username: str = ""
