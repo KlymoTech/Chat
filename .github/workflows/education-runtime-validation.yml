@@ -38,6 +38,9 @@ jobs:
       - name: Lint Education runtime surface
         run: >-
           uv run ruff check
+          migrations/env.py
+          migrations/versions/0021_education_conversation_context.py
+          src/northstar_api/education_conversation_context.py
           src/northstar_api/services/education_runtime_authorization.py
           src/northstar_api/services/student_identity.py
           src/northstar_api/workers/channel_event_consumer.py
@@ -46,6 +49,9 @@ jobs:
       - name: Format-check Education runtime surface
         run: >-
           uv run ruff format --check
+          migrations/env.py
+          migrations/versions/0021_education_conversation_context.py
+          src/northstar_api/education_conversation_context.py
           src/northstar_api/services/education_runtime_authorization.py
           src/northstar_api/services/student_identity.py
           src/northstar_api/workers/channel_event_consumer.py
@@ -54,8 +60,11 @@ jobs:
       - name: Type-check Education runtime service and consumer
         run: >-
           uv run mypy
+          src/northstar_api/education_conversation_context.py
           src/northstar_api/services/education_runtime_authorization.py
           src/northstar_api/workers/channel_event_consumer.py
+      - name: Verify migration head
+        run: alembic heads | grep '0021_education_conversation_context (head)'
       - name: Isolate Education API from unrelated broken Help router
         run: |
           python - <<'PY'
