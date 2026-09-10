@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
@@ -130,22 +130,22 @@ class EducationAwareChatCoordinator(ChatCoordinator):
                 status_code=403,
                 detail="Education access must be authorized before starting chat",
             )
-        conditions = [Conversation.public_id == str(request.conversation_id)]
-        try:
-            conditions.append(Conversation.id == UUID(str(request.conversation_id)))
-        except ValueError:
-            pass
-        conversation = await session.scalar(
-            select(Conversation).where(
-                Conversation.tenant_id == tenant_id,
-                Conversation.workspace_id == agent.workspace_id,
-                Conversation.agent_id == agent.id,
-                Conversation.state == ConversationState.OPEN,
-                or_(*conditions),
-            )
+
+        # Reuse the mature base resolver so Education retains the same
+        # idempotency-key and conversation-conflict semantics as every other Agent.
+        conversation = await super()._get_or_create_conversation(
+            session,
+            tenant_id=tenant_id,
+            agent=agent,
+            request=request,
+            channel=channel,
         )
-        if conversation is None:
+        if (
+            conversation.workspace_id != agent.workspace_id
+            or conversation.state is not ConversationState.OPEN
+        ):
             raise HTTPException(status_code=403, detail="Education conversation is not authorized")
+
         try:
             scope = await authorized_education_retrieval_scope(
                 session,
