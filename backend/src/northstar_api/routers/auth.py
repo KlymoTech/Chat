@@ -102,7 +102,7 @@ async def signup(
     response: Response,
     session: DB,
 ) -> AuthSessionOut:
-    """Create the first Owner, Tenant and Workspace for a new SaaS customer."""
+    """Create a self-service owner account or accept a workspace invitation."""
 
     await _enforce_signup_rate_limit(payload, request)
     settings = get_settings()
@@ -121,12 +121,12 @@ async def signup(
     access_token, expires_at = create_access_token(
         provisioned.user.id,
         provisioned.tenant.id,
-        Role.OWNER,
+        provisioned.role,
     )
     refresh_token, _ = create_refresh_token(
         provisioned.user.id,
         provisioned.tenant.id,
-        Role.OWNER,
+        provisioned.role,
     )
     refresh_claims = decode_token(refresh_token, "refresh")
     try:
@@ -162,10 +162,11 @@ async def signup(
 
     _set_refresh_cookie(response, refresh_token)
     logger.info(
-        "self_service_signup_created",
+        "account_signup_created",
         tenant_id=str(provisioned.tenant.id),
         user_id=str(provisioned.user.id),
         workspace_id=str(provisioned.workspace.id),
+        tenant_role=provisioned.role.value,
     )
     return AuthSessionOut(
         access_token=access_token,
@@ -175,7 +176,7 @@ async def signup(
             id=provisioned.user.id,
             name=provisioned.user.name,
             email=provisioned.user.email,
-            role=Role.OWNER,
+            role=provisioned.role,
             email_verified=False,
         ),
     )
