@@ -82,6 +82,7 @@ async function demoSignup(input: SignupInput): Promise<Session> {
       name: userName,
       email: input.email.trim().toLowerCase(),
       role: 'owner',
+      emailVerified: true,
     },
   };
 }
