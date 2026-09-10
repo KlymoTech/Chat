@@ -149,7 +149,7 @@ export function VerifyEmailPage() {
     </section>
     <section className="login-story" aria-label="Email verification security overview">
       <div className="login-glow login-glow--one" /><div className="login-glow login-glow--two" />
-      <div className="story-copy"><span className="story-kicker"><span /> Account security</span><h2>Verify ownership before workspace access begins.</h2><p>Verification links are random, stored only as hashes, expire automatically, and become unusable after verification or resend.</p></div>
+      <div className="story-copy"><span className="story-kicker"><span /> Account security</span><h2>Verify ownership before workspace access begins.</h2><p>Verification links are random, stored only as hashes, expire automatically, and cannot activate an account more than once.</p></div>
       <div className="verification-story-card"><ShieldCheck /><div><strong>Workspace access stays locked</strong><small>Unverified self-service accounts can authenticate only far enough to verify, resend, refresh, or sign out.</small></div></div>
     </section>
   </div>;
