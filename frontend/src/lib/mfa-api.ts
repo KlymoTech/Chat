@@ -69,15 +69,34 @@ function persistSession(value: Session): Session {
   return safe;
 }
 
+function clearSession(): void {
+  localStorage.removeItem(SESSION_KEY);
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+}
+
 function currentSession(): Session {
   const value = readStorage<Session | null>(SESSION_KEY, null);
   if (!value?.accessToken) throw new ApiError('Authentication required', 401);
   return value;
 }
 
+async function refreshFromCookie(): Promise<Session> {
+  const response = await fetch(`${apiConfig.baseUrl}/auth/refresh`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  });
+  try {
+    return persistSession(await parse<Session>(response));
+  } catch (error) {
+    clearSession();
+    throw error;
+  }
+}
+
 async function authenticated<T>(path: string, init?: RequestInit): Promise<T> {
-  const active = currentSession();
-  const response = await fetch(`${apiConfig.baseUrl}${path}`, {
+  let active = currentSession();
+  const execute = () => fetch(`${apiConfig.baseUrl}${path}`, {
     ...init,
     credentials: 'include',
     headers: {
@@ -87,6 +106,11 @@ async function authenticated<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
+  let response = await execute();
+  if (response.status === 401) {
+    active = await refreshFromCookie();
+    response = await execute();
+  }
   return parse<T>(response);
 }
 
@@ -95,7 +119,7 @@ async function remoteLogin(email: string, password: string): Promise<LoginResult
     method: 'POST',
     credentials: 'include',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
   });
   return parse<LoginResult>(response);
 }
@@ -113,6 +137,10 @@ function demoLogin(email: string, password: string): Session {
       emailVerified: true,
     },
   };
+}
+
+function canUseDemoFallback(error: unknown): boolean {
+  return apiConfig.demoMode && (!(error instanceof ApiError) || error.status === 404 || error.status >= 500);
 }
 
 export const mfaApi = {
@@ -137,12 +165,28 @@ export const mfaApi = {
     return persistSession(await parse<Session>(response));
   },
 
-  status: () => authenticated<MFAStatus>('/auth/mfa/status'),
+  async status(): Promise<MFAStatus> {
+    try {
+      return await authenticated<MFAStatus>('/auth/mfa/status');
+    } catch (error) {
+      if (canUseDemoFallback(error)) return { configured: false, enabled: false, unusedRecoveryCodes: 0 };
+      throw error;
+    }
+  },
 
-  setup: (currentPassword: string) => authenticated<MFASetupMaterial>('/auth/mfa/setup', {
-    method: 'POST',
-    body: JSON.stringify({ currentPassword }),
-  }),
+  async setup(currentPassword: string): Promise<MFASetupMaterial> {
+    try {
+      return await authenticated<MFASetupMaterial>('/auth/mfa/setup', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword }),
+      });
+    } catch (error) {
+      if (canUseDemoFallback(error)) {
+        throw new ApiError('MFA setup requires a connected Northstar API.', 503, error);
+      }
+      throw error;
+    }
+  },
 
   async confirm(code: string): Promise<Session> {
     return persistSession(await authenticated<Session>('/auth/mfa/confirm', {
