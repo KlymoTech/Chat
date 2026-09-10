@@ -23,7 +23,7 @@ from northstar_api.schemas import (
     WidgetSessionOut,
 )
 from northstar_api.security import create_widget_token, decode_token
-from northstar_api.services.chat import chat_coordinator
+from northstar_api.services.education_chat import education_chat_coordinator
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.streaming import chat_sse_response
 
@@ -233,7 +233,7 @@ async def widget_message(
         session_origin, list(active_agent.security.get("allowedDomains", []))
     ):
         raise HTTPException(status_code=403, detail="This widget session is no longer permitted")
-    prepared = await chat_coordinator.prepare(
+    prepared = await education_chat_coordinator.prepare(
         session,
         tenant_id=tenant_id,
         request=ChatStreamRequest(
