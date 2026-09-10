@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("agent_id", sa.Uuid(), nullable=False),
         sa.Column("conversation_id", sa.Uuid(), nullable=False),
         sa.Column("event_type", sa.String(length=80), nullable=False),
+        sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("resolution", sa.String(length=120), nullable=True),
         sa.Column("actor_user_id", sa.Uuid(), nullable=True),
         sa.Column("details_json", sa.JSON(), nullable=False),
@@ -50,7 +51,8 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "conversation_id",
             "event_type",
-            name="uq_education_student_activity_conversation_event",
+            "resolved_at",
+            name="uq_education_student_activity_resolution_cycle",
         ),
     )
     for column in (
