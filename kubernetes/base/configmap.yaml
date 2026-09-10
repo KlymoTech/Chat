@@ -12,6 +12,16 @@ data:
   APP_CORS_ORIGINS: '["https://app.example.com"]'
   LOG_LEVEL: INFO
   LOG_JSON: "true"
+  EMAIL_DELIVERY_MODE: smtp
+  EMAIL_FROM_ADDRESS: no-reply@example.com
+  EMAIL_FROM_NAME: Northstar
+  EMAIL_VERIFICATION_FRONTEND_URL: https://app.example.com/verify-email
+  EMAIL_VERIFICATION_TTL_HOURS: "24"
+  SMTP_HOST: smtp.example.com
+  SMTP_PORT: "587"
+  SMTP_STARTTLS: "true"
+  SMTP_SSL: "false"
+  SMTP_TIMEOUT_SECONDS: "10"
   REQUIRE_NVIDIA: "true"
   ALLOW_DETERMINISTIC_EMBEDDINGS: "false"
   RATE_LIMIT_FAIL_OPEN: "false"
