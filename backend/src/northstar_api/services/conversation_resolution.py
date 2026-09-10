@@ -248,6 +248,7 @@ class ConversationResolutionService:
             return False
 
         event_type = "conversation.resolved"
+        resolved_at = conversation.ended_at or datetime.now(UTC)
         activity = await session.scalar(
             select(EducationStudentActivityEvent)
             .where(
@@ -255,67 +256,66 @@ class ConversationResolutionService:
                 EducationStudentActivityEvent.workspace_id == conversation.workspace_id,
                 EducationStudentActivityEvent.conversation_id == conversation.id,
                 EducationStudentActivityEvent.event_type == event_type,
+                EducationStudentActivityEvent.resolved_at == resolved_at,
             )
             .with_for_update()
         )
-        created = activity is None
+        if activity is not None:
+            return False
+
         details = {
             "channel": conversation.channel.value,
             "conversationPublicId": conversation.public_id,
             "resolution": conversation.resolution,
-            "resolvedAt": conversation.ended_at.isoformat() if conversation.ended_at else None,
+            "resolvedAt": resolved_at.isoformat(),
         }
-        if activity is None:
-            activity = EducationStudentActivityEvent(
-                tenant_id=conversation.tenant_id,
-                workspace_id=conversation.workspace_id,
-                student_id=context.student_id,
-                enrollment_id=context.enrollment_id,
-                course_id=context.course_id,
-                batch_id=context.batch_id,
-                agent_id=context.agent_id,
-                conversation_id=conversation.id,
-                event_type=event_type,
-                resolution=conversation.resolution,
-                actor_user_id=actor_user_id,
-                details_json=details,
-            )
-            session.add(activity)
-            await session.flush()
-        else:
-            activity.resolution = conversation.resolution
-            activity.actor_user_id = actor_user_id or activity.actor_user_id
-            activity.details_json = details
+        activity = EducationStudentActivityEvent(
+            tenant_id=conversation.tenant_id,
+            workspace_id=conversation.workspace_id,
+            student_id=context.student_id,
+            enrollment_id=context.enrollment_id,
+            course_id=context.course_id,
+            batch_id=context.batch_id,
+            agent_id=context.agent_id,
+            conversation_id=conversation.id,
+            event_type=event_type,
+            resolved_at=resolved_at,
+            resolution=conversation.resolution,
+            actor_user_id=actor_user_id,
+            details_json=details,
+        )
+        session.add(activity)
+        await session.flush()
 
-        if created:
-            payload = {
-                "activityId": str(activity.id),
-                "conversationId": str(conversation.id),
-                "workspaceId": str(conversation.workspace_id),
-                "agentId": str(context.agent_id),
-                "studentId": str(context.student_id),
-                "enrollmentId": str(context.enrollment_id),
-                "courseId": str(context.course_id),
-                "batchId": str(context.batch_id),
-                "eventType": event_type,
-            }
-            enqueue_event(
-                session,
-                tenant_id=conversation.tenant_id,
-                aggregate_type="education_student",
-                aggregate_id=context.student_id,
-                event_type="education.student.activity.recorded.v1",
-                payload=payload,
-            )
-            enqueue_event(
-                session,
-                tenant_id=conversation.tenant_id,
-                aggregate_type="conversation",
-                aggregate_id=conversation.id,
-                event_type="education.conversation.resolved.v1",
-                payload=payload,
-            )
-        return created
+        payload = {
+            "activityId": str(activity.id),
+            "conversationId": str(conversation.id),
+            "workspaceId": str(conversation.workspace_id),
+            "agentId": str(context.agent_id),
+            "studentId": str(context.student_id),
+            "enrollmentId": str(context.enrollment_id),
+            "courseId": str(context.course_id),
+            "batchId": str(context.batch_id),
+            "eventType": event_type,
+            "resolvedAt": resolved_at.isoformat(),
+        }
+        enqueue_event(
+            session,
+            tenant_id=conversation.tenant_id,
+            aggregate_type="education_student",
+            aggregate_id=context.student_id,
+            event_type="education.student.activity.recorded.v1",
+            payload=payload,
+        )
+        enqueue_event(
+            session,
+            tenant_id=conversation.tenant_id,
+            aggregate_type="conversation",
+            aggregate_id=conversation.id,
+            event_type="education.conversation.resolved.v1",
+            payload=payload,
+        )
+        return True
 
     @staticmethod
     def _enqueue_conversation_events(
@@ -334,7 +334,9 @@ class ConversationResolutionService:
             "leadId": str(lead.id) if lead is not None else None,
             "channel": conversation.channel.value,
             "purpose": purpose.value,
-            "reconciled": reconciled,
+            # Preserve the original Lead Generation event contract.
+            "reconciledLead": reconciled if lead is not None else False,
+            "reconciledPurposeActivity": reconciled if lead is None else False,
         }
         enqueue_event(
             session,
