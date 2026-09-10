@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import EmailStr, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 
 from northstar_api.dependencies import CurrentPrincipal, DBSession, require_permissions
 from northstar_api.models import (
     Role,
     Tenant,
+    TenantMembership,
+    User,
     Workspace,
     WorkspaceMembership,
     WorkspaceRole,
@@ -19,11 +22,19 @@ from northstar_api.models import (
 )
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal, WORKSPACE_ROLE_PERMISSIONS
+from northstar_api.workspace_invitations import (
+    WorkspaceInvitation,
+    WorkspaceInvitationError,
+    issue_workspace_invitation,
+    send_workspace_invitation_email,
+)
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 collection_router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 WorkspaceViewPrincipal = Annotated[Principal, Depends(require_permissions("workspace.view"))]
 WorkspaceUpdatePrincipal = Annotated[Principal, Depends(require_permissions("workspace.update"))]
+WorkspaceMembersViewPrincipal = Annotated[Principal, Depends(require_permissions("members.view"))]
+WorkspaceMembersManagePrincipal = Annotated[Principal, Depends(require_permissions("members.manage"))]
 
 
 class WorkspacePreferences(APIModel):
@@ -103,6 +114,35 @@ class WorkspaceCreate(APIModel):
     date_format: Literal["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"] = "DD/MM/YYYY"
 
 
+class WorkspaceMemberOut(APIModel):
+    id: str
+    name: str
+    email: EmailStr
+    role: WorkspaceRole
+    tenant_role: Role
+    status: Literal["active"] = "active"
+
+
+class WorkspaceInvitationOut(APIModel):
+    id: str
+    email: EmailStr
+    role: WorkspaceRole
+    status: Literal["invited"] = "invited"
+    expires_at: datetime
+    created_at: datetime
+
+
+class WorkspaceTeamOut(APIModel):
+    members: list[WorkspaceMemberOut]
+    invitations: list[WorkspaceInvitationOut]
+
+
+class WorkspaceInvite(APIModel):
+    email: EmailStr
+    role: WorkspaceRole = WorkspaceRole.OPERATOR
+
+
+
 def _workspace_response(
     tenant: Tenant,
     workspace: Workspace,
@@ -169,6 +209,64 @@ async def _load_workspace(
     return tenant, workspace, membership, member_count
 
 
+async def _team_response(tenant_id: UUID, workspace_id: UUID, session: DBSession) -> WorkspaceTeamOut:
+    member_rows = (
+        await session.execute(
+            select(User, WorkspaceMembership, TenantMembership.role)
+            .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+            .join(
+                TenantMembership,
+                and_(
+                    TenantMembership.user_id == User.id,
+                    TenantMembership.tenant_id == WorkspaceMembership.tenant_id,
+                ),
+            )
+            .where(
+                WorkspaceMembership.tenant_id == tenant_id,
+                WorkspaceMembership.workspace_id == workspace_id,
+                User.is_active.is_(True),
+            )
+            .order_by(User.name, User.email)
+        )
+    ).all()
+    now = datetime.now(UTC)
+    invitations = list(
+        await session.scalars(
+            select(WorkspaceInvitation)
+            .where(
+                WorkspaceInvitation.tenant_id == tenant_id,
+                WorkspaceInvitation.workspace_id == workspace_id,
+                WorkspaceInvitation.accepted_at.is_(None),
+                WorkspaceInvitation.revoked_at.is_(None),
+                WorkspaceInvitation.expires_at > now,
+            )
+            .order_by(WorkspaceInvitation.created_at.desc())
+        )
+    )
+    return WorkspaceTeamOut(
+        members=[
+            WorkspaceMemberOut(
+                id=str(user.id),
+                name=user.name,
+                email=user.email,
+                role=membership.role,
+                tenant_role=tenant_role,
+            )
+            for user, membership, tenant_role in member_rows
+        ],
+        invitations=[
+            WorkspaceInvitationOut(
+                id=str(invitation.id),
+                email=invitation.email,
+                role=invitation.role,
+                expires_at=invitation.expires_at,
+                created_at=invitation.created_at,
+            )
+            for invitation in invitations
+        ],
+    )
+
+
 @router.get("", response_model=WorkspaceOut)
 async def get_workspace(principal: WorkspaceViewPrincipal, session: DBSession) -> WorkspaceOut:
     tenant, workspace, membership, member_count = await _load_workspace(
@@ -212,6 +310,85 @@ async def update_workspace(
     await session.commit()
     await session.refresh(workspace)
     return _workspace_response(tenant, workspace, membership, member_count)
+
+
+@router.get("/team", response_model=WorkspaceTeamOut)
+async def get_workspace_team(
+    principal: WorkspaceMembersViewPrincipal,
+    session: DBSession,
+) -> WorkspaceTeamOut:
+    _, workspace, _, _ = await _load_workspace(
+        principal.tenant_id, principal.workspace_id, principal.user_id, session
+    )
+    return await _team_response(principal.tenant_id, workspace.id, session)
+
+
+@router.post("/invitations", response_model=WorkspaceTeamOut, status_code=201)
+async def invite_workspace_member(
+    payload: WorkspaceInvite,
+    principal: WorkspaceMembersManagePrincipal,
+    session: DBSession,
+) -> WorkspaceTeamOut:
+    _, workspace, _, _ = await _load_workspace(
+        principal.tenant_id, principal.workspace_id, principal.user_id, session
+    )
+    normalized_email = str(payload.email).strip().lower()
+    existing_user = await session.scalar(
+        select(User).where(func.lower(User.email) == normalized_email)
+    )
+    if existing_user is not None:
+        existing_membership = await session.get(
+            WorkspaceMembership,
+            (workspace.id, existing_user.id),
+        )
+        if existing_membership is not None:
+            raise HTTPException(status_code=409, detail="This user already belongs to the workspace")
+        tenant_membership = await session.get(
+            TenantMembership,
+            (principal.tenant_id, existing_user.id),
+        )
+        if tenant_membership is None:
+            session.add(
+                TenantMembership(
+                    tenant_id=principal.tenant_id,
+                    user_id=existing_user.id,
+                    role=Role.MEMBER,
+                )
+            )
+        session.add(
+            WorkspaceMembership(
+                tenant_id=principal.tenant_id,
+                workspace_id=workspace.id,
+                user_id=existing_user.id,
+                role=payload.role,
+                all_agents_access=True,
+            )
+        )
+        await session.commit()
+        return await _team_response(principal.tenant_id, workspace.id, session)
+
+    invitation, raw_token = await issue_workspace_invitation(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace.id,
+        email=normalized_email,
+        role=payload.role,
+        invited_by=principal.user_id,
+    )
+    try:
+        await send_workspace_invitation_email(
+            email=invitation.email,
+            workspace_name=workspace.name,
+            raw_token=raw_token,
+        )
+    except WorkspaceInvitationError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except Exception:
+        await session.rollback()
+        raise HTTPException(status_code=502, detail="Workspace invitation email could not be delivered") from None
+    await session.commit()
+    return await _team_response(principal.tenant_id, workspace.id, session)
 
 
 @collection_router.get("", response_model=list[WorkspaceOut])
