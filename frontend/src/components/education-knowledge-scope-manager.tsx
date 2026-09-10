@@ -96,13 +96,16 @@ export function EducationKnowledgeScopeManager({
           batchId: selectedBatchId,
         })),
       );
-      await scopes.reload();
+      scopes.reload();
       pushToast(
         draft.length
           ? 'Education knowledge access scope saved'
           : 'Source is now unavailable to Education students',
       );
-      closeScope();
+      setEditingSource(null);
+      setDraft([]);
+      setCourseId('');
+      setBatchId('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save Education knowledge scope.');
     } finally {
