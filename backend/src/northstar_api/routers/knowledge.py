@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
+from northstar_api.education_knowledge_schemas import (
+    EducationKnowledgeScopeOut,
+    EducationKnowledgeScopeReplace,
+)
 from northstar_api.models import (
     FactStatus,
     IngestionJob,
@@ -34,6 +38,13 @@ from northstar_api.schemas import (
     UploadPresignRequest,
 )
 from northstar_api.security import Principal
+from northstar_api.services.education_knowledge import (
+    list_fact_scopes,
+    list_source_scopes,
+    replace_fact_scopes,
+    replace_source_scopes,
+    require_education_agent,
+)
 from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
@@ -181,6 +192,94 @@ async def add_knowledge(
     return source_response(source)
 
 
+async def _scoped_source(
+    source_id: UUID,
+    *,
+    principal: Principal,
+    session: AsyncSession,
+) -> KnowledgeSource:
+    source = await session.scalar(
+        select(KnowledgeSource).where(
+            KnowledgeSource.id == source_id,
+            KnowledgeSource.tenant_id == principal.tenant_id,
+            KnowledgeSource.workspace_id == principal.workspace_id,
+        )
+    )
+    if source is None:
+        raise HTTPException(status_code=404, detail="Knowledge source not found")
+    agent = await scoped_agent(
+        session,
+        principal.tenant_id,
+        source.agent_id,
+        workspace_id=principal.workspace_id,
+    )
+    await require_education_agent(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        agent=agent,
+    )
+    return source
+
+
+@router.get(
+    "/knowledge/{source_id}/education-scopes",
+    response_model=list[EducationKnowledgeScopeOut],
+)
+async def get_source_education_scopes(
+    source_id: UUID,
+    principal: KnowledgeViewPrincipal,
+    session: DB,
+) -> list[EducationKnowledgeScopeOut]:
+    source = await _scoped_source(source_id, principal=principal, session=session)
+    return list(
+        await list_source_scopes(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            agent_id=source.agent_id,
+            source_id=source.id,
+        )
+    )
+
+
+@router.put(
+    "/knowledge/{source_id}/education-scopes",
+    response_model=list[EducationKnowledgeScopeOut],
+)
+async def set_source_education_scopes(
+    source_id: UUID,
+    payload: EducationKnowledgeScopeReplace,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> list[EducationKnowledgeScopeOut]:
+    source = await _scoped_source(source_id, principal=principal, session=session)
+    scopes = await replace_source_scopes(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        agent_id=source.agent_id,
+        source_id=source.id,
+        pairs=payload.scopes,
+    )
+    enqueue_event(
+        session,
+        tenant_id=principal.tenant_id,
+        aggregate_type="knowledge_source",
+        aggregate_id=source.id,
+        event_type="education.knowledge.scope.updated.v1",
+        payload={
+            "sourceId": str(source.id),
+            "agentId": str(source.agent_id),
+            "scopes": [
+                {"courseId": str(item.course_id), "batchId": str(item.batch_id)} for item in scopes
+            ],
+        },
+    )
+    await session.commit()
+    return list(scopes)
+
+
 @router.delete("/knowledge/{source_id}", status_code=204)
 async def delete_knowledge(source_id: UUID, principal: KnowledgeManagePrincipal, session: DB) -> Response:
     source = await session.scalar(
@@ -268,6 +367,94 @@ async def create_fact(
     await session.commit()
     await session.refresh(fact)
     return fact
+
+
+async def _scoped_fact(
+    fact_id: UUID,
+    *,
+    principal: Principal,
+    session: AsyncSession,
+) -> KnowledgeFact:
+    fact = await session.scalar(
+        select(KnowledgeFact).where(
+            KnowledgeFact.id == fact_id,
+            KnowledgeFact.tenant_id == principal.tenant_id,
+            KnowledgeFact.workspace_id == principal.workspace_id,
+        )
+    )
+    if fact is None:
+        raise HTTPException(status_code=404, detail="Knowledge fact not found")
+    agent = await scoped_agent(
+        session,
+        principal.tenant_id,
+        fact.agent_id,
+        workspace_id=principal.workspace_id,
+    )
+    await require_education_agent(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        agent=agent,
+    )
+    return fact
+
+
+@router.get(
+    "/facts/{fact_id}/education-scopes",
+    response_model=list[EducationKnowledgeScopeOut],
+)
+async def get_fact_education_scopes(
+    fact_id: UUID,
+    principal: KnowledgeViewPrincipal,
+    session: DB,
+) -> list[EducationKnowledgeScopeOut]:
+    fact = await _scoped_fact(fact_id, principal=principal, session=session)
+    return list(
+        await list_fact_scopes(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            agent_id=fact.agent_id,
+            fact_id=fact.id,
+        )
+    )
+
+
+@router.put(
+    "/facts/{fact_id}/education-scopes",
+    response_model=list[EducationKnowledgeScopeOut],
+)
+async def set_fact_education_scopes(
+    fact_id: UUID,
+    payload: EducationKnowledgeScopeReplace,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> list[EducationKnowledgeScopeOut]:
+    fact = await _scoped_fact(fact_id, principal=principal, session=session)
+    scopes = await replace_fact_scopes(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        agent_id=fact.agent_id,
+        fact_id=fact.id,
+        pairs=payload.scopes,
+    )
+    enqueue_event(
+        session,
+        tenant_id=principal.tenant_id,
+        aggregate_type="knowledge_fact",
+        aggregate_id=fact.id,
+        event_type="education.knowledge.scope.updated.v1",
+        payload={
+            "factId": str(fact.id),
+            "agentId": str(fact.agent_id),
+            "scopes": [
+                {"courseId": str(item.course_id), "batchId": str(item.batch_id)} for item in scopes
+            ],
+        },
+    )
+    await session.commit()
+    return list(scopes)
 
 
 @router.patch("/facts/{fact_id}", response_model=FactOut)
