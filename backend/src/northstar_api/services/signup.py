@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.models import (
@@ -62,7 +62,9 @@ async def provision_signup(
     payload: SignupRequest,
 ) -> ProvisionedSignup:
     normalized_email = str(payload.email).strip().lower()
-    existing_user = await session.scalar(select(User.id).where(User.email == normalized_email))
+    existing_user = await session.scalar(
+        select(User.id).where(func.lower(User.email) == normalized_email)
+    )
     if existing_user is not None:
         raise SignupConflict("An account with this email already exists")
 
