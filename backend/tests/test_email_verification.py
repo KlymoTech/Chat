@@ -206,6 +206,23 @@ async def test_verification_resend_rate_limit_sets_retry_after(client: AsyncClie
     assert limiter.await_count == 2
 
 
+async def test_verification_attempt_rate_limit_sets_retry_after(client: AsyncClient, monkeypatch) -> None:
+    limiter = AsyncMock(
+        side_effect=[RateLimitResult(True, 119, 600), RateLimitResult(False, 0, 600)]
+    )
+    monkeypatch.setattr(redis_services, "check_rate_limit", limiter)
+
+    response = await client.post(
+        "/api/v1/auth/email-verification/verify",
+        json={"token": "verification-rate-limit-token-value-1234567890"},
+    )
+
+    assert response.status_code == 429, response.text
+    assert response.headers["retry-after"] == "600"
+    assert response.json()["error"]["message"] == "Too many verification attempts. Try again later."
+    assert limiter.await_count == 2
+
+
 async def test_legacy_seed_user_is_verified_by_compatibility(client: AsyncClient) -> None:
     response = await client.post(
         "/api/v1/auth/login",
