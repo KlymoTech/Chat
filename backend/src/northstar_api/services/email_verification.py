@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
 import secrets
 import smtplib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from urllib.parse import urlencode
+from uuid import UUID
 
 import structlog
 from sqlalchemy import select, update
@@ -34,13 +36,13 @@ def _token_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-async def email_is_verified(session: AsyncSession, user_id) -> bool:
+async def email_is_verified(session: AsyncSession, user_id: UUID) -> bool:
     state = await session.get(EmailVerificationState, user_id)
     # Legacy users intentionally have no state row and remain verified for compatibility.
     return state is None or state.verified_at is not None
 
 
-async def ensure_unverified_state(session: AsyncSession, user_id) -> EmailVerificationState:
+async def ensure_unverified_state(session: AsyncSession, user_id: UUID) -> EmailVerificationState:
     state = await session.get(EmailVerificationState, user_id)
     if state is None:
         state = EmailVerificationState(user_id=user_id, verified_at=None)
@@ -51,7 +53,7 @@ async def ensure_unverified_state(session: AsyncSession, user_id) -> EmailVerifi
 
 async def issue_verification_token(
     session: AsyncSession,
-    user_id,
+    user_id: UUID,
     *,
     settings: EmailSettings | None = None,
 ) -> IssuedVerification:
@@ -91,7 +93,6 @@ async def verify_email_token(session: AsyncSession, raw_token: str) -> tuple[boo
 
     state = await session.get(EmailVerificationState, token.user_id)
     if state is None:
-        # A token can only exist for an explicitly verification-managed account.
         raise EmailVerificationError("Verification link is invalid or expired")
     if state.verified_at is not None:
         return True, True
@@ -180,10 +181,12 @@ async def send_verification_email(
         f"This link expires in {config.email_verification_ttl_hours} hours. "
         "If you did not create this account, you can ignore this email.\n"
     )
+    safe_name = html.escape(user.name)
+    safe_url = html.escape(url, quote=True)
     message.add_alternative(
-        "<p>Hi " + user.name + ",</p>"
+        f"<p>Hi {safe_name},</p>"
         "<p>Verify your email address to finish activating your Northstar account.</p>"
-        f'<p><a href="{url}">Verify email address</a></p>'
+        f'<p><a href="{safe_url}">Verify email address</a></p>'
         f"<p>This link expires in {config.email_verification_ttl_hours} hours. "
         "If you did not create this account, you can ignore this email.</p>",
         subtype="html",
