@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { EducationKnowledgeScopeManager } from '@/components/education-knowledge-scope-manager';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -110,7 +111,9 @@ function KnowledgePanel({ agent, onChanged }: { agent: Agent; onChanged: () => v
     <div className="knowledge-stats"><Card><span><Database /></span><div><strong>{result.data?.length ?? 0}</strong><small>Sources</small></div></Card><Card><span><FileText /></span><div><strong>{result.data?.reduce((sum, item) => sum + item.chunks, 0) ?? 0}</strong><small>Knowledge chunks</small></div></Card><Card><span><Check /></span><div><strong>{result.data?.filter((item) => item.status === 'ready').length ?? 0}</strong><small>Ready to answer</small></div></Card></div>
     <Card className="knowledge-table-card"><div className="table-toolbar"><div><h3>Sources</h3><p>Content is automatically chunked and indexed.</p></div><div><Button variant="secondary" size="sm" icon={Link2} onClick={() => setAddOpen(true)}>Import from source</Button><Button size="sm" icon={Plus} onClick={() => setAddOpen(true)}>Create</Button></div></div>
       {result.loading ? <div className="table-loading">Loading sources…</div> : result.data?.length ? <div className="responsive-table"><table><thead><tr><th><input type="checkbox" aria-label="Select all sources" checked={selected.length === result.data.length && result.data.length > 0} onChange={(event) => setSelected(event.target.checked ? result.data!.map((item) => item.id) : [])} /></th><th>Source</th><th>Status</th><th>Type</th><th>Chunks</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{result.data.map((source) => <tr key={source.id}><td><input type="checkbox" aria-label={`Select ${source.name}`} checked={selected.includes(source.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id))} /></td><td><span className={`source-icon source-icon--${source.kind}`}>{source.kind === 'file' ? <File /> : source.kind === 'text' ? <FileText /> : <Globe2 />}</span><span><strong>{source.name}</strong><small>{source.url ?? source.sizeLabel}</small></span></td><td><Badge tone={source.status === 'ready' ? 'success' : source.status === 'failed' ? 'danger' : 'purple'}><i className="status-dot" /> {source.status}</Badge></td><td className="capitalize">{source.kind}</td><td>{source.chunks}</td><td>{relativeTime(source.updatedAt)}</td><td><button className="icon-button danger-hover" onClick={() => void remove(source)} aria-label={`Delete ${source.name}`}><Trash2 /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={BookOpen} title="No knowledge yet" description="Upload a file, add a webpage, or write content directly." action={<Button icon={Plus} onClick={() => setAddOpen(true)}>Add your first source</Button>} />}
-    </Card>{addOpen ? <KnowledgeModal agentId={agent.id} onClose={() => setAddOpen(false)} onCreated={() => { setAddOpen(false); result.reload(); onChanged(); pushToast('Knowledge source added'); }} /> : null}
+    </Card>
+    {currentPurpose(agent) === 'education' ? <EducationKnowledgeScopeManager agentId={agent.id} sources={result.data ?? []} /> : null}
+    {addOpen ? <KnowledgeModal agentId={agent.id} onClose={() => setAddOpen(false)} onCreated={() => { setAddOpen(false); result.reload(); onChanged(); pushToast('Knowledge source added'); }} /> : null}
   </div>;
 }
 
