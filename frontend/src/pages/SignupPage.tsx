@@ -90,7 +90,7 @@ export function SignupPage() {
           <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>Create account <ArrowRight /></>}</Button>
         </form>
         <p className="signup-copy">Already have an account? <Link className="text-button" to="/login">Sign in</Link></p>
-        <p className="login-legal signup-legal">Self-service signup creates your organization and first workspace. Email verification is handled separately.</p>
+        <p className="login-legal signup-legal">You’ll be the owner of this organization and its first workspace.</p>
       </div>
     </section>
     <section className="login-story" aria-label="Account setup overview">
