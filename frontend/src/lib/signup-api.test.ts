@@ -19,6 +19,7 @@ const serverSession = {
     name: 'Signup Owner',
     email: 'owner@example.com',
     role: 'owner' as const,
+    emailVerified: false,
   },
 };
 
@@ -37,6 +38,7 @@ describe('signupApi', () => {
     const session = await signupApi.signup(input);
 
     expect(session.refreshToken).toBeUndefined();
+    expect(session.user.emailVerified).toBe(false);
     const persisted = JSON.parse(localStorage.getItem('northstar.session') ?? '{}') as Record<string, unknown>;
     expect(persisted.accessToken).toBe('access-token');
     expect(persisted.refreshToken).toBeUndefined();
@@ -54,12 +56,13 @@ describe('signupApi', () => {
     expect(localStorage.getItem('northstar.session')).toBeNull();
   });
 
-  it('provisions the matching local organization and workspace when demo fallback is needed', async () => {
+  it('provisions the matching local organization as verified when demo fallback is needed', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')));
 
     const session = await signupApi.signup(input);
 
     expect(session.user.role).toBe('owner');
+    expect(session.user.emailVerified).toBe(true);
     const workspace = JSON.parse(localStorage.getItem('northstar.workspace') ?? '{}') as {
       name?: string;
       tenantName?: string;
