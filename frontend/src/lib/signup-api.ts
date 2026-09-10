@@ -1,10 +1,12 @@
 import { ApiError, AUTH_SESSION_EVENT } from '@/lib/api';
 import { writeStorage } from '@/lib/storage';
+import { persistActiveWorkspace, workspaceDefaults } from '@/lib/workspace-api';
 import type { Session } from '@/types';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) !== 'false';
 const SESSION_KEY = 'northstar.session';
+const WORKSPACE_KEY = 'northstar.workspace';
 
 export interface SignupInput {
   name: string;
@@ -57,6 +59,21 @@ async function demoSignup(input: SignupInput): Promise<Session> {
   }
   if (input.password.length < 12) throw new ApiError('Password must be at least 12 characters.', 422);
   const userName = input.name.trim().replace(/\s+/g, ' ');
+  const organizationName = input.organizationName.trim().replace(/\s+/g, ' ');
+  const workspaceId = `workspace-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+  const tenantId = `tenant-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+  writeStorage(WORKSPACE_KEY, {
+    ...workspaceDefaults,
+    id: workspaceId,
+    tenantId,
+    tenantName: organizationName,
+    name: organizationName,
+    slug: 'default',
+    role: 'workspace_admin' as const,
+    plan: 'starter',
+    whiteLabel: { ...workspaceDefaults.whiteLabel, companyName: organizationName },
+  });
+  persistActiveWorkspace(workspaceId);
   return {
     accessToken: `demo-signup.${btoa(input.email.toLowerCase())}.token`,
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
