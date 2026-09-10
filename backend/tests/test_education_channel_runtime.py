@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
 from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalMessage, CanonicalSender
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.lead_crm.models import RawWebhookEvent
@@ -157,6 +158,33 @@ async def _raw_event(
     return raw
 
 
+async def _scoped_connection(
+    session,
+    *,
+    agent: Agent,
+    scope_agent_id: uuid.UUID | None,
+) -> ChannelConnection:
+    connection = ChannelConnection(
+        tenant_id=agent.tenant_id,
+        provider=ChannelProvider.WHATSAPP.value,
+        name=f"Education runtime {uuid.uuid4().hex}",
+        status="healthy",
+        configuration_json={"agentId": str(agent.id)},
+    )
+    session.add(connection)
+    await session.flush()
+    session.add(
+        WorkspaceChannelConnection(
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=scope_agent_id,
+            connection_id=connection.id,
+        )
+    )
+    await session.flush()
+    return connection
+
+
 async def test_education_channel_runtime_never_enters_lead_path(
     client: AsyncClient,
     auth_headers: dict[str, str],
@@ -166,15 +194,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
     async with SessionFactory() as session:
         agent = await session.scalar(select(Agent).where(Agent.id == uuid.UUID(seeded["agentId"])))
         assert agent is not None
-        connection = ChannelConnection(
-            tenant_id=agent.tenant_id,
-            provider=ChannelProvider.WHATSAPP.value,
-            name=f"Education runtime {uuid.uuid4().hex}",
-            status="healthy",
-            configuration_json={"agentId": str(agent.id)},
-        )
-        session.add(connection)
-        await session.flush()
+        connection = await _scoped_connection(session, agent=agent, scope_agent_id=agent.id)
 
         authorized_raw = await _raw_event(
             session,
@@ -292,3 +312,90 @@ async def test_education_channel_runtime_never_enters_lead_path(
         assert denied_event.payload["reason"] == "identity_not_verified"
         assert denied_event.payload["conversationId"] is None
         assert denied_raw.processing_status == "processed"
+
+
+async def test_education_channel_runtime_denies_mismatched_connection_agent_scope(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    seeded, headers = await _seed_authorized_student(client, auth_headers)
+    other_agent_response = await client.post(
+        "/api/v1/agents",
+        headers=headers,
+        json={
+            "name": f"Other Channel Agent {uuid.uuid4().hex[:8]}",
+            "description": "Owns the channel scope but not the Education enrollment",
+            "purpose": "support",
+            "deploymentChannel": "website",
+        },
+    )
+    assert other_agent_response.status_code == 201, other_agent_response.text
+
+    async with SessionFactory() as session:
+        education_agent = await session.scalar(
+            select(Agent).where(Agent.id == uuid.UUID(seeded["agentId"]))
+        )
+        other_agent = await session.scalar(
+            select(Agent).where(Agent.id == uuid.UUID(other_agent_response.json()["id"]))
+        )
+        assert education_agent is not None
+        assert other_agent is not None
+        connection = await _scoped_connection(
+            session,
+            agent=education_agent,
+            scope_agent_id=other_agent.id,
+        )
+        raw = await _raw_event(
+            session,
+            tenant_id=education_agent.tenant_id,
+            connection_id=connection.id,
+            external_event_id="education-scope-denied",
+        )
+
+        await _process_education_message(
+            session,
+            raw=raw,
+            connection=connection,
+            canonical=_canonical(
+                tenant_id=education_agent.tenant_id,
+                connection_id=connection.id,
+                phone="+919876540101",
+                external_event_id="education-scope-denied",
+            ),
+            agent=education_agent,
+        )
+
+        conversation_count = int(
+            await session.scalar(
+                select(func.count(Conversation.id)).where(
+                    Conversation.workspace_id == education_agent.workspace_id,
+                    Conversation.agent_id == education_agent.id,
+                )
+            )
+            or 0
+        )
+        lead_count = int(
+            await session.scalar(
+                select(func.count(Lead.id)).where(
+                    Lead.workspace_id == education_agent.workspace_id,
+                    Lead.agent_id == education_agent.id,
+                )
+            )
+            or 0
+        )
+        denied_event = await session.scalar(
+            select(OutboxEvent)
+            .where(
+                OutboxEvent.tenant_id == education_agent.tenant_id,
+                OutboxEvent.event_type == "education.access.denied.v1",
+            )
+            .order_by(OutboxEvent.occurred_at.desc())
+        )
+
+        assert conversation_count == 0
+        assert lead_count == 0
+        assert denied_event is not None
+        assert denied_event.payload["authorized"] is False
+        assert denied_event.payload["reason"] == "channel_scope_mismatch"
+        assert denied_event.payload["conversationId"] is None
+        assert raw.processing_status == "processed"
