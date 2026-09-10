@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 
+from northstar_api.database import SessionFactory
+from northstar_api.models import Role, TenantMembership, User, WorkspaceMembership, WorkspaceRole
 from northstar_api.routers import workspace as workspace_router_module
+from northstar_api.security import create_access_token, hash_password
 
 
 async def test_new_user_invitation_is_persisted_and_consumed_during_signup(
@@ -123,3 +127,58 @@ async def test_existing_account_is_added_without_creating_a_pending_invitation(
         json={"email": existing_email, "role": "operator"},
     )
     assert duplicate.status_code == 409
+
+
+async def test_manager_can_view_team_but_cannot_manage_invitations(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    workspace_response = await client.get("/api/v1/workspace", headers=auth_headers)
+    assert workspace_response.status_code == 200, workspace_response.text
+    workspace = workspace_response.json()
+    workspace_id = UUID(workspace["id"])
+    tenant_id = UUID(workspace["tenantId"])
+    email = f"manager-{uuid4().hex[:10]}@example.com"
+
+    async with SessionFactory() as session:
+        user = User(
+            email=email,
+            name="Workspace Manager",
+            password_hash=hash_password("Manager-Password-2026!"),
+            is_active=True,
+        )
+        session.add(user)
+        await session.flush()
+        session.add(
+            TenantMembership(
+                tenant_id=tenant_id,
+                user_id=user.id,
+                role=Role.MEMBER,
+            )
+        )
+        session.add(
+            WorkspaceMembership(
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                user_id=user.id,
+                role=WorkspaceRole.MANAGER,
+                all_agents_access=True,
+            )
+        )
+        await session.commit()
+        manager_id = user.id
+
+    token, _ = create_access_token(manager_id, tenant_id, Role.MEMBER)
+    manager_headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Workspace-ID": str(workspace_id),
+    }
+    visible = await client.get("/api/v1/workspace/team", headers=manager_headers)
+    assert visible.status_code == 200, visible.text
+
+    forbidden = await client.post(
+        "/api/v1/workspace/invitations",
+        headers=manager_headers,
+        json={"email": "should-not-be-invited@example.com", "role": "operator"},
+    )
+    assert forbidden.status_code == 403, forbidden.text
