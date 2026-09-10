@@ -6,10 +6,11 @@ import time
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import Settings, get_settings
+from northstar_api.education_knowledge_scope import EducationKnowledgeScope
 from northstar_api.metrics import RETRIEVAL_DURATION, RETRIEVAL_EVIDENCE
 from northstar_api.models import DocumentChunk, FactStatus, KnowledgeFact, KnowledgeSource
 from northstar_api.services.llm import NvidiaModelAdapter, nvidia_adapter
@@ -26,6 +27,15 @@ class Evidence:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class EducationRetrievalScope:
+    workspace_id: UUID
+    student_id: UUID
+    enrollment_id: UUID
+    course_id: UUID
+    batch_id: UUID
+
+
 class RetrievalService:
     def __init__(
         self,
@@ -36,7 +46,14 @@ class RetrievalService:
         self.settings = settings or get_settings()
 
     async def retrieve(
-        self, session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, revision: int, query: str
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        revision: int,
+        query: str,
+        education_scope: EducationRetrievalScope | None = None,
     ) -> list[Evidence]:
         started = time.perf_counter()
         query_embedding = await self.model.embed_query(query)
@@ -48,6 +65,7 @@ class RetrievalService:
                 revision=revision,
                 query=query,
                 vector=query_embedding,
+                education_scope=education_scope,
             )
         else:
             evidence = await self._portable_retrieve(
@@ -57,11 +75,57 @@ class RetrievalService:
                 revision=revision,
                 query=query,
                 vector=query_embedding,
+                education_scope=education_scope,
             )
         evidence = evidence[: self.settings.retrieval_context_limit]
         RETRIEVAL_DURATION.observe(time.perf_counter() - started)
         RETRIEVAL_EVIDENCE.observe(len(evidence))
         return evidence
+
+    @staticmethod
+    def _source_scope_filter(
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        source_id,
+        scope: EducationRetrievalScope,
+    ):
+        return exists(
+            select(EducationKnowledgeScope.id).where(
+                EducationKnowledgeScope.tenant_id == tenant_id,
+                EducationKnowledgeScope.workspace_id == scope.workspace_id,
+                EducationKnowledgeScope.agent_id == agent_id,
+                EducationKnowledgeScope.source_id == source_id,
+                EducationKnowledgeScope.course_id == scope.course_id,
+                EducationKnowledgeScope.batch_id == scope.batch_id,
+            )
+        )
+
+    @classmethod
+    def _fact_scope_filter(
+        cls,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        scope: EducationRetrievalScope,
+    ):
+        direct = exists(
+            select(EducationKnowledgeScope.id).where(
+                EducationKnowledgeScope.tenant_id == tenant_id,
+                EducationKnowledgeScope.workspace_id == scope.workspace_id,
+                EducationKnowledgeScope.agent_id == agent_id,
+                EducationKnowledgeScope.fact_id == KnowledgeFact.id,
+                EducationKnowledgeScope.course_id == scope.course_id,
+                EducationKnowledgeScope.batch_id == scope.batch_id,
+            )
+        )
+        inherited = cls._source_scope_filter(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            source_id=KnowledgeFact.source_id,
+            scope=scope,
+        )
+        return or_(direct, inherited)
 
     async def _postgres_retrieve(
         self,
@@ -72,19 +136,49 @@ class RetrievalService:
         revision: int,
         query: str,
         vector: list[float],
+        education_scope: EducationRetrievalScope | None,
     ) -> list[Evidence]:
         limit = self.settings.retrieval_candidate_limit
+        fact_filters = [
+            KnowledgeFact.tenant_id == tenant_id,
+            KnowledgeFact.agent_id == agent_id,
+            KnowledgeFact.status == FactStatus.APPROVED,
+            KnowledgeFact.revision <= revision,
+        ]
+        chunk_filters = [
+            DocumentChunk.tenant_id == tenant_id,
+            DocumentChunk.agent_id == agent_id,
+            DocumentChunk.approved.is_(True),
+            DocumentChunk.revision <= revision,
+        ]
+        if education_scope is not None:
+            fact_filters.extend(
+                [
+                    KnowledgeFact.workspace_id == education_scope.workspace_id,
+                    self._fact_scope_filter(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        scope=education_scope,
+                    ),
+                ]
+            )
+            chunk_filters.extend(
+                [
+                    DocumentChunk.workspace_id == education_scope.workspace_id,
+                    self._source_scope_filter(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        source_id=DocumentChunk.source_id,
+                        scope=education_scope,
+                    ),
+                ]
+            )
+
         fact_distance = KnowledgeFact.embedding.cosine_distance(vector)
         fact_dense = (
             select(KnowledgeFact, KnowledgeSource.name, KnowledgeSource.url, fact_distance.label("distance"))
             .outerjoin(KnowledgeSource, KnowledgeSource.id == KnowledgeFact.source_id)
-            .where(
-                KnowledgeFact.tenant_id == tenant_id,
-                KnowledgeFact.agent_id == agent_id,
-                KnowledgeFact.status == FactStatus.APPROVED,
-                KnowledgeFact.revision <= revision,
-                KnowledgeFact.embedding.is_not(None),
-            )
+            .where(*fact_filters, KnowledgeFact.embedding.is_not(None))
             .order_by(fact_distance)
             .limit(limit)
         )
@@ -92,13 +186,7 @@ class RetrievalService:
         chunk_dense = (
             select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url, chunk_distance.label("distance"))
             .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
-            .where(
-                DocumentChunk.tenant_id == tenant_id,
-                DocumentChunk.agent_id == agent_id,
-                DocumentChunk.approved.is_(True),
-                DocumentChunk.revision <= revision,
-                DocumentChunk.embedding.is_not(None),
-            )
+            .where(*chunk_filters, DocumentChunk.embedding.is_not(None))
             .order_by(chunk_distance)
             .limit(limit)
         )
@@ -131,10 +219,7 @@ class RetrievalService:
             select(KnowledgeFact, KnowledgeSource.name, KnowledgeSource.url, fact_rank.label("rank"))
             .outerjoin(KnowledgeSource, KnowledgeSource.id == KnowledgeFact.source_id)
             .where(
-                KnowledgeFact.tenant_id == tenant_id,
-                KnowledgeFact.agent_id == agent_id,
-                KnowledgeFact.status == FactStatus.APPROVED,
-                KnowledgeFact.revision <= revision,
+                *fact_filters,
                 ts_query.op("@@")(
                     func.to_tsvector("simple", KnowledgeFact.question + " " + KnowledgeFact.answer)
                 ),
@@ -147,10 +232,7 @@ class RetrievalService:
             select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url, chunk_rank.label("rank"))
             .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
             .where(
-                DocumentChunk.tenant_id == tenant_id,
-                DocumentChunk.agent_id == agent_id,
-                DocumentChunk.approved.is_(True),
-                DocumentChunk.revision <= revision,
+                *chunk_filters,
                 ts_query.op("@@")(func.to_tsvector("simple", DocumentChunk.content)),
             )
             .order_by(chunk_rank.desc())
@@ -182,10 +264,6 @@ class RetrievalService:
         )
         if not ordered:
             return []
-        # Reciprocal-rank fusion decides ordering, but it is relative to the current
-        # candidate set: its top result is always 1.0 even for an unrelated query.
-        # Gate on the absolute dense/lexical relevance score so an irrelevant top
-        # result cannot bypass abstention merely because it ranked first.
         return [item for item in ordered if item.score >= self.settings.retrieval_min_score]
 
     async def _portable_retrieve(
@@ -197,17 +275,48 @@ class RetrievalService:
         revision: int,
         query: str,
         vector: list[float],
+        education_scope: EducationRetrievalScope | None,
     ) -> list[Evidence]:
+        fact_filters = [
+            KnowledgeFact.tenant_id == tenant_id,
+            KnowledgeFact.agent_id == agent_id,
+            KnowledgeFact.status == FactStatus.APPROVED,
+            KnowledgeFact.revision <= revision,
+        ]
+        chunk_filters = [
+            DocumentChunk.tenant_id == tenant_id,
+            DocumentChunk.agent_id == agent_id,
+            DocumentChunk.approved.is_(True),
+            DocumentChunk.revision <= revision,
+        ]
+        if education_scope is not None:
+            fact_filters.extend(
+                [
+                    KnowledgeFact.workspace_id == education_scope.workspace_id,
+                    self._fact_scope_filter(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        scope=education_scope,
+                    ),
+                ]
+            )
+            chunk_filters.extend(
+                [
+                    DocumentChunk.workspace_id == education_scope.workspace_id,
+                    self._source_scope_filter(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        source_id=DocumentChunk.source_id,
+                        scope=education_scope,
+                    ),
+                ]
+            )
+
         fact_rows = (
             await session.execute(
                 select(KnowledgeFact, KnowledgeSource.name, KnowledgeSource.url)
                 .outerjoin(KnowledgeSource, KnowledgeSource.id == KnowledgeFact.source_id)
-                .where(
-                    KnowledgeFact.tenant_id == tenant_id,
-                    KnowledgeFact.agent_id == agent_id,
-                    KnowledgeFact.status == FactStatus.APPROVED,
-                    KnowledgeFact.revision <= revision,
-                )
+                .where(*fact_filters)
                 .limit(500)
             )
         ).all()
@@ -215,12 +324,7 @@ class RetrievalService:
             await session.execute(
                 select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url)
                 .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
-                .where(
-                    DocumentChunk.tenant_id == tenant_id,
-                    DocumentChunk.agent_id == agent_id,
-                    DocumentChunk.approved.is_(True),
-                    DocumentChunk.revision <= revision,
-                )
+                .where(*chunk_filters)
                 .limit(500)
             )
         ).all()
@@ -232,9 +336,6 @@ class RetrievalService:
                 words = set(re.findall(r"\w+", text.casefold()))
                 lexical = len(query_words & words) / max(1, len(query_words | words))
                 semantic = _cosine(vector, list(entity.embedding)) if entity.embedding is not None else 0.0
-                # Cosine is already a similarity measure. Mapping it from [-1, 1]
-                # to [0, 1] makes even a barely positive unrelated match score
-                # above 0.5 and defeats the abstention threshold.
                 score = max(lexical, max(0.0, semantic))
                 if score >= self.settings.retrieval_min_score:
                     candidates.append(
