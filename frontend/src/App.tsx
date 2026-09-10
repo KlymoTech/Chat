@@ -8,6 +8,7 @@ import { BatchesPage } from '@/pages/BatchesPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
 import { DeployPage } from '@/pages/DeployPage';
+import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
 import { HelpArticlePage } from '@/pages/HelpArticlePage';
 import { HelpAskPage } from '@/pages/HelpAskPage';
@@ -20,6 +21,7 @@ import { LeadsPage } from '@/pages/LeadsPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { StudentsPage } from '@/pages/StudentsPage';
 import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
@@ -39,6 +41,8 @@ export function App() {
     <Route path="/login" element={<LoginPage />} />
     <Route path="/signup" element={<SignupPage />} />
     <Route path="/verify-email" element={<VerifyEmailPage />} />
+    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+    <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
