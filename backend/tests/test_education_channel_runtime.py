@@ -227,7 +227,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
                 OutboxEvent.tenant_id == agent.tenant_id,
                 OutboxEvent.event_type == "education.access.authorized.v1",
             )
-            .order_by(OutboxEvent.created_at.desc())
+            .order_by(OutboxEvent.occurred_at.desc())
         )
         assert conversation_count == 1
         assert message_count == 1
@@ -283,7 +283,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
                 OutboxEvent.tenant_id == agent.tenant_id,
                 OutboxEvent.event_type == "education.access.denied.v1",
             )
-            .order_by(OutboxEvent.created_at.desc())
+            .order_by(OutboxEvent.occurred_at.desc())
         )
         assert conversations_after_denial == 1
         assert leads_after_denial == 0
