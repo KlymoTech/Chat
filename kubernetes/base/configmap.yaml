@@ -17,6 +17,8 @@ data:
   EMAIL_FROM_NAME: Northstar
   EMAIL_VERIFICATION_FRONTEND_URL: https://app.example.com/verify-email
   EMAIL_VERIFICATION_TTL_HOURS: "24"
+  PASSWORD_RESET_FRONTEND_URL: https://app.example.com/reset-password
+  PASSWORD_RESET_TTL_MINUTES: "60"
   SMTP_HOST: smtp.example.com
   SMTP_PORT: "587"
   SMTP_STARTTLS: "true"
