@@ -20,6 +20,7 @@ import { LeadsPage } from '@/pages/LeadsPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { SignupPage } from '@/pages/SignupPage';
 import { StudentsPage } from '@/pages/StudentsPage';
 import { WhiteLabelPage } from '@/pages/WhiteLabelPage';
 import { WorkspacePage } from '@/pages/WorkspacePage';
@@ -34,6 +35,7 @@ function ProtectedLayout() {
 export function App() {
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
+    <Route path="/signup" element={<SignupPage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
