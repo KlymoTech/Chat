@@ -20,6 +20,7 @@ from northstar_api import (
     email_verification,  # noqa: F401
     help_models,  # noqa: F401
     models,  # noqa: F401
+    password_reset,  # noqa: F401
 )
 from northstar_api.config import get_settings
 from northstar_api.database import Base
