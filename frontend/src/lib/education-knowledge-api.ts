@@ -21,6 +21,13 @@ const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) !== 'fa
 const SESSION_KEY = 'northstar.session';
 const STORAGE_KEY = 'northstar.education.knowledge-scopes';
 
+class EducationKnowledgeApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'EducationKnowledgeApiError';
+  }
+}
+
 function sessionToken(): string | undefined {
   return readStorage<{ accessToken?: string } | null>(SESSION_KEY, null)?.accessToken;
 }
@@ -41,7 +48,10 @@ async function remote<T>(path: string, method: 'GET' | 'PUT', body?: unknown): P
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string; error?: { message?: string } } | null;
-    throw new Error(payload?.detail ?? payload?.error?.message ?? `Knowledge scope request failed (${response.status})`);
+    throw new EducationKnowledgeApiError(
+      payload?.detail ?? payload?.error?.message ?? `Knowledge scope request failed (${response.status})`,
+      response.status,
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -82,7 +92,8 @@ async function withFallback<T>(remoteCall: () => Promise<T>, fallback: () => Pro
   if (!DEMO_MODE) return remoteCall();
   try {
     return await remoteCall();
-  } catch {
+  } catch (error) {
+    if (error instanceof EducationKnowledgeApiError && error.status < 500) throw error;
     return fallback();
   }
 }
