@@ -1,6 +1,7 @@
-import { ApiError } from '@/lib/api';
+import { ApiError, AUTH_SESSION_EVENT } from '@/lib/api';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
+const SESSION_KEY = 'northstar.session';
 
 export interface PasswordResetResult {
   reset: boolean;
@@ -17,6 +18,11 @@ async function errorFrom(response: Response, fallback: string): Promise<ApiError
     }
   }
   return new ApiError(fallback, response.status, payload);
+}
+
+function clearBrowserSession(): void {
+  localStorage.removeItem(SESSION_KEY);
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
 }
 
 export const passwordResetApi = {
@@ -38,6 +44,8 @@ export const passwordResetApi = {
       body: JSON.stringify({ token, password, confirmPassword }),
     });
     if (!response.ok) throw await errorFrom(response, 'Password reset link is invalid or expired.');
-    return response.json() as Promise<PasswordResetResult>;
+    const result = await response.json() as PasswordResetResult;
+    if (result.reset) clearBrowserSession();
+    return result;
   },
 };
