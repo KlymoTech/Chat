@@ -39,6 +39,8 @@ class EducationAccessReason(str, enum.Enum):
     ENROLLMENT_GRADUATED = "enrollment_graduated"
     COURSE_INACTIVE = "course_inactive"
     BATCH_INACTIVE = "batch_inactive"
+    BATCH_NOT_STARTED = "batch_not_started"
+    BATCH_ENDED = "batch_ended"
     ACCESS_NOT_STARTED = "access_not_started"
     ACCESS_ENDED = "access_ended"
 
@@ -160,16 +162,20 @@ async def _active_enrollment_denial_reason(
     if course_status != CourseStatus.ACTIVE.value:
         return EducationAccessReason.COURSE_INACTIVE
 
-    batch_status = await session.scalar(
-        select(EducationBatch.status).where(
+    batch = await session.scalar(
+        select(EducationBatch).where(
             EducationBatch.id == enrollment.batch_id,
             EducationBatch.course_id == enrollment.course_id,
             EducationBatch.tenant_id == tenant_id,
             EducationBatch.workspace_id == workspace_id,
         )
     )
-    if batch_status != BatchStatus.ACTIVE.value:
+    if batch is None or batch.status != BatchStatus.ACTIVE.value:
         return EducationAccessReason.BATCH_INACTIVE
+    if batch.starts_on is not None and as_of < batch.starts_on:
+        return EducationAccessReason.BATCH_NOT_STARTED
+    if batch.ends_on is not None and as_of > batch.ends_on:
+        return EducationAccessReason.BATCH_ENDED
 
     if enrollment.starts_on is not None and as_of < enrollment.starts_on:
         return EducationAccessReason.ACCESS_NOT_STARTED
@@ -204,7 +210,7 @@ async def authorize_education_access(
             reason=EducationAccessReason.AGENT_SCOPE_MISMATCH,
             agent=agent,
         )
-    if agent.status != AgentStatus.ACTIVE:
+    if agent.deleted_at is not None or agent.status != AgentStatus.ACTIVE:
         return _decision(
             authorized=False,
             reason=EducationAccessReason.AGENT_INACTIVE,
