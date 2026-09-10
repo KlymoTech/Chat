@@ -4,10 +4,12 @@ import math
 import re
 import time
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from northstar_api.config import Settings, get_settings
 from northstar_api.education_knowledge_scope import EducationKnowledgeScope
@@ -87,9 +89,9 @@ class RetrievalService:
         *,
         tenant_id: UUID,
         agent_id: UUID,
-        source_id,
+        source_id: Any,
         scope: EducationRetrievalScope,
-    ):
+    ) -> ColumnElement[bool]:
         return exists(
             select(EducationKnowledgeScope.id).where(
                 EducationKnowledgeScope.tenant_id == tenant_id,
@@ -108,7 +110,7 @@ class RetrievalService:
         tenant_id: UUID,
         agent_id: UUID,
         scope: EducationRetrievalScope,
-    ):
+    ) -> ColumnElement[bool]:
         direct = exists(
             select(EducationKnowledgeScope.id).where(
                 EducationKnowledgeScope.tenant_id == tenant_id,
