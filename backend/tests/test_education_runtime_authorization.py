@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from northstar_api.database import SessionFactory
+from northstar_api.education_student_identities import StudentIdentityType
 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalSender
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.models import Agent
@@ -16,7 +17,6 @@ from northstar_api.services.education_runtime_authorization import (
     authorize_education_access,
     identity_candidate_for_event,
 )
-from northstar_api.education_student_identities import StudentIdentityType
 
 
 async def _workspace_headers(client: AsyncClient, auth_headers: dict[str, str]) -> tuple[str, dict[str, str]]:

@@ -164,9 +164,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
     seeded, _ = await _seed_authorized_student(client, auth_headers)
 
     async with SessionFactory() as session:
-        agent = await session.scalar(
-            select(Agent).where(Agent.id == uuid.UUID(seeded["agentId"]))
-        )
+        agent = await session.scalar(select(Agent).where(Agent.id == uuid.UUID(seeded["agentId"])))
         assert agent is not None
         connection = ChannelConnection(
             tenant_id=agent.tenant_id,
