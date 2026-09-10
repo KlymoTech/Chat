@@ -1,6 +1,6 @@
 import { ArrowRight, Bot, Eye, EyeOff, Layers3, ShieldCheck, Sparkles } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
 import { useAuth } from '@/components/providers';
 import { Button, Field } from '@/components/ui';
@@ -33,7 +33,7 @@ export function LoginPage() {
           {error ? <div className="form-error" role="alert">{error}</div> : null}
           <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>Sign in <ArrowRight /></>}</Button>
         </form>
-        <p className="signup-copy">New to Northstar? <button className="text-button">Create an account</button></p>
+        <p className="signup-copy">New to Northstar? <Link className="text-button" to="/signup">Create an account</Link></p>
         <p className="login-legal">By continuing, you agree to our <a href="#terms">Terms</a> and <a href="#privacy">Privacy Policy</a>.</p>
       </div>
     </section>
