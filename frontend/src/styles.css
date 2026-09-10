@@ -142,8 +142,9 @@ svg { width: 20px; height: 20px; stroke-width: 1.9; }
 .app-shell--expanded .rail { width: 218px; box-shadow: 8px 0 30px rgb(15 23 42 / .06); }
 .rail__brand { height: 72px; display: grid; place-items: center; flex: 0 0 auto; }
 .rail__brand .brand-mark { width: 42px !important; height: 42px !important; }
-.rail__nav { flex: 1; padding: 8px 11px; display: flex; flex-direction: column; gap: 7px; }
-.rail__bottom { padding: 8px 11px 14px; display: flex; flex-direction: column; gap: 6px; }
+.rail__nav { min-height: 0; flex: 1; padding: 8px 11px; display: flex; flex-direction: column; gap: 7px; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.rail__nav::-webkit-scrollbar { display: none; }
+.rail__bottom { flex: 0 0 auto; padding: 8px 11px 14px; display: flex; flex-direction: column; gap: 6px; background: #fff; }
 .rail-link { position: relative; height: 48px; min-width: 52px; padding: 0 15px; border: 0; display: flex; align-items: center; gap: 14px; border-radius: 13px; color: #778196; background: transparent; white-space: nowrap; font-size: 13px; font-weight: 650; }
 .rail-link svg { width: 21px; height: 21px; flex: 0 0 auto; }
 .rail-link span { opacity: 0; transition: opacity .1s; }
