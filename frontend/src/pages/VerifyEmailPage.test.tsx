@@ -86,25 +86,26 @@ describe('VerifyEmailPage', () => {
     expect(screen.getByRole('button', { name: /Resend available in 60s/ })).toBeDisabled();
   });
 
-  it('verifies a link, refreshes the session, and enters the workspace', async () => {
-    renderVerification('/verify-email?token=valid-token-value-1234567890');
+  it('verifies a fragment link, refreshes the session, and enters the workspace', async () => {
+    renderVerification('/verify-email#token=valid-token-value-1234567890');
 
     await waitFor(() => expect(mocks.verify).toHaveBeenCalledWith('valid-token-value-1234567890'));
     await waitFor(() => expect(mocks.refreshSession).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Workspace dashboard')).toBeInTheDocument();
   });
 
-  it('shows an expired-link error and keeps resend recovery available', async () => {
+  it('keeps legacy query-string links compatible and exposes resend recovery on expiry', async () => {
     mocks.verify.mockRejectedValueOnce(new Error('Verification link is invalid or expired'));
     renderVerification('/verify-email?token=expired-token-value-1234567890');
 
+    await waitFor(() => expect(mocks.verify).toHaveBeenCalledWith('expired-token-value-1234567890'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Verification link is invalid or expired');
     expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeEnabled();
   });
 
   it('verifies from a signed-out browser without requiring a refresh session', async () => {
     mocks.session = null;
-    renderVerification('/verify-email?token=valid-signed-out-token-1234567890');
+    renderVerification('/verify-email#token=valid-signed-out-token-1234567890');
 
     await waitFor(() => expect(mocks.verify).toHaveBeenCalledTimes(1));
     expect(mocks.refreshSession).not.toHaveBeenCalled();
