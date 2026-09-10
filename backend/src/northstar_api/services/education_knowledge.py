@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.education import EducationCourse
 from northstar_api.education_batches import EducationBatch
-from northstar_api.education_knowledge_schemas import EducationKnowledgeScopeRef
+from northstar_api.education_knowledge_schemas import (
+    EducationKnowledgeScopeOut,
+    EducationKnowledgeScopeRef,
+)
 from northstar_api.education_knowledge_scope import EducationKnowledgeScope
 from northstar_api.models import Agent
 
@@ -64,6 +67,10 @@ async def validate_scope_pairs(
             )
 
 
+def _scope_out(scope: EducationKnowledgeScope) -> EducationKnowledgeScopeOut:
+    return EducationKnowledgeScopeOut.model_validate(scope)
+
+
 async def list_source_scopes(
     session: AsyncSession,
     *,
@@ -71,25 +78,24 @@ async def list_source_scopes(
     workspace_id: UUID,
     agent_id: UUID,
     source_id: UUID,
-) -> list[EducationKnowledgeScope]:
-    return list(
-        (
-            await session.scalars(
-                select(EducationKnowledgeScope)
-                .where(
-                    EducationKnowledgeScope.tenant_id == tenant_id,
-                    EducationKnowledgeScope.workspace_id == workspace_id,
-                    EducationKnowledgeScope.agent_id == agent_id,
-                    EducationKnowledgeScope.source_id == source_id,
-                )
-                .order_by(
-                    EducationKnowledgeScope.course_id,
-                    EducationKnowledgeScope.batch_id,
-                    EducationKnowledgeScope.created_at,
-                )
+) -> list[EducationKnowledgeScopeOut]:
+    rows = (
+        await session.scalars(
+            select(EducationKnowledgeScope)
+            .where(
+                EducationKnowledgeScope.tenant_id == tenant_id,
+                EducationKnowledgeScope.workspace_id == workspace_id,
+                EducationKnowledgeScope.agent_id == agent_id,
+                EducationKnowledgeScope.source_id == source_id,
             )
-        ).all()
-    )
+            .order_by(
+                EducationKnowledgeScope.course_id,
+                EducationKnowledgeScope.batch_id,
+                EducationKnowledgeScope.created_at,
+            )
+        )
+    ).all()
+    return [_scope_out(item) for item in rows]
 
 
 async def list_fact_scopes(
@@ -99,25 +105,24 @@ async def list_fact_scopes(
     workspace_id: UUID,
     agent_id: UUID,
     fact_id: UUID,
-) -> list[EducationKnowledgeScope]:
-    return list(
-        (
-            await session.scalars(
-                select(EducationKnowledgeScope)
-                .where(
-                    EducationKnowledgeScope.tenant_id == tenant_id,
-                    EducationKnowledgeScope.workspace_id == workspace_id,
-                    EducationKnowledgeScope.agent_id == agent_id,
-                    EducationKnowledgeScope.fact_id == fact_id,
-                )
-                .order_by(
-                    EducationKnowledgeScope.course_id,
-                    EducationKnowledgeScope.batch_id,
-                    EducationKnowledgeScope.created_at,
-                )
+) -> list[EducationKnowledgeScopeOut]:
+    rows = (
+        await session.scalars(
+            select(EducationKnowledgeScope)
+            .where(
+                EducationKnowledgeScope.tenant_id == tenant_id,
+                EducationKnowledgeScope.workspace_id == workspace_id,
+                EducationKnowledgeScope.agent_id == agent_id,
+                EducationKnowledgeScope.fact_id == fact_id,
             )
-        ).all()
-    )
+            .order_by(
+                EducationKnowledgeScope.course_id,
+                EducationKnowledgeScope.batch_id,
+                EducationKnowledgeScope.created_at,
+            )
+        )
+    ).all()
+    return [_scope_out(item) for item in rows]
 
 
 async def replace_source_scopes(
@@ -128,7 +133,7 @@ async def replace_source_scopes(
     agent_id: UUID,
     source_id: UUID,
     pairs: Sequence[EducationKnowledgeScopeRef],
-) -> list[EducationKnowledgeScope]:
+) -> list[EducationKnowledgeScopeOut]:
     await validate_scope_pairs(
         session,
         tenant_id=tenant_id,
@@ -174,7 +179,7 @@ async def replace_fact_scopes(
     agent_id: UUID,
     fact_id: UUID,
     pairs: Sequence[EducationKnowledgeScopeRef],
-) -> list[EducationKnowledgeScope]:
+) -> list[EducationKnowledgeScopeOut]:
     await validate_scope_pairs(
         session,
         tenant_id=tenant_id,
