@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import CurrentPrincipal
-from northstar_api.models import TenantMembership, User
+from northstar_api.models import Role, TenantMembership, User
 from northstar_api.schemas import LoginRequest, LogoutRequest, RefreshRequest, SessionOut, UserOut
 from northstar_api.security import create_access_token, create_refresh_token, decode_token, verify_password
 from northstar_api.services.rate_limit import SessionStoreUnavailable, redis_services
@@ -90,11 +90,6 @@ async def signup(
     settings = get_settings()
     try:
         provisioned = await provision_signup(session, payload=payload)
-        access_token, expires_at = create_access_token(
-            provisioned.user.id,
-            provisioned.tenant.id,
-            provisioned.user.memberships[0].role if provisioned.user.memberships else None,  # type: ignore[arg-type]
-        )
     except SignupConflict as exc:
         await session.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None
@@ -104,11 +99,6 @@ async def signup(
             status_code=409,
             detail="Account creation conflicted with an existing account. Try signing in instead.",
         ) from None
-
-    # The newly provisioned relationship collection is not guaranteed to be
-    # populated without a reload, so the authoritative first membership role is
-    # always Owner by construction.
-    from northstar_api.models import Role
 
     access_token, expires_at = create_access_token(
         provisioned.user.id,
