@@ -12,7 +12,8 @@ export interface SignupInput {
   name: string;
   email: string;
   password: string;
-  organizationName: string;
+  organizationName?: string;
+  workspaceInvitationToken?: string;
   termsAccepted: true;
   privacyAccepted: true;
 }
@@ -54,7 +55,7 @@ async function remoteSignup(input: SignupInput): Promise<Session> {
 }
 
 async function demoSignup(input: SignupInput): Promise<Session> {
-  if (!input.name.trim() || !input.organizationName.trim() || !input.email.trim()) {
+  if (!input.name.trim() || !input.organizationName?.trim() || !input.email.trim()) {
     throw new ApiError('Name, organization and business email are required.', 422);
   }
   if (input.password.length < 12) throw new ApiError('Password must be at least 12 characters.', 422);
@@ -93,6 +94,7 @@ export const signupApi = {
     try {
       value = await remoteSignup(input);
     } catch (error) {
+      if (input.workspaceInvitationToken) throw error;
       if (error instanceof ApiError && [400, 401, 403, 409, 422, 429].includes(error.status)) throw error;
       if (!DEMO_MODE) throw error;
       value = await demoSignup(input);
