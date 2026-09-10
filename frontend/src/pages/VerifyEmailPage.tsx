@@ -9,11 +9,18 @@ import './VerifyEmailPage.css';
 
 type VerificationState = 'waiting' | 'checking' | 'success' | 'error';
 
+function verificationToken(search: string, hash: string): string {
+  const fragmentToken = new URLSearchParams(hash.replace(/^#/, '')).get('token')?.trim();
+  if (fragmentToken) return fragmentToken;
+  // Query support preserves links generated before the fragment-token hardening.
+  return new URLSearchParams(search).get('token')?.trim() ?? '';
+}
+
 export function VerifyEmailPage() {
   const { session, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const token = new URLSearchParams(location.search).get('token')?.trim() ?? '';
+  const token = verificationToken(location.search, location.hash);
   const startedVerification = useRef(false);
   const [state, setState] = useState<VerificationState>(token ? 'checking' : 'waiting');
   const [email, setEmail] = useState(session?.user.email ?? '');
@@ -24,6 +31,10 @@ export function VerifyEmailPage() {
   useEffect(() => {
     if (!token || startedVerification.current) return;
     startedVerification.current = true;
+    // Remove bearer-style verification material from browser history/address bar
+    // before calling the API. Fragment links never reached the web server, while
+    // this also cleans up legacy query-string links immediately after hydration.
+    navigate('/verify-email', { replace: true });
     const run = async () => {
       setState('checking');
       setMessage('Checking your verification link…');
