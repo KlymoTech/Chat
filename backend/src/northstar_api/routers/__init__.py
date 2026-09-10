@@ -24,6 +24,7 @@ from northstar_api.routers import (
     integrations,
     knowledge,
     leads,
+    mfa,
     password_reset,
     qualification,
     whatsapp,
@@ -35,6 +36,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
+api_router.include_router(mfa.router)
 api_router.include_router(agents.router)
 api_router.include_router(education.router)
 api_router.include_router(education_batches.router)
