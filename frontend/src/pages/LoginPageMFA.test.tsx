@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { LoginPage } from '@/pages/LoginPage';
 
 const mocks = vi.hoisted(() => ({
@@ -20,18 +20,20 @@ function renderLogin() {
     <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: '/analytics' } }]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/mfa-challenge"
-          element={<ChallengeStateProbe />}
-        />
+        <Route path="/mfa-challenge" element={<ChallengeStateProbe />} />
       </Routes>
     </MemoryRouter>,
   );
 }
 
 function ChallengeStateProbe() {
-  const state = window.history.state;
-  return <div>Challenge route reached {state ? '' : ''}</div>;
+  const location = useLocation();
+  const state = location.state as { challengeToken?: string; from?: string } | null;
+  return <div>
+    <span>Challenge route reached</span>
+    <span>{state?.challengeToken}</span>
+    <span>{state?.from}</span>
+  </div>;
 }
 
 describe('LoginPage MFA handoff', () => {
@@ -58,6 +60,8 @@ describe('LoginPage MFA handoff', () => {
     await user.click(screen.getByRole('button', { name: /Sign in/ }));
 
     await waitFor(() => expect(mocks.login).toHaveBeenCalledWith('owner@example.com', 'Password-2026!'));
-    expect(await screen.findByText(/Challenge route reached/)).toBeInTheDocument();
+    expect(await screen.findByText('Challenge route reached')).toBeInTheDocument();
+    expect(screen.getByText('short-lived-challenge-token')).toBeInTheDocument();
+    expect(screen.getByText('/analytics')).toBeInTheDocument();
   });
 });
