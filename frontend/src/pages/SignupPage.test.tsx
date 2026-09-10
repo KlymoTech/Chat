@@ -1,0 +1,114 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import type { SignupInput } from '@/lib/signup-api';
+import { LoginPage } from '@/pages/LoginPage';
+import { SignupPage } from '@/pages/SignupPage';
+
+const mocks = vi.hoisted(() => ({
+  signup: vi.fn<(input: SignupInput) => Promise<void>>(),
+  login: vi.fn<(email: string, password: string) => Promise<void>>(),
+}));
+
+vi.mock('@/components/providers', () => ({
+  useAuth: () => ({
+    session: null,
+    signup: mocks.signup,
+    login: mocks.login,
+    logout: vi.fn(),
+  }),
+}));
+
+function renderSignup() {
+  return render(
+    <MemoryRouter initialEntries={['/signup']}>
+      <Routes>
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<div>Workspace dashboard</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+async function fillValidSignup(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText('Your name'), '  Sakshee   Jha  ');
+  await user.type(screen.getByLabelText('Organization'), '  NorthStar   Academy  ');
+  await user.type(screen.getByLabelText('Business email'), 'SAKSHEE@EXAMPLE.COM');
+  await user.type(screen.getByLabelText('Password'), 'Signup-Password-2026!');
+}
+
+describe('SignupPage', () => {
+  beforeEach(() => {
+    mocks.signup.mockResolvedValue(undefined);
+    mocks.login.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('requires Terms and Privacy acceptance before creating an account', async () => {
+    const user = userEvent.setup();
+    renderSignup();
+    await fillValidSignup(user);
+
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Accept the Terms and Privacy Policy to create your account.',
+    );
+    expect(mocks.signup).not.toHaveBeenCalled();
+  });
+
+  it('normalizes form values, creates the account, and enters the workspace', async () => {
+    const user = userEvent.setup();
+    renderSignup();
+    await fillValidSignup(user);
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/i }));
+    await user.click(screen.getByRole('checkbox', { name: /Privacy Policy/i }));
+
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    await waitFor(() => expect(mocks.signup).toHaveBeenCalledWith({
+      name: 'Sakshee Jha',
+      organizationName: 'NorthStar Academy',
+      email: 'sakshee@example.com',
+      password: 'Signup-Password-2026!',
+      termsAccepted: true,
+      privacyAccepted: true,
+    }));
+    expect(await screen.findByText('Workspace dashboard')).toBeInTheDocument();
+  });
+
+  it('shows an actionable duplicate-account error returned by the signup API', async () => {
+    mocks.signup.mockRejectedValueOnce(new Error('An account with this email already exists'));
+    const user = userEvent.setup();
+    renderSignup();
+    await fillValidSignup(user);
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/i }));
+    await user.click(screen.getByRole('checkbox', { name: /Privacy Policy/i }));
+
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('An account with this email already exists');
+  });
+
+  it('connects the existing login page Create an account link to /signup', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<div>Signup route</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('link', { name: 'Create an account' }));
+
+    expect(await screen.findByText('Signup route')).toBeInTheDocument();
+  });
+});
