@@ -10,6 +10,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from redis.exceptions import RedisError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,12 +21,17 @@ from northstar_api.models import TenantMembership, User
 from northstar_api.schemas import LoginRequest, LogoutRequest, RefreshRequest, SessionOut, UserOut
 from northstar_api.security import create_access_token, create_refresh_token, decode_token, verify_password
 from northstar_api.services.rate_limit import SessionStoreUnavailable, redis_services
+from northstar_api.services.signup import SignupConflict, provision_signup
+from northstar_api.signup_schemas import SignupRequest
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
 DB = Annotated[AsyncSession, Depends(get_session)]
 _password_verification_slots = asyncio.Semaphore(get_settings().login_hash_concurrency)
 _REFRESH_COOKIE = "northstar_refresh"
+_SIGNUP_WINDOW_SECONDS = 3600
+_SIGNUP_SOURCE_LIMIT = 30
+_SIGNUP_IDENTIFIER_LIMIT = 6
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -47,6 +53,109 @@ def _public_refresh_token(token: str) -> str | None:
     # Browser production sessions use the HttpOnly cookie. Development and test
     # retain the body value for CLI compatibility and deterministic API tests.
     return None if get_settings().is_production else token
+
+
+async def _enforce_signup_rate_limit(payload: SignupRequest, request: Request) -> None:
+    source = request.client.host if request.client else "unknown"
+    source_identifier = hashlib.sha256(source.encode("utf-8")).hexdigest()[:32]
+    email_identifier = hashlib.sha256(str(payload.email).strip().lower().encode("utf-8")).hexdigest()[:32]
+    for key, limit, scope in (
+        (f"signup:source:{source_identifier}", _SIGNUP_SOURCE_LIMIT, "signup_source"),
+        (f"signup:identifier:{email_identifier}", _SIGNUP_IDENTIFIER_LIMIT, "signup_identifier"),
+    ):
+        rate_limit = await redis_services.check_rate_limit(
+            key,
+            limit,
+            _SIGNUP_WINDOW_SECONDS,
+            scope=scope,
+        )
+        if not rate_limit.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many account creation attempts. Try again later.",
+                headers={"Retry-After": str(rate_limit.retry_after)},
+            )
+
+
+@router.post("/signup", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
+async def signup(
+    payload: SignupRequest,
+    request: Request,
+    response: Response,
+    session: DB,
+) -> SessionOut:
+    """Create the first Owner, Tenant and Workspace for a new SaaS customer."""
+
+    await _enforce_signup_rate_limit(payload, request)
+    settings = get_settings()
+    try:
+        provisioned = await provision_signup(session, payload=payload)
+        access_token, expires_at = create_access_token(
+            provisioned.user.id,
+            provisioned.tenant.id,
+            provisioned.user.memberships[0].role if provisioned.user.memberships else None,  # type: ignore[arg-type]
+        )
+    except SignupConflict as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Account creation conflicted with an existing account. Try signing in instead.",
+        ) from None
+
+    # The newly provisioned relationship collection is not guaranteed to be
+    # populated without a reload, so the authoritative first membership role is
+    # always Owner by construction.
+    from northstar_api.models import Role
+
+    access_token, expires_at = create_access_token(
+        provisioned.user.id,
+        provisioned.tenant.id,
+        Role.OWNER,
+    )
+    refresh_token, _ = create_refresh_token(
+        provisioned.user.id,
+        provisioned.tenant.id,
+        Role.OWNER,
+    )
+    refresh_claims = decode_token(refresh_token, "refresh")
+    try:
+        await redis_services.remember_refresh_family(
+            refresh_claims["fid"],
+            refresh_claims["jti"],
+            settings.jwt_refresh_ttl_days * 86_400,
+        )
+        await session.commit()
+    except SessionStoreUnavailable:
+        await session.rollback()
+        raise HTTPException(status_code=503, detail="Session service unavailable") from None
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Account creation conflicted with an existing account. Try signing in instead.",
+        ) from None
+
+    _set_refresh_cookie(response, refresh_token)
+    logger.info(
+        "self_service_signup_created",
+        tenant_id=str(provisioned.tenant.id),
+        user_id=str(provisioned.user.id),
+        workspace_id=str(provisioned.workspace.id),
+    )
+    return SessionOut(
+        access_token=access_token,
+        refresh_token=_public_refresh_token(refresh_token),
+        expires_at=expires_at,
+        user=UserOut(
+            id=provisioned.user.id,
+            name=provisioned.user.name,
+            email=provisioned.user.email,
+            role=Role.OWNER,
+        ),
+    )
 
 
 @router.post("/login", response_model=SessionOut)
