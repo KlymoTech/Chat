@@ -93,6 +93,7 @@ jobs:
         run: >-
           npx eslint
           src/lib/signup-api.ts
+          src/lib/signup-api.test.ts
           src/components/providers.tsx
           src/pages/SignupPage.tsx
           src/pages/SignupPage.test.tsx
@@ -100,7 +101,10 @@ jobs:
           src/App.tsx
       - name: Type-check frontend
         run: npm run typecheck
-      - name: Run signup UI tests
-        run: npm test -- src/pages/SignupPage.test.tsx
+      - name: Run signup UI and client tests
+        run: >-
+          npm test --
+          src/pages/SignupPage.test.tsx
+          src/lib/signup-api.test.ts
       - name: Build frontend
         run: npm run build
