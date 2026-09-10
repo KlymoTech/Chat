@@ -187,7 +187,7 @@ jobs:
       - name: Run end-to-end smoke checks
         run: bash scripts/smoke.sh
       - name: Verify migration head
-        run: docker compose exec -T api alembic current | grep -q '0010_crm_verification (head)'
+        run: docker compose exec -T api alembic current | grep -q '0027_workspace_invitations (head)'
       - name: Verify CRM API and migrated verification columns
         run: |
           docker compose exec -T api python - <<'PY'

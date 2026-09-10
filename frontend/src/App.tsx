@@ -27,6 +27,7 @@ import { SignupPage } from '@/pages/SignupPage';
 import { StudentsPage } from '@/pages/StudentsPage';
 import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
 import { WhiteLabelPage } from '@/pages/WhiteLabelPage';
+import { WorkspaceInvitationPage } from '@/pages/WorkspaceInvitationPage';
 import { WorkspacePage } from '@/pages/WorkspacePage';
 import { WidgetDemoPage } from '@/pages/WidgetDemoPage';
 
@@ -45,6 +46,7 @@ export function App() {
     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
     <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route path="/mfa-challenge" element={<MFAChallengePage />} />
+    <Route path="/workspace-invitation" element={<WorkspaceInvitationPage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
