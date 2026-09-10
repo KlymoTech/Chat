@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   backend-education-runtime:
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     env:
       APP_ENV: test
       DATABASE_URL: sqlite+aiosqlite:///./education-runtime-test.db
