@@ -8,7 +8,7 @@ import smtplib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
-from urllib.parse import urlencode
+from urllib.parse import quote
 from uuid import UUID
 
 import structlog
@@ -121,8 +121,11 @@ async def verify_email_token(session: AsyncSession, raw_token: str) -> tuple[boo
 
 def verification_url(raw_token: str, settings: EmailSettings | None = None) -> str:
     config = settings or get_email_settings()
-    separator = "&" if "?" in config.email_verification_frontend_url else "?"
-    return f"{config.email_verification_frontend_url}{separator}{urlencode({'token': raw_token})}"
+    # Keep the bearer-style verification secret in the fragment. URL fragments
+    # are handled by the browser and are not sent in the HTTP request line, so
+    # reverse-proxy/access logs do not receive newly generated verification tokens.
+    base = config.email_verification_frontend_url.split("#", 1)[0]
+    return f"{base}#token={quote(raw_token, safe='')}"
 
 
 def _smtp_send(message: EmailMessage, settings: EmailSettings) -> None:
