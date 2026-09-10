@@ -18,7 +18,7 @@ from northstar_api.models import (
     WorkspaceRole,
 )
 from northstar_api.security import verify_password
-from northstar_api.services.rate_limit import RateLimitResult, redis_services
+from northstar_api.services.rate_limit import RateLimitResult, SessionStoreUnavailable, redis_services
 
 
 async def test_signup_provisions_owner_tenant_workspace_and_session(client: AsyncClient) -> None:
@@ -180,6 +180,41 @@ async def test_signup_rate_limit_is_generic_and_sets_retry_after(client: AsyncCl
     assert response.headers["retry-after"] == "1800"
     assert response.json()["error"]["message"] == "Too many account creation attempts. Try again later."
     assert limiter.await_count == 2
+
+
+async def test_signup_session_store_failure_rolls_back_account(client: AsyncClient, monkeypatch) -> None:
+    remember = AsyncMock(side_effect=SessionStoreUnavailable("Session store unavailable"))
+    monkeypatch.setattr(redis_services, "remember_refresh_family", remember)
+    seed = uuid.uuid4().hex[:10]
+    email = f"rollback-{seed}@example.com"
+    organization_name = f"Rollback Organization {seed}"
+
+    response = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Rollback Owner",
+            "email": email,
+            "password": "Rollback-Password-2026!",
+            "organizationName": organization_name,
+            "termsAccepted": True,
+            "privacyAccepted": True,
+        },
+    )
+
+    assert response.status_code == 503, response.text
+    assert remember.await_count == 1
+    async with SessionFactory() as session:
+        user_count = int(
+            await session.scalar(select(func.count()).select_from(User).where(User.email == email)) or 0
+        )
+        tenant_count = int(
+            await session.scalar(
+                select(func.count()).select_from(Tenant).where(Tenant.name == organization_name)
+            )
+            or 0
+        )
+    assert user_count == 0
+    assert tenant_count == 0
 
 
 @pytest.mark.parametrize(
