@@ -1,4 +1,5 @@
 name: Education Runtime Authorization Isolated Validation
+# Acceptance gate for the completed runtime-authorization feature only.
 
 on:
   push:
