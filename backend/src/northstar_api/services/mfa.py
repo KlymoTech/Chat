@@ -40,7 +40,15 @@ class MFASetupMaterial:
 
 
 def _application_secret() -> bytes:
-    return get_settings().jwt_secret.get_secret_value().encode("utf-8")
+    settings = get_settings()
+    configured = settings.mfa_encryption_key
+    if configured is not None:
+        return configured.get_secret_value().encode("utf-8")
+    # Development/test compatibility only. Production configuration requires a
+    # distinct MFA_ENCRYPTION_KEY so JWT rotation cannot make TOTP secrets unreadable.
+    if settings.is_production:
+        raise MFAError("MFA encryption is not configured")
+    return settings.jwt_secret.get_secret_value().encode("utf-8")
 
 
 def _fernet() -> Fernet:
@@ -170,21 +178,37 @@ async def setup_mfa(session: AsyncSession, user_id: UUID, current_password: str)
     )
 
 
-async def confirm_mfa(session: AsyncSession, user_id: UUID, code: str) -> None:
+async def _increment_credential_version(session: AsyncSession, user_id: UUID) -> int:
+    now = datetime.now(UTC)
+    state = await session.get(PasswordCredentialState, user_id)
+    if state is None:
+        state = PasswordCredentialState(user_id=user_id, version=1)
+        session.add(state)
+    else:
+        state.version += 1
+        state.updated_at = now
+    await session.flush()
+    return state.version
+
+
+async def confirm_mfa(session: AsyncSession, user_id: UUID, code: str) -> int:
     setting = await session.scalar(
         select(MFASetting).where(MFASetting.user_id == user_id).with_for_update()
     )
     user = await session.scalar(select(User).where(User.id == user_id).with_for_update())
     if setting is None or user is None or setting.enabled:
         raise MFAError("MFA setup is unavailable")
-    if matching_totp_counter(_decrypt_secret(setting.secret_ciphertext), code) is None:
+    counter = matching_totp_counter(_decrypt_secret(setting.secret_ciphertext), code)
+    if counter is None:
         raise MFAError("Invalid authentication code")
     now = datetime.now(UTC)
     setting.enabled = True
     setting.confirmed_at = now
-    setting.last_counter = None
+    # Treat the setup confirmation as a consumed TOTP step. The same authenticator
+    # code cannot then be replayed immediately to complete a login challenge.
+    setting.last_counter = counter
     user.mfa_enabled = True
-    await session.flush()
+    return await _increment_credential_version(session, user_id)
 
 
 async def consume_mfa_factor(
@@ -237,16 +261,6 @@ async def _verify_current_password(session: AsyncSession, user_id: UUID, current
     return user
 
 
-async def _increment_credential_version(session: AsyncSession, user_id: UUID) -> None:
-    now = datetime.now(UTC)
-    state = await session.get(PasswordCredentialState, user_id)
-    if state is None:
-        session.add(PasswordCredentialState(user_id=user_id, version=1))
-    else:
-        state.version += 1
-        state.updated_at = now
-
-
 async def disable_mfa(
     session: AsyncSession,
     user_id: UUID,
@@ -254,14 +268,13 @@ async def disable_mfa(
     *,
     code: str | None = None,
     recovery_code: str | None = None,
-) -> None:
+) -> int:
     user = await _verify_current_password(session, user_id, current_password)
     await consume_mfa_factor(session, user_id, code=code, recovery_code=recovery_code)
     await session.execute(delete(MFARecoveryCode).where(MFARecoveryCode.user_id == user_id))
     await session.execute(delete(MFASetting).where(MFASetting.user_id == user_id))
     user.mfa_enabled = False
-    await _increment_credential_version(session, user_id)
-    await session.flush()
+    return await _increment_credential_version(session, user_id)
 
 
 async def regenerate_recovery_codes(
