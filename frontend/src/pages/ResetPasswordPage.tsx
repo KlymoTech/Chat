@@ -15,7 +15,8 @@ function resetToken(search: string, hash: string): string {
 export function ResetPasswordPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const token = resetToken(location.search, location.hash);
+  const tokenRef = useRef(resetToken(location.search, location.hash));
+  const token = tokenRef.current;
   const cleaned = useRef(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
