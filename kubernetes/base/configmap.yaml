@@ -19,6 +19,8 @@ data:
   EMAIL_VERIFICATION_TTL_HOURS: "24"
   PASSWORD_RESET_FRONTEND_URL: https://app.example.com/reset-password
   PASSWORD_RESET_TTL_MINUTES: "60"
+  WORKSPACE_INVITATION_FRONTEND_URL: https://app.example.com/workspace-invitation
+  WORKSPACE_INVITATION_TTL_DAYS: "7"
   SMTP_HOST: smtp.example.com
   SMTP_PORT: "587"
   SMTP_STARTTLS: "true"
