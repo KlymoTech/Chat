@@ -44,10 +44,14 @@ DB = Annotated[AsyncSession, Depends(get_session)]
 _REFRESH_COOKIE = "northstar_refresh"
 
 
-def _set_refresh_cookie(response: Response, token: str) -> None:
-    settings = get_settings()
+def _set_no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    settings = get_settings()
+    _set_no_store(response)
     response.set_cookie(
         _REFRESH_COOKIE,
         token,
@@ -141,7 +145,13 @@ async def status_view(principal: CurrentPrincipal, session: DB) -> MFAStatusOut:
 
 
 @router.post("/setup", response_model=MFASetupOut)
-async def setup(payload: MFASetupRequest, principal: CurrentPrincipal, session: DB) -> MFASetupOut:
+async def setup(
+    payload: MFASetupRequest,
+    response: Response,
+    principal: CurrentPrincipal,
+    session: DB,
+) -> MFASetupOut:
+    _set_no_store(response)
     try:
         material = await setup_mfa(session, principal.user_id, payload.current_password)
         await session.commit()
@@ -258,9 +268,11 @@ async def verify_login(
 @router.post("/recovery-codes", response_model=MFARecoveryCodesOut)
 async def regenerate_codes(
     payload: MFAProtectedActionRequest,
+    response: Response,
     principal: CurrentPrincipal,
     session: DB,
 ) -> MFARecoveryCodesOut:
+    _set_no_store(response)
     try:
         codes = await regenerate_recovery_codes(
             session,
