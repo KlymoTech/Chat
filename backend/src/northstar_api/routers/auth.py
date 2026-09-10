@@ -14,13 +14,24 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from northstar_api.auth_session_schemas import AuthSessionOut, AuthUserOut
+from northstar_api.auth_session_schemas import (
+    AuthLoginOut,
+    AuthMFAChallengeOut,
+    AuthSessionOut,
+    AuthUserOut,
+)
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import CurrentPrincipal
 from northstar_api.models import Role, TenantMembership, User
 from northstar_api.schemas import LoginRequest, LogoutRequest, RefreshRequest
-from northstar_api.security import create_access_token, create_refresh_token, decode_token, verify_password
+from northstar_api.security import (
+    create_access_token,
+    create_mfa_challenge_token,
+    create_refresh_token,
+    decode_token,
+    verify_password,
+)
 from northstar_api.services.email_verification import (
     email_is_verified,
     issue_verification_token,
@@ -170,13 +181,13 @@ async def signup(
     )
 
 
-@router.post("/login", response_model=AuthSessionOut)
+@router.post("/login", response_model=AuthLoginOut)
 async def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
     session: DB,
-) -> AuthSessionOut:
+) -> AuthLoginOut:
     settings = get_settings()
     normalized_email = payload.email.lower().strip()
     source = request.client.host if request.client else "unknown"
@@ -231,9 +242,24 @@ async def login(
             raise HTTPException(status_code=403, detail="Requested workspace is unavailable")
     else:
         membership = min(user.memberships, key=lambda item: (item.created_at, str(item.tenant_id)))
-    user.last_login_at = datetime.now(UTC)
+
     verified = await email_is_verified(session, user.id)
     version = await credential_version(session, user.id)
+    if user.mfa_enabled:
+        challenge_token, challenge_expires_at = create_mfa_challenge_token(
+            user.id,
+            membership.tenant_id,
+            membership.role,
+            credential_version=version,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        return AuthMFAChallengeOut(
+            challenge_token=challenge_token,
+            expires_at=challenge_expires_at,
+        )
+
+    user.last_login_at = datetime.now(UTC)
     access_token, expires_at = create_access_token(
         user.id,
         membership.tenant_id,
