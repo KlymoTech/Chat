@@ -28,6 +28,7 @@ from northstar_api.security import (
     decode_token,
 )
 from northstar_api.services.email_verification import email_is_verified
+from northstar_api.services.password_reset import credential_version
 from northstar_api.services.rate_limit import redis_services
 
 bearer = HTTPBearer(auto_error=False)
@@ -84,6 +85,11 @@ async def authenticate_access_token(
     if membership.role != token_role:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session role is stale; sign in again"
+        )
+    if int(payload.get("cv", 0)) != await credential_version(session, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session credentials changed; sign in again",
         )
 
     # Legacy users have no verification-state row and remain verified. New
