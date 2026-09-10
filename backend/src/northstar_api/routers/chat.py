@@ -17,7 +17,8 @@ from northstar_api.dependencies import require_permissions
 from northstar_api.models import Channel, Conversation, Message, MessageFeedback
 from northstar_api.schemas import ChatStreamRequest, FeedbackCreate, OpenAICompletionRequest
 from northstar_api.security import Principal
-from northstar_api.services.chat import chat_coordinator, token_chunks
+from northstar_api.services.chat import token_chunks
+from northstar_api.services.education_chat import education_chat_coordinator
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.streaming import chat_sse_response
 
@@ -32,7 +33,7 @@ async def stream_chat(
     session: DB,
     principal: ChatPrincipal,
 ) -> StreamingResponse:
-    prepared = await chat_coordinator.prepare(
+    prepared = await education_chat_coordinator.prepare(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
@@ -115,7 +116,7 @@ async def openai_completion(
     question = next((item.content for item in reversed(payload.messages) if item.role == "user"), None)
     if not question:
         raise HTTPException(status_code=422, detail="At least one user message is required")
-    prepared = await chat_coordinator.prepare(
+    prepared = await education_chat_coordinator.prepare(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
