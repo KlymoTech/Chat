@@ -1,6 +1,6 @@
 import { ArrowRight, Building2, Eye, EyeOff, Layers3, ShieldCheck, Sparkles, UserPlus } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
 import { useAuth } from '@/components/providers';
 import { Button, Field } from '@/components/ui';
@@ -9,6 +9,9 @@ import './SignupPage.css';
 export function SignupPage() {
   const { session, signup } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const invitationToken = new URLSearchParams(location.hash.replace(/^#/, '')).get('invite')?.trim() ?? '';
+  const invited = invitationToken.length > 0;
   const [name, setName] = useState('');
   const [organizationName, setOrganizationName] = useState('');
   const [email, setEmail] = useState('');
@@ -28,7 +31,7 @@ export function SignupPage() {
     const normalizedOrganization = organizationName.trim().replace(/\s+/g, ' ');
     const normalizedEmail = email.trim().toLowerCase();
     if (normalizedName.length < 2) { setError('Enter your full name.'); return; }
-    if (normalizedOrganization.length < 2) { setError('Enter your company or organization name.'); return; }
+    if (!invited && normalizedOrganization.length < 2) { setError('Enter your company or organization name.'); return; }
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) { setError('Enter a valid business email address.'); return; }
     if (password.length < 12) { setError('Password must be at least 12 characters.'); return; }
     if (!termsAccepted || !privacyAccepted) {
@@ -40,7 +43,7 @@ export function SignupPage() {
     try {
       const created = await signup({
         name: normalizedName,
-        organizationName: normalizedOrganization,
+        ...(invited ? { workspaceInvitationToken: invitationToken } : { organizationName: normalizedOrganization }),
         email: normalizedEmail,
         password,
         termsAccepted: true,
@@ -59,18 +62,18 @@ export function SignupPage() {
       <div className="login-panel__inner signup-panel__inner">
         <Brand />
         <div className="login-heading signup-heading">
-          <span className="eyebrow-pill"><UserPlus /> Start your workspace</span>
-          <h1>Create your account</h1>
-          <p>Set up your Northstar workspace and become its first owner.</p>
+          <span className="eyebrow-pill"><UserPlus /> {invited ? 'Workspace invitation' : 'Start your workspace'}</span>
+          <h1>{invited ? 'Join your workspace' : 'Create your account'}</h1>
+          <p>{invited ? 'Create your account to accept the workspace invitation.' : 'Set up your Northstar workspace and become its first owner.'}</p>
         </div>
         <form className="login-form signup-form" onSubmit={(event) => void submit(event)} noValidate>
-          <div className="signup-grid">
+          <div className={invited ? '' : 'signup-grid'}>
             <Field label="Your name" htmlFor="signup-name">
               <input id="signup-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Sakshee Jha" autoComplete="name" autoFocus />
             </Field>
-            <Field label="Organization" htmlFor="signup-organization">
+            {!invited ? <Field label="Organization" htmlFor="signup-organization">
               <input id="signup-organization" value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="NorthStar Academy" autoComplete="organization" />
-            </Field>
+            </Field> : null}
           </div>
           <Field label="Business email" htmlFor="signup-email">
             <input id="signup-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" autoComplete="email" />
@@ -87,18 +90,18 @@ export function SignupPage() {
             <label><input type="checkbox" checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /> <span>I agree to the <a href="#privacy">Privacy Policy</a>.</span></label>
           </div>
           {error ? <div className="form-error" role="alert">{error}</div> : null}
-          <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>Create account <ArrowRight /></>}</Button>
+          <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>{invited ? 'Join workspace' : 'Create account'} <ArrowRight /></>}</Button>
         </form>
         <p className="signup-copy">Already have an account? <Link className="text-button" to="/login">Sign in</Link></p>
-        <p className="login-legal signup-legal">You’ll be the owner of this organization and its first workspace.</p>
+        <p className="login-legal signup-legal">{invited ? 'Your access is limited to the role assigned by the workspace administrator.' : 'You’ll be the owner of this organization and its first workspace.'}</p>
       </div>
     </section>
     <section className="login-story" aria-label="Account setup overview">
       <div className="login-glow login-glow--one" /><div className="login-glow login-glow--two" />
-      <div className="story-copy"><span className="story-kicker"><span /> One account, multiple workspaces</span><h2>Start with a secure workspace built for your AI operations.</h2><p>Your first account becomes the Tenant Owner and Workspace Admin, ready for agents, channels, conversations, Education and CRM workflows.</p></div>
+      <div className="story-copy"><span className="story-kicker"><span /> One account, multiple workspaces</span><h2>{invited ? 'Join an existing workspace without changing its current configuration.' : 'Start with a secure workspace built for your AI operations.'}</h2><p>{invited ? 'Your invitation connects this account to the existing tenant and workspace using the role selected by its administrator.' : 'Your first account becomes the Tenant Owner and Workspace Admin, ready for agents, channels, conversations, Education and CRM workflows.'}</p></div>
       <div className="signup-story-card">
-        <span><Building2 /></span><div><strong>Organization provisioned</strong><small>Your Tenant and default Workspace are created together.</small></div>
-        <span><ShieldCheck /></span><div><strong>Owner permissions</strong><small>You receive Tenant Owner and Workspace Admin access.</small></div>
+        <span><Building2 /></span><div><strong>{invited ? 'Existing workspace preserved' : 'Organization provisioned'}</strong><small>{invited ? 'No agents, knowledge, channels, or settings are replaced.' : 'Your Tenant and default Workspace are created together.'}</small></div>
+        <span><ShieldCheck /></span><div><strong>{invited ? 'Assigned permissions' : 'Owner permissions'}</strong><small>{invited ? 'Your account receives only the workspace role chosen for the invitation.' : 'You receive Tenant Owner and Workspace Admin access.'}</small></div>
         <span><Layers3 /></span><div><strong>Existing architecture preserved</strong><small>Signup connects directly to the current workspace and RBAC system.</small></div>
       </div>
       <div className="story-features"><span><Sparkles /> Ready for agents</span><span><Layers3 /> Workspace scoped</span><span><ShieldCheck /> Secure by default</span></div>
