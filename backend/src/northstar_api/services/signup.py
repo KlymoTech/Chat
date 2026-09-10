@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.email_verification import EmailVerificationState
 from northstar_api.models import (
     Role,
     Tenant,
@@ -94,6 +95,7 @@ async def provision_signup(
     )
     session.add_all([tenant, user])
     await session.flush()
+    session.add(EmailVerificationState(user_id=user.id, verified_at=None))
 
     workspace = Workspace(
         tenant_id=tenant.id,
