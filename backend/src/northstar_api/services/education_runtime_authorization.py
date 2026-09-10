@@ -23,6 +23,7 @@ class EducationAccessReason(str, enum.Enum):
     AUTHORIZED = "authorized"
     UNSUPPORTED_CHANNEL = "unsupported_channel"
     UNTRUSTED_CHANNEL = "untrusted_channel"
+    CHANNEL_SCOPE_MISMATCH = "channel_scope_mismatch"
     IDENTITY_MISSING = "identity_missing"
     IDENTITY_INVALID = "identity_invalid"
     IDENTITY_NOT_VERIFIED = "identity_not_verified"
