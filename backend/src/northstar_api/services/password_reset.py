@@ -51,6 +51,13 @@ async def issue_password_reset_token(
 ) -> IssuedPasswordReset:
     config = settings or get_email_settings()
     now = datetime.now(UTC)
+
+    # Serialize issuance per account. Without this lock, simultaneous recovery
+    # requests could both invalidate the old set and then leave two live links.
+    locked_user = await session.scalar(select(User.id).where(User.id == user_id).with_for_update())
+    if locked_user is None:
+        raise PasswordResetError("Password reset request is unavailable")
+
     await session.execute(
         update(PasswordResetToken)
         .where(
@@ -77,8 +84,12 @@ async def reset_password_with_token(
     raw_token: str,
     new_password: str,
 ) -> UUID:
+    # Lock the challenge before inspecting consumed_at. This makes one-time use
+    # atomic when two confirmation requests race against the same reset link.
     token = await session.scalar(
-        select(PasswordResetToken).where(PasswordResetToken.token_hash == _token_hash(raw_token))
+        select(PasswordResetToken)
+        .where(PasswordResetToken.token_hash == _token_hash(raw_token))
+        .with_for_update()
     )
     if token is None:
         raise PasswordResetError("Password reset link is invalid or expired")
@@ -90,7 +101,9 @@ async def reset_password_with_token(
     if token.consumed_at is not None or expires_at <= now:
         raise PasswordResetError("Password reset link is invalid or expired")
 
-    user = await session.scalar(select(User).where(User.id == token.user_id, User.is_active.is_(True)))
+    user = await session.scalar(
+        select(User).where(User.id == token.user_id, User.is_active.is_(True)).with_for_update()
+    )
     if user is None:
         raise PasswordResetError("Password reset link is invalid or expired")
     if await asyncio.to_thread(verify_password, new_password, user.password_hash):
