@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
+from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.lead_crm.channel_models import ChannelConnection
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalMessage, CanonicalSender
@@ -241,6 +242,12 @@ async def test_education_channel_runtime_never_enters_lead_path(
             )
             or 0
         )
+        education_context = await session.scalar(
+            select(EducationConversationContext).where(
+                EducationConversationContext.workspace_id == agent.workspace_id,
+                EducationConversationContext.agent_id == agent.id,
+            )
+        )
         authorized_event = await session.scalar(
             select(OutboxEvent)
             .where(
@@ -252,6 +259,11 @@ async def test_education_channel_runtime_never_enters_lead_path(
         assert conversation_count == 1
         assert message_count == 1
         assert lead_count == 0
+        assert education_context is not None
+        assert str(education_context.student_id) == seeded["studentId"]
+        assert str(education_context.enrollment_id) == seeded["enrollmentId"]
+        assert str(education_context.course_id) == seeded["courseId"]
+        assert str(education_context.batch_id) == seeded["batchId"]
         assert authorized_event is not None
         assert authorized_event.payload["authorized"] is True
         assert authorized_event.payload["studentId"] == seeded["studentId"]
@@ -259,6 +271,55 @@ async def test_education_channel_runtime_never_enters_lead_path(
         assert authorized_event.payload["courseId"] == seeded["courseId"]
         assert authorized_event.payload["batchId"] == seeded["batchId"]
         assert authorized_raw.processing_status == "processed"
+
+        repeated_raw = await _raw_event(
+            session,
+            tenant_id=agent.tenant_id,
+            connection_id=connection.id,
+            external_event_id="education-authorized-repeat",
+        )
+        await _process_education_message(
+            session,
+            raw=repeated_raw,
+            connection=connection,
+            canonical=_canonical(
+                tenant_id=agent.tenant_id,
+                connection_id=connection.id,
+                phone="+919876540101",
+                external_event_id="education-authorized-repeat",
+            ),
+            agent=agent,
+        )
+        repeated_conversation_count = int(
+            await session.scalar(
+                select(func.count(Conversation.id)).where(
+                    Conversation.workspace_id == agent.workspace_id,
+                    Conversation.agent_id == agent.id,
+                )
+            )
+            or 0
+        )
+        repeated_message_count = int(
+            await session.scalar(
+                select(func.count(Message.id))
+                .join(Conversation, Conversation.id == Message.conversation_id)
+                .where(Conversation.agent_id == agent.id)
+            )
+            or 0
+        )
+        context_count = int(
+            await session.scalar(
+                select(func.count(EducationConversationContext.id)).where(
+                    EducationConversationContext.workspace_id == agent.workspace_id,
+                    EducationConversationContext.agent_id == agent.id,
+                )
+            )
+            or 0
+        )
+        assert repeated_conversation_count == 1
+        assert repeated_message_count == 2
+        assert context_count == 1
+        assert repeated_raw.processing_status == "processed"
 
         denied_raw = await _raw_event(
             session,
@@ -297,6 +358,15 @@ async def test_education_channel_runtime_never_enters_lead_path(
             )
             or 0
         )
+        contexts_after_denial = int(
+            await session.scalar(
+                select(func.count(EducationConversationContext.id)).where(
+                    EducationConversationContext.workspace_id == agent.workspace_id,
+                    EducationConversationContext.agent_id == agent.id,
+                )
+            )
+            or 0
+        )
         denied_event = await session.scalar(
             select(OutboxEvent)
             .where(
@@ -307,6 +377,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
         )
         assert conversations_after_denial == 1
         assert leads_after_denial == 0
+        assert contexts_after_denial == 1
         assert denied_event is not None
         assert denied_event.payload["authorized"] is False
         assert denied_event.payload["reason"] == "identity_not_verified"
@@ -383,6 +454,15 @@ async def test_education_channel_runtime_denies_mismatched_connection_agent_scop
             )
             or 0
         )
+        context_count = int(
+            await session.scalar(
+                select(func.count(EducationConversationContext.id)).where(
+                    EducationConversationContext.workspace_id == education_agent.workspace_id,
+                    EducationConversationContext.agent_id == education_agent.id,
+                )
+            )
+            or 0
+        )
         denied_event = await session.scalar(
             select(OutboxEvent)
             .where(
@@ -394,6 +474,7 @@ async def test_education_channel_runtime_denies_mismatched_connection_agent_scop
 
         assert conversation_count == 0
         assert lead_count == 0
+        assert context_count == 0
         assert denied_event is not None
         assert denied_event.payload["authorized"] is False
         assert denied_event.payload["reason"] == "channel_scope_mismatch"
