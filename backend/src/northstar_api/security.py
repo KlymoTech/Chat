@@ -143,7 +143,7 @@ def verify_password(password: str, password_hash: str | None) -> bool:
 
 def _token(
     subject: str,
-    token_type: Literal["access", "refresh", "widget", "whatsapp_signup"],
+    token_type: Literal["access", "refresh", "widget", "whatsapp_signup", "mfa_challenge"],
     expires_delta: timedelta,
     claims: dict[str, Any],
     settings: Settings,
@@ -203,6 +203,24 @@ def create_refresh_token(
             "fid": family_id or secrets.token_urlsafe(18),
             "cv": credential_version,
         },
+        config,
+    )
+
+
+def create_mfa_challenge_token(
+    user_id: UUID,
+    tenant_id: UUID,
+    role: Role,
+    settings: Settings | None = None,
+    *,
+    credential_version: int = 0,
+) -> tuple[str, datetime]:
+    config = settings or get_settings()
+    return _token(
+        str(user_id),
+        "mfa_challenge",
+        timedelta(minutes=5),
+        {"tid": str(tenant_id), "role": role.value, "cv": credential_version},
         config,
     )
 
