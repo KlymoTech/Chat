@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
@@ -17,6 +18,7 @@ from northstar_api.models import (
     WorkspaceRole,
 )
 from northstar_api.security import verify_password
+from northstar_api.services.rate_limit import RateLimitResult, redis_services
 
 
 async def test_signup_provisions_owner_tenant_workspace_and_session(client: AsyncClient) -> None:
@@ -153,6 +155,31 @@ async def test_signup_duplicate_email_is_case_insensitive_and_does_not_create_se
         )
     assert tenant_memberships == 1
     assert workspace_memberships == 1
+
+
+async def test_signup_rate_limit_is_generic_and_sets_retry_after(client: AsyncClient, monkeypatch) -> None:
+    limiter = AsyncMock(
+        side_effect=[RateLimitResult(True, 29, 1800), RateLimitResult(False, 0, 1800)]
+    )
+    monkeypatch.setattr(redis_services, "check_rate_limit", limiter)
+    seed = uuid.uuid4().hex[:10]
+
+    response = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Rate Limited Owner",
+            "email": f"rate-limited-{seed}@example.com",
+            "password": "Rate-Limit-Password-2026!",
+            "organizationName": f"Rate Limited Organization {seed}",
+            "termsAccepted": True,
+            "privacyAccepted": True,
+        },
+    )
+
+    assert response.status_code == 429, response.text
+    assert response.headers["retry-after"] == "1800"
+    assert response.json()["error"]["message"] == "Too many account creation attempts. Try again later."
+    assert limiter.await_count == 2
 
 
 @pytest.mark.parametrize(
