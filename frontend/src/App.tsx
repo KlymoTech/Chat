@@ -22,6 +22,7 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { StudentsPage } from '@/pages/StudentsPage';
+import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
 import { WhiteLabelPage } from '@/pages/WhiteLabelPage';
 import { WorkspacePage } from '@/pages/WorkspacePage';
 import { WidgetDemoPage } from '@/pages/WidgetDemoPage';
@@ -29,6 +30,7 @@ import { WidgetDemoPage } from '@/pages/WidgetDemoPage';
 function ProtectedLayout() {
   const { session } = useAuth(); const location = useLocation();
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (session.user.emailVerified === false) return <Navigate to="/verify-email" replace />;
   return <AppShell />;
 }
 
@@ -36,6 +38,7 @@ export function App() {
   return <Routes>
     <Route path="/login" element={<LoginPage />} />
     <Route path="/signup" element={<SignupPage />} />
+    <Route path="/verify-email" element={<VerifyEmailPage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
