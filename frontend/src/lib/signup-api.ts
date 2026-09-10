@@ -55,12 +55,12 @@ async function remoteSignup(input: SignupInput): Promise<Session> {
 }
 
 async function demoSignup(input: SignupInput): Promise<Session> {
-  if (!input.name.trim() || !input.organizationName?.trim() || !input.email.trim()) {
+  const organizationName = input.organizationName?.trim().replace(/\s+/g, ' ');
+  if (!input.name.trim() || !organizationName || !input.email.trim()) {
     throw new ApiError('Name, organization and business email are required.', 422);
   }
   if (input.password.length < 12) throw new ApiError('Password must be at least 12 characters.', 422);
   const userName = input.name.trim().replace(/\s+/g, ' ');
-  const organizationName = input.organizationName.trim().replace(/\s+/g, ' ');
   const workspaceId = `workspace-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
   const tenantId = `tenant-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
   writeStorage(WORKSPACE_KEY, {
