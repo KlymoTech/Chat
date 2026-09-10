@@ -147,7 +147,9 @@ async def _agent(agent_id: str) -> Agent:
         return value
 
 
-def _event(provider: ChannelProvider, *, external_id: str | None, phone: str | None = None) -> CanonicalInboundEvent:
+def _event(
+    provider: ChannelProvider, *, external_id: str | None, phone: str | None = None
+) -> CanonicalInboundEvent:
     return CanonicalInboundEvent(
         event_id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
@@ -169,9 +171,7 @@ def test_channel_identity_mapping_is_explicit_and_fail_closed() -> None:
     assert reason is None
     assert whatsapp == EducationIdentityCandidate(StudentIdentityType.WHATSAPP, "+919876543210")
 
-    telegram, reason = identity_candidate_for_event(
-        _event(ChannelProvider.TELEGRAM, external_id="123456789")
-    )
+    telegram, reason = identity_candidate_for_event(_event(ChannelProvider.TELEGRAM, external_id="123456789"))
     assert reason is None
     assert telegram == EducationIdentityCandidate(StudentIdentityType.TELEGRAM, "123456789")
 

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
 from northstar_api.lead_crm.channel_models import ChannelConnection
@@ -31,6 +32,12 @@ from northstar_api.models import (
     Message,
     MessageRole,
     ProcessedEvent,
+)
+from northstar_api.services.education_runtime_authorization import (
+    EducationAccessDecision,
+    EducationAccessReason,
+    authorize_education_access,
+    identity_candidate_for_event,
 )
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
@@ -179,6 +186,76 @@ async def _canonical_event(
     return next((item for item in values if item.external_event_id == raw.external_event_id), None)
 
 
+async def _process_education_message(
+    session: AsyncSession,
+    *,
+    raw: RawWebhookEvent,
+    connection: ChannelConnection,
+    canonical: CanonicalInboundEvent,
+    agent: Agent,
+) -> None:
+    identity, mapping_reason = identity_candidate_for_event(
+        canonical,
+        allow_unsigned_widget=bool(connection.configuration_json.get("allowUnsigned", False)),
+    )
+    if identity is None:
+        decision = EducationAccessDecision(
+            authorized=False,
+            reason=mapping_reason or EducationAccessReason.IDENTITY_MISSING,
+            agent_id=agent.id,
+            workspace_id=agent.workspace_id,
+        )
+    else:
+        decision = await authorize_education_access(
+            session,
+            tenant_id=canonical.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent=agent,
+            identity=identity,
+        )
+
+    conversation: Conversation | None = None
+    if decision.authorized:
+        conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+        await _persist_message(session, event=canonical, conversation=conversation)
+
+    access_payload = {
+        **decision.event_payload(),
+        "rawEventId": str(raw.id),
+        "provider": canonical.provider.value,
+        "conversationId": str(conversation.id) if conversation else None,
+    }
+    enqueue_event(
+        session,
+        tenant_id=canonical.tenant_id,
+        aggregate_type="education_enrollment" if decision.enrollment_id else "agent",
+        aggregate_id=decision.enrollment_id or agent.id,
+        event_type=(
+            "education.access.authorized.v1" if decision.authorized else "education.access.denied.v1"
+        ),
+        payload=access_payload,
+    )
+
+    raw.processing_status = "processed"
+    raw.processed_at = datetime.now(UTC)
+    raw.attempt_count += 1
+    enqueue_event(
+        session,
+        tenant_id=canonical.tenant_id,
+        aggregate_type="raw_webhook_event",
+        aggregate_id=raw.id,
+        event_type="channel.event.processed.v1",
+        payload={
+            "rawEventId": str(raw.id),
+            "provider": canonical.provider.value,
+            "leadId": None,
+            "conversationId": str(conversation.id) if conversation else None,
+            "educationAccess": decision.event_payload(),
+        },
+    )
+    await session.commit()
+
+
 async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
     inserted = await session.scalar(
         pg_insert(ProcessedEvent)
@@ -237,6 +314,22 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
     )
     if not agent:
         raise ValueError("channel connection agent does not exist in tenant scope")
+
+    purpose = await get_agent_purpose(
+        session,
+        tenant_id=event.tenant_id,
+        workspace_id=agent.workspace_id,
+        agent_id=agent.id,
+    )
+    if purpose is AgentPurpose.EDUCATION:
+        await _process_education_message(
+            session,
+            raw=raw,
+            connection=connection,
+            canonical=canonical,
+            agent=agent,
+        )
+        return
 
     conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
     await _persist_message(session, event=canonical, conversation=conversation)
