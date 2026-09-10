@@ -9,13 +9,21 @@ export function LoginPage() {
   const { session, login } = useAuth(); const navigate = useNavigate(); const location = useLocation();
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('');
-  if (session) return <Navigate to="/" replace />;
+  if (session) return <Navigate to={session.user.emailVerified === false ? '/verify-email' : '/'} replace />;
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('');
     if (!/^\S+@\S+\.\S+$/.test(email)) { setError('Enter a valid email address.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setSubmitting(true);
-    try { await login(email, password); const target = (location.state as { from?: string } | null)?.from ?? '/'; navigate(target, { replace: true }); }
+    try {
+      const signedIn = await login(email, password);
+      if (signedIn.user.emailVerified === false) {
+        navigate('/verify-email', { replace: true });
+        return;
+      }
+      const target = (location.state as { from?: string } | null)?.from ?? '/';
+      navigate(target, { replace: true });
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'We could not sign you in.'); }
     finally { setSubmitting(false); }
   };
