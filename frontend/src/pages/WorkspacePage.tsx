@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { MFASecurityPanel } from '@/components/mfa-security-panel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
 import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, Field, Modal, PageLoader, Switch } from '@/components/ui';
@@ -30,7 +31,6 @@ export function WorkspacePage() {
   const [keys, setKeys] = useState<LocalKey[]>(() => readStorage(KEYS_KEY, []));
   const [newSecret, setNewSecret] = useState('');
   const [masking, setMasking] = useState(true);
-  const [mfa, setMfa] = useState(false);
   const [digest, setDigest] = useState(true);
 
   useEffect(() => { void workspaceApi.get().then(setWorkspace); }, []);
@@ -94,8 +94,15 @@ export function WorkspacePage() {
           <div className="workspace-key-list">{keys.length ? keys.map((key) => <div key={key.id}><span><strong>{key.name}</strong><small>Created {new Date(key.createdAt).toLocaleDateString()}</small></span><code>{key.prefix}</code><button type="button" className="icon-button danger-hover" onClick={() => revokeKey(key.id)} aria-label={`Revoke ${key.name}`}><Trash2 /></button></div>) : <div className="workspace-empty-row"><KeyRound /><span><strong>No API keys yet</strong><small>Create a key when you are ready to connect your backend.</small></span></div>}</div>
         </Card> : null}
 
-        {section === 'security' ? <Card className="workspace-panel"><PanelHeading icon={ShieldCheck} title="Security controls" description="Apply workspace-wide protection and access policies." />
-          <div className="workspace-panel__body"><Switch checked={masking} onChange={setMasking} label="Sensitive data masking" description="Redact credentials, payment details, and government IDs from logs." /><Switch checked={mfa} onChange={setMfa} label="Require multi-factor authentication" description="Require a second factor for every workspace member." /><Switch checked={digest} onChange={setDigest} label="Weekly security digest" description="Email workspace owners about access and configuration changes." /><Field label="Security contact"><div className="icon-input"><Mail /><input defaultValue={session?.user.email} /></div></Field><div className="workspace-panel__actions"><Button onClick={() => pushToast('Security settings saved')}>Save security</Button></div></div>
+        {section === 'security' ? <Card className="workspace-panel"><PanelHeading icon={ShieldCheck} title="Security controls" description="Apply workspace-wide protection and manage your own sign-in security." />
+          <div className="workspace-panel__body">
+            <Switch checked={masking} onChange={setMasking} label="Sensitive data masking" description="Redact credentials, payment details, and government IDs from logs." />
+            <Switch checked={false} onChange={() => undefined} disabled label="Require MFA for all workspace members" description="Workspace-wide MFA enforcement is a separate policy feature. Configure your own account MFA below." />
+            <Switch checked={digest} onChange={setDigest} label="Weekly security digest" description="Email workspace owners about access and configuration changes." />
+            <Field label="Security contact"><div className="icon-input"><Mail /><input defaultValue={session?.user.email} /></div></Field>
+            <div className="workspace-panel__actions"><Button onClick={() => pushToast('Security settings saved')}>Save security</Button></div>
+            <MFASecurityPanel />
+          </div>
         </Card> : null}
 
         {section === 'billing' ? <><Card className="workspace-panel"><PanelHeading icon={CreditCard} title="Plan & billing" description="Review usage, limits, and billing information." action={<Badge tone="brand">Business</Badge>} /><div className="workspace-plan-grid"><Usage label="Conversations" value="1,892 / 5,000" width="38%" /><Usage label="AI agents" value="4 / 10" width="40%" /><Usage label="Team members" value={`${Math.max(workspace.memberCount, members.length + 1)} / 20`} width="25%" /></div><div className="workspace-panel__actions workspace-panel__actions--border"><Button variant="secondary" onClick={() => pushToast('Billing portal will open after a payment provider is connected', 'info')}>Manage billing</Button><Button onClick={() => pushToast('Plan comparison opened', 'info')}>Compare plans</Button></div></Card>
