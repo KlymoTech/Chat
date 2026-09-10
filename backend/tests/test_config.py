@@ -17,6 +17,7 @@ def _production_settings(**overrides: Any) -> Settings:
         "redis_url": "redis://:redis-runtime-credential@redis/0",
         "rabbitmq_url": "amqp://app:rabbit-runtime-credential@rabbitmq/northstar",
         "jwt_secret": "a-production-jwt-secret-with-more-than-32-characters",
+        "mfa_encryption_key": "a-distinct-production-mfa-secret-with-more-than-32-characters",
         "require_nvidia": True,
         "nvidia_api_key": "provider-key-used-only-by-config-validation",
         "allow_deterministic_embeddings": False,
@@ -36,6 +37,7 @@ def test_hardened_production_configuration_is_accepted() -> None:
 
     assert settings.is_production
     assert settings.require_nvidia
+    assert settings.mfa_encryption_key is not None
     assert not settings.allow_deterministic_embeddings
     assert not settings.rate_limit_fail_open
 
@@ -44,6 +46,12 @@ def test_hardened_production_configuration_is_accepted() -> None:
     ("override", "message"),
     [
         ({"jwt_secret": "replace-with-at-least-32-random-characters"}, "JWT_SECRET"),
+        ({"mfa_encryption_key": None}, "MFA_ENCRYPTION_KEY"),
+        ({"mfa_encryption_key": "too-short"}, "MFA_ENCRYPTION_KEY"),
+        (
+            {"mfa_encryption_key": "a-production-jwt-secret-with-more-than-32-characters"},
+            "distinct from JWT_SECRET",
+        ),
         (
             {"database_url": ("postgresql+asyncpg://app:replace-local-runtime-password@postgres/northstar")},
             "connection credentials",
