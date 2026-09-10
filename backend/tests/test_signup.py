@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
+from northstar_api.email_verification import EmailVerificationState, EmailVerificationToken
 from northstar_api.models import (
     Role,
     Tenant,
@@ -45,6 +46,7 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
     assert session_payload["user"]["name"] == "Signup Owner"
     assert session_payload["user"]["email"] == normalized_email
     assert session_payload["user"]["role"] == "owner"
+    assert session_payload["user"]["emailVerified"] is False
     assert response.headers["cache-control"] == "no-store"
     assert "HttpOnly" in response.headers["set-cookie"]
 
@@ -53,6 +55,19 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
         assert user is not None
         assert user.password_hash != credential
         assert verify_password(credential, user.password_hash)
+
+        verification_state = await session.get(EmailVerificationState, user.id)
+        assert verification_state is not None
+        assert verification_state.verified_at is None
+        token_count = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(EmailVerificationToken)
+                .where(EmailVerificationToken.user_id == user.id)
+            )
+            or 0
+        )
+        assert token_count == 1
 
         tenant_membership = await session.scalar(
             select(TenantMembership).where(TenantMembership.user_id == user.id)
@@ -89,11 +104,8 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
 
     headers = {"Authorization": f"Bearer {session_payload['accessToken']}"}
     workspaces = await client.get("/api/v1/workspaces", headers=headers)
-    assert workspaces.status_code == 200, workspaces.text
-    assert len(workspaces.json()) == 1
-    assert workspaces.json()[0]["name"] == payload["organizationName"]
-    assert workspaces.json()[0]["role"] == "workspace_admin"
-    assert workspaces.json()[0]["plan"] == "starter"
+    assert workspaces.status_code == 403, workspaces.text
+    assert workspaces.json()["error"]["message"] == "Email verification required"
 
     signed_in = await client.post(
         "/api/v1/auth/login",
@@ -102,6 +114,7 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
     assert signed_in.status_code == 200, signed_in.text
     assert signed_in.json()["user"]["id"] == session_payload["user"]["id"]
     assert signed_in.json()["user"]["role"] == "owner"
+    assert signed_in.json()["user"]["emailVerified"] is False
 
 
 async def test_signup_duplicate_email_is_case_insensitive_and_does_not_create_second_account(
