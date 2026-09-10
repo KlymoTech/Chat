@@ -15,6 +15,7 @@ import structlog
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.email_verification import EmailVerificationState, EmailVerificationToken
 from northstar_api.models import User
@@ -162,6 +163,8 @@ async def send_verification_email(
     config = settings or get_email_settings()
     url = verification_url(raw_token, config)
     if config.email_delivery_mode == "log":
+        if get_settings().is_production:
+            raise EmailVerificationError("Email delivery is not configured")
         logger.info(
             "verification_email_development",
             user_id=str(user.id),
