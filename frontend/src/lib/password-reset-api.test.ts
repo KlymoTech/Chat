@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AUTH_SESSION_EVENT } from '@/lib/api';
 import { passwordResetApi } from '@/lib/password-reset-api';
 
 describe('passwordResetApi', () => {
   afterEach(() => {
+    localStorage.clear();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -24,12 +26,15 @@ describe('passwordResetApi', () => {
     expect(JSON.parse(String(init.body))).toEqual({ email: 'owner@example.com' });
   });
 
-  it('submits the token and both password fields to the confirm endpoint', async () => {
+  it('submits the token, clears a stale browser session, and emits the auth-session event', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ reset: true }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
     vi.stubGlobal('fetch', fetchMock);
+    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'stale-access-token' }));
+    const changed = vi.fn();
+    window.addEventListener(AUTH_SESSION_EVENT, changed, { once: true });
 
     const result = await passwordResetApi.confirm(
       'secure-reset-token-value',
@@ -38,6 +43,8 @@ describe('passwordResetApi', () => {
     );
 
     expect(result).toEqual({ reset: true });
+    expect(localStorage.getItem('northstar.session')).toBeNull();
+    expect(changed).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({
       token: 'secure-reset-token-value',
@@ -46,7 +53,8 @@ describe('passwordResetApi', () => {
     });
   });
 
-  it('surfaces the backend reset error message', async () => {
+  it('does not clear a browser session when confirmation fails', async () => {
+    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'still-current' }));
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { message: 'Password reset link is invalid or expired' },
     }), {
@@ -59,5 +67,6 @@ describe('passwordResetApi', () => {
       'Replacement-Password-2026!',
       'Replacement-Password-2026!',
     )).rejects.toThrow('Password reset link is invalid or expired');
+    expect(localStorage.getItem('northstar.session')).not.toBeNull();
   });
 });
