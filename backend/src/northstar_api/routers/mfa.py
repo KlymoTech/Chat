@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -22,8 +23,8 @@ from northstar_api.mfa_schemas import (
     MFAStatusOut,
     MFAVerifyRequest,
 )
-from northstar_api.models import TenantMembership, User
-from northstar_api.security import create_access_token, create_refresh_token, decode_token
+from northstar_api.models import Role, TenantMembership, User
+from northstar_api.security import Principal, create_access_token, create_refresh_token, decode_token
 from northstar_api.services.email_verification import email_is_verified
 from northstar_api.services.mfa import (
     MFAError,
@@ -62,6 +63,72 @@ def _public_refresh_token(token: str) -> str | None:
     return None if get_settings().is_production else token
 
 
+async def _issue_session(
+    session: AsyncSession,
+    response: Response,
+    *,
+    user: User,
+    tenant_id: UUID,
+    role: Role,
+    version: int,
+) -> AuthSessionOut:
+    verified = await email_is_verified(session, user.id)
+    access_token, expires_at = create_access_token(
+        user.id,
+        tenant_id,
+        role,
+        credential_version=version,
+    )
+    refresh_token, _ = create_refresh_token(
+        user.id,
+        tenant_id,
+        role,
+        credential_version=version,
+    )
+    refresh_claims = decode_token(refresh_token, "refresh")
+    try:
+        await redis_services.remember_refresh_family(
+            refresh_claims["fid"],
+            refresh_claims["jti"],
+            get_settings().jwt_refresh_ttl_days * 86_400,
+        )
+    except SessionStoreUnavailable:
+        raise HTTPException(status_code=503, detail="Session service unavailable") from None
+    _set_refresh_cookie(response, refresh_token)
+    return AuthSessionOut(
+        access_token=access_token,
+        refresh_token=_public_refresh_token(refresh_token),
+        expires_at=expires_at,
+        user=AuthUserOut(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            role=role,
+            email_verified=verified,
+        ),
+    )
+
+
+async def _issue_principal_session(
+    session: AsyncSession,
+    response: Response,
+    principal: Principal,
+    *,
+    version: int,
+) -> AuthSessionOut:
+    user = await session.get(User, principal.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Account is unavailable")
+    return await _issue_session(
+        session,
+        response,
+        user=user,
+        tenant_id=principal.tenant_id,
+        role=principal.role,
+        version=version,
+    )
+
+
 @router.get("/status", response_model=MFAStatusOut)
 async def status_view(principal: CurrentPrincipal, session: DB) -> MFAStatusOut:
     setting, unused = await mfa_status(session, principal.user_id)
@@ -90,22 +157,25 @@ async def setup(payload: MFASetupRequest, principal: CurrentPrincipal, session: 
     )
 
 
-@router.post("/confirm", response_model=MFAStatusOut)
-async def confirm(payload: MFAConfirmRequest, principal: CurrentPrincipal, session: DB) -> MFAStatusOut:
+@router.post("/confirm", response_model=AuthSessionOut)
+async def confirm(
+    payload: MFAConfirmRequest,
+    response: Response,
+    principal: CurrentPrincipal,
+    session: DB,
+) -> AuthSessionOut:
     try:
-        await confirm_mfa(session, principal.user_id, payload.code)
+        version = await confirm_mfa(session, principal.user_id, payload.code)
+        rotated = await _issue_principal_session(session, response, principal, version=version)
         await session.commit()
     except MFAError as exc:
         await session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    setting, unused = await mfa_status(session, principal.user_id)
+    except HTTPException:
+        await session.rollback()
+        raise
     logger.info("mfa_enabled", user_id=str(principal.user_id))
-    return MFAStatusOut(
-        configured=True,
-        enabled=True,
-        confirmed_at=setting.confirmed_at if setting else None,
-        unused_recovery_codes=unused,
-    )
+    return rotated
 
 
 @router.post("/verify", response_model=AuthSessionOut)
@@ -159,55 +229,30 @@ async def verify_login(
             code=payload.code,
             recovery_code=payload.recovery_code,
         )
+        version = await credential_version(session, user_id)
+        result = await _issue_session(
+            session,
+            response,
+            user=membership.user,
+            tenant_id=tenant_id,
+            role=membership.role,
+            version=version,
+        )
     except MFAError as exc:
         await session.rollback()
         raise HTTPException(status_code=401, detail=str(exc)) from None
-
-    verified = await email_is_verified(session, user_id)
-    version = await credential_version(session, user_id)
-    access_token, expires_at = create_access_token(
-        user_id,
-        tenant_id,
-        membership.role,
-        credential_version=version,
-    )
-    refresh_token, _ = create_refresh_token(
-        user_id,
-        tenant_id,
-        membership.role,
-        credential_version=version,
-    )
-    refresh_claims = decode_token(refresh_token, "refresh")
-    try:
-        await redis_services.remember_refresh_family(
-            refresh_claims["fid"],
-            refresh_claims["jti"],
-            get_settings().jwt_refresh_ttl_days * 86_400,
-        )
-    except SessionStoreUnavailable:
+    except HTTPException:
         await session.rollback()
-        raise HTTPException(status_code=503, detail="Session service unavailable") from None
+        raise
 
-    membership.user.last_login_at = __import__("datetime").datetime.now(__import__("datetime").UTC)
+    membership.user.last_login_at = datetime.now(UTC)
     await session.commit()
-    _set_refresh_cookie(response, refresh_token)
     logger.info(
         "mfa_login_verified",
         user_id=str(user_id),
         request_id=request.headers.get("x-request-id", ""),
     )
-    return AuthSessionOut(
-        access_token=access_token,
-        refresh_token=_public_refresh_token(refresh_token),
-        expires_at=expires_at,
-        user=AuthUserOut(
-            id=membership.user.id,
-            name=membership.user.name,
-            email=membership.user.email,
-            role=membership.role,
-            email_verified=verified,
-        ),
-    )
+    return result
 
 
 @router.post("/recovery-codes", response_model=MFARecoveryCodesOut)
@@ -232,23 +277,28 @@ async def regenerate_codes(
     return MFARecoveryCodesOut(recovery_codes=codes)
 
 
-@router.delete("", status_code=204)
+@router.delete("", response_model=AuthSessionOut)
 async def disable(
     payload: MFAProtectedActionRequest,
+    response: Response,
     principal: CurrentPrincipal,
     session: DB,
-) -> Response:
+) -> AuthSessionOut:
     try:
-        await disable_mfa(
+        version = await disable_mfa(
             session,
             principal.user_id,
             payload.current_password,
             code=payload.code,
             recovery_code=payload.recovery_code,
         )
+        rotated = await _issue_principal_session(session, response, principal, version=version)
         await session.commit()
     except MFAError as exc:
         await session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except HTTPException:
+        await session.rollback()
+        raise
     logger.info("mfa_disabled", user_id=str(principal.user_id))
-    return Response(status_code=204)
+    return rotated
