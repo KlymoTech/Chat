@@ -10,6 +10,7 @@ export interface User {
   name: string;
   email: string;
   role: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst';
+  emailVerified?: boolean;
   avatarUrl?: string;
 }
 
