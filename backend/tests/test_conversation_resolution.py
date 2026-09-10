@@ -19,6 +19,7 @@ async def test_resolve_creates_one_lead_and_preserves_conversation(
         json={
             "name": "Resolution Lead Test Agent",
             "description": "Validates resolved conversation lead finalization",
+            "purpose": "lead_generation",
         },
     )
     assert created_agent.status_code == 201, created_agent.text
