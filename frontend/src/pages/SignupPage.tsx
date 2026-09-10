@@ -19,7 +19,7 @@ export function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  if (session) return <Navigate to="/" replace />;
+  if (session) return <Navigate to={session.user.emailVerified === false ? '/verify-email' : '/'} replace />;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -38,7 +38,7 @@ export function SignupPage() {
 
     setSubmitting(true);
     try {
-      await signup({
+      const created = await signup({
         name: normalizedName,
         organizationName: normalizedOrganization,
         email: normalizedEmail,
@@ -46,7 +46,7 @@ export function SignupPage() {
         termsAccepted: true,
         privacyAccepted: true,
       });
-      navigate('/', { replace: true });
+      navigate(created.user.emailVerified === false ? '/verify-email' : '/', { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'We could not create your account.');
     } finally {
