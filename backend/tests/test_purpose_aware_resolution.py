@@ -116,7 +116,7 @@ async def test_support_resolution_keeps_conversation_without_creating_lead(
     assert resolved.json()["workspaceId"] == workspace_id
 
 
-async def test_education_resolution_records_one_student_activity_and_no_lead(
+async def test_education_resolution_records_student_history_and_no_lead(
     client: AsyncClient,
     auth_headers: dict[str, str],
 ) -> None:
@@ -261,4 +261,4 @@ async def test_education_resolution_records_one_student_activity_and_no_lead(
             )
             or 0
         )
-    assert activity_count == 1
+    assert activity_count == 2
