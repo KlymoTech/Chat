@@ -37,7 +37,7 @@ export function LoginPage() {
           <Field label="Password" htmlFor="password">
             <div className="password-input"><input id="password" type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div>
           </Field>
-          <div className="login-options"><label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Keep me signed in</label><button type="button" className="text-button">Forgot password?</button></div>
+          <div className="login-options"><label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Keep me signed in</label><Link className="text-button" to="/forgot-password">Forgot password?</Link></div>
           {error ? <div className="form-error" role="alert">{error}</div> : null}
           <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>Sign in <ArrowRight /></>}</Button>
         </form>
