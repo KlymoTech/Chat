@@ -17,6 +17,7 @@ from northstar_api import (
     education_student_activity,  # noqa: F401
     education_student_identities,  # noqa: F401
     education_students,  # noqa: F401
+    email_verification,  # noqa: F401
     help_models,  # noqa: F401
     models,  # noqa: F401
 )
