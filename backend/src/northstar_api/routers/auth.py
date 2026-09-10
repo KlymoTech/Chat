@@ -14,12 +14,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from northstar_api.auth_session_schemas import AuthSessionOut, AuthUserOut
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import CurrentPrincipal
 from northstar_api.models import Role, TenantMembership, User
-from northstar_api.schemas import LoginRequest, LogoutRequest, RefreshRequest, SessionOut, UserOut
+from northstar_api.schemas import LoginRequest, LogoutRequest, RefreshRequest
 from northstar_api.security import create_access_token, create_refresh_token, decode_token, verify_password
+from northstar_api.services.email_verification import (
+    email_is_verified,
+    issue_verification_token,
+    send_verification_email,
+)
 from northstar_api.services.rate_limit import SessionStoreUnavailable, redis_services
 from northstar_api.services.signup import SignupConflict, provision_signup
 from northstar_api.signup_schemas import SignupRequest
@@ -77,13 +83,13 @@ async def _enforce_signup_rate_limit(payload: SignupRequest, request: Request) -
             )
 
 
-@router.post("/signup", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
+@router.post("/signup", response_model=AuthSessionOut, status_code=status.HTTP_201_CREATED)
 async def signup(
     payload: SignupRequest,
     request: Request,
     response: Response,
     session: DB,
-) -> SessionOut:
+) -> AuthSessionOut:
     """Create the first Owner, Tenant and Workspace for a new SaaS customer."""
 
     await _enforce_signup_rate_limit(payload, request)
@@ -128,6 +134,20 @@ async def signup(
             detail="Account creation conflicted with an existing account. Try signing in instead.",
         ) from None
 
+    try:
+        issued = await issue_verification_token(session, provisioned.user.id)
+        await session.commit()
+        await send_verification_email(provisioned.user, issued.token)
+    except Exception as exc:
+        await session.rollback()
+        # Account creation remains successful. Resend can issue a fresh challenge,
+        # and delivery failures must never roll back an already-created account.
+        logger.error(
+            "initial_verification_email_failed",
+            user_id=str(provisioned.user.id),
+            error=type(exc).__name__,
+        )
+
     _set_refresh_cookie(response, refresh_token)
     logger.info(
         "self_service_signup_created",
@@ -135,21 +155,27 @@ async def signup(
         user_id=str(provisioned.user.id),
         workspace_id=str(provisioned.workspace.id),
     )
-    return SessionOut(
+    return AuthSessionOut(
         access_token=access_token,
         refresh_token=_public_refresh_token(refresh_token),
         expires_at=expires_at,
-        user=UserOut(
+        user=AuthUserOut(
             id=provisioned.user.id,
             name=provisioned.user.name,
             email=provisioned.user.email,
             role=Role.OWNER,
+            email_verified=False,
         ),
     )
 
 
-@router.post("/login", response_model=SessionOut)
-async def login(payload: LoginRequest, request: Request, response: Response, session: DB) -> SessionOut:
+@router.post("/login", response_model=AuthSessionOut)
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    session: DB,
+) -> AuthSessionOut:
     settings = get_settings()
     normalized_email = payload.email.lower().strip()
     source = request.client.host if request.client else "unknown"
@@ -203,12 +229,9 @@ async def login(payload: LoginRequest, request: Request, response: Response, ses
         if not membership:
             raise HTTPException(status_code=403, detail="Requested workspace is unavailable")
     else:
-        # Tenant/account selection remains deterministic. Operational workspace
-        # selection happens after authentication through /workspaces and the
-        # X-Workspace-ID request context, so users never need a workspace slug
-        # merely to sign in.
         membership = min(user.memberships, key=lambda item: (item.created_at, str(item.tenant_id)))
     user.last_login_at = datetime.now(UTC)
+    verified = await email_is_verified(session, user.id)
     access_token, expires_at = create_access_token(user.id, membership.tenant_id, membership.role)
     refresh_token, _ = create_refresh_token(user.id, membership.tenant_id, membership.role)
     refresh_claims = decode_token(refresh_token, "refresh")
@@ -222,21 +245,27 @@ async def login(payload: LoginRequest, request: Request, response: Response, ses
         raise HTTPException(status_code=503, detail="Session service unavailable") from None
     await session.commit()
     _set_refresh_cookie(response, refresh_token)
-    return SessionOut(
+    return AuthSessionOut(
         access_token=access_token,
         refresh_token=_public_refresh_token(refresh_token),
         expires_at=expires_at,
-        user=UserOut(id=user.id, name=user.name, email=user.email, role=membership.role),
+        user=AuthUserOut(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            role=membership.role,
+            email_verified=verified,
+        ),
     )
 
 
-@router.post("/refresh", response_model=SessionOut)
+@router.post("/refresh", response_model=AuthSessionOut)
 async def refresh(
     request: Request,
     response: Response,
     session: DB,
     payload: RefreshRequest | None = None,
-) -> SessionOut:
+) -> AuthSessionOut:
     refresh_token = (payload.refresh_token if payload else None) or request.cookies.get(_REFRESH_COOKIE)
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
@@ -253,6 +282,7 @@ async def refresh(
     )
     if not membership or not membership.user.is_active:
         raise HTTPException(status_code=401, detail="Account or workspace is unavailable")
+    verified = await email_is_verified(session, membership.user.id)
     access_token, expires_at = create_access_token(user_id, tenant_id, membership.role)
     rotated_refresh, _ = create_refresh_token(
         user_id,
@@ -273,15 +303,16 @@ async def refresh(
     if not rotated:
         raise HTTPException(status_code=401, detail="Invalid or reused refresh token")
     _set_refresh_cookie(response, rotated_refresh)
-    return SessionOut(
+    return AuthSessionOut(
         access_token=access_token,
         refresh_token=_public_refresh_token(rotated_refresh),
         expires_at=expires_at,
-        user=UserOut(
+        user=AuthUserOut(
             id=membership.user.id,
             name=membership.user.name,
             email=membership.user.email,
             role=membership.role,
+            email_verified=verified,
         ),
     )
 
@@ -309,7 +340,6 @@ async def logout(
         except SessionStoreUnavailable:
             raise HTTPException(status_code=503, detail="Session service unavailable") from None
         except (ValueError, KeyError):
-            # Logout remains idempotent and never turns token parsing into an oracle.
             pass
     response = Response(status_code=204)
     response.delete_cookie(
