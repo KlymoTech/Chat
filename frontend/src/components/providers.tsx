@@ -13,8 +13,8 @@ import type { Session } from '@/types';
 
 interface AuthContextValue {
   session: Session | null;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (input: SignupInput) => Promise<void>;
+  login: (email: string, password: string) => Promise<Session>;
+  signup: (input: SignupInput) => Promise<Session>;
   logout: () => Promise<void>;
 }
 
@@ -31,8 +31,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('storage', syncSession);
     };
   }, []);
-  const login = useCallback(async (email: string, password: string) => { const next = await api.auth.login(email, password); setSession(next); }, []);
-  const signup = useCallback(async (input: SignupInput) => { const next = await signupApi.signup(input); setSession(next); }, []);
+  const login = useCallback(async (email: string, password: string) => {
+    const next = await api.auth.login(email, password);
+    setSession(next);
+    return next;
+  }, []);
+  const signup = useCallback(async (input: SignupInput) => {
+    const next = await signupApi.signup(input);
+    setSession(next);
+    return next;
+  }, []);
   const logout = useCallback(async () => { await api.auth.logout(); setSession(null); }, []);
   const value = useMemo(() => ({ session, login, signup, logout }), [session, login, signup, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -62,7 +70,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
-    if (!session) {
+    if (!session || session.user.emailVerified === false) {
       setWorkspaces([]);
       setActiveWorkspace(null);
       return;
