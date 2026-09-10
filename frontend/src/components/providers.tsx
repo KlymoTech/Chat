@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, CircleAlert, Info, X } from 'lucide-react';
 import { api, AUTH_SESSION_EVENT } from '@/lib/api';
+import { isMFAChallenge, mfaApi, type LoginResult, type MFAFactor } from '@/lib/mfa-api';
 import { signupApi, type SignupInput } from '@/lib/signup-api';
 import {
   activeWorkspaceId,
@@ -13,7 +14,8 @@ import type { Session } from '@/types';
 
 interface AuthContextValue {
   session: Session | null;
-  login: (email: string, password: string) => Promise<Session>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  completeMFA: (challengeToken: string, factor: MFAFactor) => Promise<Session>;
   signup: (input: SignupInput) => Promise<Session>;
   logout: () => Promise<void>;
 }
@@ -32,7 +34,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   const login = useCallback(async (email: string, password: string) => {
-    const next = await api.auth.login(email, password);
+    const next = await mfaApi.login(email, password);
+    if (!isMFAChallenge(next)) setSession(next);
+    return next;
+  }, []);
+  const completeMFA = useCallback(async (challengeToken: string, factor: MFAFactor) => {
+    const next = await mfaApi.verifyChallenge(challengeToken, factor);
     setSession(next);
     return next;
   }, []);
@@ -42,7 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return next;
   }, []);
   const logout = useCallback(async () => { await api.auth.logout(); setSession(null); }, []);
-  const value = useMemo(() => ({ session, login, signup, logout }), [session, login, signup, logout]);
+  const value = useMemo(
+    () => ({ session, login, completeMFA, signup, logout }),
+    [session, login, completeMFA, signup, logout],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
