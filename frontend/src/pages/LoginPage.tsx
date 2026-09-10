@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
 import { useAuth } from '@/components/providers';
 import { Button, Field } from '@/components/ui';
+import { isMFAChallenge } from '@/lib/mfa-api';
 
 export function LoginPage() {
   const { session, login } = useAuth(); const navigate = useNavigate(); const location = useLocation();
@@ -16,12 +17,19 @@ export function LoginPage() {
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setSubmitting(true);
     try {
+      const target = (location.state as { from?: string } | null)?.from ?? '/';
       const signedIn = await login(email, password);
+      if (isMFAChallenge(signedIn)) {
+        navigate('/mfa-challenge', {
+          replace: true,
+          state: { challengeToken: signedIn.challengeToken, from: target },
+        });
+        return;
+      }
       if (signedIn.user.emailVerified === false) {
         navigate('/verify-email', { replace: true });
         return;
       }
-      const target = (location.state as { from?: string } | null)?.from ?? '/';
       navigate(target, { replace: true });
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'We could not sign you in.'); }
