@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import func, select
+
+from northstar_api.database import SessionFactory
+from northstar_api.models import (
+    Role,
+    Tenant,
+    TenantMembership,
+    User,
+    Workspace,
+    WorkspaceMembership,
+    WorkspaceRole,
+)
+from northstar_api.security import verify_password
+
+
+async def test_signup_provisions_owner_tenant_workspace_and_session(client: AsyncClient) -> None:
+    seed = uuid.uuid4().hex[:10]
+    email = f"Signup.Owner.{seed}@Example.com"
+    normalized_email = email.lower()
+    password = "Signup-Password-2026!"
+    payload = {
+        "name": "  Signup   Owner  ",
+        "email": email,
+        "password": password,
+        "organizationName": f"Northstar Signup {seed}",
+        "termsAccepted": True,
+        "privacyAccepted": True,
+    }
+
+    response = await client.post("/api/v1/auth/signup", json=payload)
+
+    assert response.status_code == 201, response.text
+    session_payload = response.json()
+    assert session_payload["accessToken"]
+    assert session_payload["refreshToken"]
+    assert session_payload["expiresAt"]
+    assert session_payload["user"]["name"] == "Signup Owner"
+    assert session_payload["user"]["email"] == normalized_email
+    assert session_payload["user"]["role"] == "owner"
+    assert response.headers["cache-control"] == "no-store"
+    assert "HttpOnly" in response.headers["set-cookie"]
+
+    async with SessionFactory() as session:
+        user = await session.scalar(select(User).where(User.email == normalized_email))
+        assert user is not None
+        assert user.password_hash != password
+        assert verify_password(password, user.password_hash)
+
+        tenant_membership = await session.scalar(
+            select(TenantMembership).where(TenantMembership.user_id == user.id)
+        )
+        assert tenant_membership is not None
+        assert tenant_membership.role is Role.OWNER
+
+        tenant = await session.scalar(select(Tenant).where(Tenant.id == tenant_membership.tenant_id))
+        assert tenant is not None
+        assert tenant.name == payload["organizationName"]
+        assert tenant.plan == "starter"
+        assert tenant.settings_json["signup"]["source"] == "self_service"
+        assert tenant.settings_json["signup"]["termsAccepted"] is True
+        assert tenant.settings_json["signup"]["privacyAccepted"] is True
+        assert tenant.settings_json["signup"]["acceptedAt"]
+
+        workspace_membership = await session.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == user.id,
+                WorkspaceMembership.tenant_id == tenant.id,
+            )
+        )
+        assert workspace_membership is not None
+        assert workspace_membership.role is WorkspaceRole.ADMIN
+        assert workspace_membership.all_agents_access is True
+
+        workspace = await session.scalar(
+            select(Workspace).where(Workspace.id == workspace_membership.workspace_id)
+        )
+        assert workspace is not None
+        assert workspace.name == payload["organizationName"]
+        assert workspace.slug == "default"
+        assert workspace.created_by == user.id
+
+    headers = {"Authorization": f"Bearer {session_payload['accessToken']}"}
+    workspaces = await client.get("/api/v1/workspaces", headers=headers)
+    assert workspaces.status_code == 200, workspaces.text
+    assert len(workspaces.json()) == 1
+    assert workspaces.json()[0]["name"] == payload["organizationName"]
+    assert workspaces.json()[0]["role"] == "workspace_admin"
+    assert workspaces.json()[0]["plan"] == "starter"
+
+    signed_in = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email.upper(), "password": password},
+    )
+    assert signed_in.status_code == 200, signed_in.text
+    assert signed_in.json()["user"]["id"] == session_payload["user"]["id"]
+    assert signed_in.json()["user"]["role"] == "owner"
+
+
+async def test_signup_duplicate_email_is_case_insensitive_and_does_not_create_second_account(
+    client: AsyncClient,
+) -> None:
+    seed = uuid.uuid4().hex[:10]
+    email = f"duplicate-{seed}@example.com"
+    first = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "First Owner",
+            "email": email,
+            "password": "Duplicate-Password-2026!",
+            "organizationName": f"First Organization {seed}",
+            "termsAccepted": True,
+            "privacyAccepted": True,
+        },
+    )
+    assert first.status_code == 201, first.text
+
+    duplicate = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Second Owner",
+            "email": email.upper(),
+            "password": "Duplicate-Password-2026!",
+            "organizationName": f"Second Organization {seed}",
+            "termsAccepted": True,
+            "privacyAccepted": True,
+        },
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()["error"]["message"] == "An account with this email already exists"
+
+    async with SessionFactory() as session:
+        user = await session.scalar(select(User).where(User.email == email))
+        assert user is not None
+        tenant_memberships = int(
+            await session.scalar(
+                select(func.count()).select_from(TenantMembership).where(TenantMembership.user_id == user.id)
+            )
+            or 0
+        )
+        workspace_memberships = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(WorkspaceMembership)
+                .where(WorkspaceMembership.user_id == user.id)
+            )
+            or 0
+        )
+    assert tenant_memberships == 1
+    assert workspace_memberships == 1
+
+
+@pytest.mark.parametrize(
+    ("patch", "field_fragment"),
+    [
+        ({"termsAccepted": False}, "termsAccepted"),
+        ({"privacyAccepted": False}, "privacyAccepted"),
+        ({"password": "too-short"}, "password"),
+    ],
+)
+async def test_signup_requires_legal_acceptance_and_new_account_password_policy(
+    client: AsyncClient,
+    patch: dict[str, object],
+    field_fragment: str,
+) -> None:
+    seed = uuid.uuid4().hex[:10]
+    payload: dict[str, object] = {
+        "name": "Validation Owner",
+        "email": f"validation-{seed}@example.com",
+        "password": "Validation-Password-2026!",
+        "organizationName": f"Validation Organization {seed}",
+        "termsAccepted": True,
+        "privacyAccepted": True,
+    }
+    payload.update(patch)
+
+    response = await client.post("/api/v1/auth/signup", json=payload)
+
+    assert response.status_code == 422, response.text
+    fields = response.json()["error"]["fields"]
+    assert any(field_fragment in item["field"] for item in fields)
