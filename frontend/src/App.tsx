@@ -19,6 +19,7 @@ import { HelpSupportPage } from '@/pages/HelpSupportPage';
 import { HelpSupportRequestPage } from '@/pages/HelpSupportRequestPage';
 import { LeadsPage } from '@/pages/LeadsPage';
 import { LoginPage } from '@/pages/LoginPage';
+import { MFAChallengePage } from '@/pages/MFAChallengePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
@@ -43,6 +44,7 @@ export function App() {
     <Route path="/verify-email" element={<VerifyEmailPage />} />
     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
     <Route path="/reset-password" element={<ResetPasswordPage />} />
+    <Route path="/mfa-challenge" element={<MFAChallengePage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
