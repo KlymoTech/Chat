@@ -26,6 +26,7 @@ from northstar_api.services.email_verification import (
     issue_verification_token,
     send_verification_email,
 )
+from northstar_api.services.password_reset import credential_version
 from northstar_api.services.rate_limit import SessionStoreUnavailable, redis_services
 from northstar_api.services.signup import SignupConflict, provision_signup
 from northstar_api.signup_schemas import SignupRequest
@@ -232,8 +233,19 @@ async def login(
         membership = min(user.memberships, key=lambda item: (item.created_at, str(item.tenant_id)))
     user.last_login_at = datetime.now(UTC)
     verified = await email_is_verified(session, user.id)
-    access_token, expires_at = create_access_token(user.id, membership.tenant_id, membership.role)
-    refresh_token, _ = create_refresh_token(user.id, membership.tenant_id, membership.role)
+    version = await credential_version(session, user.id)
+    access_token, expires_at = create_access_token(
+        user.id,
+        membership.tenant_id,
+        membership.role,
+        credential_version=version,
+    )
+    refresh_token, _ = create_refresh_token(
+        user.id,
+        membership.tenant_id,
+        membership.role,
+        credential_version=version,
+    )
     refresh_claims = decode_token(refresh_token, "refresh")
     try:
         await redis_services.remember_refresh_family(
@@ -282,13 +294,22 @@ async def refresh(
     )
     if not membership or not membership.user.is_active:
         raise HTTPException(status_code=401, detail="Account or workspace is unavailable")
+    version = await credential_version(session, membership.user.id)
+    if int(claims.get("cv", 0)) != version:
+        raise HTTPException(status_code=401, detail="Session credentials changed; sign in again")
     verified = await email_is_verified(session, membership.user.id)
-    access_token, expires_at = create_access_token(user_id, tenant_id, membership.role)
+    access_token, expires_at = create_access_token(
+        user_id,
+        tenant_id,
+        membership.role,
+        credential_version=version,
+    )
     rotated_refresh, _ = create_refresh_token(
         user_id,
         tenant_id,
         membership.role,
         family_id=family_id,
+        credential_version=version,
     )
     rotated_claims = decode_token(rotated_refresh, "refresh")
     try:
