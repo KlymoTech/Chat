@@ -16,6 +16,7 @@ from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
 from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import CanonicalInboundEvent, ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider, LeadLifecycleStatus, QualificationStatus
@@ -194,25 +195,43 @@ async def _process_education_message(
     canonical: CanonicalInboundEvent,
     agent: Agent,
 ) -> None:
-    identity, mapping_reason = identity_candidate_for_event(
-        canonical,
-        allow_unsigned_widget=bool(connection.configuration_json.get("allowUnsigned", False)),
+    channel_scope = await session.scalar(
+        select(WorkspaceChannelConnection).where(
+            WorkspaceChannelConnection.tenant_id == canonical.tenant_id,
+            WorkspaceChannelConnection.connection_id == connection.id,
+        )
     )
-    if identity is None:
+    if (
+        channel_scope is None
+        or channel_scope.workspace_id != agent.workspace_id
+        or (channel_scope.agent_id is not None and channel_scope.agent_id != agent.id)
+    ):
         decision = EducationAccessDecision(
             authorized=False,
-            reason=mapping_reason or EducationAccessReason.IDENTITY_MISSING,
+            reason=EducationAccessReason.CHANNEL_SCOPE_MISMATCH,
             agent_id=agent.id,
             workspace_id=agent.workspace_id,
         )
     else:
-        decision = await authorize_education_access(
-            session,
-            tenant_id=canonical.tenant_id,
-            workspace_id=agent.workspace_id,
-            agent=agent,
-            identity=identity,
+        identity, mapping_reason = identity_candidate_for_event(
+            canonical,
+            allow_unsigned_widget=bool(connection.configuration_json.get("allowUnsigned", False)),
         )
+        if identity is None:
+            decision = EducationAccessDecision(
+                authorized=False,
+                reason=mapping_reason or EducationAccessReason.IDENTITY_MISSING,
+                agent_id=agent.id,
+                workspace_id=agent.workspace_id,
+            )
+        else:
+            decision = await authorize_education_access(
+                session,
+                tenant_id=canonical.tenant_id,
+                workspace_id=agent.workspace_id,
+                agent=agent,
+                identity=identity,
+            )
 
     conversation: Conversation | None = None
     if decision.authorized:
