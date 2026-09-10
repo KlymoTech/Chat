@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     )
 
     jwt_secret: SecretStr = SecretStr("development-only-change-me")
+    mfa_encryption_key: SecretStr | None = None
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "northstar-api"
     jwt_audience: str = "northstar-web"
@@ -125,6 +126,7 @@ class Settings(BaseSettings):
         "meta_whatsapp_configuration_id",
         "meta_whatsapp_webhook_verify_token",
         "meta_whatsapp_token_encryption_key",
+        "mfa_encryption_key",
         mode="before",
     )
     @classmethod
@@ -166,6 +168,13 @@ class Settings(BaseSettings):
                 or "replace-" in self.jwt_secret.get_secret_value()
             ):
                 raise ValueError("JWT_SECRET must be a strong secret in production")
+            if not self.mfa_encryption_key:
+                raise ValueError("Production requires MFA_ENCRYPTION_KEY")
+            mfa_secret = self.mfa_encryption_key.get_secret_value()
+            if len(mfa_secret) < 32 or "change-me" in mfa_secret or "replace-" in mfa_secret:
+                raise ValueError("MFA_ENCRYPTION_KEY must be a strong secret in production")
+            if hmac_compare(self.jwt_secret.get_secret_value(), mfa_secret):
+                raise ValueError("MFA_ENCRYPTION_KEY must be distinct from JWT_SECRET")
             if not self.require_nvidia or not self.nvidia_api_key:
                 raise ValueError("Production requires REQUIRE_NVIDIA=true and NVIDIA_API_KEY")
             if self.allow_deterministic_embeddings:
@@ -246,6 +255,12 @@ class Settings(BaseSettings):
             and self.meta_whatsapp_webhook_verify_token
             and self.meta_whatsapp_token_encryption_key
         )
+
+
+def hmac_compare(left: str, right: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
 @lru_cache
