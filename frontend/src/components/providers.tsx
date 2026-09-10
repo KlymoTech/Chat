@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, CircleAlert, Info, X } from 'lucide-react';
 import { api, AUTH_SESSION_EVENT } from '@/lib/api';
+import { signupApi, type SignupInput } from '@/lib/signup-api';
 import {
   activeWorkspaceId,
   persistActiveWorkspace,
@@ -13,6 +14,7 @@ import type { Session } from '@/types';
 interface AuthContextValue {
   session: Session | null;
   login: (email: string, password: string) => Promise<void>;
+  signup: (input: SignupInput) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -30,8 +32,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   const login = useCallback(async (email: string, password: string) => { const next = await api.auth.login(email, password); setSession(next); }, []);
+  const signup = useCallback(async (input: SignupInput) => { const next = await signupApi.signup(input); setSession(next); }, []);
   const logout = useCallback(async () => { await api.auth.logout(); setSession(null); }, []);
-  const value = useMemo(() => ({ session, login, logout }), [session, login, logout]);
+  const value = useMemo(() => ({ session, login, signup, logout }), [session, login, signup, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
