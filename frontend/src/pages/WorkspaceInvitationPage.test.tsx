@@ -82,6 +82,7 @@ function renderInvitation() {
       <Routes>
         <Route path="/workspace-invitation" element={<WorkspaceInvitationPage />} />
         <Route path="/login" element={<div>Sign in route</div>} />
+        <Route path="/verify-email" element={<div>Email verification route</div>} />
         <Route path="/" element={<div>Workspace dashboard</div>} />
       </Routes>
     </MemoryRouter>,
@@ -132,7 +133,7 @@ describe('WorkspaceInvitationPage', () => {
     expect(await screen.findByText('Workspace dashboard')).toBeInTheDocument();
   });
 
-  it('lets the matching signed-in account explicitly accept the workspace', async () => {
+  it('lets the matching signed-in and verified account explicitly accept the workspace', async () => {
     mocks.auth.session = {
       accessToken: 'existing-access-token',
       expiresAt: '2026-09-11T00:00:00Z',
@@ -154,6 +155,30 @@ describe('WorkspaceInvitationPage', () => {
     await waitFor(() => expect(mocks.accept).toHaveBeenCalledWith(invitationToken));
     expect(mocks.signup).not.toHaveBeenCalled();
     expect(mocks.activate).toHaveBeenCalledWith(invitedSession);
+  });
+
+  it('sends an existing but unverified invited account to email verification first', async () => {
+    mocks.auth.session = {
+      accessToken: 'unverified-access-token',
+      expiresAt: '2026-09-11T00:00:00Z',
+      user: {
+        id: 'existing-user',
+        name: 'Existing Invitee',
+        email: 'invitee@example.com',
+        role: 'member',
+        emailVerified: false,
+      },
+    };
+    mocks.preview.mockResolvedValueOnce(preview(true));
+    const user = userEvent.setup();
+    renderInvitation();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Verify your email first');
+    await user.click(screen.getByRole('button', { name: /Verify email to continue/i }));
+
+    expect(mocks.accept).not.toHaveBeenCalled();
+    expect(await screen.findByText('Email verification route')).toBeInTheDocument();
+    expect(sessionStorage.getItem('northstar.pending-workspace-invitation')).toBe(invitationToken);
   });
 
   it('does not accept with a different signed-in account and supports account switching', async () => {
@@ -179,6 +204,31 @@ describe('WorkspaceInvitationPage', () => {
     expect(mocks.accept).not.toHaveBeenCalled();
     expect(await screen.findByText('Sign in route')).toBeInTheDocument();
     expect(sessionStorage.getItem('northstar.pending-workspace-invitation')).toBe(invitationToken);
+  });
+
+  it('blocks invited-account creation while another account is signed in', async () => {
+    mocks.auth.session = {
+      accessToken: 'wrong-access-token',
+      expiresAt: '2026-09-11T00:00:00Z',
+      user: {
+        id: 'wrong-user',
+        name: 'Wrong User',
+        email: 'wrong@example.com',
+        role: 'owner',
+        emailVerified: true,
+      },
+    };
+    mocks.preview.mockResolvedValueOnce(preview(false));
+    const user = userEvent.setup();
+    renderInvitation();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('invitation belongs to invitee@example.com');
+    expect(screen.queryByRole('button', { name: /Create account and join/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Sign out and switch account' }));
+
+    await waitFor(() => expect(mocks.auth.logout).toHaveBeenCalledTimes(1));
+    expect(mocks.signup).not.toHaveBeenCalled();
+    expect(await screen.findByText('Sign in route')).toBeInTheDocument();
   });
 
   it('invalidates the local token after declining the invitation', async () => {

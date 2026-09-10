@@ -86,7 +86,7 @@ export function WorkspaceTeamPanel({ workspace }: { workspace: WorkspaceSettings
       const [nextMembers, nextInvitations, nextAgents] = await Promise.all([
         workspaceTeamApi.listMembers(),
         workspaceTeamApi.listInvitations(),
-        api.agents.list(),
+        canManage ? api.agents.list() : Promise.resolve([] as Agent[]),
       ]);
       setMembers(nextMembers);
       setInvitations(nextInvitations);
@@ -96,7 +96,7 @@ export function WorkspaceTeamPanel({ workspace }: { workspace: WorkspaceSettings
     } finally {
       setLoading(false);
     }
-  }, [canView]);
+  }, [canManage, canView]);
 
   useEffect(() => { void load(); }, [load, workspace.id]);
 

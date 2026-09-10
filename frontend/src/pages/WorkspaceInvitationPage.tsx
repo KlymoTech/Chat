@@ -193,6 +193,7 @@ export function WorkspaceInvitationPage() {
   const matchingSession = session?.user.email.toLowerCase() === preview.email.toLowerCase()
     ? session
     : null;
+  const differentSession = session && !matchingSession ? session : null;
   const expiresAt = new Date(preview.expiresAt);
 
   return <InvitationShell>
@@ -212,20 +213,27 @@ export function WorkspaceInvitationPage() {
       <span><Clock3 /><span><small>Invitation expires</small><strong>{Number.isNaN(expiresAt.getTime()) ? preview.expiresAt : expiresAt.toLocaleString()}</strong></span></span>
     </div>
 
-    {preview.existingUser ? <div className="workspace-invitation__action">
-      {matchingSession ? <>
+    {differentSession ? <div className="workspace-invitation__action">
+      <div className="workspace-invitation__account-warning" role="alert">
+        <ShieldCheck /><span><strong>Use the invited account</strong><small>You are signed in as {differentSession.user.email}, but this invitation belongs to {preview.email}.</small></span>
+      </div>
+      {error ? <div className="form-error" role="alert">{error}</div> : null}
+      <Button size="lg" variant="secondary" disabled={submitting} onClick={() => void switchAccount()}>
+        Sign out and switch account
+      </Button>
+    </div> : preview.existingUser ? <div className="workspace-invitation__action">
+      {matchingSession ? matchingSession.user.emailVerified === false ? <>
+        <div className="workspace-invitation__account-warning" role="alert">
+          <ShieldCheck /><span><strong>Verify your email first</strong><small>This existing account must complete email verification before it can accept workspace access.</small></span>
+        </div>
+        <Button size="lg" onClick={() => navigate('/verify-email', { state: { from: '/workspace-invitation' } })}>
+          Verify email to continue <ArrowRight />
+        </Button>
+      </> : <>
         <div className="workspace-invitation__signed-in"><CheckCircle2 /><span><small>Signed in as</small><strong>{matchingSession.user.email}</strong></span></div>
         {error ? <div className="form-error" role="alert">{error}</div> : null}
         <Button size="lg" disabled={submitting} onClick={() => void acceptExistingAccount()}>
           {submitting ? <span className="button-spinner" /> : <>Accept and open workspace <ArrowRight /></>}
-        </Button>
-      </> : session ? <>
-        <div className="workspace-invitation__account-warning" role="alert">
-          <ShieldCheck /><span><strong>Use the invited account</strong><small>You are signed in as {session.user.email}, but this invitation belongs to {preview.email}.</small></span>
-        </div>
-        {error ? <div className="form-error" role="alert">{error}</div> : null}
-        <Button size="lg" variant="secondary" disabled={submitting} onClick={() => void switchAccount()}>
-          Sign out and switch account
         </Button>
       </> : <>
         <p className="workspace-invitation__instruction">An account already exists for this email. Sign in first, then return here to accept the invitation.</p>

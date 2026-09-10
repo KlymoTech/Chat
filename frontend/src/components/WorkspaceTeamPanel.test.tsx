@@ -211,10 +211,13 @@ describe('WorkspaceTeamPanel', () => {
     expect(localStorage.getItem('northstar.workspace.members')).toBeNull();
   });
 
-  it('does not expose management actions without members.manage permission', async () => {
+  it('loads member data without requesting agent data for read-only member viewers', async () => {
     render(<WorkspaceTeamPanel workspace={{ ...workspace, permissions: ['members.view'] }} />);
 
     expect(await screen.findByText('Support Operator')).toBeInTheDocument();
+    expect(mocks.listMembers).toHaveBeenCalledTimes(1);
+    expect(mocks.listInvitations).toHaveBeenCalledTimes(1);
+    expect(mocks.listAgents).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Invite member' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove Support Operator' })).not.toBeInTheDocument();

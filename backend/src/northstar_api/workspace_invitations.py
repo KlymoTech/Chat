@@ -57,7 +57,7 @@ class WorkspaceInvitation(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[WorkspaceRole] = mapped_column(
         enum_column(WorkspaceRole, "workspace_invitation_role"),
-        default=WorkspaceRole.VIEWER,
+        default=WorkspaceRole.OPERATOR,
         nullable=False,
     )
     all_agents_access: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

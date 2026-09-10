@@ -12,6 +12,7 @@ from northstar_api.models import (
     Role,
     TenantMembership,
     User,
+    Workspace,
     WorkspaceMemberAgentAccess,
     WorkspaceMembership,
     WorkspaceRole,
@@ -181,6 +182,16 @@ async def _protect_last_admin(
     removing_admin = membership.role == WorkspaceRole.ADMIN and next_role != WorkspaceRole.ADMIN
     if not removing_admin:
         return
+
+    # Serialize administrator demotion/removal for this workspace. Locking only
+    # the target membership allows two administrators to demote each other at
+    # the same time after both observe a count of two.
+    workspace = await session.scalar(
+        select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()
+    )
+    if workspace is None:
+        raise WorkspaceMemberError("Workspace not found", status_code=404)
+
     count = int(
         await session.scalar(
             select(func.count())
