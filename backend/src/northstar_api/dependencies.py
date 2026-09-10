@@ -27,6 +27,7 @@ from northstar_api.security import (
     Principal,
     decode_token,
 )
+from northstar_api.services.email_verification import email_is_verified
 from northstar_api.services.rate_limit import redis_services
 
 bearer = HTTPBearer(auto_error=False)
@@ -84,6 +85,16 @@ async def authenticate_access_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session role is stale; sign in again"
         )
+
+    # Legacy users have no verification-state row and remain verified. New
+    # self-service users receive an explicit unverified row during Signup.
+    allow_unverified_logout = bool(request and request.url.path.endswith("/auth/logout"))
+    if not allow_unverified_logout and not await email_is_verified(session, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required",
+        )
+
     await set_tenant_context(session, tenant_id)
     requested_workspace = request.headers.get("x-workspace-id", "").strip() if request else ""
     workspace_id: UUID | None = None
