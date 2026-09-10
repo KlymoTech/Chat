@@ -21,6 +21,10 @@ from northstar_api.models import (
 )
 from northstar_api.security import hash_password
 from northstar_api.signup_schemas import SignupRequest
+from northstar_api.workspace_invitations import (
+    WorkspaceInvitationError,
+    resolve_workspace_invitation,
+)
 
 
 class SignupConflict(RuntimeError):
@@ -32,6 +36,7 @@ class ProvisionedSignup:
     user: User
     tenant: Tenant
     workspace: Workspace
+    role: Role
 
 
 def _base_slug(value: str) -> str:
@@ -57,6 +62,60 @@ async def _available_tenant_slug(session: AsyncSession, organization_name: str) 
     raise SignupConflict("Unable to allocate an account identifier")
 
 
+async def _provision_invited_signup(
+    session: AsyncSession,
+    *,
+    payload: SignupRequest,
+    normalized_email: str,
+    password_hash: str,
+    accepted_at: datetime,
+) -> ProvisionedSignup:
+    if payload.workspace_invitation_token is None:
+        raise SignupConflict("Workspace invitation is required")
+    try:
+        invitation = await resolve_workspace_invitation(session, payload.workspace_invitation_token)
+    except WorkspaceInvitationError as exc:
+        raise SignupConflict(str(exc)) from None
+    if invitation.email != normalized_email:
+        raise SignupConflict("This workspace invitation was issued to a different email address")
+
+    tenant = await session.get(Tenant, invitation.tenant_id)
+    workspace = await session.get(Workspace, invitation.workspace_id)
+    if tenant is None or workspace is None or workspace.tenant_id != tenant.id:
+        raise SignupConflict("Workspace invitation is invalid or expired")
+
+    user = User(
+        email=normalized_email,
+        name=payload.name,
+        password_hash=password_hash,
+        is_active=True,
+        last_login_at=accepted_at,
+    )
+    session.add(user)
+    await session.flush()
+    session.add(EmailVerificationState(user_id=user.id, verified_at=None))
+    session.add(
+        TenantMembership(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            role=Role.MEMBER,
+        )
+    )
+    session.add(
+        WorkspaceMembership(
+            tenant_id=tenant.id,
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=invitation.role,
+            all_agents_access=True,
+        )
+    )
+    invitation.accepted_at = accepted_at
+    invitation.updated_at = accepted_at
+    await session.flush()
+    return ProvisionedSignup(user=user, tenant=tenant, workspace=workspace, role=Role.MEMBER)
+
+
 async def provision_signup(
     session: AsyncSession,
     *,
@@ -69,10 +128,20 @@ async def provision_signup(
     if existing_user is not None:
         raise SignupConflict("An account with this email already exists")
 
-    tenant_slug = await _available_tenant_slug(session, payload.organization_name)
     password_hash = await asyncio.to_thread(hash_password, payload.password)
     accepted_at = datetime.now(UTC)
+    if payload.workspace_invitation_token is not None:
+        return await _provision_invited_signup(
+            session,
+            payload=payload,
+            normalized_email=normalized_email,
+            password_hash=password_hash,
+            accepted_at=accepted_at,
+        )
 
+    if payload.organization_name is None:
+        raise SignupConflict("Organization name is required")
+    tenant_slug = await _available_tenant_slug(session, payload.organization_name)
     tenant = Tenant(
         name=payload.organization_name,
         slug=tenant_slug,
@@ -123,4 +192,4 @@ async def provision_signup(
         )
     )
     await session.flush()
-    return ProvisionedSignup(user=user, tenant=tenant, workspace=workspace)
+    return ProvisionedSignup(user=user, tenant=tenant, workspace=workspace, role=Role.OWNER)

@@ -33,9 +33,9 @@ vi.mock('@/components/providers', () => ({
   }),
 }));
 
-function renderSignup() {
+function renderSignup(initialEntry = '/signup') {
   return render(
-    <MemoryRouter initialEntries={['/signup']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/login" element={<LoginPage />} />
@@ -98,6 +98,30 @@ describe('SignupPage', () => {
       privacyAccepted: true,
     }));
     expect(await screen.findByText('Email verification route')).toBeInTheDocument();
+  });
+
+  it('accepts a workspace invitation without creating a new organization', async () => {
+    const user = userEvent.setup();
+    const token = 'workspace-invitation-token-with-more-than-thirty-two-characters';
+    renderSignup(`/signup#invite=${token}`);
+
+    expect(screen.getByRole('heading', { name: 'Join your workspace' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Organization')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Your name'), 'Invited Member');
+    await user.type(screen.getByLabelText('Business email'), 'MEMBER@EXAMPLE.COM');
+    await user.type(screen.getByLabelText('Password'), 'Invited-Password-2026!');
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/i }));
+    await user.click(screen.getByRole('checkbox', { name: /Privacy Policy/i }));
+    await user.click(screen.getByRole('button', { name: 'Join workspace' }));
+
+    await waitFor(() => expect(mocks.signup).toHaveBeenCalledWith({
+      name: 'Invited Member',
+      workspaceInvitationToken: token,
+      email: 'member@example.com',
+      password: 'Invited-Password-2026!',
+      termsAccepted: true,
+      privacyAccepted: true,
+    }));
   });
 
   it('allows a demo/already-verified signup session to enter the workspace', async () => {
