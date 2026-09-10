@@ -23,11 +23,11 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
     seed = uuid.uuid4().hex[:10]
     email = f"Signup.Owner.{seed}@Example.com"
     normalized_email = email.lower()
-    password = "Signup-Password-2026!"
+    credential = "Signup-Password-2026!"
     payload = {
         "name": "  Signup   Owner  ",
         "email": email,
-        "password": password,
+        "password": credential,
         "organizationName": f"Northstar Signup {seed}",
         "termsAccepted": True,
         "privacyAccepted": True,
@@ -49,8 +49,8 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
     async with SessionFactory() as session:
         user = await session.scalar(select(User).where(User.email == normalized_email))
         assert user is not None
-        assert user.password_hash != password
-        assert verify_password(password, user.password_hash)
+        assert user.password_hash != credential
+        assert verify_password(credential, user.password_hash)
 
         tenant_membership = await session.scalar(
             select(TenantMembership).where(TenantMembership.user_id == user.id)
@@ -95,7 +95,7 @@ async def test_signup_provisions_owner_tenant_workspace_and_session(client: Asyn
 
     signed_in = await client.post(
         "/api/v1/auth/login",
-        json={"email": email.upper(), "password": password},
+        json={"email": email.upper(), "password": credential},
     )
     assert signed_in.status_code == 200, signed_in.text
     assert signed_in.json()["user"]["id"] == session_payload["user"]["id"]
