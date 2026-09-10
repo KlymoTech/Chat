@@ -7,6 +7,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
+from northstar_api.education_conversation_context import EducationConversationContext
+from northstar_api.education_student_activity import EducationStudentActivityEvent
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.lead_crm.models import LeadActivityEvent
 from northstar_api.lead_crm.services import lead_domain_service
@@ -17,16 +20,21 @@ from northstar_api.services.outbox import enqueue_event
 
 @dataclass(frozen=True)
 class ConversationResolutionResult:
-    lead: Lead
-    lead_created: bool
+    purpose: AgentPurpose
+    lead: Lead | None = None
+    lead_created: bool = False
+    education_activity_created: bool = False
 
 
 class ConversationResolutionService:
-    """Resolve a conversation and finalize its local lead in one DB transaction.
+    """Resolve a conversation according to the Agent's first-class purpose.
 
-    This service intentionally never deletes or moves the conversation. The Lead
-    keeps a permanent foreign-key reference to the original conversation so the
-    complete message history remains the source of truth.
+    Lead Generation retains the existing idempotent Lead + CRM workflow.
+    Education and Support resolve the Conversation without creating a new Lead by
+    default. Education additionally records durable Student activity when an
+    authorization context is attached to the Conversation.
+
+    The Conversation and its messages always remain the source of truth.
     """
 
     async def resolve(
@@ -36,6 +44,12 @@ class ConversationResolutionService:
         conversation: Conversation,
         actor_user_id: UUID | None = None,
     ) -> ConversationResolutionResult:
+        purpose = await get_agent_purpose(
+            session,
+            tenant_id=conversation.tenant_id,
+            workspace_id=conversation.workspace_id,
+            agent_id=conversation.agent_id,
+        )
         now = datetime.now(UTC)
         previous_state = conversation.state
         was_resolved = previous_state == ConversationState.RESOLVED
@@ -43,6 +57,63 @@ class ConversationResolutionService:
         conversation.state = ConversationState.RESOLVED
         conversation.ended_at = conversation.ended_at or now
         conversation.unread_count = 0
+
+        if purpose is AgentPurpose.LEAD_GENERATION:
+            lead, lead_created = await self._finalize_lead(
+                session,
+                conversation=conversation,
+                actor_user_id=actor_user_id,
+                now=now,
+            )
+            if not was_resolved or lead_created:
+                self._enqueue_conversation_events(
+                    session,
+                    conversation=conversation,
+                    previous_state=previous_state,
+                    purpose=purpose,
+                    lead=lead,
+                    reconciled=was_resolved and lead_created,
+                )
+            await session.flush()
+            return ConversationResolutionResult(
+                purpose=purpose,
+                lead=lead,
+                lead_created=lead_created,
+            )
+
+        education_activity_created = False
+        if purpose is AgentPurpose.EDUCATION:
+            education_activity_created = await self._record_education_resolution(
+                session,
+                conversation=conversation,
+                actor_user_id=actor_user_id,
+            )
+
+        if not was_resolved or education_activity_created:
+            self._enqueue_conversation_events(
+                session,
+                conversation=conversation,
+                previous_state=previous_state,
+                purpose=purpose,
+                lead=None,
+                reconciled=was_resolved and education_activity_created,
+            )
+
+        await session.flush()
+        return ConversationResolutionResult(
+            purpose=purpose,
+            education_activity_created=education_activity_created,
+        )
+
+    async def _finalize_lead(
+        self,
+        session: AsyncSession,
+        *,
+        conversation: Conversation,
+        actor_user_id: UUID | None,
+        now: datetime,
+    ) -> tuple[Lead, bool]:
+        """Preserve the existing Lead Generation resolution behavior exactly."""
 
         lead = await session.scalar(
             select(Lead)
@@ -79,8 +150,6 @@ class ConversationResolutionService:
             session.add(lead)
             await session.flush()
         else:
-            # A legacy/manual lead can already be linked to the conversation. Fill
-            # only missing standard fields and retain every custom field it owns.
             if not lead.name and conversation.visitor_name != "Anonymous visitor":
                 lead.name = conversation.visitor_name
             if not lead.email and conversation.visitor_email:
@@ -137,8 +206,6 @@ class ConversationResolutionService:
                 event_type="lead.created.v1",
                 payload=lead_payload,
             )
-            # CRM routing is intentionally asynchronous. A local Lead is committed
-            # even when no CRM is configured or the remote CRM is unavailable.
             enqueue_event(
                 session,
                 tenant_id=conversation.tenant_id,
@@ -148,39 +215,148 @@ class ConversationResolutionService:
                 payload={**lead_payload, "reason": "conversation_resolved"},
             )
 
-        if not was_resolved or lead_created:
-            conversation_payload = {
-                "conversationId": str(conversation.id),
-                "workspaceId": str(conversation.workspace_id),
-                "agentId": str(conversation.agent_id),
-                "leadId": str(lead.id),
-                "channel": conversation.channel.value,
-                "reconciledLead": was_resolved and lead_created,
-            }
+        return lead, lead_created
+
+    async def _record_education_resolution(
+        self,
+        session: AsyncSession,
+        *,
+        conversation: Conversation,
+        actor_user_id: UUID | None,
+    ) -> bool:
+        context = await session.scalar(
+            select(EducationConversationContext).where(
+                EducationConversationContext.tenant_id == conversation.tenant_id,
+                EducationConversationContext.workspace_id == conversation.workspace_id,
+                EducationConversationContext.agent_id == conversation.agent_id,
+                EducationConversationContext.conversation_id == conversation.id,
+            )
+        )
+        if context is None:
             enqueue_event(
                 session,
                 tenant_id=conversation.tenant_id,
                 aggregate_type="conversation",
                 aggregate_id=conversation.id,
-                event_type="conversation.resolved.v1",
-                payload=conversation_payload,
+                event_type="education.conversation.resolution.context_missing.v1",
+                payload={
+                    "conversationId": str(conversation.id),
+                    "workspaceId": str(conversation.workspace_id),
+                    "agentId": str(conversation.agent_id),
+                },
             )
-            if not was_resolved:
-                enqueue_event(
-                    session,
-                    tenant_id=conversation.tenant_id,
-                    aggregate_type="conversation",
-                    aggregate_id=conversation.id,
-                    event_type="conversation.state.changed.v1",
-                    payload={
-                        **conversation_payload,
-                        "previousState": previous_state.value,
-                        "state": ConversationState.RESOLVED.value,
-                    },
-                )
+            return False
 
-        await session.flush()
-        return ConversationResolutionResult(lead=lead, lead_created=lead_created)
+        event_type = "conversation.resolved"
+        activity = await session.scalar(
+            select(EducationStudentActivityEvent)
+            .where(
+                EducationStudentActivityEvent.tenant_id == conversation.tenant_id,
+                EducationStudentActivityEvent.workspace_id == conversation.workspace_id,
+                EducationStudentActivityEvent.conversation_id == conversation.id,
+                EducationStudentActivityEvent.event_type == event_type,
+            )
+            .with_for_update()
+        )
+        created = activity is None
+        details = {
+            "channel": conversation.channel.value,
+            "conversationPublicId": conversation.public_id,
+            "resolution": conversation.resolution,
+            "resolvedAt": conversation.ended_at.isoformat() if conversation.ended_at else None,
+        }
+        if activity is None:
+            activity = EducationStudentActivityEvent(
+                tenant_id=conversation.tenant_id,
+                workspace_id=conversation.workspace_id,
+                student_id=context.student_id,
+                enrollment_id=context.enrollment_id,
+                course_id=context.course_id,
+                batch_id=context.batch_id,
+                agent_id=context.agent_id,
+                conversation_id=conversation.id,
+                event_type=event_type,
+                resolution=conversation.resolution,
+                actor_user_id=actor_user_id,
+                details_json=details,
+            )
+            session.add(activity)
+            await session.flush()
+        else:
+            activity.resolution = conversation.resolution
+            activity.actor_user_id = actor_user_id or activity.actor_user_id
+            activity.details_json = details
+
+        if created:
+            payload = {
+                "activityId": str(activity.id),
+                "conversationId": str(conversation.id),
+                "workspaceId": str(conversation.workspace_id),
+                "agentId": str(context.agent_id),
+                "studentId": str(context.student_id),
+                "enrollmentId": str(context.enrollment_id),
+                "courseId": str(context.course_id),
+                "batchId": str(context.batch_id),
+                "eventType": event_type,
+            }
+            enqueue_event(
+                session,
+                tenant_id=conversation.tenant_id,
+                aggregate_type="education_student",
+                aggregate_id=context.student_id,
+                event_type="education.student.activity.recorded.v1",
+                payload=payload,
+            )
+            enqueue_event(
+                session,
+                tenant_id=conversation.tenant_id,
+                aggregate_type="conversation",
+                aggregate_id=conversation.id,
+                event_type="education.conversation.resolved.v1",
+                payload=payload,
+            )
+        return created
+
+    @staticmethod
+    def _enqueue_conversation_events(
+        session: AsyncSession,
+        *,
+        conversation: Conversation,
+        previous_state: ConversationState,
+        purpose: AgentPurpose,
+        lead: Lead | None,
+        reconciled: bool,
+    ) -> None:
+        conversation_payload = {
+            "conversationId": str(conversation.id),
+            "workspaceId": str(conversation.workspace_id),
+            "agentId": str(conversation.agent_id),
+            "leadId": str(lead.id) if lead is not None else None,
+            "channel": conversation.channel.value,
+            "purpose": purpose.value,
+            "reconciled": reconciled,
+        }
+        enqueue_event(
+            session,
+            tenant_id=conversation.tenant_id,
+            aggregate_type="conversation",
+            aggregate_id=conversation.id,
+            event_type="conversation.resolved.v1",
+            payload=conversation_payload,
+        )
+        if previous_state != ConversationState.RESOLVED:
+            enqueue_event(
+                session,
+                tenant_id=conversation.tenant_id,
+                aggregate_type="conversation",
+                aggregate_id=conversation.id,
+                event_type="conversation.state.changed.v1",
+                payload={
+                    **conversation_payload,
+                    "previousState": previous_state.value,
+                    "state": ConversationState.RESOLVED.value,
+                },
+            )
 
 
 conversation_resolution_service = ConversationResolutionService()
