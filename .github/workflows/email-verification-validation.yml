@@ -51,6 +51,7 @@ jobs:
           src/northstar_api/routers/auth.py
           src/northstar_api/routers/email_verification.py
           tests/test_email_verification.py
+          tests/test_email_verification_url.py
           tests/test_signup.py
       - name: Format-check email verification backend
         run: >-
@@ -67,6 +68,7 @@ jobs:
           src/northstar_api/routers/auth.py
           src/northstar_api/routers/email_verification.py
           tests/test_email_verification.py
+          tests/test_email_verification_url.py
           tests/test_signup.py
       - name: Type-check email verification backend
         run: >-
@@ -94,7 +96,12 @@ jobs:
           path.write_text(content, encoding="utf-8")
           PY
       - name: Run email verification and signup tests
-        run: uv run pytest tests/test_email_verification.py tests/test_signup.py -q
+        run: >-
+          uv run pytest
+          tests/test_email_verification.py
+          tests/test_email_verification_url.py
+          tests/test_signup.py
+          -q
       - name: Run core auth regressions
         run: >-
           uv run pytest tests/test_api.py
