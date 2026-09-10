@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
+from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.lead_crm.channel_models import ChannelConnection
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import CanonicalInboundEvent, ChannelConnectionContext, channel_registry
@@ -105,6 +106,77 @@ async def _get_or_create_conversation(
         state=ConversationState.OPEN,
     )
     session.add(conversation)
+    await session.flush()
+    return conversation
+
+
+async def _get_or_create_education_conversation(
+    session: AsyncSession,
+    *,
+    event: CanonicalInboundEvent,
+    agent: Agent,
+    decision: EducationAccessDecision,
+) -> Conversation:
+    if (
+        decision.student_id is None
+        or decision.enrollment_id is None
+        or decision.course_id is None
+        or decision.batch_id is None
+    ):
+        raise ValueError("authorized Education decision is missing conversation scope")
+
+    visitor_id = _visitor_key(event)
+    conversation = await session.scalar(
+        select(Conversation)
+        .join(
+            EducationConversationContext,
+            EducationConversationContext.conversation_id == Conversation.id,
+        )
+        .where(
+            Conversation.tenant_id == event.tenant_id,
+            Conversation.workspace_id == agent.workspace_id,
+            Conversation.agent_id == agent.id,
+            Conversation.visitor_id == visitor_id,
+            Conversation.state == ConversationState.OPEN,
+            EducationConversationContext.tenant_id == event.tenant_id,
+            EducationConversationContext.workspace_id == agent.workspace_id,
+            EducationConversationContext.agent_id == agent.id,
+            EducationConversationContext.student_id == decision.student_id,
+            EducationConversationContext.enrollment_id == decision.enrollment_id,
+            EducationConversationContext.course_id == decision.course_id,
+            EducationConversationContext.batch_id == decision.batch_id,
+        )
+        .order_by(Conversation.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if conversation:
+        return conversation
+
+    conversation = Conversation(
+        tenant_id=event.tenant_id,
+        workspace_id=agent.workspace_id,
+        agent_id=agent.id,
+        visitor_id=visitor_id,
+        visitor_name=event.sender.name or "Messaging student",
+        visitor_email=event.sender.email,
+        channel=_conversation_channel(event.provider),
+        state=ConversationState.OPEN,
+    )
+    session.add(conversation)
+    await session.flush()
+    session.add(
+        EducationConversationContext(
+            tenant_id=event.tenant_id,
+            workspace_id=agent.workspace_id,
+            conversation_id=conversation.id,
+            agent_id=agent.id,
+            student_id=decision.student_id,
+            enrollment_id=decision.enrollment_id,
+            course_id=decision.course_id,
+            batch_id=decision.batch_id,
+        )
+    )
     await session.flush()
     return conversation
 
@@ -235,7 +307,12 @@ async def _process_education_message(
 
     conversation: Conversation | None = None
     if decision.authorized:
-        conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+        conversation = await _get_or_create_education_conversation(
+            session,
+            event=canonical,
+            agent=agent,
+            decision=decision,
+        )
         await _persist_message(session, event=canonical, conversation=conversation)
 
     access_payload = {
