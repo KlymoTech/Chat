@@ -166,14 +166,19 @@ def _token(
 
 
 def create_access_token(
-    user_id: UUID, tenant_id: UUID, role: Role, settings: Settings | None = None
+    user_id: UUID,
+    tenant_id: UUID,
+    role: Role,
+    settings: Settings | None = None,
+    *,
+    credential_version: int = 0,
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
         str(user_id),
         "access",
         timedelta(minutes=config.jwt_access_ttl_minutes),
-        {"tid": str(tenant_id), "role": role.value},
+        {"tid": str(tenant_id), "role": role.value, "cv": credential_version},
         config,
     )
 
@@ -185,6 +190,7 @@ def create_refresh_token(
     settings: Settings | None = None,
     *,
     family_id: str | None = None,
+    credential_version: int = 0,
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
@@ -195,6 +201,7 @@ def create_refresh_token(
             "tid": str(tenant_id),
             "role": role.value,
             "fid": family_id or secrets.token_urlsafe(18),
+            "cv": credential_version,
         },
         config,
     )
