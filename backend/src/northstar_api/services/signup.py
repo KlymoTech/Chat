@@ -4,7 +4,7 @@ import asyncio
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,10 +45,8 @@ async def _available_tenant_slug(session: AsyncSession, organization_name: str) 
         return base
 
     # Tenant slugs are an internal account selector and must remain globally
-    # unique. A UUID fragment keeps retries deterministic enough for operators
-    # while avoiding organization-name collisions without exposing email data.
-    from uuid import uuid4
-
+    # unique. A UUID fragment avoids organization-name collisions without
+    # exposing email or other customer identifiers.
     for _ in range(8):
         suffix = uuid4().hex[:8]
         candidate = f"{base[:61]}-{suffix}"
@@ -122,7 +120,3 @@ async def provision_signup(
     )
     await session.flush()
     return ProvisionedSignup(user=user, tenant=tenant, workspace=workspace)
-
-
-def signup_ids(value: ProvisionedSignup) -> tuple[UUID, UUID, UUID]:
-    return value.user.id, value.tenant.id, value.workspace.id
