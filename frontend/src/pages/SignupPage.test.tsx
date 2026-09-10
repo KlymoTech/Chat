@@ -5,10 +5,23 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { SignupInput } from '@/lib/signup-api';
 import { LoginPage } from '@/pages/LoginPage';
 import { SignupPage } from '@/pages/SignupPage';
+import type { Session } from '@/types';
+
+const unverifiedSession: Session = {
+  accessToken: 'access-token',
+  expiresAt: '2026-09-11T00:00:00Z',
+  user: {
+    id: 'user-signup',
+    name: 'Sakshee Jha',
+    email: 'sakshee@example.com',
+    role: 'owner',
+    emailVerified: false,
+  },
+};
 
 const mocks = vi.hoisted(() => ({
-  signup: vi.fn<(input: SignupInput) => Promise<void>>(),
-  login: vi.fn<(email: string, password: string) => Promise<void>>(),
+  signup: vi.fn<(input: SignupInput) => Promise<Session>>(),
+  login: vi.fn<(email: string, password: string) => Promise<Session>>(),
 }));
 
 vi.mock('@/components/providers', () => ({
@@ -26,6 +39,7 @@ function renderSignup() {
       <Routes>
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/verify-email" element={<div>Email verification route</div>} />
         <Route path="/" element={<div>Workspace dashboard</div>} />
       </Routes>
     </MemoryRouter>,
@@ -41,8 +55,11 @@ async function fillValidSignup(user: ReturnType<typeof userEvent.setup>) {
 
 describe('SignupPage', () => {
   beforeEach(() => {
-    mocks.signup.mockResolvedValue(undefined);
-    mocks.login.mockResolvedValue(undefined);
+    mocks.signup.mockResolvedValue(unverifiedSession);
+    mocks.login.mockResolvedValue({
+      ...unverifiedSession,
+      user: { ...unverifiedSession.user, emailVerified: true },
+    });
   });
 
   afterEach(() => {
@@ -63,7 +80,7 @@ describe('SignupPage', () => {
     expect(mocks.signup).not.toHaveBeenCalled();
   });
 
-  it('normalizes form values, creates the account, and enters the workspace', async () => {
+  it('normalizes form values, creates the account, and enters email verification', async () => {
     const user = userEvent.setup();
     renderSignup();
     await fillValidSignup(user);
@@ -80,6 +97,21 @@ describe('SignupPage', () => {
       termsAccepted: true,
       privacyAccepted: true,
     }));
+    expect(await screen.findByText('Email verification route')).toBeInTheDocument();
+  });
+
+  it('allows a demo/already-verified signup session to enter the workspace', async () => {
+    mocks.signup.mockResolvedValueOnce({
+      ...unverifiedSession,
+      user: { ...unverifiedSession.user, emailVerified: true },
+    });
+    const user = userEvent.setup();
+    renderSignup();
+    await fillValidSignup(user);
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/i }));
+    await user.click(screen.getByRole('checkbox', { name: /Privacy Policy/i }));
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
     expect(await screen.findByText('Workspace dashboard')).toBeInTheDocument();
   });
 
