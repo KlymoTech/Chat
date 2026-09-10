@@ -28,6 +28,9 @@ router = APIRouter(prefix="/auth/email-verification", tags=["authentication"])
 _RESEND_WINDOW_SECONDS = 3600
 _RESEND_SOURCE_LIMIT = 30
 _RESEND_IDENTIFIER_LIMIT = 5
+_VERIFY_WINDOW_SECONDS = 3600
+_VERIFY_SOURCE_LIMIT = 120
+_VERIFY_TOKEN_LIMIT = 10
 
 
 def _hash_identifier(value: str) -> str:
@@ -55,6 +58,35 @@ async def _enforce_resend_rate_limit(email: str, request: Request) -> None:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many verification email requests. Try again later.",
+                headers={"Retry-After": str(result.retry_after)},
+            )
+
+
+async def _enforce_verify_rate_limit(token: str, request: Request) -> None:
+    source = request.client.host if request.client else "unknown"
+    checks = (
+        (
+            f"email-verify-attempt:source:{_hash_identifier(source)}",
+            _VERIFY_SOURCE_LIMIT,
+            "email_verify_attempt_source",
+        ),
+        (
+            f"email-verify-attempt:token:{_hash_identifier(token)}",
+            _VERIFY_TOKEN_LIMIT,
+            "email_verify_attempt_token",
+        ),
+    )
+    for key, limit, scope in checks:
+        result = await redis_services.check_rate_limit(
+            key,
+            limit,
+            _VERIFY_WINDOW_SECONDS,
+            scope=scope,
+        )
+        if not result.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many verification attempts. Try again later.",
                 headers={"Retry-After": str(result.retry_after)},
             )
 
@@ -93,8 +125,10 @@ async def resend_verification_email(
 @router.post("/verify", response_model=EmailVerificationResult)
 async def verify_email(
     payload: EmailVerificationVerifyRequest,
+    request: Request,
     session: DBSession,
 ) -> EmailVerificationResult:
+    await _enforce_verify_rate_limit(payload.token, request)
     try:
         verified, already_verified = await verify_email_token(session, payload.token)
         await session.commit()
