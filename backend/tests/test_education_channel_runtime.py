@@ -25,11 +25,16 @@ async def _seed_authorized_student(
     workspace = await client.get("/api/v1/workspace", headers=auth_headers)
     assert workspace.status_code == 200, workspace.text
     headers = {**auth_headers, "X-Workspace-ID": workspace.json()["id"]}
+    seed = uuid.uuid4().hex[:8].upper()
+    phone = f"+9198{uuid.uuid4().int % 100_000_000:08d}"
 
     course = await client.post(
         "/api/v1/education/courses",
         headers=headers,
-        json={"code": "CHANNEL-AUTH", "name": "Channel Authorization Course"},
+        json={
+            "code": f"CHANNEL-AUTH-{seed}",
+            "name": f"Channel Authorization Course {seed}",
+        },
     )
     assert course.status_code == 201, course.text
     batch = await client.post(
@@ -37,8 +42,8 @@ async def _seed_authorized_student(
         headers=headers,
         json={
             "courseId": course.json()["id"],
-            "code": "CHANNEL-AUTH-A",
-            "name": "Channel Authorization Batch",
+            "code": f"CHANNEL-AUTH-{seed}-A",
+            "name": f"Channel Authorization Batch {seed}",
             "startsOn": "2026-01-01",
             "endsOn": "2027-12-31",
         },
@@ -47,7 +52,7 @@ async def _seed_authorized_student(
     student = await client.post(
         "/api/v1/education/students",
         headers=headers,
-        json={"studentNumber": "CHANNEL-1001", "name": "Channel Student"},
+        json={"studentNumber": f"CHANNEL-{seed}", "name": f"Channel Student {seed}"},
     )
     assert student.status_code == 201, student.text
     identity = await client.post(
@@ -55,7 +60,7 @@ async def _seed_authorized_student(
         headers=headers,
         json={
             "identityType": "whatsapp",
-            "identifier": "+919876540101",
+            "identifier": phone,
             "status": "verified",
         },
     )
@@ -64,7 +69,7 @@ async def _seed_authorized_student(
         "/api/v1/agents",
         headers=headers,
         json={
-            "name": "Channel Runtime Education Agent",
+            "name": f"Channel Runtime Education Agent {seed}",
             "description": "Education channel runtime integration test",
             "purpose": "education",
             "deploymentChannel": "website",
@@ -98,6 +103,7 @@ async def _seed_authorized_student(
         "enrollmentId": enrollment.json()["id"],
         "courseId": course.json()["id"],
         "batchId": batch.json()["id"],
+        "phone": phone,
     }, headers
 
 
@@ -210,7 +216,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
             canonical=_canonical(
                 tenant_id=agent.tenant_id,
                 connection_id=connection.id,
-                phone="+919876540101",
+                phone=seeded["phone"],
                 external_event_id="education-authorized",
             ),
             agent=agent,
@@ -285,7 +291,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
             canonical=_canonical(
                 tenant_id=agent.tenant_id,
                 connection_id=connection.id,
-                phone="+919876540101",
+                phone=seeded["phone"],
                 external_event_id="education-authorized-repeat",
             ),
             agent=agent,
@@ -334,7 +340,7 @@ async def test_education_channel_runtime_never_enters_lead_path(
             canonical=_canonical(
                 tenant_id=agent.tenant_id,
                 connection_id=connection.id,
-                phone="+919876549999",
+                phone="+919999999999",
                 external_event_id="education-denied",
             ),
             agent=agent,
@@ -430,7 +436,7 @@ async def test_education_channel_runtime_denies_mismatched_connection_agent_scop
             canonical=_canonical(
                 tenant_id=education_agent.tenant_id,
                 connection_id=connection.id,
-                phone="+919876540101",
+                phone=seeded["phone"],
                 external_event_id="education-scope-denied",
             ),
             agent=education_agent,
