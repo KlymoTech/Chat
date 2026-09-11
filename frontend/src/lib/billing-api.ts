@@ -54,6 +54,10 @@ export interface TenantEntitlements {
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
+const ALL_CHANNELS = [
+  'website', 'widget', 'whatsapp', 'telegram', 'instagram', 'facebook',
+  'facebook_messenger', 'slack', 'teams', 'api', 'notion', 'zapier', 'custom',
+];
 
 class BillingRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -87,18 +91,42 @@ function demoSubscription(plan: string): TenantSubscription {
 }
 
 function demoEntitlements(plan: string): TenantEntitlements {
-  const normalized = plan || 'starter';
-  const known = normalized === 'business'
-    ? { workspaces: 10, agents: 10, members: 20, conversationsMonthly: 5000, tokensMonthly: 5_000_000, storageBytes: 20 * 1024 ** 3 }
+  const normalized = (plan || 'starter').trim().toLowerCase();
+  const starter = {
+    limits: { workspaces: 1, agents: 2, members: 3, conversationsMonthly: 1000, tokensMonthly: 500_000, storageBytes: 1024 ** 3 },
+    allowedChannels: ['website', 'widget', 'api'],
+    crm: false,
+    whiteLabel: false,
+  };
+  const professional = {
+    limits: { workspaces: 3, agents: 5, members: 10, conversationsMonthly: 3000, tokensMonthly: 2_000_000, storageBytes: 5 * 1024 ** 3 },
+    allowedChannels: ['website', 'widget', 'api', 'whatsapp', 'telegram', 'slack'],
+    crm: true,
+    whiteLabel: false,
+  };
+  const business = {
+    limits: { workspaces: 10, agents: 10, members: 20, conversationsMonthly: 5000, tokensMonthly: 5_000_000, storageBytes: 20 * 1024 ** 3 },
+    allowedChannels: ALL_CHANNELS,
+    crm: true,
+    whiteLabel: true,
+  };
+  const unlimited = {
+    limits: { workspaces: null, agents: null, members: null, conversationsMonthly: null, tokensMonthly: null, storageBytes: null },
+    allowedChannels: ALL_CHANNELS,
+    crm: true,
+    whiteLabel: true,
+  };
+  const policy = normalized === 'starter'
+    ? starter
     : normalized === 'professional'
-      ? { workspaces: 3, agents: 5, members: 10, conversationsMonthly: 3000, tokensMonthly: 2_000_000, storageBytes: 5 * 1024 ** 3 }
-      : normalized === 'enterprise'
-        ? { workspaces: null, agents: null, members: null, conversationsMonthly: null, tokensMonthly: null, storageBytes: null }
-        : { workspaces: 1, agents: 2, members: 3, conversationsMonthly: 1000, tokensMonthly: 500_000, storageBytes: 1024 ** 3 };
+      ? professional
+      : normalized === 'business'
+        ? business
+        : unlimited; // Enterprise and unknown/custom legacy plans fail open like the backend.
   return {
     plan: normalized,
     subscriptionStatus: 'active',
-    limits: known,
+    limits: policy.limits,
     usage: {
       workspaces: 1,
       agents: 0,
@@ -109,10 +137,10 @@ function demoEntitlements(plan: string): TenantEntitlements {
       storageBytes: 0,
     },
     features: {
-      allowedChannels: ['website', 'widget', 'api'],
-      crm: normalized !== 'starter',
+      allowedChannels: [...policy.allowedChannels],
+      crm: policy.crm,
       api: true,
-      whiteLabel: normalized === 'business' || normalized === 'enterprise',
+      whiteLabel: policy.whiteLabel,
     },
   };
 }
