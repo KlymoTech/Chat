@@ -266,8 +266,12 @@ async def export_audit_events(
     category: AuditCategory | None = Query(default=None),
     severity: AuditSeverity | None = Query(default=None),
     outcome: AuditOutcome | None = Query(default=None),
+    action: str | None = Query(default=None, max_length=160),
+    entity_type: str | None = Query(default=None, max_length=100),
+    actor_user_id: UUID | None = Query(default=None),
     from_time: datetime | None = Query(default=None, alias="from"),
     to_time: datetime | None = Query(default=None, alias="to"),
+    search: str | None = Query(default=None, min_length=1, max_length=160),
     limit: int = Query(default=500, ge=1, le=5000),
 ) -> Response:
     values = await _audit_values(
@@ -276,8 +280,12 @@ async def export_audit_events(
         category=category,
         severity=severity,
         outcome=outcome,
+        action=action,
+        entity_type=entity_type,
+        actor_user_id=actor_user_id,
         from_time=from_time,
         to_time=to_time,
+        search=search,
         limit=limit,
     )
     stream = io.StringIO()
