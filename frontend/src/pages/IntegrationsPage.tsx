@@ -21,9 +21,10 @@ function healthTone(status: string): 'success' | 'warning' | 'brand' | 'neutral'
 
 function channelWebhookUrl(path?: string): string {
   if (!path) return '';
-  const configuredApi = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '');
-  const publicOrigin = configuredApi?.replace(/\/api\/v1$/, '') ?? window.location.origin;
-  return `${publicOrigin.replace(/\/$/, '')}${path}`;
+  const configuredApi = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
+  const apiUrl = new URL(configuredApi, window.location.origin);
+  const apiBasePath = apiUrl.pathname.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+  return `${apiUrl.origin}${apiBasePath}${path}`;
 }
 
 export function IntegrationsPage() {
