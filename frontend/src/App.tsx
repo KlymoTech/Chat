@@ -9,6 +9,7 @@ import { BatchesPage } from '@/pages/BatchesPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
 import { DeployPage } from '@/pages/DeployPage';
+import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
 import { HelpArticlePage } from '@/pages/HelpArticlePage';
@@ -49,6 +50,7 @@ export function App() {
     <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route path="/mfa-challenge" element={<MFAChallengePage />} />
     <Route path="/workspace-invitation" element={<WorkspaceInvitationPage />} />
+    <Route path="/education-access-recovery" element={<EducationAccessRecoveryPage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
