@@ -35,9 +35,18 @@ from northstar_api.platform_admin_schemas import (
     PlatformTenantSummaryOut,
     PlatformWorkspaceSummaryOut,
 )
-from northstar_api.subscriptions import SubscriptionStatus, TenantSubscription
+from northstar_api.subscriptions import TenantSubscription
 
-_CHANNEL_HEALTHY = frozenset({"healthy", "connected", "active"})
+_CHANNEL_ISSUES = frozenset(
+    {
+        "degraded",
+        "unhealthy",
+        "error",
+        "auth_required",
+        "configuration_error",
+        "rate_limited",
+    }
+)
 _CRM_CONNECTION_ISSUES = frozenset(
     {
         CRMConnectionStatus.DEGRADED.value,
@@ -89,10 +98,14 @@ async def platform_overview(session: AsyncSession) -> PlatformOverviewOut:
             select(TenantSubscription.status, func.count()).group_by(TenantSubscription.status)
         )
     ).all()
-    subscriptions = PlatformSubscriptionBreakdownOut()
     subscription_counts = {_value(status): int(count) for status, count in subscription_rows}
-    for status in SubscriptionStatus:
-        setattr(subscriptions, status.value, subscription_counts.get(status.value, 0))
+    subscriptions = PlatformSubscriptionBreakdownOut(
+        trial=subscription_counts.get("trial", 0),
+        active=subscription_counts.get("active", 0),
+        past_due=subscription_counts.get("past_due", 0),
+        suspended=subscription_counts.get("suspended", 0),
+        cancelled=subscription_counts.get("cancelled", 0),
+    )
 
     failed_jobs = await _count(session, IngestionJob, IngestionJob.status == JobStatus.FAILED)
     unpublished = await _count(session, OutboxEvent, OutboxEvent.published_at.is_(None))
@@ -103,7 +116,7 @@ async def platform_overview(session: AsyncSession) -> PlatformOverviewOut:
     channel_issues = await _count(
         session,
         ChannelConnection,
-        ChannelConnection.status.notin_(_CHANNEL_HEALTHY),
+        ChannelConnection.status.in_(_CHANNEL_ISSUES),
     )
     crm_connection_issues = await _count(
         session,
@@ -176,7 +189,7 @@ async def _tenant_metric_maps(
         session,
         ChannelConnection.tenant_id,
         tenant_ids,
-        ChannelConnection.status.notin_(_CHANNEL_HEALTHY),
+        ChannelConnection.status.in_(_CHANNEL_ISSUES),
     )
     crm_connections = await _group_count(
         session,
