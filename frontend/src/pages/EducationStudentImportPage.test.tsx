@@ -7,6 +7,7 @@ import { EducationStudentImportPage } from '@/pages/EducationStudentImportPage';
 const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
   commit: vi.fn(),
+  parseFile: vi.fn(),
   pushToast: vi.fn(),
 }));
 
@@ -23,6 +24,11 @@ vi.mock('@/lib/education-student-import-api', async () => {
       commit: mocks.commit,
     },
   };
+});
+
+vi.mock('@/lib/education-student-import-file-api', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/education-student-import-file-api')>('@/lib/education-student-import-file-api');
+  return { ...actual, parseStudentImportFile: mocks.parseFile };
 });
 
 const validPreview = {
@@ -64,6 +70,7 @@ describe('EducationStudentImportPage', () => {
       preview: validPreview,
       result: { createdStudents: 1, createdIdentities: 0, createdEnrollments: 0 },
     });
+    mocks.parseFile.mockResolvedValue([validPreview.rows[0].row]);
   });
 
   afterEach(() => {
@@ -88,6 +95,21 @@ describe('EducationStudentImportPage', () => {
     })]);
     expect(await screen.findByText('Server validation preview')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /commit import/i })).toBeEnabled();
+  });
+
+  it('loads a direct XLSX upload through the server file parser', async () => {
+    renderPage();
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    const workbook = new File([new Uint8Array([80, 75, 3, 4])], 'students.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    fireEvent.change(input!, { target: { files: [workbook] } });
+
+    await waitFor(() => expect(mocks.parseFile).toHaveBeenCalledWith(workbook));
+    expect(await screen.findByText('students.xlsx')).toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Student import data').value).toContain('STUDENT-001');
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Student import data').value).toContain('asha@example.com');
   });
 
   it('blocks commit when the server reports invalid rows', async () => {
