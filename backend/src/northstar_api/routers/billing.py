@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
 from northstar_api.dependencies import DBSession, require_permissions
@@ -15,12 +15,21 @@ from northstar_api.entitlement_schemas import (
 from northstar_api.models import Tenant
 from northstar_api.security import Principal
 from northstar_api.services.entitlements import entitlement_context
-from northstar_api.services.subscriptions import ensure_tenant_subscription
-from northstar_api.subscription_schemas import TenantSubscriptionOut
+from northstar_api.services.subscriptions import (
+    SubscriptionError,
+    cancel_tenant_subscription,
+    ensure_tenant_subscription,
+    reactivate_tenant_subscription,
+)
+from northstar_api.subscription_schemas import (
+    TenantSubscriptionCancellationRequest,
+    TenantSubscriptionOut,
+)
 from northstar_api.subscriptions import TenantSubscription
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 BillingViewPrincipal = Annotated[Principal, Depends(require_permissions("billing.view"))]
+BillingManagePrincipal = Annotated[Principal, Depends(require_permissions("billing.manage"))]
 
 
 def _out(subscription: TenantSubscription) -> TenantSubscriptionOut:
@@ -42,6 +51,14 @@ def _out(subscription: TenantSubscription) -> TenantSubscriptionOut:
     )
 
 
+def _require_interactive_billing_session(principal: Principal) -> None:
+    if principal.token_id.startswith("api_key:"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys cannot manage tenant billing or offboarding",
+        )
+
+
 @router.get("/subscription", response_model=TenantSubscriptionOut)
 async def get_subscription(
     principal: BillingViewPrincipal,
@@ -54,6 +71,48 @@ async def get_subscription(
     await session.commit()
     await session.refresh(subscription)
     return _out(subscription)
+
+
+@router.post("/cancel", response_model=TenantSubscriptionOut)
+async def cancel_subscription(
+    payload: TenantSubscriptionCancellationRequest,
+    principal: BillingManagePrincipal,
+    session: DBSession,
+) -> TenantSubscriptionOut:
+    _require_interactive_billing_session(principal)
+    # Pydantic enforces the literal confirmation. Keeping the value in the
+    # handler makes the destructive intent explicit at this boundary.
+    assert payload.confirmation == "CANCEL"
+    try:
+        subscription = await cancel_tenant_subscription(
+            session,
+            tenant_id=principal.tenant_id,
+        )
+        await session.commit()
+        await session.refresh(subscription)
+        return _out(subscription)
+    except SubscriptionError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
+@router.post("/reactivate", response_model=TenantSubscriptionOut)
+async def reactivate_subscription(
+    principal: BillingManagePrincipal,
+    session: DBSession,
+) -> TenantSubscriptionOut:
+    _require_interactive_billing_session(principal)
+    try:
+        subscription = await reactivate_tenant_subscription(
+            session,
+            tenant_id=principal.tenant_id,
+        )
+        await session.commit()
+        await session.refresh(subscription)
+        return _out(subscription)
+    except SubscriptionError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
 @router.get("/entitlements", response_model=TenantEntitlementsOut)
