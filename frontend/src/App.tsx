@@ -4,6 +4,7 @@ import { useAuth } from '@/components/providers';
 import { AgentBuilderPage } from '@/pages/AgentBuilderPage';
 import { AgentsPage } from '@/pages/AgentsPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
+import { AuditPage } from '@/pages/AuditPage';
 import { BatchesPage } from '@/pages/BatchesPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
@@ -59,6 +60,7 @@ export function App() {
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
+      <Route path="audit" element={<AuditPage />} />
       <Route path="integrations" element={<IntegrationsPage />} />
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />

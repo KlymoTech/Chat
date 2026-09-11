@@ -46,8 +46,13 @@ async def get_current_principal(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     token = credentials.credentials
     if token.startswith("nsk_live_"):
-        return await authenticate_api_key(token, session, request=request)
-    return await authenticate_access_token(token, session, request=request)
+        principal = await authenticate_api_key(token, session, request=request)
+    else:
+        principal = await authenticate_access_token(token, session, request=request)
+    # Make the authenticated scope available to post-route observability/audit
+    # middleware without re-authenticating or reading credentials a second time.
+    request.state.principal = principal
+    return principal
 
 
 async def _agent_scope(
