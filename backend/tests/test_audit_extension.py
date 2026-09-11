@@ -13,12 +13,14 @@ def test_audit_redaction_is_recursive_and_does_not_hide_usage_fields() -> None:
         {
             "password": "secret-password",
             "accessToken": "secret-token",
+            "authToken": "another-secret-token",
             "nested": {"client_secret": "client-secret", "tokensMonthly": 1234},
             "items": [{"apiKey": "nsk_live_secret"}, {"safe": "visible"}],
         }
     )
     assert value["password"] == "[REDACTED]"
     assert value["accessToken"] == "[REDACTED]"
+    assert value["authToken"] == "[REDACTED]"
     assert value["nested"]["client_secret"] == "[REDACTED]"
     assert value["nested"]["tokensMonthly"] == 1234
     assert value["items"][0]["apiKey"] == "[REDACTED]"
