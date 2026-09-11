@@ -15,6 +15,7 @@ from northstar_api.database import build_engine
 from northstar_api.lead_crm.workspace_routing import workspace_crm_route_service
 from northstar_api.logging import configure_logging
 from northstar_api.models import ProcessedEvent
+from northstar_api.services.entitlements import EntitlementError, require_feature
 from northstar_api.workers.event_utils import parse_envelope, quarantine_event
 
 settings = get_settings()
@@ -87,19 +88,39 @@ async def consume_forever() -> None:
                                 .returning(ProcessedEvent.event_id)
                             )
                             if inserted is not None:
-                                deliveries = await workspace_crm_route_service.create_deliveries(
-                                    session,
-                                    tenant_id=event.tenant_id,
-                                    lead_id=lead_id,
-                                    correlation_id=str(event.event_id),
-                                )
-                                await session.commit()
-                                logger.info(
-                                    "crm_routes_evaluated",
-                                    event_id=str(event.event_id),
-                                    lead_id=str(lead_id),
-                                    delivery_count=len(deliveries),
-                                )
+                                try:
+                                    await require_feature(
+                                        session,
+                                        tenant_id=event.tenant_id,
+                                        feature="crm",
+                                    )
+                                except EntitlementError as exc:
+                                    # The event is durably acknowledged as processed so a
+                                    # tenant that downgraded or suspended billing does not
+                                    # create a permanent retry loop. Existing Lead data is
+                                    # preserved; only new CRM deliveries are skipped.
+                                    await session.commit()
+                                    logger.info(
+                                        "crm_route_entitlement_skipped",
+                                        event_id=str(event.event_id),
+                                        lead_id=str(lead_id),
+                                        tenant_id=str(event.tenant_id),
+                                        code=exc.code,
+                                    )
+                                else:
+                                    deliveries = await workspace_crm_route_service.create_deliveries(
+                                        session,
+                                        tenant_id=event.tenant_id,
+                                        lead_id=lead_id,
+                                        correlation_id=str(event.event_id),
+                                    )
+                                    await session.commit()
+                                    logger.info(
+                                        "crm_routes_evaluated",
+                                        event_id=str(event.event_id),
+                                        lead_id=str(lead_id),
+                                        delivery_count=len(deliveries),
+                                    )
                             else:
                                 await session.commit()
                         await consumer.commit({topic_partition: message.offset + 1})

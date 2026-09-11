@@ -25,6 +25,7 @@ from northstar_api.models import (
 )
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.chat import chat_coordinator
+from northstar_api.services.entitlements import EntitlementError, require_capacity
 from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.whatsapp import (
     WhatsAppGraphError,
@@ -167,6 +168,25 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 .order_by(Conversation.updated_at.desc())
                 .limit(1)
             )
+            try:
+                await require_capacity(session, tenant_id=receipt.tenant_id, resource="tokens")
+                if conversation is None:
+                    await require_capacity(
+                        session,
+                        tenant_id=receipt.tenant_id,
+                        resource="conversations",
+                    )
+            except EntitlementError as exc:
+                receipt.status = "rejected"
+                receipt.last_error = f"plan entitlement: {exc.code}"[:500]
+                await session.commit()
+                logger.info(
+                    "whatsapp_plan_entitlement_rejected",
+                    tenant_id=str(receipt.tenant_id),
+                    event_id=str(receipt.id),
+                    code=exc.code,
+                )
+                return
             prepared = await chat_coordinator.prepare(
                 session,
                 tenant_id=receipt.tenant_id,

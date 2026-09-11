@@ -25,6 +25,34 @@ const subscription = {
   updatedAt: '2026-09-11T00:00:00Z',
 };
 
+const entitlements = {
+  plan: 'business',
+  subscriptionStatus: 'active',
+  limits: {
+    workspaces: 10,
+    agents: 10,
+    members: 20,
+    conversationsMonthly: 5000,
+    tokensMonthly: 5_000_000,
+    storageBytes: 20 * 1024 ** 3,
+  },
+  usage: {
+    workspaces: 2,
+    agents: 4,
+    members: 6,
+    pendingMemberSeats: 1,
+    conversationsMonthly: 100,
+    tokensMonthly: 20_000,
+    storageBytes: 1024,
+  },
+  features: {
+    allowedChannels: ['widget', 'api', 'whatsapp'],
+    crm: true,
+    api: true,
+    whiteLabel: true,
+  },
+};
+
 describe('billingApi', () => {
   const fetchMock = vi.fn<typeof fetch>();
 
@@ -40,34 +68,61 @@ describe('billingApi', () => {
     localStorage.clear();
   });
 
-  it('loads the tenant subscription through the active authenticated workspace', async () => {
+  it('loads subscription and entitlements through the active authenticated workspace', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(subscription));
-
-    const result = await billingApi.getSubscription('starter');
-
-    expect(result).toEqual(subscription);
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/billing/subscription', expect.objectContaining({
+    const subscriptionResult = await billingApi.getSubscription('starter');
+    expect(subscriptionResult).toEqual(subscription);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/subscription', expect.objectContaining({
       credentials: 'include',
       headers: expect.objectContaining({
         Authorization: 'Bearer session-token',
         'X-Workspace-ID': 'workspace-1',
       }),
     }));
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(entitlements));
+    const entitlementResult = await billingApi.getEntitlements('starter');
+    expect(entitlementResult).toEqual(entitlements);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/entitlements', expect.objectContaining({
+      credentials: 'include',
+      headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+    }));
   });
 
-  it('does not hide authorization errors behind demo subscription state', async () => {
+  it('does not hide authorization errors behind demo billing state', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Insufficient permission' } }, 403));
-
     await expect(billingApi.getSubscription('starter')).rejects.toThrow('Insufficient permission');
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Insufficient permission' } }, 403));
+    await expect(billingApi.getEntitlements('starter')).rejects.toThrow('Insufficient permission');
   });
 
-  it('preserves offline/demo billing behavior when the backend is unavailable', async () => {
+  it('preserves offline/demo billing and entitlement behavior when the backend is unavailable', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    const subscriptionResult = await billingApi.getSubscription('business');
+    expect(subscriptionResult.plan).toBe('business');
+    expect(subscriptionResult.status).toBe('active');
+    expect(subscriptionResult.id).toBe('subscription-demo');
 
-    const result = await billingApi.getSubscription('business');
+    fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    const entitlementResult = await billingApi.getEntitlements('business');
+    expect(entitlementResult.plan).toBe('business');
+    expect(entitlementResult.limits.agents).toBe(10);
+    expect(entitlementResult.limits.members).toBe(20);
+    expect(entitlementResult.limits.conversationsMonthly).toBe(5000);
+    expect(entitlementResult.features.allowedChannels).toContain('whatsapp');
+  });
 
-    expect(result.plan).toBe('business');
-    expect(result.status).toBe('active');
-    expect(result.id).toBe('subscription-demo');
+  it('keeps unknown legacy plans unlimited in offline fallback mode', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    const result = await billingApi.getEntitlements('legacy_custom_contract');
+
+    expect(result.plan).toBe('legacy_custom_contract');
+    expect(result.limits.workspaces).toBeNull();
+    expect(result.limits.agents).toBeNull();
+    expect(result.limits.members).toBeNull();
+    expect(result.features.crm).toBe(true);
+    expect(result.features.whiteLabel).toBe(true);
+    expect(result.features.allowedChannels).toContain('whatsapp');
   });
 });
