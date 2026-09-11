@@ -107,7 +107,6 @@ async def enforce_plan_entitlements(
                 "/workspace/invitations",
                 "/workspace/api-keys",
                 "/channels/connections",
-                "/crm/connections",
                 "/uploads/presign",
                 "/chat/stream",
                 "/chat/completions",
@@ -115,6 +114,7 @@ async def enforce_plan_entitlements(
         )
         or (method == "POST" and path.startswith("/agents/") and path.endswith("/knowledge"))
         or (method == "PATCH" and path == "/workspace")
+        or (method in {"POST", "PUT", "PATCH"} and path.startswith("/crm/"))
     )
     if not guarded:
         return
@@ -162,7 +162,7 @@ async def enforce_plan_entitlements(
                 await require_channel(session, tenant_id=principal.tenant_id, provider=provider)
             return
 
-        if method == "POST" and path == "/crm/connections":
+        if method in {"POST", "PUT", "PATCH"} and path.startswith("/crm/"):
             await require_feature(session, tenant_id=principal.tenant_id, feature="crm")
             return
 
@@ -187,22 +187,27 @@ async def enforce_plan_entitlements(
             body = await _json_body(request)
             content = body.get("content")
             kind = str(body.get("kind") or "").lower()
-            additional = 0
             if isinstance(content, str) and content:
                 additional = len(content.encode("utf-8"))
             elif kind in {"url", "sitemap"}:
+                # Remote content has no byte size before fetch. Reserve the maximum
+                # configured extraction footprint; the usage service releases the
+                # reservation after chunks are written or the remote source fails.
                 additional = get_settings().knowledge_max_extracted_characters * 4
-            # Even a previously staged file must still respect suspended/cancelled
-            # subscription state when it is finally attached to Knowledge.
-            await require_capacity(
-                session,
-                tenant_id=principal.tenant_id,
-                resource="storage",
-                additional=additional,
-            )
+            else:
+                additional = 0
+            if additional:
+                await require_capacity(
+                    session,
+                    tenant_id=principal.tenant_id,
+                    resource="storage",
+                    additional=additional,
+                )
             return
 
         if method == "POST" and path in {"/chat/stream", "/chat/completions"}:
+            if path == "/chat/completions":
+                await require_feature(session, tenant_id=principal.tenant_id, feature="api")
             await require_capacity(session, tenant_id=principal.tenant_id, resource="tokens")
             body = await _json_body(request)
             conversation_id = body.get("conversationId") or body.get("conversation_id")
