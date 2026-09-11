@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection
 
 revision = "0030_audit_extension"
 down_revision = "0029_tenant_subscriptions"
 branch_labels = None
 depends_on = None
+
+JSONType = sa.JSON().with_variant(JSONB, "postgresql")
 
 
 def _columns(bind: Connection) -> set[str]:
@@ -47,7 +50,7 @@ def upgrade() -> None:
         )
     if "metadata_json" not in columns:
         additions.append(
-            sa.Column("metadata_json", sa.JSON(), nullable=False, server_default=sa.text("'{}'"))
+            sa.Column("metadata_json", JSONType, nullable=False, server_default=sa.text("'{}'"))
         )
 
     if additions:
