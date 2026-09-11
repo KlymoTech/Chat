@@ -14,7 +14,7 @@ const navigation = [
   { to: '/agents', label: 'Agents', icon: Sparkles },
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/education/batches', label: 'Batches', icon: GraduationCap },
-  { to: '/education/students', label: 'Students', icon: UsersRound },
+  { to: '/education/students', label: 'Students', icon: UsersRound, end: true },
   { to: '/education/students/import', label: 'Imports', icon: FileSpreadsheet },
   { to: '/education/access-requests', label: 'Access Requests', icon: ShieldCheck },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
@@ -32,6 +32,7 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/workspace')) return 'Workspace';
   if (pathname.startsWith('/help')) return 'Help Center';
   if (pathname.startsWith('/agents/') && pathname !== '/agents/new') return 'Agent workspace';
+  if (pathname.startsWith('/education/students/import')) return 'Imports';
   const item = navigation.find((nav) => nav.to !== '/' && pathname.startsWith(nav.to));
   return item?.label ?? 'Workspace';
 }
@@ -95,7 +96,7 @@ export function AppShell() {
       <div className="rail__bottom">
         <NavLink to="/workspace" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Workspace"><Settings2 /><span>Workspace</span></NavLink>
         <NavLink to="/help" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Help"><CircleHelp /><span>Help</span></NavLink>
-        <button className="rail-link rail-toggle" onClick={() => setExpanded((value) => !value)} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>{expanded ? <PanelLeftClose /> : <PanelLeftOpen />}<span>{expanded ? 'Collapse' : 'Expand'}</span></button>
+        <button className="rail-link rail-toggle" onClick={() => setExpanded((value) => !value)} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>{expanded ? <PanelLeftClose /> : <PanelLeftOpen />}<span>{expanded ? 'Collapse' : 'Expand'} </span></button>
       </div>
     </aside>
     <div className="app-main">
