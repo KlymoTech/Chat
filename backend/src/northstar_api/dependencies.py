@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from northstar_api.security import (
 from northstar_api.services.email_verification import email_is_verified
 from northstar_api.services.password_reset import credential_version
 from northstar_api.services.rate_limit import redis_services
+from northstar_api.services.workspace_api_keys import find_active_workspace_api_key
 
 bearer = HTTPBearer(auto_error=False)
 DBSession = Annotated[AsyncSession, Depends(get_session)]
@@ -42,7 +44,89 @@ async def get_current_principal(
 ) -> Principal:
     if not credentials or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    return await authenticate_access_token(credentials.credentials, session, request=request)
+    token = credentials.credentials
+    if token.startswith("nsk_live_"):
+        return await authenticate_api_key(token, session, request=request)
+    return await authenticate_access_token(token, session, request=request)
+
+
+async def _agent_scope(
+    session: AsyncSession,
+    membership: WorkspaceMembership,
+    user_id: UUID,
+) -> frozenset[UUID] | None:
+    if membership.all_agents_access:
+        return None
+    return frozenset(
+        await session.scalars(
+            select(WorkspaceMemberAgentAccess.agent_id).where(
+                WorkspaceMemberAgentAccess.workspace_id == membership.workspace_id,
+                WorkspaceMemberAgentAccess.user_id == user_id,
+            )
+        )
+    )
+
+
+async def authenticate_api_key(
+    token: str,
+    session: AsyncSession,
+    *,
+    request: Request | None = None,
+) -> Principal:
+    api_key = await find_active_workspace_api_key(session, token)
+    if api_key is None or api_key.created_by_user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked API key")
+
+    tenant_membership = await session.scalar(
+        select(TenantMembership)
+        .join(User, User.id == TenantMembership.user_id)
+        .where(
+            TenantMembership.user_id == api_key.created_by_user_id,
+            TenantMembership.tenant_id == api_key.tenant_id,
+            User.is_active.is_(True),
+        )
+    )
+    workspace_membership = await session.scalar(
+        select(WorkspaceMembership)
+        .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
+        .where(
+            WorkspaceMembership.user_id == api_key.created_by_user_id,
+            WorkspaceMembership.tenant_id == api_key.tenant_id,
+            WorkspaceMembership.workspace_id == api_key.workspace_id,
+            Workspace.status == WorkspaceStatus.ACTIVE,
+        )
+    )
+    if tenant_membership is None or workspace_membership is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key access is unavailable")
+    if not await email_is_verified(session, api_key.created_by_user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email verification required")
+
+    requested_workspace = request.headers.get("x-workspace-id", "").strip() if request else ""
+    if requested_workspace:
+        try:
+            requested_workspace_id = UUID(requested_workspace)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workspace identifier") from None
+        if requested_workspace_id != api_key.workspace_id:
+            raise HTTPException(status_code=403, detail="API key is scoped to a different workspace")
+
+    api_key.last_used_at = datetime.now(UTC)
+    await session.commit()
+    await set_tenant_context(session, api_key.tenant_id)
+    permissions = (
+        TENANT_ROLE_PERMISSIONS[tenant_membership.role]
+        | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
+    )
+    return Principal(
+        user_id=api_key.created_by_user_id,
+        tenant_id=api_key.tenant_id,
+        role=tenant_membership.role,
+        token_id=f"api_key:{api_key.id}",
+        workspace_id=api_key.workspace_id,
+        workspace_role=workspace_membership.role,
+        permissions=permissions,
+        agent_ids=await _agent_scope(session, workspace_membership, api_key.created_by_user_id),
+    )
 
 
 async def authenticate_access_token(
@@ -124,16 +208,6 @@ async def authenticate_access_token(
     workspace_membership = await session.scalar(workspace_query)
     if not workspace_membership:
         raise HTTPException(status_code=403, detail="Workspace access is unavailable")
-    agent_ids: frozenset[UUID] | None = None
-    if not workspace_membership.all_agents_access:
-        agent_ids = frozenset(
-            await session.scalars(
-                select(WorkspaceMemberAgentAccess.agent_id).where(
-                    WorkspaceMemberAgentAccess.workspace_id == workspace_membership.workspace_id,
-                    WorkspaceMemberAgentAccess.user_id == user_id,
-                )
-            )
-        )
     permissions = TENANT_ROLE_PERMISSIONS[membership.role] | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
     return Principal(
         user_id=user_id,
@@ -143,7 +217,7 @@ async def authenticate_access_token(
         workspace_id=workspace_membership.workspace_id,
         workspace_role=workspace_membership.role,
         permissions=permissions,
-        agent_ids=agent_ids,
+        agent_ids=await _agent_scope(session, workspace_membership, user_id),
     )
 
 
