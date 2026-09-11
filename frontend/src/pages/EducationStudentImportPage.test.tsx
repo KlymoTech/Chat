@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -75,8 +75,9 @@ describe('EducationStudentImportPage', () => {
     const user = userEvent.setup();
     renderPage();
     const textarea = screen.getByLabelText('Student import data');
-    await user.clear(textarea);
-    await user.type(textarea, 'student_id\tname\temail{enter}STUDENT-001\tAsha Verma\tasha@example.com');
+    fireEvent.change(textarea, {
+      target: { value: 'student_id\tname\temail\nSTUDENT-001\tAsha Verma\tasha@example.com' },
+    });
     await user.click(screen.getByRole('button', { name: /preview import/i }));
 
     await waitFor(() => expect(mocks.preview).toHaveBeenCalledTimes(1));
@@ -116,7 +117,9 @@ describe('EducationStudentImportPage', () => {
     expect(await screen.findByText('Server validation preview')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /commit import/i })).toBeEnabled();
 
-    await user.type(screen.getByLabelText('Student import data'), ' ');
+    fireEvent.change(screen.getByLabelText('Student import data'), {
+      target: { value: `${screen.getByLabelText<HTMLTextAreaElement>('Student import data').value} ` },
+    });
     expect(screen.queryByText('Server validation preview')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /commit import/i })).toBeDisabled();
   });
