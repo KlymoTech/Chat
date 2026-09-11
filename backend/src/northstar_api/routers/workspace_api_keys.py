@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.security import Principal
+from northstar_api.services.notifications import create_notification
 from northstar_api.services.workspace_api_keys import (
     WorkspaceAPIKeyError,
     issue_workspace_api_key,
@@ -73,6 +74,20 @@ async def create_workspace_api_key(
         created_by_user_id=principal.user_id,
         name=payload.name,
     )
+    await create_notification(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        recipient_user_id=principal.user_id,
+        title="API key created",
+        body=f"{issued.record.name} was created. Store the secret securely because it is shown only once.",
+        dedupe_key=f"api-key-created:{issued.record.id}",
+        category="security",
+        severity="info",
+        action_url="/workspace",
+        action_label="Review API keys",
+        metadata={"apiKeyId": str(issued.record.id), "prefix": issued.record.prefix},
+    )
     await session.commit()
     await session.refresh(issued.record)
     return WorkspaceAPIKeyCreated(
@@ -90,11 +105,25 @@ async def delete_workspace_api_key(
     _require_interactive_session(principal)
     assert principal.workspace_id is not None
     try:
-        await revoke_workspace_api_key(
+        revoked = await revoke_workspace_api_key(
             session,
             tenant_id=principal.tenant_id,
             workspace_id=principal.workspace_id,
             api_key_id=api_key_id,
+        )
+        await create_notification(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            recipient_user_id=principal.user_id,
+            title="API key revoked",
+            body=f"{revoked.name} was revoked and can no longer authenticate requests.",
+            dedupe_key=f"api-key-revoked:{revoked.id}",
+            category="security",
+            severity="warning",
+            action_url="/workspace",
+            action_label="Review API keys",
+            metadata={"apiKeyId": str(revoked.id), "prefix": revoked.prefix},
         )
         await session.commit()
     except WorkspaceAPIKeyError as exc:
