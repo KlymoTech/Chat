@@ -30,6 +30,7 @@ from northstar_api.routers import (
     whatsapp,
     widget,
     workspace,
+    workspace_invitations,
 )
 
 api_router = APIRouter()
@@ -65,3 +66,5 @@ api_router.include_router(whatsapp.router)
 api_router.include_router(chat.router)
 api_router.include_router(workspace.router)
 api_router.include_router(workspace.collection_router)
+api_router.include_router(workspace_invitations.router)
+api_router.include_router(workspace_invitations.public_router)

@@ -17,8 +17,8 @@ class EmailSettings(BaseSettings):
     email_verification_ttl_hours: int = Field(default=24, ge=1, le=168)
     password_reset_frontend_url: str = "http://localhost:5173/reset-password"
     password_reset_ttl_minutes: int = Field(default=60, ge=10, le=1440)
-    workspace_invitation_frontend_url: str = "http://localhost:5173/signup"
-    workspace_invitation_ttl_hours: int = Field(default=168, ge=1, le=720)
+    workspace_invitation_frontend_url: str = "http://localhost:5173/workspace-invitation"
+    workspace_invitation_ttl_days: int = Field(default=7, ge=1, le=30)
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_username: str = ""
