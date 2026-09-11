@@ -62,6 +62,7 @@ async def analytics_summary(
     now = datetime.now(UTC)
     current_start = now - timedelta(days=days)
     previous_start = current_start - timedelta(days=days)
+
     conversation_scope = [
         Conversation.tenant_id == principal.tenant_id,
         Conversation.workspace_id == principal.workspace_id,
@@ -114,6 +115,7 @@ async def analytics_summary(
         )
         or 0
     )
+
     response_conditions = [
         Conversation.tenant_id == principal.tenant_id,
         Conversation.workspace_id == principal.workspace_id,
@@ -229,28 +231,43 @@ async def analytics_summary(
     )
     active_agents = int(
         await session.scalar(
-            select(func.count()).select_from(Agent).where(*agent_scope, Agent.status == AgentStatus.ACTIVE)
+            select(func.count()).select_from(Agent).where(
+                *agent_scope,
+                Agent.status == AgentStatus.ACTIVE,
+            )
         )
         or 0
     )
+
     purpose_scope = [
+        Agent.tenant_id == principal.tenant_id,
+        Agent.workspace_id == principal.workspace_id,
+        Agent.deleted_at.is_(None),
         AgentPurposeSetting.tenant_id == principal.tenant_id,
         AgentPurposeSetting.workspace_id == principal.workspace_id,
     ]
     if principal.agent_ids is not None:
-        purpose_scope.append(AgentPurposeSetting.agent_id.in_(principal.agent_ids))
+        purpose_scope.append(Agent.id.in_(principal.agent_ids))
     lead_agents = int(
         await session.scalar(
-            select(func.count()).select_from(AgentPurposeSetting).where(
-                *purpose_scope, AgentPurposeSetting.purpose == AgentPurpose.LEAD_GENERATION.value
+            select(func.count())
+            .select_from(AgentPurposeSetting)
+            .join(Agent, Agent.id == AgentPurposeSetting.agent_id)
+            .where(
+                *purpose_scope,
+                AgentPurposeSetting.purpose == AgentPurpose.LEAD_GENERATION.value,
             )
         )
         or 0
     )
     education_agents = int(
         await session.scalar(
-            select(func.count()).select_from(AgentPurposeSetting).where(
-                *purpose_scope, AgentPurposeSetting.purpose == AgentPurpose.EDUCATION.value
+            select(func.count())
+            .select_from(AgentPurposeSetting)
+            .join(Agent, Agent.id == AgentPurposeSetting.agent_id)
+            .where(
+                *purpose_scope,
+                AgentPurposeSetting.purpose == AgentPurpose.EDUCATION.value,
             )
         )
         or 0
@@ -271,7 +288,11 @@ async def analytics_summary(
             select(func.count())
             .select_from(Lead)
             .join(LeadProfile, LeadProfile.lead_id == Lead.id)
-            .where(*lead_scope, LeadProfile.qualification_status == QualificationStatus.QUALIFIED.value)
+            .where(
+                *lead_scope,
+                LeadProfile.tenant_id == principal.tenant_id,
+                LeadProfile.qualification_status == QualificationStatus.QUALIFIED.value,
+            )
         )
         or 0
     )
@@ -280,7 +301,11 @@ async def analytics_summary(
             select(func.count())
             .select_from(Lead)
             .join(LeadProfile, LeadProfile.lead_id == Lead.id)
-            .where(*lead_scope, LeadProfile.lifecycle_status == LeadLifecycleStatus.CONVERTED.value)
+            .where(
+                *lead_scope,
+                LeadProfile.tenant_id == principal.tenant_id,
+                LeadProfile.lifecycle_status == LeadLifecycleStatus.CONVERTED.value,
+            )
         )
         or 0
     )
@@ -336,7 +361,8 @@ async def analytics_summary(
     active_enrollments = int(
         await session.scalar(
             select(func.count()).select_from(EducationEnrollment).where(
-                *enrollment_scope, EducationEnrollment.status == EnrollmentStatus.ACTIVE.value
+                *enrollment_scope,
+                EducationEnrollment.status == EnrollmentStatus.ACTIVE.value,
             )
         )
         or 0
@@ -356,14 +382,18 @@ async def analytics_summary(
         students = int(
             await session.scalar(
                 select(func.count(func.distinct(EducationEnrollment.student_id)))
+                .select_from(EducationEnrollment)
                 .join(EducationStudent, EducationStudent.id == EducationEnrollment.student_id)
                 .where(
                     *enrollment_scope,
+                    EducationStudent.tenant_id == principal.tenant_id,
+                    EducationStudent.workspace_id == principal.workspace_id,
                     EducationStudent.status == StudentStatus.ACTIVE.value,
                 )
             )
             or 0
         )
+
     education_conversation_scope = [
         EducationConversationContext.tenant_id == principal.tenant_id,
         EducationConversationContext.workspace_id == principal.workspace_id,
@@ -384,6 +414,7 @@ async def analytics_summary(
         )
         or 0
     )
+
     activity_scope = [
         EducationStudentActivityEvent.tenant_id == principal.tenant_id,
         EducationStudentActivityEvent.workspace_id == principal.workspace_id,
