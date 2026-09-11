@@ -15,6 +15,7 @@ const navigation = [
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/education/batches', label: 'Batches', icon: GraduationCap },
   { to: '/education/students', label: 'Students', icon: UsersRound },
+  { to: '/education/access-requests', label: 'Access Requests', icon: ShieldCheck },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
@@ -55,6 +56,7 @@ export function AppShell() {
     || activeWorkspace?.permissions?.includes('audit.view'),
   );
   const visibleNavigation = navigation.filter((item) => item.to !== '/audit' || canViewAudit);
+  const mobileNavigation = visibleNavigation.filter((item) => item.to !== '/education/access-requests').slice(0, 6);
 
   useEffect(() => {
     let active = true;
@@ -136,7 +138,7 @@ export function AppShell() {
       <main className="content"><Outlet key={activeWorkspace?.id ?? 'workspace-loading'} /></main>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {visibleNavigation.slice(0, 6).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
+      {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
     </nav>
     <button className="command-fab" aria-label="Open command palette"><Command /></button>
   </div>;

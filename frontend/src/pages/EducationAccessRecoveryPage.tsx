@@ -1,8 +1,9 @@
-import { ArrowRight, CheckCircle2, GraduationCap, KeyRound, MailCheck, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ArrowRight, CheckCircle2, GraduationCap, KeyRound, LifeBuoy, MailCheck, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Brand } from '@/components/brand';
 import { Button, Field } from '@/components/ui';
+import { educationAccessRequestApi } from '@/lib/education-access-request-api';
 import {
   educationAccessRecoveryApi,
   type EducationRecoveryIdentityType,
@@ -30,15 +31,22 @@ export function EducationAccessRecoveryPage() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [supportNote, setSupportNote] = useState('');
+  const [supportBusy, setSupportBusy] = useState(false);
+  const [supportMessage, setSupportMessage] = useState('');
   const selectedIdentity = useMemo(
     () => identityOptions.find((item) => item.value === identityType) ?? identityOptions[0]!,
     [identityType],
   );
 
+  const proofComplete = Boolean(
+    agentPublicId.trim() && studentNumber.trim() && email.trim() && identifier.trim(),
+  );
+
   const start = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
-    if (!agentPublicId.trim() || !studentNumber.trim() || !email.trim() || !identifier.trim()) {
+    if (!proofComplete) {
       setMessage('Complete all fields to request a verification code.');
       return;
     }
@@ -102,6 +110,31 @@ export function EducationAccessRecoveryPage() {
     }
   };
 
+  const requestSupport = async () => {
+    setSupportMessage('');
+    if (!proofComplete) {
+      setSupportMessage('Complete the Agent, Student, email, and channel identity fields before requesting support.');
+      return;
+    }
+    setSupportBusy(true);
+    try {
+      await educationAccessRequestApi.create({
+        agentPublicId,
+        studentNumber,
+        email,
+        identityType,
+        identifier,
+        message: supportNote || null,
+      });
+      setSupportMessage('Your request has been sent for academy review. This confirmation does not disclose whether the submitted enrollment details matched.');
+      setSupportNote('');
+    } catch (reason) {
+      setSupportMessage(reason instanceof Error ? reason.message : 'Unable to request academy support.');
+    } finally {
+      setSupportBusy(false);
+    }
+  };
+
   return <div className="login-page verify-email-page">
     <section className="login-panel verify-email-panel">
       <div className="login-panel__inner verify-email-inner">
@@ -153,6 +186,19 @@ export function EducationAccessRecoveryPage() {
           </form>
           <button className="text-button" type="button" onClick={() => { setStep('identify'); setRequestId(''); setCode(''); setMessage(''); }}>Change details</button>
         </> : null}
+
+        {step !== 'success' ? <div className="verification-card">
+          <span className="verification-card__icon"><LifeBuoy /></span>
+          <div style={{ width: '100%' }}>
+            <strong>Still cannot verify?</strong>
+            <p>Send these details to academy support for manual review. Support approval still returns through the normal Education authorization checks.</p>
+            <Field label="Support note" htmlFor="education-support-note" hint="Optional. Do not include passwords or verification codes.">
+              <textarea id="education-support-note" value={supportNote} maxLength={1000} onChange={(event) => setSupportNote(event.target.value)} placeholder="Describe the access problem" />
+            </Field>
+            {supportMessage ? <p role="status">{supportMessage}</p> : null}
+            <Button type="button" variant="secondary" icon={LifeBuoy} disabled={supportBusy} onClick={() => void requestSupport()}>{supportBusy ? 'Sending…' : 'Request academy support'}</Button>
+          </div>
+        </div> : null}
 
         {step === 'success' ? <div className="verification-success">
           <span><CheckCircle2 /></span>

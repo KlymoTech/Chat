@@ -7,12 +7,19 @@ import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   verify: vi.fn(),
+  createSupportRequest: vi.fn(),
 }));
 
 vi.mock('@/lib/education-access-recovery-api', () => ({
   educationAccessRecoveryApi: {
     start: mocks.start,
     verify: mocks.verify,
+  },
+}));
+
+vi.mock('@/lib/education-access-request-api', () => ({
+  educationAccessRequestApi: {
+    create: mocks.createSupportRequest,
   },
 }));
 
@@ -28,6 +35,10 @@ describe('EducationAccessRecoveryPage', () => {
       expiresInSeconds: 600,
     });
     mocks.verify.mockResolvedValue({ verified: true, alreadyVerified: false });
+    mocks.createSupportRequest.mockResolvedValue({
+      accepted: true,
+      requestId: '22222222-2222-2222-2222-222222222222',
+    });
   });
 
   afterEach(() => {
@@ -88,5 +99,26 @@ describe('EducationAccessRecoveryPage', () => {
     expect(await screen.findByText(/if those details match an active enrollment/i)).toBeInTheDocument();
     expect(screen.queryByText(/student not found/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/enrollment not found/i)).not.toBeInTheDocument();
+  });
+
+  it('submits the same student proof to academy support without exposing whether it matched', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText('Student ID'), 'STUDENT-009');
+    await user.type(screen.getByLabelText('Student email'), 'student9@example.com');
+    await user.type(screen.getByLabelText('WhatsApp number'), '+919811112222');
+    await user.type(screen.getByLabelText('Support note'), 'My OTP never arrives.');
+    await user.click(screen.getByRole('button', { name: /request academy support/i }));
+
+    await waitFor(() => expect(mocks.createSupportRequest).toHaveBeenCalledWith({
+      agentPublicId: 'agt_public_test',
+      studentNumber: 'STUDENT-009',
+      email: 'student9@example.com',
+      identityType: 'whatsapp',
+      identifier: '+919811112222',
+      message: 'My OTP never arrives.',
+    }));
+    expect(screen.getByText(/request has been sent for academy review/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not disclose whether the submitted enrollment details matched/i)).toBeInTheDocument();
   });
 });
