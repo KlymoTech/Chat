@@ -292,7 +292,11 @@ async def test_slack_url_verification_returns_signed_challenge(
         },
     )
     assert connection.status_code == 201, connection.text
-    public_id = connection.json()["public_id"]
+    connection_body = connection.json()
+    public_id = connection_body["public_id"]
+    assert connection_body["webhook_path"] == (
+        f"/api/v1/webhooks/channels/{tenant_id}/slack/{public_id}"
+    )
     challenge = "slack-challenge-123"
     body = json.dumps(
         {"type": "url_verification", "challenge": challenge, "token": "deprecated"},
