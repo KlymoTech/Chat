@@ -14,6 +14,10 @@ import {
   type StudentImportPreview,
   type StudentImportRow,
 } from '@/lib/education-student-import-api';
+import {
+  parseStudentImportFile,
+  serializeStudentImportRows,
+} from '@/lib/education-student-import-file-api';
 import './EducationStudentImportPage.css';
 
 function downloadTemplate(): void {
@@ -46,7 +50,7 @@ export function EducationStudentImportPage() {
   const [parsedRows, setParsedRows] = useState<StudentImportRow[]>([]);
   const [preview, setPreview] = useState<StudentImportPreview | null>(null);
   const [result, setResult] = useState<StudentImportCommitResult | null>(null);
-  const [busy, setBusy] = useState<'preview' | 'commit' | null>(null);
+  const [busy, setBusy] = useState<'file' | 'preview' | 'commit' | null>(null);
   const [error, setError] = useState('');
 
   const hasWarnings = useMemo(
@@ -68,13 +72,19 @@ export function EducationStudentImportPage() {
     event.target.value = '';
     if (!file) return;
     if (file.size > 2_000_000) {
-      setError('Import file is too large. Use a CSV/TSV file smaller than 2 MB and no more than 500 rows.');
+      setError('Import file is too large. Use a CSV/TSV/XLSX file no larger than 2 MB and 500 student rows.');
       return;
     }
+    setBusy('file');
+    setError('');
     try {
-      changeSource(await file.text(), file.name);
-    } catch {
-      setError('The selected file could not be read as text. Export Excel workbooks as CSV, or copy cells and paste them here.');
+      const rows = await parseStudentImportFile(file);
+      changeSource(serializeStudentImportRows(rows), file.name);
+      pushToast(`${rows.length} row${rows.length === 1 ? '' : 's'} loaded from ${file.name}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The selected student import file could not be parsed.');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -147,12 +157,12 @@ export function EducationStudentImportPage() {
       </div>
       <div className="student-import-heading-actions">
         <Button variant="secondary" icon={Download} onClick={downloadTemplate}>Download CSV template</Button>
-        <Button variant="secondary" icon={Upload} onClick={() => fileInput.current?.click()}>Choose CSV/TSV</Button>
+        <Button variant="secondary" icon={Upload} disabled={Boolean(busy)} onClick={() => fileInput.current?.click()}>{busy === 'file' ? 'Reading file…' : 'Choose CSV / Excel'}</Button>
         <input
           ref={fileInput}
           className="sr-only"
           type="file"
-          accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values"
+          accept=".csv,.tsv,.txt,.xlsx,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           onChange={(event) => void readFile(event)}
         />
       </div>
@@ -161,7 +171,7 @@ export function EducationStudentImportPage() {
     <div className="student-import-grid">
       <Card className="student-import-source">
         <div className="student-import-section-heading">
-          <div><span className="student-import-icon"><ClipboardPaste /></span><div><h3>CSV or spreadsheet paste</h3><p>CSV files are supported directly. For Excel or Google Sheets, copy cells including the header row and paste them below.</p></div></div>
+          <div><span className="student-import-icon"><ClipboardPaste /></span><div><h3>CSV, Excel, or spreadsheet paste</h3><p>Upload CSV/TSV/XLSX directly, or copy cells from Excel/Google Sheets including the header row and paste them below.</p></div></div>
           <Badge tone="neutral">{sourceName}</Badge>
         </div>
         <textarea
