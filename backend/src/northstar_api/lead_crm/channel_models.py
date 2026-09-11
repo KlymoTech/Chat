@@ -4,9 +4,9 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
@@ -14,6 +14,7 @@ from northstar_api.lead_crm.domain import ChannelProvider
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 MutableJSON = MutableDict.as_mutable(JSONType)
+MutableListJSON = MutableList.as_mutable(JSON().with_variant(JSONB, "postgresql"))
 
 
 class ChannelConnection(Base):
@@ -36,6 +37,59 @@ class ChannelConnection(Base):
     last_health_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ChannelOutboundDelivery(Base):
+    """Durable provider-neutral outbound delivery state.
+
+    Telegram is the first generic-channel runtime using this table. Keeping the
+    persistence provider-neutral lets future Instagram/Facebook/Slack outbound
+    work reuse the same reliability boundary without changing existing channel
+    connection or conversation tables.
+    """
+
+    __tablename__ = "channel_outbound_deliveries"
+    __table_args__ = (
+        UniqueConstraint("provider", "message_id", name="uq_channel_outbound_provider_message"),
+        Index(
+            "ix_channel_outbound_tenant_provider_status",
+            "tenant_id",
+            "provider",
+            "status",
+            "next_dispatch_at",
+        ),
+        Index("ix_channel_outbound_connection_status", "connection_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("channel_connections.id", ondelete="SET NULL"), index=True
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(60), nullable=False)
+    recipient_external_id: Mapped[str] = mapped_column(String(180), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="queued", nullable=False)
+    provider_message_ids: Mapped[list[str]] = mapped_column(MutableListJSON, default=list, nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    dispatch_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_dispatch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
