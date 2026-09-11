@@ -133,7 +133,7 @@ async def test_audit_export_is_csv_safe_and_api_keys_cannot_view_audit(
     auth_headers: dict[str, str],
 ) -> None:
     tenant_id, workspace_id = await _workspace_scope(client, auth_headers)
-    formula_id = f"=HYPERLINK(\"https://invalid.test/{uuid4().hex}\")"
+    formula_id = f"=2+2-{uuid4().hex}"
     async with SessionFactory() as session:
         record_audit_event(
             session,
@@ -148,7 +148,7 @@ async def test_audit_export_is_csv_safe_and_api_keys_cannot_view_audit(
         await session.commit()
 
     export = await client.get(
-        "/api/v1/audit/export?category=workspace&limit=5000",
+        f"/api/v1/audit/export?category=workspace&search={formula_id}&limit=5000",
         headers=auth_headers,
     )
     assert export.status_code == 200, export.text
