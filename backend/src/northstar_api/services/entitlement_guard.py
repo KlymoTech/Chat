@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
@@ -8,13 +9,14 @@ from sqlalchemy import func, select
 
 from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession, bearer, get_current_principal
-from northstar_api.models import TenantMembership, User
+from northstar_api.models import Message, MessageRole, TenantMembership, User
 from northstar_api.services.entitlements import (
     EntitlementError,
     require_capacity,
     require_channel,
     require_feature,
 )
+from northstar_api.workspace_invitations import WorkspaceInvitation, WorkspaceInvitationStatus
 
 Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
 
@@ -41,7 +43,7 @@ def _http(exc: EntitlementError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=str(exc))
 
 
-async def _needs_new_member_seat(session: DBSession, tenant_id, email: str) -> bool:
+async def _needs_new_member_seat(session: DBSession, tenant_id: UUID, email: str) -> bool:
     normalized = email.strip().lower()
     if not normalized:
         return True
@@ -53,7 +55,30 @@ async def _needs_new_member_seat(session: DBSession, tenant_id, email: str) -> b
             func.lower(User.email) == normalized,
         )
     )
-    return existing is None
+    if existing is not None:
+        return False
+    pending = await session.scalar(
+        select(WorkspaceInvitation.id).where(
+            WorkspaceInvitation.tenant_id == tenant_id,
+            func.lower(WorkspaceInvitation.email) == normalized,
+            WorkspaceInvitation.status == WorkspaceInvitationStatus.PENDING,
+        )
+    )
+    return pending is None
+
+
+async def _is_chat_retry(session: DBSession, tenant_id: UUID, body: dict[str, Any]) -> bool:
+    key = body.get("idempotencyKey") or body.get("idempotency_key")
+    if not isinstance(key, str) or not key:
+        return False
+    existing = await session.scalar(
+        select(Message.id).where(
+            Message.tenant_id == tenant_id,
+            Message.idempotency_key == key,
+            Message.role == MessageRole.USER,
+        )
+    )
+    return existing is not None
 
 
 async def enforce_plan_entitlements(
@@ -73,7 +98,21 @@ async def enforce_plan_entitlements(
     body: dict[str, Any] | None = None
 
     guarded = (
-        (method == "POST" and path in {"/workspaces", "/agents", "/workspace/invitations", "/workspace/api-keys", "/channels/connections", "/crm/connections", "/uploads/presign", "/chat/stream", "/chat/completions"})
+        (
+            method == "POST"
+            and path
+            in {
+                "/workspaces",
+                "/agents",
+                "/workspace/invitations",
+                "/workspace/api-keys",
+                "/channels/connections",
+                "/crm/connections",
+                "/uploads/presign",
+                "/chat/stream",
+                "/chat/completions",
+            }
+        )
         or (method == "POST" and path.startswith("/agents/") and path.endswith("/knowledge"))
         or (method == "PATCH" and path == "/workspace")
     )
@@ -95,14 +134,20 @@ async def enforce_plan_entitlements(
         if method == "POST" and path == "/agents":
             await require_capacity(session, tenant_id=principal.tenant_id, resource="agents")
             body = await _json_body(request)
-            raw_channel = str(body.get("deploymentChannel") or body.get("deployment_channel") or "website")
-            provider = {"website": "widget", "facebook": "facebook_messenger"}.get(raw_channel, raw_channel)
+            raw_channel = str(
+                body.get("deploymentChannel") or body.get("deployment_channel") or "website"
+            )
+            provider = {"website": "widget", "facebook": "facebook_messenger"}.get(
+                raw_channel, raw_channel
+            )
             await require_channel(session, tenant_id=principal.tenant_id, provider=provider)
             return
 
         if method == "POST" and path == "/workspace/invitations":
             body = await _json_body(request)
-            if await _needs_new_member_seat(session, principal.tenant_id, str(body.get("email") or "")):
+            if await _needs_new_member_seat(
+                session, principal.tenant_id, str(body.get("email") or "")
+            ):
                 await require_capacity(session, tenant_id=principal.tenant_id, resource="members")
             return
 
@@ -154,7 +199,9 @@ async def enforce_plan_entitlements(
             await require_capacity(session, tenant_id=principal.tenant_id, resource="tokens")
             body = await _json_body(request)
             conversation_id = body.get("conversationId") or body.get("conversation_id")
-            if path == "/chat/completions" or not conversation_id:
+            if path == "/chat/completions" or (
+                not conversation_id and not await _is_chat_retry(session, principal.tenant_id, body)
+            ):
                 await require_capacity(session, tenant_id=principal.tenant_id, resource="conversations")
             return
     except (EntitlementError, ValueError, TypeError) as exc:
