@@ -6,9 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
 from northstar_api.dependencies import DBSession, require_permissions
+from northstar_api.entitlement_schemas import (
+    EntitlementFeaturesOut,
+    EntitlementLimitsOut,
+    EntitlementUsageOut,
+    TenantEntitlementsOut,
+)
 from northstar_api.models import Tenant
-from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
+from northstar_api.services.entitlements import entitlement_context
 from northstar_api.services.subscriptions import ensure_tenant_subscription
 from northstar_api.subscription_schemas import TenantSubscriptionOut
 from northstar_api.subscriptions import TenantSubscription
@@ -48,3 +54,40 @@ async def get_subscription(
     await session.commit()
     await session.refresh(subscription)
     return _out(subscription)
+
+
+@router.get("/entitlements", response_model=TenantEntitlementsOut)
+async def get_entitlements(
+    principal: BillingViewPrincipal,
+    session: DBSession,
+) -> TenantEntitlementsOut:
+    context = await entitlement_context(session, tenant_id=principal.tenant_id)
+    policy = context.policy
+    usage = context.usage
+    return TenantEntitlementsOut(
+        plan=context.subscription.plan,
+        subscription_status=context.subscription.status,
+        limits=EntitlementLimitsOut(
+            workspaces=policy.workspace_limit,
+            agents=policy.agent_limit,
+            members=policy.member_limit,
+            conversations_monthly=policy.conversation_limit_monthly,
+            tokens_monthly=policy.token_limit_monthly,
+            storage_bytes=policy.storage_limit_bytes,
+        ),
+        usage=EntitlementUsageOut(
+            workspaces=usage.workspaces,
+            agents=usage.agents,
+            members=usage.members,
+            pending_member_seats=usage.pending_member_seats,
+            conversations_monthly=usage.conversations_monthly,
+            tokens_monthly=usage.tokens_monthly,
+            storage_bytes=usage.storage_bytes,
+        ),
+        features=EntitlementFeaturesOut(
+            allowed_channels=sorted(policy.allowed_channels),
+            crm=policy.crm_enabled,
+            api=policy.api_enabled,
+            white_label=policy.white_label_enabled,
+        ),
+    )
