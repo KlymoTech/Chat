@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Literal
+from uuid import UUID
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from northstar_api.entitlements import PlanEntitlement, entitlement_for_plan
+from northstar_api.models import (
+    Agent,
+    Conversation,
+    KnowledgeSource,
+    Message,
+    Tenant,
+    TenantMembership,
+    User,
+    Workspace,
+    WorkspaceStatus,
+)
+from northstar_api.services.subscriptions import ensure_tenant_subscription
+from northstar_api.subscriptions import SubscriptionStatus, TenantSubscription
+from northstar_api.workspace_invitations import WorkspaceInvitation, WorkspaceInvitationStatus
+
+ResourceName = Literal["workspaces", "agents", "members", "conversations", "tokens", "storage"]
+
+
+class EntitlementError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int = 409, code: str = "entitlement_denied") -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class EntitlementUsage:
+    workspaces: int
+    agents: int
+    members: int
+    pending_member_seats: int
+    conversations_monthly: int
+    tokens_monthly: int
+    storage_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class EntitlementContext:
+    tenant: Tenant
+    subscription: TenantSubscription
+    policy: PlanEntitlement
+    usage: EntitlementUsage
+
+
+def _month_start(now: datetime | None = None) -> datetime:
+    value = now or datetime.now(UTC)
+    return datetime(value.year, value.month, 1, tzinfo=UTC)
+
+
+async def entitlement_usage(session: AsyncSession, *, tenant_id: UUID) -> EntitlementUsage:
+    month_start = _month_start()
+    workspaces = int(
+        await session.scalar(
+            select(func.count()).select_from(Workspace).where(
+                Workspace.tenant_id == tenant_id,
+                Workspace.status == WorkspaceStatus.ACTIVE,
+            )
+        )
+        or 0
+    )
+    agents = int(
+        await session.scalar(
+            select(func.count()).select_from(Agent).where(
+                Agent.tenant_id == tenant_id,
+                Agent.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
+    members = int(
+        await session.scalar(
+            select(func.count()).select_from(TenantMembership).where(
+                TenantMembership.tenant_id == tenant_id,
+            )
+        )
+        or 0
+    )
+    member_emails = set(
+        await session.scalars(
+            select(func.lower(User.email))
+            .join(TenantMembership, TenantMembership.user_id == User.id)
+            .where(TenantMembership.tenant_id == tenant_id)
+        )
+    )
+    pending_emails = set(
+        await session.scalars(
+            select(func.lower(WorkspaceInvitation.email)).where(
+                WorkspaceInvitation.tenant_id == tenant_id,
+                WorkspaceInvitation.status == WorkspaceInvitationStatus.PENDING,
+                WorkspaceInvitation.expires_at > datetime.now(UTC),
+            )
+        )
+    )
+    pending_member_seats = len(pending_emails - member_emails)
+    conversations_monthly = int(
+        await session.scalar(
+            select(func.count()).select_from(Conversation).where(
+                Conversation.tenant_id == tenant_id,
+                Conversation.created_at >= month_start,
+            )
+        )
+        or 0
+    )
+    tokens_monthly = int(
+        await session.scalar(
+            select(
+                func.coalesce(func.sum(Message.prompt_tokens + Message.completion_tokens), 0)
+            ).where(
+                Message.tenant_id == tenant_id,
+                Message.created_at >= month_start,
+            )
+        )
+        or 0
+    )
+    storage_bytes = int(
+        await session.scalar(
+            select(func.coalesce(func.sum(KnowledgeSource.size_bytes), 0)).where(
+                KnowledgeSource.tenant_id == tenant_id,
+            )
+        )
+        or 0
+    )
+    return EntitlementUsage(
+        workspaces=workspaces,
+        agents=agents,
+        members=members,
+        pending_member_seats=pending_member_seats,
+        conversations_monthly=conversations_monthly,
+        tokens_monthly=tokens_monthly,
+        storage_bytes=storage_bytes,
+    )
+
+
+async def entitlement_context(session: AsyncSession, *, tenant_id: UUID) -> EntitlementContext:
+    tenant = await session.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if tenant is None:
+        raise EntitlementError("Tenant not found", status_code=404, code="tenant_not_found")
+    subscription = await ensure_tenant_subscription(session, tenant=tenant)
+    return EntitlementContext(
+        tenant=tenant,
+        subscription=subscription,
+        policy=entitlement_for_plan(subscription.plan),
+        usage=await entitlement_usage(session, tenant_id=tenant_id),
+    )
+
+
+def _require_writable_subscription(context: EntitlementContext) -> None:
+    if context.subscription.status == SubscriptionStatus.SUSPENDED:
+        raise EntitlementError(
+            "Subscription is suspended; restore billing access before creating new resources",
+            status_code=403,
+            code="subscription_suspended",
+        )
+    if context.subscription.status == SubscriptionStatus.CANCELLED:
+        raise EntitlementError(
+            "Subscription is cancelled; reactivate the account before creating new resources",
+            status_code=403,
+            code="subscription_cancelled",
+        )
+
+
+def _limit_and_usage(context: EntitlementContext, resource: ResourceName) -> tuple[int | None, int]:
+    policy = context.policy
+    usage = context.usage
+    if resource == "workspaces":
+        return policy.workspace_limit, usage.workspaces
+    if resource == "agents":
+        return policy.agent_limit, usage.agents
+    if resource == "members":
+        return policy.member_limit, usage.members + usage.pending_member_seats
+    if resource == "conversations":
+        return policy.conversation_limit_monthly, usage.conversations_monthly
+    if resource == "tokens":
+        return policy.token_limit_monthly, usage.tokens_monthly
+    return policy.storage_limit_bytes, usage.storage_bytes
+
+
+async def require_capacity(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    resource: ResourceName,
+    additional: int = 1,
+) -> EntitlementContext:
+    if additional < 0:
+        raise ValueError("additional capacity must not be negative")
+    context = await entitlement_context(session, tenant_id=tenant_id)
+    _require_writable_subscription(context)
+    limit, used = _limit_and_usage(context, resource)
+    if limit is not None and used + additional > limit:
+        label = resource.replace("_", " ")
+        raise EntitlementError(
+            f"{label.title()} plan limit reached ({used}/{limit}); upgrade the subscription to continue",
+            status_code=409,
+            code=f"{resource}_limit_reached",
+        )
+    return context
+
+
+async def require_feature(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    feature: Literal["crm", "api", "white_label"],
+) -> EntitlementContext:
+    context = await entitlement_context(session, tenant_id=tenant_id)
+    _require_writable_subscription(context)
+    enabled = {
+        "crm": context.policy.crm_enabled,
+        "api": context.policy.api_enabled,
+        "white_label": context.policy.white_label_enabled,
+    }[feature]
+    if not enabled:
+        raise EntitlementError(
+            f"{feature.replace('_', ' ').title()} is not available on the {context.subscription.plan} plan",
+            status_code=403,
+            code=f"{feature}_not_available",
+        )
+    return context
+
+
+async def require_channel(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    provider: str,
+) -> EntitlementContext:
+    context = await entitlement_context(session, tenant_id=tenant_id)
+    _require_writable_subscription(context)
+    if provider not in context.policy.allowed_channels:
+        raise EntitlementError(
+            f"{provider.replace('_', ' ').title()} channel is not available on the {context.subscription.plan} plan",
+            status_code=403,
+            code="channel_not_available",
+        )
+    return context
+
+
+def entitlement_http_detail(exc: EntitlementError) -> str:
+    return str(exc)
