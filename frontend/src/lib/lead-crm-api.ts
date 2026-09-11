@@ -138,6 +138,7 @@ export interface ChannelConnectionView {
   name: string;
   status: string;
   configuration: Record<string, unknown>;
+  webhook_path: string;
   last_health_at?: string | null;
   last_event_at?: string | null;
   last_failure_at?: string | null;
