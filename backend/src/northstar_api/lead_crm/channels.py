@@ -91,8 +91,12 @@ class ChannelRegistry:
             return
         self._defaults_loaded = True
         from northstar_api.lead_crm.channel_providers import register_default_channel_connectors
+        from northstar_api.lead_crm.slack_channel import SlackConnector
 
         register_default_channel_connectors()
+        # Slack used the generic signed connector before its native runtime was added.
+        # Replace only that compatibility registration; API/widget/custom stay unchanged.
+        self._connectors[ChannelProvider.SLACK] = SlackConnector()
 
     def register(self, connector: ChannelConnector) -> None:
         if connector.provider in self._connectors:
