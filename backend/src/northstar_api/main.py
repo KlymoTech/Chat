@@ -14,7 +14,13 @@ from starlette.responses import Response
 
 from northstar_api import __version__
 from northstar_api.config import get_settings
-from northstar_api.database import SessionFactory, close_database, initialize_schema, set_tenant_context
+from northstar_api.database import (
+    SessionFactory,
+    close_database,
+    initialize_schema,
+    set_tenant_context,
+    tenant_context,
+)
 from northstar_api.health import router as health_router
 from northstar_api.help_config import get_help_settings
 from northstar_api.lead_crm.audit import AuditCategory, AuditOutcome, AuditSeverity, record_audit_event
@@ -179,6 +185,7 @@ async def authenticated_mutation_audit(request: Request, call_next: RequestRespo
     route = request.scope.get("route")
     route_path = str(getattr(route, "path", path))
     credential_type = "api_key" if principal.token_id.startswith("api_key:") else "session"
+    context_token = tenant_context.set(None)
     try:
         async with SessionFactory() as session:
             await set_tenant_context(session, principal.tenant_id)
@@ -189,7 +196,7 @@ async def authenticated_mutation_audit(request: Request, call_next: RequestRespo
                 actor_user_id=principal.user_id,
                 action=f"{category}.{method.lower()}",
                 entity_type=category,
-                entity_id=path,
+                entity_id=route_path,
                 category=category,
                 severity=severity,
                 outcome=outcome,
@@ -205,10 +212,12 @@ async def authenticated_mutation_audit(request: Request, call_next: RequestRespo
     except Exception as exc:  # audit observability must never break a completed mutation
         logger.warning(
             "audit_event_write_failed",
-            path=path,
+            path=route_path,
             method=method,
             error=type(exc).__name__,
         )
+    finally:
+        tenant_context.reset(context_token)
     return response
 
 
