@@ -1,10 +1,11 @@
 import {
-  BarChart3, Bell, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
+  BarChart3, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
   LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, ShieldCheck, Sparkles, UsersRound, X,
 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
+import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth, useToast, useWorkspace } from '@/components/providers';
 
 const navigation = [
@@ -109,7 +110,7 @@ export function AppShell() {
         </div>
         <div className="topbar__actions">
           <button className="search-trigger" aria-label="Search"><Search /><span>Search</span><kbd>⌘ K</kbd></button>
-          <button className="icon-button" aria-label="Notifications"><Bell /><span className="notification-dot" /></button>
+          <NotificationBell />
           <div className="account-menu">
             <button className="account-button" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen}><span className="avatar">{initials}</span><span className="account-copy"><strong>{session?.user.name}</strong><small>{session?.user.role}</small></span><ChevronDown /></button>
             {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div><Link to="/workspace" onClick={() => setAccountOpen(false)}><Settings2 />Workspace settings</Link><Link to="/help" onClick={() => setAccountOpen(false)}><CircleHelp />Help Center</Link><button onClick={() => void logout().then(() => navigate('/login'))}><LogOut />Sign out</button></div> : null}
