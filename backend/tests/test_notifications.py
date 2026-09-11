@@ -33,17 +33,7 @@ async def test_notification_inbox_is_scoped_deduplicated_and_readable(
     tenant_id = UUID(workspace['tenantId'])
     user_id = UUID(session_payload['user']['id'])
     await _clear_user_notifications(tenant_id, user_id)
-
-    secondary_response = await client.post(
-        '/api/v1/workspaces',
-        headers=auth_headers,
-        json={
-            'name': 'Notification Isolation Workspace',
-            'slug': f'notification-isolation-{uuid4().hex[:10]}',
-        },
-    )
-    assert secondary_response.status_code == 201, secondary_response.text
-    secondary_workspace_id = UUID(secondary_response.json()['id'])
+    secondary_workspace_id = uuid4()
 
     async with SessionFactory() as session:
         first = await create_notification(
