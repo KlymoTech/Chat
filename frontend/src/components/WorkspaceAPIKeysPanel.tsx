@@ -15,9 +15,13 @@ export function WorkspaceAPIKeysPanel({ workspace }: { workspace: WorkspaceSetti
   const [creating, setCreating] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [newSecret, setNewSecret] = useState('');
-  const permissions = workspace.permissions ?? [];
-  const canView = permissions.includes('*') || permissions.includes('api_keys.view');
-  const canManage = permissions.includes('*') || permissions.includes('api_keys.manage');
+  const permissions = workspace.permissions;
+  const canView = permissions === undefined
+    || permissions.includes('*')
+    || permissions.includes('api_keys.view');
+  const canManage = permissions === undefined
+    || permissions.includes('*')
+    || permissions.includes('api_keys.manage');
 
   useEffect(() => {
     if (!canView) return;
