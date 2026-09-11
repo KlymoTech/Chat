@@ -112,10 +112,17 @@ async def _send_instagram_delivery_async(delivery_id: UUID) -> None:
                 await session.commit()
                 return
 
-            api_version = str(
-                (connection.configuration_json or {}).get("apiVersion")
-                or settings.meta_graph_api_version
-            )
+            api_version = str((connection.configuration_json or {}).get("apiVersion") or "").strip()
+            if not api_version:
+                delivery.status = "rejected"
+                delivery.last_error = "Instagram API version is not configured"
+                message.finish_reason = "rejected"
+                connection.status = "configuration_error"
+                connection.last_failure_at = datetime.now(UTC)
+                connection.last_error = "Instagram API version is not configured"
+                await session.commit()
+                return
+
             provider_id = await instagram_client.send_text(
                 access_token,
                 recipient_id=delivery.recipient_external_id,
