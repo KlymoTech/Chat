@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -56,6 +57,18 @@ class EntitlementContext:
 def _month_start(now: datetime | None = None) -> datetime:
     value = now or datetime.now(UTC)
     return datetime(value.year, value.month, 1, tzinfo=UTC)
+
+
+def _stored_source_bytes(source: KnowledgeSource) -> int:
+    if source.content is not None:
+        return len(source.content.encode("utf-8"))
+    value = (source.size_label or "").strip().upper()
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB)", value)
+    if not match:
+        return 0
+    amount = float(match.group(1))
+    multiplier = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}[match.group(2)]
+    return max(0, int(amount * multiplier))
 
 
 async def entitlement_usage(session: AsyncSession, *, tenant_id: UUID) -> EntitlementUsage:
@@ -123,14 +136,12 @@ async def entitlement_usage(session: AsyncSession, *, tenant_id: UUID) -> Entitl
         )
         or 0
     )
-    storage_bytes = int(
-        await session.scalar(
-            select(func.coalesce(func.sum(KnowledgeSource.size_bytes), 0)).where(
-                KnowledgeSource.tenant_id == tenant_id,
-            )
+    sources = list(
+        await session.scalars(
+            select(KnowledgeSource).where(KnowledgeSource.tenant_id == tenant_id)
         )
-        or 0
     )
+    storage_bytes = sum(_stored_source_bytes(source) for source in sources)
     return EntitlementUsage(
         workspaces=workspaces,
         agents=agents,
