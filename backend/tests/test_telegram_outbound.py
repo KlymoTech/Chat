@@ -6,16 +6,20 @@ import httpx
 import pytest
 
 from northstar_api.lead_crm.channel_models import ChannelOutboundDelivery
+from northstar_api.lead_crm.channel_providers import TelegramConnector
+from northstar_api.lead_crm.channels import ChannelConnectionContext
+from northstar_api.lead_crm.domain import ChannelProvider
+from northstar_api.models import Channel, Conversation
 from northstar_api.routers.conversations import _telegram_chat_id
 from northstar_api.services.telegram import (
     TELEGRAM_TEXT_LIMIT,
     TelegramAPIError,
     TelegramBotClient,
     split_telegram_text,
+    telegram_client,
 )
 from northstar_api.workers.job_dispatcher import whatsapp_dispatch_failure_state
 from northstar_api.workers.telegram_tasks import telegram_thread_lock_key
-from northstar_api.models import Channel, Conversation
 
 
 def _conversation(visitor_id: str) -> Conversation:
@@ -26,6 +30,16 @@ def _conversation(visitor_id: str) -> Conversation:
         visitor_id=visitor_id,
         visitor_name="Telegram user",
         channel=Channel.API,
+    )
+
+
+def _telegram_context() -> ChannelConnectionContext:
+    return ChannelConnectionContext(
+        tenant_id=uuid4(),
+        connection_id=uuid4(),
+        provider=ChannelProvider.TELEGRAM,
+        configuration={},
+        credentials={"bot_token": "secret-token", "webhook_secret": "webhook-secret"},
     )
 
 
@@ -73,6 +87,29 @@ def test_dispatch_backoff_contract_can_be_reused_without_changing_whatsapp() -> 
     assert state == "failed"
     assert retry_at is not None
     assert delay >= 1
+
+
+@pytest.mark.anyio
+async def test_telegram_health_check_calls_get_me(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def get_me(bot_token: str) -> dict[str, object]:
+        assert bot_token == "secret-token"
+        return {"id": 1, "username": "northstar_test_bot"}
+
+    monkeypatch.setattr(telegram_client, "get_me", get_me)
+    result = await TelegramConnector().health_check(_telegram_context())
+    assert result == {"status": "healthy", "username": "northstar_test_bot"}
+
+
+@pytest.mark.anyio
+async def test_telegram_health_check_does_not_report_invalid_token_healthy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def get_me(_: str) -> dict[str, object]:
+        raise TelegramAPIError("Unauthorized", status_code=401, requires_reconnect=True)
+
+    monkeypatch.setattr(telegram_client, "get_me", get_me)
+    result = await TelegramConnector().health_check(_telegram_context())
+    assert result == {"status": "auth_required"}
 
 
 @pytest.mark.anyio
