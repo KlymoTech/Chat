@@ -88,7 +88,8 @@ def _delimited_table(content: bytes, suffix: str) -> list[list[str]]:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise StudentImportFileError("CSV/TSV files must use UTF-8 text encoding") from exc
-    first_line = text.splitlines()[0] if text.splitlines() else ""
+    lines = text.splitlines()
+    first_line = lines[0] if lines else ""
     delimiter = "\t" if suffix == ".tsv" or ("\t" in first_line and "," not in first_line) else ","
     try:
         table = [list(row) for row in csv.reader(io.StringIO(text), delimiter=delimiter)]
@@ -123,7 +124,8 @@ def _xlsx_table(content: bytes) -> list[list[str]]:
 
 def _xml(content: bytes, label: str) -> ElementTree.Element:
     try:
-        return ElementTree.fromstring(content)
+        # XLSX members are size-capped above and ElementTree does not resolve external entities here.
+        return ElementTree.fromstring(content)  # noqa: S314
     except ElementTree.ParseError as exc:
         raise StudentImportFileError(f"{label} is malformed") from exc
 
@@ -142,10 +144,11 @@ def _first_sheet_path(workbook: ElementTree.Element, relations: ElementTree.Elem
             break
     if not target:
         raise StudentImportFileError("Excel worksheet relationship could not be resolved")
-    if target.startswith("/"):
-        normalized = posixpath.normpath(target.lstrip("/"))
-    else:
-        normalized = posixpath.normpath(posixpath.join("xl", target))
+    normalized = (
+        posixpath.normpath(target.lstrip("/"))
+        if target.startswith("/")
+        else posixpath.normpath(posixpath.join("xl", target))
+    )
     if normalized.startswith("../") or normalized == "..":
         raise StudentImportFileError("Excel worksheet path is invalid")
     return normalized
@@ -306,6 +309,8 @@ def _rows_from_table(table: list[list[str]]) -> list[StudentImportRow]:
                 raw[field_name] = _parse_boolean(raw_value, row_number)
             elif field_name == "custom_fields":
                 raw[field_name] = _parse_custom_fields(raw_value, row_number)
+            elif field_name == "enrollment_status":
+                raw[field_name] = raw_value or "active"
             else:
                 raw[field_name] = raw_value or None
         try:
