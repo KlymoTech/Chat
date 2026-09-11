@@ -1,21 +1,16 @@
 import {
-  Building2, Check, Copy, CreditCard, KeyRound, LockKeyhole, Mail, Plus, ShieldCheck,
-  Sparkles, Trash2,
+  Building2, CreditCard, Mail, ShieldCheck, Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MFASecurityPanel } from '@/components/mfa-security-panel';
 import { useAuth, useToast } from '@/components/providers';
 import { Button, Badge, Card, Field, PageLoader, Switch } from '@/components/ui';
+import { WorkspaceAPIKeysPanel } from '@/components/WorkspaceAPIKeysPanel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
 import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
-import { readStorage, writeStorage } from '@/lib/storage';
 import { workspaceApi, type WorkspaceSettings } from '@/lib/workspace-api';
 import '@/pages/WorkspaceTeam.css';
-
-interface LocalKey { id: string; name: string; prefix: string; createdAt: string }
-
-const KEYS_KEY = 'northstar.workspace.api-keys';
 
 export function WorkspacePage() {
   const { session } = useAuth();
@@ -24,8 +19,6 @@ export function WorkspacePage() {
   const section = params.get('section') ?? 'workspace';
   const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
   const [saving, setSaving] = useState(false);
-  const [keys, setKeys] = useState<LocalKey[]>(() => readStorage(KEYS_KEY, []));
-  const [newSecret, setNewSecret] = useState('');
   const [masking, setMasking] = useState(true);
   const [digest, setDigest] = useState(true);
 
@@ -42,16 +35,6 @@ export function WorkspacePage() {
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
     } finally { setSaving(false); }
-  }
-
-  function createKey() {
-    const raw = `nsk_live_${crypto.randomUUID().replaceAll('-', '')}`;
-    const item = { id: crypto.randomUUID(), name: `Production ${keys.length + 1}`, prefix: `${raw.slice(0, 14)}••••${raw.slice(-4)}`, createdAt: new Date().toISOString() };
-    const next = [item, ...keys]; setKeys(next); writeStorage(KEYS_KEY, next); setNewSecret(raw);
-  }
-
-  function revokeKey(id: string) {
-    const next = keys.filter((item) => item.id !== id); setKeys(next); writeStorage(KEYS_KEY, next); pushToast('API key revoked');
   }
 
   if (!workspace) return <PageLoader />;
@@ -75,10 +58,7 @@ export function WorkspacePage() {
 
         {section === 'team' ? <WorkspaceTeamPanel workspace={workspace} /> : null}
 
-        {section === 'developer' ? <Card className="workspace-panel"><PanelHeading icon={KeyRound} title="API keys" description="Create and revoke credentials used by your server-side integrations." action={<Button icon={Plus} onClick={createKey}>Create secret key</Button>} />
-          {newSecret ? <div className="workspace-secret"><LockKeyhole /><div><strong>Copy this key now</strong><small>For security, it will not be shown again.</small><code>{newSecret}</code></div><button type="button" className="icon-button" aria-label="Copy new API key" onClick={() => void navigator.clipboard.writeText(newSecret).then(() => pushToast('Secret key copied'))}><Copy /></button><button type="button" className="icon-button" aria-label="Hide new API key" onClick={() => setNewSecret('')}><Check /></button></div> : null}
-          <div className="workspace-key-list">{keys.length ? keys.map((key) => <div key={key.id}><span><strong>{key.name}</strong><small>Created {new Date(key.createdAt).toLocaleDateString()}</small></span><code>{key.prefix}</code><button type="button" className="icon-button danger-hover" onClick={() => revokeKey(key.id)} aria-label={`Revoke ${key.name}`}><Trash2 /></button></div>) : <div className="workspace-empty-row"><KeyRound /><span><strong>No API keys yet</strong><small>Create a key when you are ready to connect your backend.</small></span></div>}</div>
-        </Card> : null}
+        {section === 'developer' ? <WorkspaceAPIKeysPanel workspace={workspace} /> : null}
 
         {section === 'security' ? <Card className="workspace-panel"><PanelHeading icon={ShieldCheck} title="Security controls" description="Apply workspace-wide protection and manage your own sign-in security." />
           <div className="workspace-panel__body">
