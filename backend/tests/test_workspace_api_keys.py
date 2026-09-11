@@ -17,6 +17,17 @@ async def test_workspace_api_key_is_hashed_scoped_usable_and_revocable(
     assert workspace_response.status_code == 200, workspace_response.text
     workspace_id = workspace_response.json()["id"]
 
+    secondary = await client.post(
+        "/api/v1/workspaces",
+        headers=auth_headers,
+        json={
+            "name": "API Key Isolation Workspace",
+            "slug": f"api-key-isolation-{uuid4().hex[:10]}",
+        },
+    )
+    assert secondary.status_code == 201, secondary.text
+    secondary_workspace_id = secondary.json()["id"]
+
     created = await client.post(
         "/api/v1/workspace/api-keys",
         headers=auth_headers,
@@ -49,6 +60,16 @@ async def test_workspace_api_key_is_hashed_scoped_usable_and_revocable(
     api_workspace = await client.get("/api/v1/workspace", headers=api_headers)
     assert api_workspace.status_code == 200, api_workspace.text
     assert api_workspace.json()["id"] == workspace_id
+
+    visible_workspaces = await client.get("/api/v1/workspaces", headers=api_headers)
+    assert visible_workspaces.status_code == 200, visible_workspaces.text
+    assert [item["id"] for item in visible_workspaces.json()] == [workspace_id]
+
+    explicit_other_workspace = await client.get(
+        f"/api/v1/workspaces/{secondary_workspace_id}",
+        headers=api_headers,
+    )
+    assert explicit_other_workspace.status_code == 403, explicit_other_workspace.text
 
     mismatched_workspace = await client.get(
         "/api/v1/workspace",
