@@ -13,6 +13,10 @@ from sqlalchemy.orm import Load, selectinload
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
+from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
+from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
+from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
+from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.models import (
     Channel,
     Conversation,
@@ -36,6 +40,7 @@ from northstar_api.services.conversation_resolution import conversation_resoluti
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.whatsapp import token_expiry_is_current
 from northstar_api.workers.tasks import send_whatsapp_human_reply
+from northstar_api.workers.telegram_tasks import send_telegram_message
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -99,6 +104,70 @@ async def locked_conversation(
         .where(*conversation_scope(principal, conversation_id))
         .with_for_update()
     )
+
+
+def _telegram_chat_id(conversation: Conversation) -> str | None:
+    visitor_id = conversation.visitor_id or ""
+    if not visitor_id.startswith("telegram:"):
+        return None
+    chat_id = visitor_id.removeprefix("telegram:").strip()
+    if not chat_id or not chat_id.lstrip("-").isdigit():
+        return None
+    return chat_id
+
+
+async def _telegram_connection_for_conversation(
+    session: AsyncSession,
+    principal: Principal,
+    conversation: Conversation,
+) -> tuple[ChannelConnection, str] | None:
+    chat_id = _telegram_chat_id(conversation)
+    if chat_id is None:
+        return None
+    rows = (
+        await session.execute(
+            select(ChannelConnection, WorkspaceChannelConnection)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelConnection.tenant_id == principal.tenant_id,
+                ChannelConnection.provider == ChannelProvider.TELEGRAM.value,
+                ChannelConnection.status != "disabled",
+                WorkspaceChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.workspace_id == principal.workspace_id,
+            )
+            .with_for_update()
+        )
+    ).all()
+    matches = [
+        connection
+        for connection, scope in rows
+        if (scope.agent_id is None or scope.agent_id == conversation.agent_id)
+        and str((connection.configuration_json or {}).get("agentId") or "") == str(conversation.agent_id)
+    ]
+    if not matches:
+        raise HTTPException(status_code=409, detail="Telegram is not connected for this agent")
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple Telegram connections match this agent; disable the duplicate connection before replying",
+        )
+    connection = matches[0]
+    try:
+        credentials = (
+            credential_store.decrypt(connection.credentials_encrypted)
+            if connection.credentials_encrypted
+            else {}
+        )
+    except CredentialStoreError as exc:
+        raise HTTPException(status_code=409, detail="Telegram credentials require reconnection") from exc
+    if not credentials.get("bot_token"):
+        raise HTTPException(status_code=409, detail="Telegram bot token is not configured")
+    if not credentials.get("webhook_secret"):
+        raise HTTPException(status_code=409, detail="Telegram webhook secret is not configured")
+    return connection, chat_id
 
 
 @router.get("", response_model=PageResult[ConversationOut])
@@ -261,6 +330,7 @@ async def reply_to_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     whatsapp_connection: WhatsAppConnection | None = None
+    telegram_target: tuple[ChannelConnection, str] | None = None
     if conversation.channel == Channel.WHATSAPP:
         if not conversation.visitor_id or not conversation.visitor_id.isdigit():
             raise HTTPException(status_code=409, detail="WhatsApp recipient is unavailable")
@@ -313,6 +383,12 @@ async def reply_to_conversation(
                     "send an approved template instead"
                 ),
             )
+    else:
+        telegram_target = await _telegram_connection_for_conversation(
+            session,
+            principal,
+            conversation,
+        )
     sequence = int(
         await session.scalar(
             select(func.coalesce(func.max(Message.sequence), 0)).where(
@@ -322,6 +398,7 @@ async def reply_to_conversation(
         )
         or 0
     )
+    queued_external = whatsapp_connection is not None or telegram_target is not None
     message = Message(
         tenant_id=principal.tenant_id,
         workspace_id=conversation.workspace_id,
@@ -329,12 +406,13 @@ async def reply_to_conversation(
         sequence=sequence + 1,
         role=MessageRole.AGENT,
         content=payload.content.strip(),
-        finish_reason="queued" if whatsapp_connection else "sent",
+        finish_reason="queued" if queued_external else "sent",
     )
     session.add(message)
     conversation.updated_at = datetime.now(UTC)
     await session.flush()
     delivery: WhatsAppOutboundDelivery | None = None
+    telegram_delivery: ChannelOutboundDelivery | None = None
     if whatsapp_connection:
         delivery = WhatsAppOutboundDelivery(
             tenant_id=principal.tenant_id,
@@ -346,6 +424,19 @@ async def reply_to_conversation(
             status="queued",
         )
         session.add(delivery)
+        await session.flush()
+    elif telegram_target:
+        telegram_connection, chat_id = telegram_target
+        telegram_delivery = ChannelOutboundDelivery(
+            tenant_id=principal.tenant_id,
+            workspace_id=conversation.workspace_id,
+            connection_id=telegram_connection.id,
+            message_id=message.id,
+            provider=ChannelProvider.TELEGRAM.value,
+            recipient_external_id=chat_id,
+            status="queued",
+        )
+        session.add(telegram_delivery)
         await session.flush()
     enqueue_event(
         session,
@@ -381,6 +472,25 @@ async def reply_to_conversation(
             delivery.status = "dispatch_failed" if exhausted else "failed"
             delivery.next_dispatch_at = None if exhausted else datetime.now(UTC)
             delivery.last_error = "queue dispatch unavailable"
+        await session.commit()
+    elif telegram_delivery:
+        try:
+            await asyncio.to_thread(
+                send_telegram_message.apply_async,
+                args=[str(telegram_delivery.id)],
+                queue="telegram.outbound",
+                routing_key="telegram.outbound",
+            )
+            telegram_delivery.dispatch_attempts += 1
+            telegram_delivery.dispatched_at = datetime.now(UTC)
+            telegram_delivery.next_dispatch_at = datetime.now(UTC) + timedelta(minutes=5)
+            telegram_delivery.last_error = None
+        except Exception:
+            # The durable dispatcher will retry this database-backed delivery.
+            telegram_delivery.dispatch_attempts += 1
+            telegram_delivery.status = "failed"
+            telegram_delivery.next_dispatch_at = datetime.now(UTC)
+            telegram_delivery.last_error = "queue dispatch unavailable"
         await session.commit()
     await session.refresh(message)
     return MessageOut(

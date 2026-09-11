@@ -14,7 +14,7 @@ const oauthProviders = new Set<CRMProviderId>(['zoho', 'salesforce', 'hubspot', 
 
 function healthTone(status: string): 'success' | 'warning' | 'brand' | 'neutral' {
   if (status === 'healthy') return 'success';
-  if (['unhealthy', 'auth_required', 'configuration_error', 'degraded'].includes(status)) return 'warning';
+  if (['unhealthy', 'auth_required', 'configuration_error', 'degraded', 'reconnect_required'].includes(status)) return 'warning';
   if (['connecting', 'rate_limited'].includes(status)) return 'brand';
   return 'neutral';
 }
@@ -39,6 +39,7 @@ export function IntegrationsPage() {
   const [channelProvider, setChannelProvider] = useState('telegram');
   const [channelName, setChannelName] = useState('');
   const [channelAgentId, setChannelAgentId] = useState('');
+  const [channelBotToken, setChannelBotToken] = useState('');
   const [channelSecret, setChannelSecret] = useState('');
   const canManage = session?.user.role === 'owner' || session?.user.role === 'admin';
   const items = useMemo(() => result.data?.filter((item) => (category === 'all' || item.category === category) && `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase())) ?? [], [category, result.data, search]);
@@ -83,21 +84,26 @@ export function IntegrationsPage() {
 
   const createChannel = async () => {
     if (!channelName.trim() || !channelAgentId.trim()) return pushToast('Connection name and Agent ID are required', 'error');
+    if (channelProvider === 'telegram' && !channelBotToken.trim()) return pushToast('Telegram Bot token is required', 'error');
+    if (channelProvider === 'telegram' && !channelSecret.trim()) return pushToast('Telegram webhook secret is required', 'error');
     try {
       const credentials: Record<string, unknown> = {};
-      if (channelSecret) {
-        if (channelProvider === 'telegram') credentials.webhook_secret = channelSecret;
-        else if (['instagram', 'facebook_messenger', 'whatsapp'].includes(channelProvider)) credentials.app_secret = channelSecret;
+      if (channelProvider === 'telegram') {
+        credentials.bot_token = channelBotToken.trim();
+        credentials.webhook_secret = channelSecret.trim();
+      } else if (channelSecret) {
+        if (['instagram', 'facebook_messenger', 'whatsapp'].includes(channelProvider)) credentials.app_secret = channelSecret;
         else credentials.webhook_secret = channelSecret;
       }
       await leadCrmApi.createChannelConnection({
         provider: channelProvider,
         name: channelName.trim(),
+        agentId: channelAgentId.trim(),
         configuration: { agentId: channelAgentId.trim(), leadCaptureDefault: { createLead: true, qualify: false, syncToCRM: false } },
         credentials,
       });
       pushToast(`${channelName.trim()} created`);
-      setChannelName(''); setChannelAgentId(''); setChannelSecret('');
+      setChannelName(''); setChannelAgentId(''); setChannelBotToken(''); setChannelSecret('');
       channelConnections.reload();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Could not create channel connection', 'error');
@@ -124,7 +130,8 @@ export function IntegrationsPage() {
     <Card>
       <div className="page-heading page-heading--split"><div><h3>Messaging channels</h3><p>Webhook connections feed one canonical contact/lead pipeline. Existing WhatsApp Embedded Signup remains available below.</p></div><Badge tone="purple">Omnichannel ingress</Badge></div>
       {channelConnections.data?.length ? <div className="integration-grid">{channelConnections.data.map((connection) => <Card className="integration-card" key={connection.id}><div className="integration-card__icon"><MessageCircle /></div><div className="integration-card__copy"><span><h3>{connection.name}</h3><Badge tone={healthTone(connection.status)}>{connection.status}</Badge></span><p>{connection.provider} · Last event {connection.last_event_at ? new Date(connection.last_event_at).toLocaleString() : 'not received yet'}</p>{connection.last_error ? <small>{connection.last_error}</small> : null}</div>{canManage ? <Button variant="secondary" size="sm" onClick={() => void leadCrmApi.testChannelConnection(connection.id).then(() => { pushToast('Channel test completed'); channelConnections.reload(); }).catch((error: unknown) => pushToast(error instanceof Error ? error.message : 'Channel test failed', 'error'))}>Test</Button> : null}</Card>)}</div> : <p>No provider-neutral channel connections configured yet.</p>}
-      {canManage ? <div className="integration-toolbar"><select value={channelProvider} onChange={(event) => setChannelProvider(event.target.value)} aria-label="Channel provider"><option value="telegram">Telegram</option><option value="instagram">Instagram</option><option value="facebook_messenger">Facebook Messenger</option><option value="api">Developer API</option><option value="custom">Custom webhook</option></select><input value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="Connection name" /><input value={channelAgentId} onChange={(event) => setChannelAgentId(event.target.value)} placeholder="Agent ID" /><input type="password" value={channelSecret} onChange={(event) => setChannelSecret(event.target.value)} placeholder="Webhook/App secret" /><Button onClick={() => void createChannel()}>Add channel</Button></div> : null}
+      {canManage ? <div className="integration-toolbar"><select value={channelProvider} onChange={(event) => { setChannelProvider(event.target.value); setChannelBotToken(''); setChannelSecret(''); }} aria-label="Channel provider"><option value="telegram">Telegram</option><option value="instagram">Instagram</option><option value="facebook_messenger">Facebook Messenger</option><option value="api">Developer API</option><option value="custom">Custom webhook</option></select><input value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="Connection name" /><input value={channelAgentId} onChange={(event) => setChannelAgentId(event.target.value)} placeholder="Agent ID" />{channelProvider === 'telegram' ? <input type="password" value={channelBotToken} onChange={(event) => setChannelBotToken(event.target.value)} placeholder="Telegram Bot token" autoComplete="off" /> : null}<input type="password" value={channelSecret} onChange={(event) => setChannelSecret(event.target.value)} placeholder={channelProvider === 'telegram' ? 'Telegram webhook secret token' : 'Webhook/App secret'} autoComplete="off" /><Button onClick={() => void createChannel()}>Add channel</Button></div> : null}
+      {canManage && channelProvider === 'telegram' ? <p className="integration-helper">Telegram requires the Bot token from BotFather and a private webhook secret token. Secrets are encrypted server-side and are never returned by the connection API.</p> : null}
     </Card>
 
     <Card>
