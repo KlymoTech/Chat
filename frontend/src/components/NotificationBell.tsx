@@ -44,13 +44,17 @@ export function NotificationBell() {
   const loadItems = useCallback(async () => {
     if (!activeWorkspace?.id) {
       setItems([]);
+      setUnreadCount(0);
       return;
     }
     setLoading(true);
     try {
-      const values = await notificationsApi.list(30);
+      const [values, count] = await Promise.all([
+        notificationsApi.list(30),
+        notificationsApi.unreadCount(),
+      ]);
       setItems(values);
-      setUnreadCount(values.filter((item) => !item.readAt).length);
+      setUnreadCount(count);
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Notifications could not be loaded', 'error');
     } finally {
