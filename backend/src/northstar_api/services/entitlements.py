@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
@@ -63,15 +63,16 @@ def _month_start(now: datetime | None = None) -> datetime:
 
 
 def _stored_source_bytes(source: KnowledgeSource) -> int:
-    if source.content is not None:
-        return len(source.content.encode("utf-8"))
-    value = (source.size_label or "").strip().upper()
+    content = getattr(source, "content", None)
+    if content is not None:
+        return len(str(content).encode("utf-8"))
+    value = str(getattr(source, "size_label", "") or "").strip().upper()
     match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB)", value)
     if match:
         amount = float(match.group(1))
         multiplier = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}[match.group(2)]
         return max(0, int(amount * multiplier))
-    if source.kind in {KnowledgeKind.URL, KnowledgeKind.SITEMAP}:
+    if getattr(source, "kind", None) in {KnowledgeKind.URL, KnowledgeKind.SITEMAP}:
         # Remote sources have no authoritative byte size until extraction. Reserve
         # the configured maximum while they are pending so concurrent crawls cannot
         # all bypass the storage quota before chunks are written.
@@ -218,6 +219,23 @@ def _limit_and_usage(context: EntitlementContext, resource: ResourceName) -> tup
     return policy.storage_limit_bytes, usage.storage_bytes
 
 
+async def _serialize_capacity_check(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    resource: ResourceName,
+) -> None:
+    # Production runs PostgreSQL. A transaction-scoped advisory lock makes the
+    # count-then-create decision deterministic across concurrent API/worker
+    # processes. The route/worker uses this same session and releases the lock on
+    # its normal commit/rollback. SQLite tests keep their existing lightweight path.
+    if session.bind is not None and session.bind.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
+            {"scope": f"entitlement:{tenant_id}:{resource}"},
+        )
+
+
 async def require_capacity(
     session: AsyncSession,
     *,
@@ -227,6 +245,7 @@ async def require_capacity(
 ) -> EntitlementContext:
     if additional < 0:
         raise ValueError("additional capacity must not be negative")
+    await _serialize_capacity_check(session, tenant_id=tenant_id, resource=resource)
     context = await entitlement_context(session, tenant_id=tenant_id)
     _require_writable_subscription(context)
     limit, used = _limit_and_usage(context, resource)
