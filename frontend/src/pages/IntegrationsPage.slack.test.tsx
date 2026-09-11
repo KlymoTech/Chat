@@ -112,4 +112,29 @@ describe('IntegrationsPage Slack setup', () => {
       },
     });
   });
+
+  it('shows the exact Slack Events API request path returned by the backend', async () => {
+    mocks.channelConnections.mockResolvedValue([
+      {
+        id: 'channel-slack-1',
+        public_id: 'chn_slack',
+        workspace_id: '22222222-2222-2222-2222-222222222222',
+        agent_id: '11111111-1111-1111-1111-111111111111',
+        provider: 'slack',
+        name: 'Support Slack',
+        status: 'configured',
+        configuration: {},
+        webhook_path: '/api/v1/webhooks/channels/33333333-3333-3333-3333-333333333333/slack/chn_slack',
+        created_at: '2026-09-11T00:00:00Z',
+        updated_at: '2026-09-11T00:00:00Z',
+      },
+    ]);
+
+    render(<IntegrationsPage />);
+
+    const requestUrl = await screen.findByText(/Slack Events API Request URL:/);
+    expect(requestUrl).toHaveTextContent(
+      '/api/v1/webhooks/channels/33333333-3333-3333-3333-333333333333/slack/chn_slack',
+    );
+  });
 });
