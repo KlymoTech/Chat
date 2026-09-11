@@ -7,6 +7,7 @@ from httpx import AsyncClient
 
 from northstar_api.database import SessionFactory
 from northstar_api.entitlements import CUSTOM_UNLIMITED_ENTITLEMENT, entitlement_for_plan
+from northstar_api.models import KnowledgeKind, KnowledgeStatus
 from northstar_api.services.entitlements import _stored_source_bytes
 from northstar_api.services.subscriptions import set_subscription_state
 from northstar_api.subscriptions import SubscriptionStatus
@@ -34,6 +35,21 @@ def test_existing_knowledge_storage_labels_are_accounted_without_schema_replacem
     assert _stored_source_bytes(SimpleNamespace(content=None, size_label="1.5 KB")) == 1536
     assert _stored_source_bytes(SimpleNamespace(content=None, size_label="2.0 MB")) == 2 * 1024**2
     assert _stored_source_bytes(SimpleNamespace(content=None, size_label="Queued")) == 0
+
+    pending_remote = SimpleNamespace(
+        content=None,
+        size_label="Queued",
+        kind=KnowledgeKind.URL,
+        status=KnowledgeStatus.PROCESSING,
+    )
+    failed_remote = SimpleNamespace(
+        content=None,
+        size_label="Queued",
+        kind=KnowledgeKind.URL,
+        status=KnowledgeStatus.FAILED,
+    )
+    assert _stored_source_bytes(pending_remote) > 0
+    assert _stored_source_bytes(failed_remote) == 0
 
 
 async def test_entitlements_endpoint_reports_measured_usage_and_limits(
