@@ -1,5 +1,5 @@
 import {
-  Activity, AlertTriangle, Bot, Building2, Database, MessagesSquare, Search, ShieldCheck,
+  Activity, AlertTriangle, Building2, Database, MessagesSquare, Search, ShieldCheck,
   UsersRound,
 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -50,10 +50,6 @@ export function PlatformAdminPage() {
       setOverview(nextOverview);
       setTenants(nextTenants.items);
       setTotal(nextTenants.total);
-      if (selectedTenantId && !nextTenants.items.some((item) => item.id === selectedTenantId)) {
-        setSelectedTenantId(null);
-        setDetail(null);
-      }
     }).catch((reason) => {
       if (!active) return;
       setError(reason instanceof Error ? reason.message : 'Platform control plane could not be loaded');
@@ -61,7 +57,7 @@ export function PlatformAdminPage() {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [appliedQuery, selectedTenantId]);
+  }, [appliedQuery]);
 
   useEffect(() => {
     if (!selectedTenantId) return;
@@ -76,6 +72,8 @@ export function PlatformAdminPage() {
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
+    setSelectedTenantId(null);
+    setDetail(null);
     setAppliedQuery(query.trim());
   };
 
