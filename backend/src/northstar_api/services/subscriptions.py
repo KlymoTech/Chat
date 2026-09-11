@@ -107,7 +107,7 @@ async def set_subscription_state(
     if cancel_at_period_end is not None:
         subscription.cancel_at_period_end = cancel_at_period_end
 
-    if status is not None and status != subscription.status:
+    if status is not None:
         subscription.status = status
         if status == SubscriptionStatus.PAST_DUE:
             subscription.past_due_at = subscription.past_due_at or now
