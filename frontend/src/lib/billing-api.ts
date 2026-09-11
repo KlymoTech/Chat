@@ -145,15 +145,18 @@ function demoEntitlements(plan: string): TenantEntitlements {
   };
 }
 
-async function remote<T>(path: string): Promise<T> {
+async function remote<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = bearer();
   const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
     credentials: 'include',
+    ...init,
     headers: {
       Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
+      ...init.headers,
     },
   });
   if (!response.ok) {
@@ -186,5 +189,14 @@ export const billingApi = {
       if (shouldSurface(error)) throw error;
       return demoEntitlements(fallbackPlan);
     }
+  },
+  cancelSubscription(): Promise<TenantSubscription> {
+    return remote<TenantSubscription>('/billing/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ confirmation: 'CANCEL' }),
+    });
+  },
+  reactivateSubscription(): Promise<TenantSubscription> {
+    return remote<TenantSubscription>('/billing/reactivate', { method: 'POST' });
   },
 };

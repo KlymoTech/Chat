@@ -1,7 +1,7 @@
 import { CreditCard, Sparkles } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
-import { useToast } from '@/components/providers';
-import { Badge, Button, Card } from '@/components/ui';
+import { useAuth, useToast } from '@/components/providers';
+import { Badge, Button, Card, Field, Modal } from '@/components/ui';
 import {
   billingApi,
   type SubscriptionStatus,
@@ -19,10 +19,14 @@ const statusLabels: Record<SubscriptionStatus, string> = {
 };
 
 export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSettings }) {
+  const { session } = useAuth();
   const { pushToast } = useToast();
   const [subscription, setSubscription] = useState<TenantSubscription | null>(null);
   const [entitlements, setEntitlements] = useState<TenantEntitlements | null>(null);
   const [error, setError] = useState('');
+  const [manageOpen, setManageOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -45,18 +49,75 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
     return () => { active = false; };
   }, [pushToast, workspace.id, workspace.plan]);
 
+  const canManageBilling = Boolean(
+    session?.user.role === 'owner'
+    || session?.user.role === 'admin'
+    || session?.user.role === 'billing_admin'
+    || workspace.permissions?.includes('*')
+    || workspace.permissions?.includes('billing.manage'),
+  );
   const plan = subscription?.plan ?? entitlements?.plan ?? workspace.plan;
   const statusValue = subscription?.status ?? entitlements?.subscriptionStatus;
   const status = statusValue ? statusLabels[statusValue] : 'Loading';
-  const period = subscription?.currentPeriodEnd
-    ? `Current period ends ${formatDate(subscription.currentPeriodEnd)}`
-    : subscription?.trialEndsAt
-      ? `Trial ends ${formatDate(subscription.trialEndsAt)}`
-      : 'Billing period will appear when a payment provider is connected.';
+  const period = subscription?.status === 'cancelled'
+    ? subscription.cancelledAt
+      ? `Cancelled ${formatDate(subscription.cancelledAt)}. Existing tenant data is preserved.`
+      : 'Cancelled. Existing tenant data is preserved.'
+    : subscription?.cancelAtPeriodEnd && subscription.currentPeriodEnd
+      ? `Cancellation is scheduled for ${formatDate(subscription.currentPeriodEnd)}.`
+      : subscription?.currentPeriodEnd
+        ? `Current period ends ${formatDate(subscription.currentPeriodEnd)}`
+        : subscription?.trialEndsAt
+          ? `Trial ends ${formatDate(subscription.trialEndsAt)}`
+          : 'Billing period will appear when a payment provider is connected.';
 
   const limits = entitlements?.limits;
   const usage = entitlements?.usage;
   const memberUsage = usage ? usage.members + usage.pendingMemberSeats : 0;
+
+  const applySubscription = (next: TenantSubscription) => {
+    setSubscription(next);
+    setEntitlements((current) => current ? {
+      ...current,
+      plan: next.plan,
+      subscriptionStatus: next.status,
+    } : current);
+  };
+
+  const cancelSubscription = async () => {
+    if (confirmation !== 'CANCEL') return;
+    setSaving(true);
+    try {
+      const next = await billingApi.cancelSubscription();
+      applySubscription(next);
+      setConfirmation('');
+      setManageOpen(false);
+      pushToast(
+        next.cancelAtPeriodEnd
+          ? 'Subscription cancellation scheduled for the end of the current period'
+          : 'Subscription cancelled. Existing tenant data has been preserved',
+        next.cancelAtPeriodEnd ? 'info' : 'success',
+      );
+    } catch (reason) {
+      pushToast(reason instanceof Error ? reason.message : 'Subscription could not be cancelled', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reactivateSubscription = async () => {
+    setSaving(true);
+    try {
+      const next = await billingApi.reactivateSubscription();
+      applySubscription(next);
+      setManageOpen(false);
+      pushToast(next.status === 'active' ? 'Subscription reactivated' : 'Scheduled cancellation removed');
+    } catch (reason) {
+      pushToast(reason instanceof Error ? reason.message : 'Subscription could not be reactivated', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return <>
     <Card className="workspace-panel">
@@ -66,7 +127,7 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
         action={<Badge tone="brand">{formatPlan(plan)} · {status}</Badge>}
       />
       <div className="workspace-panel__body">
-        {error ? <div className="workspace-empty-row"><CreditCard /><span><strong>Billing access is unavailable</strong><small>{error}</small></span></div> : <div className="workspace-empty-row"><CreditCard /><span><strong>{formatPlan(plan)} subscription</strong><small>{period}</small><small>Provider: {subscription?.provider ? formatPlan(subscription.provider) : 'Not connected'}</small>{subscription?.cancelAtPeriodEnd ? <small>Cancellation is scheduled for the end of the current period.</small> : null}{entitlements ? <small>CRM: {entitlements.features.crm ? 'Included' : 'Upgrade required'} · API: {entitlements.features.api ? 'Included' : 'Upgrade required'} · White-label: {entitlements.features.whiteLabel ? 'Included' : 'Upgrade required'}</small> : null}</span></div>}
+        {error ? <div className="workspace-empty-row"><CreditCard /><span><strong>Billing access is unavailable</strong><small>{error}</small></span></div> : <div className="workspace-empty-row"><CreditCard /><span><strong>{formatPlan(plan)} subscription</strong><small>{period}</small><small>Provider: {subscription?.provider ? formatPlan(subscription.provider) : 'Not connected'}</small>{subscription?.cancelAtPeriodEnd ? <small>Existing workspace, agent, knowledge, Lead and CRM data stays available while cancellation is pending.</small> : null}{subscription?.status === 'cancelled' ? <small>New resource creation and other plan-gated writes are blocked until the subscription is reactivated.</small> : null}{entitlements ? <small>CRM: {entitlements.features.crm ? 'Included' : 'Upgrade required'} · API: {entitlements.features.api ? 'Included' : 'Upgrade required'} · White-label: {entitlements.features.whiteLabel ? 'Included' : 'Upgrade required'}</small> : null}</span></div>}
       </div>
       <div className="workspace-plan-grid">
         <Usage label="Conversations this month" used={usage?.conversationsMonthly ?? 0} limit={limits?.conversationsMonthly} />
@@ -76,11 +137,34 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
         <Usage label="Knowledge storage" used={usage?.storageBytes ?? 0} limit={limits?.storageBytes} bytes />
       </div>
       <div className="workspace-panel__actions workspace-panel__actions--border">
-        <Button variant="secondary" onClick={() => pushToast('Billing portal will open after a payment provider is connected', 'info')}>Manage billing</Button>
+        {canManageBilling ? <Button variant="secondary" onClick={() => { setConfirmation(''); setManageOpen(true); }} disabled={!subscription}>Manage billing</Button> : null}
         <Button onClick={() => pushToast('Plan comparison opened', 'info')}>Compare plans</Button>
       </div>
     </Card>
     <Card className="workspace-upgrade-card"><Sparkles /><div><strong>Need more capacity?</strong><p>Upgrade limits without changing your agents, knowledge, integrations, or existing workspace data.</p></div><Button variant="secondary" onClick={() => pushToast('Plan comparison opened', 'info')}>View plans</Button></Card>
+
+    <Modal
+      open={manageOpen}
+      onClose={() => { if (!saving) { setManageOpen(false); setConfirmation(''); } }}
+      title="Manage subscription"
+      description="Subscription offboarding changes billing state only. Existing tenant data is never deleted by this action."
+      size="sm"
+      closeDisabled={saving}
+      footer={subscription?.provider ? <Button variant="secondary" onClick={() => setManageOpen(false)} disabled={saving}>Close</Button> : subscription?.cancelAtPeriodEnd || subscription?.status === 'cancelled' ? <>
+        <Button variant="secondary" onClick={() => setManageOpen(false)} disabled={saving}>Close</Button>
+        <Button onClick={() => void reactivateSubscription()} disabled={saving}>{subscription.cancelAtPeriodEnd ? 'Keep subscription' : 'Reactivate subscription'}</Button>
+      </> : <>
+        <Button variant="secondary" onClick={() => { setManageOpen(false); setConfirmation(''); }} disabled={saving}>Back</Button>
+        <Button variant="danger" onClick={() => void cancelSubscription()} disabled={saving || confirmation !== 'CANCEL'}>{saving ? 'Cancelling…' : 'Confirm cancellation'}</Button>
+      </>}
+    >
+      {subscription?.provider ? <div className="workspace-empty-row"><CreditCard /><span><strong>Provider-managed subscription</strong><small>{formatPlan(subscription.provider)} billing must be cancelled through its provider workflow. Northstar will not mark it cancelled locally without provider confirmation.</small></span></div> : subscription?.cancelAtPeriodEnd ? <div className="workspace-empty-row"><CreditCard /><span><strong>Cancellation is scheduled</strong><small>{subscription.currentPeriodEnd ? `Access remains on the current subscription until ${formatDate(subscription.currentPeriodEnd)}.` : 'Cancellation is pending.'}</small><small>Choose Keep subscription to remove the scheduled offboarding.</small></span></div> : subscription?.status === 'cancelled' ? <div className="workspace-empty-row"><CreditCard /><span><strong>Subscription is cancelled</strong><small>Your existing tenant, workspaces, agents, knowledge, Leads and CRM records are preserved.</small><small>Reactivate to restore plan-gated creation and write capabilities.</small></span></div> : <div style={{ display: 'grid', gap: 18 }}>
+        <div className="workspace-empty-row"><CreditCard /><span><strong>{subscription?.currentPeriodEnd ? 'Schedule cancellation' : 'Cancel subscription now'}</strong><small>{subscription?.currentPeriodEnd ? `The subscription will stay active until ${formatDate(subscription.currentPeriodEnd)}. Existing data will be preserved.` : 'No external billing period is connected, so cancellation takes effect immediately. Existing data will be preserved.'}</small><small>After cancellation, new resource creation and other plan-gated writes are blocked until reactivation.</small></span></div>
+        <Field label="Type CANCEL to confirm" hint="This does not delete tenant or workspace data.">
+          <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" disabled={saving} />
+        </Field>
+      </div>}
+    </Modal>
   </>;
 }
 
