@@ -301,7 +301,7 @@ async def test_import_rejects_non_education_agent_assignment(
     client: AsyncClient,
     auth_headers: dict[str, str],
 ) -> None:
-    seeded, headers = await _seed_import_domain(client, auth_headers, purpose="general")
+    seeded, headers = await _seed_import_domain(client, auth_headers, purpose="support")
     row = {
         "studentNumber": f"PURPOSE-{uuid.uuid4().hex[:8].upper()}",
         "name": "Purpose Student",
