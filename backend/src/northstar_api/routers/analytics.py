@@ -49,10 +49,6 @@ AnalyticsPrincipal = Annotated[Principal, Depends(require_permissions("analytics
 AnalyticsDays = Literal[7, 30, 90]
 
 
-def _agent_condition(principal: Principal, column):
-    return column.in_(principal.agent_ids) if principal.agent_ids is not None else None
-
-
 def _rate(numerator: int, denominator: int) -> float:
     return round(100 * numerator / denominator, 1) if denominator else 0.0
 
@@ -70,9 +66,8 @@ async def analytics_summary(
         Conversation.tenant_id == principal.tenant_id,
         Conversation.workspace_id == principal.workspace_id,
     ]
-    conversation_agent = _agent_condition(principal, Conversation.agent_id)
-    if conversation_agent is not None:
-        conversation_scope.append(conversation_agent)
+    if principal.agent_ids is not None:
+        conversation_scope.append(Conversation.agent_id.in_(principal.agent_ids))
 
     current_count = int(
         await session.scalar(
@@ -125,8 +120,8 @@ async def analytics_summary(
         Message.role == MessageRole.ASSISTANT,
         Message.created_at >= current_start,
     ]
-    if conversation_agent is not None:
-        response_conditions.append(conversation_agent)
+    if principal.agent_ids is not None:
+        response_conditions.append(Conversation.agent_id.in_(principal.agent_ids))
     response_ms = float(
         await session.scalar(
             select(func.avg(Message.latency_ms))
@@ -143,8 +138,8 @@ async def analytics_summary(
         Conversation.tenant_id == principal.tenant_id,
         Conversation.workspace_id == principal.workspace_id,
     ]
-    if conversation_agent is not None:
-        feedback_conditions.append(conversation_agent)
+    if principal.agent_ids is not None:
+        feedback_conditions.append(Conversation.agent_id.in_(principal.agent_ids))
     feedback = (
         await session.execute(
             select(MessageFeedback.value, func.count(MessageFeedback.id).label("count"))
@@ -190,8 +185,8 @@ async def analytics_summary(
         Message.role == MessageRole.USER,
         Message.created_at >= current_start,
     ]
-    if conversation_agent is not None:
-        question_conditions.append(conversation_agent)
+    if principal.agent_ids is not None:
+        question_conditions.append(Conversation.agent_id.in_(principal.agent_ids))
     top_rows = (
         await session.execute(
             select(
@@ -227,9 +222,8 @@ async def analytics_summary(
         Agent.workspace_id == principal.workspace_id,
         Agent.deleted_at.is_(None),
     ]
-    allowed_agent = _agent_condition(principal, Agent.id)
-    if allowed_agent is not None:
-        agent_scope.append(allowed_agent)
+    if principal.agent_ids is not None:
+        agent_scope.append(Agent.id.in_(principal.agent_ids))
     total_agents = int(
         await session.scalar(select(func.count()).select_from(Agent).where(*agent_scope)) or 0
     )
@@ -243,9 +237,8 @@ async def analytics_summary(
         AgentPurposeSetting.tenant_id == principal.tenant_id,
         AgentPurposeSetting.workspace_id == principal.workspace_id,
     ]
-    purpose_agent = _agent_condition(principal, AgentPurposeSetting.agent_id)
-    if purpose_agent is not None:
-        purpose_scope.append(purpose_agent)
+    if principal.agent_ids is not None:
+        purpose_scope.append(AgentPurposeSetting.agent_id.in_(principal.agent_ids))
     lead_agents = int(
         await session.scalar(
             select(func.count()).select_from(AgentPurposeSetting).where(
@@ -268,9 +261,8 @@ async def analytics_summary(
         Lead.workspace_id == principal.workspace_id,
         Lead.created_at >= current_start,
     ]
-    lead_agent = _agent_condition(principal, Lead.agent_id)
-    if lead_agent is not None:
-        lead_scope.append(lead_agent)
+    if principal.agent_ids is not None:
+        lead_scope.append(Lead.agent_id.in_(principal.agent_ids))
     created_leads = int(
         await session.scalar(select(func.count()).select_from(Lead).where(*lead_scope)) or 0
     )
@@ -299,8 +291,8 @@ async def analytics_summary(
         Lead.tenant_id == principal.tenant_id,
         Lead.workspace_id == principal.workspace_id,
     ]
-    if lead_agent is not None:
-        crm_scope.append(lead_agent)
+    if principal.agent_ids is not None:
+        crm_scope.append(Lead.agent_id.in_(principal.agent_ids))
     crm_deliveries = int(
         await session.scalar(
             select(func.count())
@@ -339,9 +331,8 @@ async def analytics_summary(
         EducationEnrollment.tenant_id == principal.tenant_id,
         EducationEnrollment.workspace_id == principal.workspace_id,
     ]
-    enrollment_agent = _agent_condition(principal, EducationEnrollment.agent_id)
-    if enrollment_agent is not None:
-        enrollment_scope.append(enrollment_agent)
+    if principal.agent_ids is not None:
+        enrollment_scope.append(EducationEnrollment.agent_id.in_(principal.agent_ids))
     active_enrollments = int(
         await session.scalar(
             select(func.count()).select_from(EducationEnrollment).where(
@@ -380,9 +371,10 @@ async def analytics_summary(
         Conversation.workspace_id == principal.workspace_id,
         Conversation.started_at >= current_start,
     ]
-    education_agent = _agent_condition(principal, EducationConversationContext.agent_id)
-    if education_agent is not None:
-        education_conversation_scope.append(education_agent)
+    if principal.agent_ids is not None:
+        education_conversation_scope.append(
+            EducationConversationContext.agent_id.in_(principal.agent_ids)
+        )
     education_conversations = int(
         await session.scalar(
             select(func.count(func.distinct(Conversation.id)))
@@ -397,9 +389,8 @@ async def analytics_summary(
         EducationStudentActivityEvent.workspace_id == principal.workspace_id,
         EducationStudentActivityEvent.created_at >= current_start,
     ]
-    activity_agent = _agent_condition(principal, EducationStudentActivityEvent.agent_id)
-    if activity_agent is not None:
-        activity_scope.append(activity_agent)
+    if principal.agent_ids is not None:
+        activity_scope.append(EducationStudentActivityEvent.agent_id.in_(principal.agent_ids))
     education_activity = int(
         await session.scalar(
             select(func.count()).select_from(EducationStudentActivityEvent).where(*activity_scope)
