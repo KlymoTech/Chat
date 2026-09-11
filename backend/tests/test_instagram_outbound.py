@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import select
+from httpx import AsyncClient
 
 from northstar_api.database import SessionFactory
 from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
@@ -50,22 +50,16 @@ def test_instagram_conversation_identity_is_provider_exact() -> None:
     assert instagram_recipient_id(conversation) is None
 
 
-def test_instagram_lock_is_connection_and_recipient_scoped() -> None:
+def test_instagram_lock_and_queue_are_provider_scoped() -> None:
     connection_id = uuid4()
     first = instagram_thread_lock_key(connection_id, "100")
     assert first == instagram_thread_lock_key(connection_id, "100")
     assert first != instagram_thread_lock_key(connection_id, "101")
     assert first != instagram_thread_lock_key(uuid4(), "100")
-
-
-def test_instagram_celery_route_is_isolated() -> None:
     route = celery_app.conf.task_routes["northstar.send_instagram_message"]
     assert route == {"queue": "instagram.outbound", "routing_key": "instagram.outbound"}
     queue_names = {queue.name for queue in celery_app.conf.task_queues}
-    assert "instagram.outbound" in queue_names
-    assert "instagram.failed" in queue_names
-    assert "telegram.outbound" in queue_names
-    assert "whatsapp.outbound" in queue_names
+    assert {"instagram.outbound", "instagram.failed", "telegram.outbound", "whatsapp.outbound"} <= queue_names
 
 
 @pytest.mark.anyio
@@ -95,10 +89,7 @@ async def test_instagram_client_sends_text_with_bearer_token(monkeypatch: pytest
                 "recipient": {"id": "17841400000000000"},
                 "message": {"text": "Hello from Northstar"},
             }
-            return httpx.Response(
-                200,
-                json={"recipient_id": "17841400000000000", "message_id": "mid.123"},
-            )
+            return httpx.Response(200, json={"message_id": "mid.123"})
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
     value = await InstagramMessagingClient().send_text(
@@ -113,10 +104,7 @@ async def test_instagram_client_sends_text_with_bearer_token(monkeypatch: pytest
 @pytest.mark.anyio
 async def test_instagram_client_classifies_auth_and_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = [
-        httpx.Response(
-            400,
-            json={"error": {"message": "Invalid OAuth access token", "code": 190}},
-        ),
+        httpx.Response(400, json={"error": {"message": "Invalid OAuth access token", "code": 190}}),
         httpx.Response(
             429,
             headers={"Retry-After": "8"},
@@ -155,63 +143,88 @@ async def test_instagram_client_classifies_auth_and_rate_limits(monkeypatch: pyt
     assert rate_error.value.retry_after_seconds == 8
 
 
+async def _workspace_scope(client: AsyncClient, auth_headers: dict[str, str]) -> tuple[UUID, UUID]:
+    response = await client.get("/api/v1/workspace", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    return UUID(response.json()["tenantId"]), UUID(response.json()["id"])
+
+
 @pytest.mark.anyio
-async def test_projection_creates_one_scoped_durable_instagram_delivery(
+async def test_projection_is_durable_idempotent_and_does_not_change_non_instagram(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CRM_CREDENTIAL_ENCRYPTION_KEY", "instagram-outbound-test-key")
-    tenant_id = uuid4()
-    workspace_id = uuid4()
+    tenant_id, workspace_id = await _workspace_scope(client, auth_headers)
     agent_id = uuid4()
-    conversation_id = uuid4()
-    message_id = uuid4()
+    instagram_conversation_id = uuid4()
+    api_conversation_id = uuid4()
+    instagram_message_id = uuid4()
+    api_message_id = uuid4()
     connection_id = uuid4()
 
-    # The repository test database has FK enforcement. Reuse an existing test
-    # tenant/workspace is impractical for this pure projector test, so the rows
-    # below are added only after parent scope is discovered from an existing Agent.
     async with SessionFactory() as session:
-        parent = await session.scalar(select(Agent).limit(1))
-        assert parent is not None, "test fixture must seed an Agent"
-        tenant_id = parent.tenant_id
-        workspace_id = parent.workspace_id
-        agent_id = parent.id
-        conversation = Conversation(
-            id=conversation_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-            visitor_id="instagram:17841400000000000",
-            visitor_name="Instagram customer",
-            channel=Channel.API,
+        session.add(Agent(id=agent_id, tenant_id=tenant_id, workspace_id=workspace_id, name="Instagram runtime"))
+        session.add_all(
+            [
+                Conversation(
+                    id=instagram_conversation_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    agent_id=agent_id,
+                    visitor_id="instagram:17841400000000000",
+                    visitor_name="Instagram customer",
+                    channel=Channel.API,
+                ),
+                Conversation(
+                    id=api_conversation_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    agent_id=agent_id,
+                    visitor_id="api:ordinary-client",
+                    visitor_name="API customer",
+                    channel=Channel.API,
+                ),
+            ]
         )
-        message = Message(
-            id=message_id,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            sequence=1,
-            role=MessageRole.AGENT,
-            content="Instagram reply",
-            finish_reason="sent",
+        await session.flush()
+        session.add_all(
+            [
+                Message(
+                    id=instagram_message_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    conversation_id=instagram_conversation_id,
+                    sequence=1,
+                    role=MessageRole.AGENT,
+                    content="Instagram reply",
+                    finish_reason="sent",
+                ),
+                Message(
+                    id=api_message_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    conversation_id=api_conversation_id,
+                    sequence=1,
+                    role=MessageRole.AGENT,
+                    content="API reply",
+                    finish_reason="sent",
+                ),
+                ChannelConnection(
+                    id=connection_id,
+                    tenant_id=tenant_id,
+                    public_id=f"chn_{uuid4().hex}",
+                    provider=ChannelProvider.INSTAGRAM.value,
+                    name=f"Instagram {uuid4().hex[:8]}",
+                    status="configured",
+                    credentials_encrypted=credential_store.encrypt(
+                        {"access_token": "ig-token", "app_secret": "app-secret", "verify_token": "verify-token"}
+                    ),
+                    configuration_json={"agentId": str(agent_id), "apiVersion": "v26.0"},
+                ),
+            ]
         )
-        connection = ChannelConnection(
-            id=connection_id,
-            tenant_id=tenant_id,
-            public_id=f"chn_{uuid4().hex}",
-            provider=ChannelProvider.INSTAGRAM.value,
-            name=f"Instagram projector {uuid4().hex[:8]}",
-            status="configured",
-            credentials_encrypted=credential_store.encrypt(
-                {
-                    "access_token": "ig-token",
-                    "app_secret": "app-secret",
-                    "verify_token": "verify-token",
-                }
-            ),
-            configuration_json={"agentId": str(agent_id), "apiVersion": "v26.0"},
-        )
-        session.add_all([conversation, message, connection])
         await session.flush()
         session.add(
             WorkspaceChannelConnection(
@@ -223,76 +236,39 @@ async def test_projection_creates_one_scoped_durable_instagram_delivery(
         )
         await session.commit()
 
-    event = EventEnvelope(
-        event_id=uuid4(),
-        event_type="chat.message.created.v1",
-        tenant_id=tenant_id,
-        occurred_at=datetime.now(UTC),
-        payload={
-            "conversationId": str(conversation_id),
-            "workspaceId": str(workspace_id),
-            "agentId": str(agent_id),
-            "messageId": str(message_id),
-            "role": "agent",
-        },
-    )
+    def event(conversation_id: UUID, message_id: UUID) -> EventEnvelope:
+        return EventEnvelope(
+            event_id=uuid4(),
+            event_type="chat.message.created.v1",
+            tenant_id=tenant_id,
+            occurred_at=datetime.now(UTC),
+            payload={
+                "conversationId": str(conversation_id),
+                "workspaceId": str(workspace_id),
+                "agentId": str(agent_id),
+                "messageId": str(message_id),
+                "role": "agent",
+            },
+        )
+
+    instagram_event = event(instagram_conversation_id, instagram_message_id)
     async with SessionFactory() as session:
-        first = await project_instagram_delivery(session, event)
+        first = await project_instagram_delivery(session, instagram_event)
         assert first is not None
         await session.commit()
         first_id = first.id
     async with SessionFactory() as session:
-        second = await project_instagram_delivery(session, event)
-        assert second is not None
-        assert second.id == first_id
+        second = await project_instagram_delivery(session, instagram_event)
+        assert second is not None and second.id == first_id
+        message = await session.get(Message, instagram_message_id)
         delivery = await session.get(ChannelOutboundDelivery, first_id)
-        message = await session.get(Message, message_id)
+        assert message is not None and message.finish_reason == "queued"
         assert delivery is not None
-        assert message is not None
         assert delivery.provider == ChannelProvider.INSTAGRAM.value
         assert delivery.recipient_external_id == "17841400000000000"
         assert delivery.connection_id == connection_id
-        assert message.finish_reason == "queued"
 
-
-@pytest.mark.anyio
-async def test_projection_ignores_non_instagram_conversation() -> None:
     async with SessionFactory() as session:
-        parent = await session.scalar(select(Agent).limit(1))
-        assert parent is not None
-        conversation = Conversation(
-            tenant_id=parent.tenant_id,
-            workspace_id=parent.workspace_id,
-            agent_id=parent.id,
-            visitor_id="api:ordinary-client",
-            visitor_name="API customer",
-            channel=Channel.API,
-        )
-        session.add(conversation)
-        await session.flush()
-        message = Message(
-            tenant_id=parent.tenant_id,
-            workspace_id=parent.workspace_id,
-            conversation_id=conversation.id,
-            sequence=1,
-            role=MessageRole.AGENT,
-            content="Local reply",
-            finish_reason="sent",
-        )
-        session.add(message)
-        await session.commit()
-        event = EventEnvelope(
-            event_id=uuid4(),
-            event_type="chat.message.created.v1",
-            tenant_id=parent.tenant_id,
-            occurred_at=datetime.now(UTC),
-            payload={
-                "conversationId": str(conversation.id),
-                "workspaceId": str(parent.workspace_id),
-                "agentId": str(parent.id),
-                "messageId": str(message.id),
-                "role": "agent",
-            },
-        )
-    async with SessionFactory() as session:
-        assert await project_instagram_delivery(session, event) is None
+        assert await project_instagram_delivery(session, event(api_conversation_id, api_message_id)) is None
+        api_message = await session.get(Message, api_message_id)
+        assert api_message is not None and api_message.finish_reason == "sent"
