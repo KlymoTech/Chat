@@ -9,11 +9,13 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.config import get_settings
 from northstar_api.entitlements import PlanEntitlement, entitlement_for_plan
 from northstar_api.models import (
     Agent,
     Conversation,
     DocumentChunk,
+    KnowledgeKind,
     KnowledgeSource,
     Message,
     Tenant,
@@ -65,11 +67,16 @@ def _stored_source_bytes(source: KnowledgeSource) -> int:
         return len(source.content.encode("utf-8"))
     value = (source.size_label or "").strip().upper()
     match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB)", value)
-    if not match:
-        return 0
-    amount = float(match.group(1))
-    multiplier = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}[match.group(2)]
-    return max(0, int(amount * multiplier))
+    if match:
+        amount = float(match.group(1))
+        multiplier = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}[match.group(2)]
+        return max(0, int(amount * multiplier))
+    if source.kind in {KnowledgeKind.URL, KnowledgeKind.SITEMAP}:
+        # Remote sources have no authoritative byte size until extraction. Reserve
+        # the configured maximum while they are pending so concurrent crawls cannot
+        # all bypass the storage quota before chunks are written.
+        return get_settings().knowledge_max_extracted_characters * 4
+    return 0
 
 
 async def entitlement_usage(session: AsyncSession, *, tenant_id: UUID) -> EntitlementUsage:
@@ -151,9 +158,8 @@ async def entitlement_usage(session: AsyncSession, *, tenant_id: UUID) -> Entitl
         )
     )
     # Ongoing storage represents indexed knowledge. Before a source is chunked,
-    # its source content/known upload label is counted so concurrent uploads do
-    # not temporarily disappear from usage. Once chunked, stored chunk bytes are
-    # the authoritative searchable footprint already retained by Northstar.
+    # its source content/known upload label (or remote extraction reservation) is
+    # counted so concurrent ingestions do not temporarily disappear from usage.
     storage_bytes = sum(len(content.encode("utf-8")) for content in chunk_contents) + sum(
         _stored_source_bytes(source) for source in pending_sources
     )
