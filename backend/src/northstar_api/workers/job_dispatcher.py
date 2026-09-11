@@ -18,6 +18,7 @@ from northstar_api.models import (
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
+from northstar_api.workers.instagram_tasks import send_instagram_message
 from northstar_api.workers.tasks import (
     ingest_source,
     process_whatsapp_inbound,
@@ -29,6 +30,7 @@ settings = get_settings()
 configure_logging(settings)
 logger = structlog.get_logger(__name__)
 TELEGRAM_DISPATCH_MAX_ATTEMPTS = 8
+INSTAGRAM_DISPATCH_MAX_ATTEMPTS = 8
 
 
 def whatsapp_dispatch_failure_state(
@@ -95,6 +97,19 @@ async def dispatch_forever() -> None:
                         ChannelOutboundDelivery.provider == "telegram",
                         ChannelOutboundDelivery.status.in_(("queued", "failed")),
                         ChannelOutboundDelivery.dispatch_attempts >= TELEGRAM_DISPATCH_MAX_ATTEMPTS,
+                        or_(
+                            ChannelOutboundDelivery.next_dispatch_at.is_(None),
+                            ChannelOutboundDelivery.next_dispatch_at <= now,
+                        ),
+                    )
+                    .values(status="dispatch_failed", next_dispatch_at=None)
+                )
+                await session.execute(
+                    update(ChannelOutboundDelivery)
+                    .where(
+                        ChannelOutboundDelivery.provider == "instagram",
+                        ChannelOutboundDelivery.status.in_(("queued", "failed")),
+                        ChannelOutboundDelivery.dispatch_attempts >= INSTAGRAM_DISPATCH_MAX_ATTEMPTS,
                         or_(
                             ChannelOutboundDelivery.next_dispatch_at.is_(None),
                             ChannelOutboundDelivery.next_dispatch_at <= now,
@@ -289,6 +304,56 @@ async def dispatch_forever() -> None:
                         delivery.last_error = "queue dispatch unavailable"
                         logger.warning(
                             "telegram_outbound_dispatch_failed",
+                            delivery_id=str(delivery.id),
+                            error=type(exc).__name__,
+                            retry_in=delay,
+                        )
+                instagram_deliveries = (
+                    await session.scalars(
+                        select(ChannelOutboundDelivery)
+                        .where(
+                            ChannelOutboundDelivery.provider == "instagram",
+                            ChannelOutboundDelivery.status.in_(("queued", "failed")),
+                            ChannelOutboundDelivery.dispatch_attempts < INSTAGRAM_DISPATCH_MAX_ATTEMPTS,
+                            or_(
+                                ChannelOutboundDelivery.next_dispatch_at.is_(None),
+                                ChannelOutboundDelivery.next_dispatch_at <= now,
+                            ),
+                        )
+                        .order_by(ChannelOutboundDelivery.created_at)
+                        .with_for_update(skip_locked=True)
+                        .limit(50)
+                    )
+                ).all()
+                for delivery in instagram_deliveries:
+                    try:
+                        await asyncio.to_thread(
+                            send_instagram_message.apply_async,
+                            args=[str(delivery.id)],
+                            queue="instagram.outbound",
+                            routing_key="instagram.outbound",
+                            retry=True,
+                        )
+                        delivery.status = "queued"
+                        delivery.dispatched_at = now
+                        delivery.dispatch_attempts += 1
+                        delivery.next_dispatch_at = now + timedelta(minutes=5)
+                        delivery.last_error = None
+                        dispatched += 1
+                    except Exception as exc:
+                        (
+                            delivery.dispatch_attempts,
+                            delivery.status,
+                            delivery.next_dispatch_at,
+                            delay,
+                        ) = whatsapp_dispatch_failure_state(
+                            delivery.dispatch_attempts,
+                            INSTAGRAM_DISPATCH_MAX_ATTEMPTS,
+                            now,
+                        )
+                        delivery.last_error = "queue dispatch unavailable"
+                        logger.warning(
+                            "instagram_outbound_dispatch_failed",
                             delivery_id=str(delivery.id),
                             error=type(exc).__name__,
                             retry_in=delay,
