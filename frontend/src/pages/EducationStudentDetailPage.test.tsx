@@ -71,11 +71,11 @@ describe('EducationStudentDetailPage', () => {
     renderPage();
 
     expect(await screen.findByRole('heading', { name: 'Asha Student' })).toBeInTheDocument();
-    expect(screen.getByText('NS-1001')).toBeInTheDocument();
-    expect(screen.getByText('CPA Program')).toBeInTheDocument();
-    expect(screen.getByText(/CPA 2026/)).toBeInTheDocument();
+    expect(screen.getAllByText('NS-1001').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('CPA Program').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/CPA 2026/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('CPA Mentor').length).toBeGreaterThan(0);
-    expect(screen.getByText('cnv_123')).toBeInTheDocument();
+    expect(screen.getAllByText('cnv_123').length).toBeGreaterThan(0);
     expect(screen.getByText('Education conversation resolved')).toBeInTheDocument();
     expect(screen.getByText(/exam registration/)).toBeInTheDocument();
     expect(screen.getByText('website login')).toBeInTheDocument();
