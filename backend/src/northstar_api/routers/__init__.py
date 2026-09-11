@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from northstar_api.routers import (
     agents,
@@ -34,8 +34,9 @@ from northstar_api.routers import (
     workspace_api_keys,
     workspace_invitations,
 )
+from northstar_api.services.entitlement_guard import enforce_plan_entitlements
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(enforce_plan_entitlements)])
 api_router.include_router(auth.router)
 api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
