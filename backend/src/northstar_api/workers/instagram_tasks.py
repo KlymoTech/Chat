@@ -93,7 +93,7 @@ async def _send_instagram_delivery_async(delivery_id: UUID) -> None:
                 await session.commit()
                 return
 
-            access_token = str(credentials.get("access_token") or "")
+            access_token = str(credentials.get("access_token") or "").strip()
             if not access_token:
                 delivery.status = "reconnect_required"
                 delivery.last_error = "Instagram access token is not configured"
@@ -112,19 +112,24 @@ async def _send_instagram_delivery_async(delivery_id: UUID) -> None:
                 await session.commit()
                 return
 
-            api_version = str((connection.configuration_json or {}).get("apiVersion") or "").strip()
-            if not api_version:
+            configuration = connection.configuration_json or {}
+            api_version = str(configuration.get("apiVersion") or "").strip()
+            sender_account_id = str(configuration.get("instagramAccountId") or "").strip()
+            if not api_version or not sender_account_id:
                 delivery.status = "rejected"
-                delivery.last_error = "Instagram API version is not configured"
+                delivery.last_error = "Instagram API version or professional account ID is not configured"
                 message.finish_reason = "rejected"
                 connection.status = "configuration_error"
                 connection.last_failure_at = datetime.now(UTC)
-                connection.last_error = "Instagram API version is not configured"
+                connection.last_error = (
+                    "Instagram API version or professional account ID is not configured"
+                )
                 await session.commit()
                 return
 
             provider_id = await instagram_client.send_text(
                 access_token,
+                sender_account_id=sender_account_id,
                 recipient_id=delivery.recipient_external_id,
                 text=content,
                 api_version=api_version,
