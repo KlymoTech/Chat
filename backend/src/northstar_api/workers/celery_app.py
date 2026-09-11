@@ -16,6 +16,7 @@ celery_app = Celery(
         "northstar_api.workers.tasks",
         "northstar_api.workers.telegram_tasks",
         "northstar_api.workers.instagram_tasks",
+        "northstar_api.workers.facebook_messenger_tasks",
     ],
 )
 celery_app.conf.update(
@@ -103,6 +104,22 @@ celery_app.conf.update(
             routing_key="instagram.failed",
             durable=True,
         ),
+        Queue(
+            "facebook_messenger.outbound",
+            exchange=jobs_exchange,
+            routing_key="facebook_messenger.outbound",
+            durable=True,
+            queue_arguments={
+                "x-dead-letter-exchange": dead_letter_exchange.name,
+                "x-dead-letter-routing-key": "facebook_messenger.failed",
+            },
+        ),
+        Queue(
+            "facebook_messenger.failed",
+            exchange=dead_letter_exchange,
+            routing_key="facebook_messenger.failed",
+            durable=True,
+        ),
     ),
     task_routes={
         "northstar.ingest_source": {"queue": "ingest.source", "routing_key": "ingest.source"},
@@ -121,6 +138,10 @@ celery_app.conf.update(
         "northstar.send_instagram_message": {
             "queue": "instagram.outbound",
             "routing_key": "instagram.outbound",
+        },
+        "northstar.send_facebook_messenger_message": {
+            "queue": "facebook_messenger.outbound",
+            "routing_key": "facebook_messenger.outbound",
         },
     },
 )
