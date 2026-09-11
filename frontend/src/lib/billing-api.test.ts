@@ -110,5 +110,19 @@ describe('billingApi', () => {
     expect(entitlementResult.limits.agents).toBe(10);
     expect(entitlementResult.limits.members).toBe(20);
     expect(entitlementResult.limits.conversationsMonthly).toBe(5000);
+    expect(entitlementResult.features.allowedChannels).toContain('whatsapp');
+  });
+
+  it('keeps unknown legacy plans unlimited in offline fallback mode', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    const result = await billingApi.getEntitlements('legacy_custom_contract');
+
+    expect(result.plan).toBe('legacy_custom_contract');
+    expect(result.limits.workspaces).toBeNull();
+    expect(result.limits.agents).toBeNull();
+    expect(result.limits.members).toBeNull();
+    expect(result.features.crm).toBe(true);
+    expect(result.features.whiteLabel).toBe(true);
+    expect(result.features.allowedChannels).toContain('whatsapp');
   });
 });
