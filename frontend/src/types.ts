@@ -149,27 +149,29 @@ export interface AnalyticsSummary {
   chart: Array<{ label: string; conversations: number; resolved: number }>;
   topQuestions: Array<{ question: string; count: number; resolutionRate: number }>;
   channels: Array<{ channel: string; value: number }>;
-  agents: {
+  // Optional for compatibility with previews or older API responses. The current
+  // backend always supplies these domain summaries.
+  agents?: {
     total: number;
     active: number;
     support: number;
     leadGeneration: number;
     education: number;
   };
-  leads: {
+  leads?: {
     created: number;
     qualified: number;
     converted: number;
     qualificationRate: number;
     conversionRate: number;
   };
-  crm: {
+  crm?: {
     deliveries: number;
     verified: number;
     failed: number;
     successRate: number;
   };
-  education: {
+  education?: {
     students: number;
     activeEnrollments: number;
     conversations: number;
