@@ -39,7 +39,7 @@ function detailEntries(details: Record<string, unknown>): Array<[string, string]
       key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[._]/g, ' '),
       typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
         ? String(value)
-        : JSON.stringify(value),
+        : JSON.stringify(value) ?? String(value),
     ]);
 }
 
