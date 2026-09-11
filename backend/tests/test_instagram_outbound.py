@@ -30,8 +30,9 @@ from northstar_api.workers.instagram_tasks import instagram_thread_lock_key
 def test_instagram_api_version_normalization() -> None:
     assert normalize_instagram_api_version("v26.0") == "v26.0"
     assert normalize_instagram_api_version("26.0") == "v26.0"
-    with pytest.raises(InstagramAPIError):
-        normalize_instagram_api_version("latest")
+    for invalid in ("", "latest"):
+        with pytest.raises(InstagramAPIError):
+            normalize_instagram_api_version(invalid)
 
 
 def test_instagram_conversation_identity_is_provider_exact() -> None:
@@ -59,11 +60,18 @@ def test_instagram_lock_and_queue_are_provider_scoped() -> None:
     route = celery_app.conf.task_routes["northstar.send_instagram_message"]
     assert route == {"queue": "instagram.outbound", "routing_key": "instagram.outbound"}
     queue_names = {queue.name for queue in celery_app.conf.task_queues}
-    assert {"instagram.outbound", "instagram.failed", "telegram.outbound", "whatsapp.outbound"} <= queue_names
+    assert {
+        "instagram.outbound",
+        "instagram.failed",
+        "telegram.outbound",
+        "whatsapp.outbound",
+    } <= queue_names
 
 
 @pytest.mark.anyio
-async def test_instagram_client_sends_text_with_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_instagram_client_sends_text_with_professional_account_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeClient:
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
@@ -83,7 +91,7 @@ async def test_instagram_client_sends_text_with_bearer_token(monkeypatch: pytest
             json: object,
         ) -> httpx.Response:
             assert method == "POST"
-            assert url == "https://graph.instagram.com/v26.0/me/messages"
+            assert url == "https://graph.instagram.com/v26.0/17841411111111111/messages"
             assert headers["Authorization"] == "Bearer ig-access-token"
             assert json == {
                 "recipient": {"id": "17841400000000000"},
@@ -94,6 +102,7 @@ async def test_instagram_client_sends_text_with_bearer_token(monkeypatch: pytest
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
     value = await InstagramMessagingClient().send_text(
         "ig-access-token",
+        sender_account_id="17841411111111111",
         recipient_id="17841400000000000",
         text="Hello from Northstar",
         api_version="v26.0",
@@ -102,9 +111,26 @@ async def test_instagram_client_sends_text_with_bearer_token(monkeypatch: pytest
 
 
 @pytest.mark.anyio
-async def test_instagram_client_classifies_auth_and_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_instagram_client_requires_sender_account_id() -> None:
+    with pytest.raises(InstagramAPIError, match="professional account ID"):
+        await InstagramMessagingClient().send_text(
+            "ig-access-token",
+            sender_account_id="",
+            recipient_id="17841400000000000",
+            text="hello",
+            api_version="v26.0",
+        )
+
+
+@pytest.mark.anyio
+async def test_instagram_client_classifies_auth_and_rate_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     responses = [
-        httpx.Response(400, json={"error": {"message": "Invalid OAuth access token", "code": 190}}),
+        httpx.Response(
+            400,
+            json={"error": {"message": "Invalid OAuth access token", "code": 190}},
+        ),
         httpx.Response(
             429,
             headers={"Retry-After": "8"},
@@ -135,6 +161,7 @@ async def test_instagram_client_classifies_auth_and_rate_limits(monkeypatch: pyt
     with pytest.raises(InstagramAPIError) as rate_error:
         await client.send_text(
             "token",
+            sender_account_id="17841411111111111",
             recipient_id="17841400000000000",
             text="hello",
             api_version="26.0",
@@ -143,7 +170,10 @@ async def test_instagram_client_classifies_auth_and_rate_limits(monkeypatch: pyt
     assert rate_error.value.retry_after_seconds == 8
 
 
-async def _workspace_scope(client: AsyncClient, auth_headers: dict[str, str]) -> tuple[UUID, UUID]:
+async def _workspace_scope(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> tuple[UUID, UUID]:
     response = await client.get("/api/v1/workspace", headers=auth_headers)
     assert response.status_code == 200, response.text
     return UUID(response.json()["tenantId"]), UUID(response.json()["id"])
@@ -165,7 +195,14 @@ async def test_projection_is_durable_idempotent_and_does_not_change_non_instagra
     connection_id = uuid4()
 
     async with SessionFactory() as session:
-        session.add(Agent(id=agent_id, tenant_id=tenant_id, workspace_id=workspace_id, name="Instagram runtime"))
+        session.add(
+            Agent(
+                id=agent_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                name="Instagram runtime",
+            )
+        )
         session.add_all(
             [
                 Conversation(
@@ -219,9 +256,17 @@ async def test_projection_is_durable_idempotent_and_does_not_change_non_instagra
                     name=f"Instagram {uuid4().hex[:8]}",
                     status="configured",
                     credentials_encrypted=credential_store.encrypt(
-                        {"access_token": "ig-token", "app_secret": "app-secret", "verify_token": "verify-token"}
+                        {
+                            "access_token": "ig-token",
+                            "app_secret": "app-secret",
+                            "verify_token": "verify-token",
+                        }
                     ),
-                    configuration_json={"agentId": str(agent_id), "apiVersion": "v26.0"},
+                    configuration_json={
+                        "agentId": str(agent_id),
+                        "apiVersion": "v26.0",
+                        "instagramAccountId": "17841411111111111",
+                    },
                 ),
             ]
         )
@@ -269,6 +314,7 @@ async def test_projection_is_durable_idempotent_and_does_not_change_non_instagra
         assert delivery.connection_id == connection_id
 
     async with SessionFactory() as session:
-        assert await project_instagram_delivery(session, event(api_conversation_id, api_message_id)) is None
+        api_event = event(api_conversation_id, api_message_id)
+        assert await project_instagram_delivery(session, api_event) is None
         api_message = await session.get(Message, api_message_id)
         assert api_message is not None and api_message.finish_reason == "sent"
