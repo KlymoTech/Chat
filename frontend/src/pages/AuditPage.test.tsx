@@ -42,7 +42,6 @@ describe('AuditPage', () => {
     mocks.list.mockResolvedValue([event]);
     mocks.exportCsv.mockResolvedValue(new Blob(['created_at,action\r\n'], { type: 'text/csv' }));
     vi.stubGlobal('URL', {
-      ...URL,
       createObjectURL: vi.fn(() => 'blob:audit-export'),
       revokeObjectURL: vi.fn(),
     });
@@ -59,9 +58,9 @@ describe('AuditPage', () => {
     render(<AuditPage />);
 
     expect(await screen.findByText('workspace.patch')).toBeInTheDocument();
-    expect(screen.getByText('/workspace')).toBeInTheDocument();
+    expect(screen.getByText(/workspace · \/workspace/)).toBeInTheDocument();
     expect(screen.getByText('Visible events')).toBeInTheDocument();
-    expect(screen.getByText('PATCH')).toBeInTheDocument();
+    expect(screen.getByText(/"method": "PATCH"/)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Audit category'), 'security');
     await waitFor(() => expect(mocks.list).toHaveBeenLastCalledWith(expect.objectContaining({
