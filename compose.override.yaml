@@ -17,3 +17,11 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       SMTP_SSL: ${SMTP_SSL:-false}
       SMTP_TIMEOUT_SECONDS: ${SMTP_TIMEOUT_SECONDS:-10}
+
+  notification-consumer:
+    extends:
+      file: compose.yaml
+      service: analytics-consumer
+    command: ["python", "-m", "northstar_api.workers.notification_consumer"]
+    environment:
+      OTEL_SERVICE_NAME: northstar-notification-consumer
