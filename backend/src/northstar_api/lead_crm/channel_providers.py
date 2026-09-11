@@ -168,6 +168,32 @@ class MetaMessagingConnector(ChannelConnector):
                         )
         return output
 
+    async def health_check(self, context: ChannelConnectionContext) -> dict[str, str]:
+        if self.provider != ChannelProvider.INSTAGRAM:
+            return await super().health_check(context)
+        access_token = str(context.credentials.get("access_token") or "")
+        app_secret = str(context.credentials.get("app_secret") or "")
+        verify_token = str(context.credentials.get("verify_token") or "")
+        account_id = str(context.configuration.get("instagramAccountId") or "")
+        if not access_token or not app_secret or not verify_token or not account_id:
+            return {"status": "configuration_error"}
+        from northstar_api.services.instagram import InstagramAPIError, instagram_client
+
+        try:
+            identity = await instagram_client.get_account(
+                access_token,
+                account_id=account_id,
+                api_version=context.configuration.get("apiVersion"),
+            )
+        except InstagramAPIError as exc:
+            if exc.requires_reconnect:
+                return {"status": "auth_required"}
+            if exc.retryable:
+                return {"status": "unhealthy"}
+            return {"status": "configuration_error"}
+        username = str(identity.get("username") or "")
+        return {"status": "healthy", **({"username": username} if username else {})}
+
 
 class TelegramConnector(ChannelConnector):
     provider = ChannelProvider.TELEGRAM
