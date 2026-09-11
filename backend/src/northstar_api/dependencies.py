@@ -35,6 +35,7 @@ from northstar_api.services.workspace_api_keys import find_active_workspace_api_
 
 bearer = HTTPBearer(auto_error=False)
 DBSession = Annotated[AsyncSession, Depends(get_session)]
+_API_KEY_ALLOWED_PERMISSIONS = WORKSPACE_ROLE_PERMISSIONS[WorkspaceRole.MANAGER]
 
 
 async def get_current_principal(
@@ -113,9 +114,14 @@ async def authenticate_api_key(
     api_key.last_used_at = datetime.now(UTC)
     await session.commit()
     await set_tenant_context(session, api_key.tenant_id)
-    permissions = (
+    creator_permissions = (
         TENANT_ROLE_PERMISSIONS[tenant_membership.role]
         | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
+    )
+    permissions = (
+        _API_KEY_ALLOWED_PERMISSIONS
+        if "*" in creator_permissions
+        else creator_permissions & _API_KEY_ALLOWED_PERMISSIONS
     )
     return Principal(
         user_id=api_key.created_by_user_id,
