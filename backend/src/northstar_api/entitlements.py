@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 ALL_CHANNELS = frozenset(
     {
+        # Runtime/provider identifiers.
         "whatsapp",
         "instagram",
         "facebook_messenger",
@@ -13,6 +14,12 @@ ALL_CHANNELS = frozenset(
         "api",
         "slack",
         "custom",
+        # Existing Agent deployment identifiers retained for compatibility.
+        "website",
+        "facebook",
+        "teams",
+        "notion",
+        "zapier",
     }
 )
 
@@ -42,7 +49,7 @@ PLAN_ENTITLEMENTS: dict[str, PlanEntitlement] = {
         conversation_limit_monthly=1_000,
         token_limit_monthly=500_000,
         storage_limit_bytes=1 * 1024**3,
-        allowed_channels=frozenset({"widget", "api"}),
+        allowed_channels=frozenset({"website", "widget", "api"}),
         crm_enabled=False,
         api_enabled=True,
         white_label_enabled=False,
@@ -54,7 +61,9 @@ PLAN_ENTITLEMENTS: dict[str, PlanEntitlement] = {
         conversation_limit_monthly=3_000,
         token_limit_monthly=2_000_000,
         storage_limit_bytes=5 * 1024**3,
-        allowed_channels=frozenset({"widget", "api", "whatsapp", "telegram", "slack"}),
+        allowed_channels=frozenset(
+            {"website", "widget", "api", "whatsapp", "telegram", "slack"}
+        ),
         crm_enabled=True,
         api_enabled=True,
         white_label_enabled=False,
