@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.education import EducationCourse
@@ -178,6 +178,16 @@ async def get_student_detail(
         for context, conversation, agent in conversation_rows
     ]
 
+    activity_total = int(
+        await session.scalar(
+            select(func.count(EducationStudentActivityEvent.id)).where(
+                EducationStudentActivityEvent.tenant_id == tenant_id,
+                EducationStudentActivityEvent.workspace_id == workspace_id,
+                EducationStudentActivityEvent.student_id == student_id,
+            )
+        )
+        or 0
+    )
     activity_rows = (
         await session.execute(
             select(
@@ -197,6 +207,12 @@ async def get_student_detail(
                 EducationStudentActivityEvent.student_id == student_id,
                 Conversation.tenant_id == tenant_id,
                 Conversation.workspace_id == workspace_id,
+                EducationCourse.tenant_id == tenant_id,
+                EducationCourse.workspace_id == workspace_id,
+                EducationBatch.tenant_id == tenant_id,
+                EducationBatch.workspace_id == workspace_id,
+                Agent.tenant_id == tenant_id,
+                Agent.workspace_id == workspace_id,
             )
             .order_by(EducationStudentActivityEvent.created_at.desc())
             .limit(activity_limit)
@@ -235,11 +251,11 @@ async def get_student_detail(
         activity=activity,
         summary=StudentDetailSummaryOut(
             verified_identity_count=sum(
-                1 for value in identities if value.status is StudentIdentityStatus.VERIFIED
+                1 for value in identities if value.status == StudentIdentityStatus.VERIFIED
             ),
             active_access_count=sum(1 for value in enrollments if value.access_state == "active"),
             conversation_count=len(conversations),
-            activity_count=len(activity),
+            activity_count=activity_total,
             last_active_at=last_active_at,
         ),
     )
