@@ -23,6 +23,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { MFAChallengePage } from '@/pages/MFAChallengePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { PlatformAdminPage } from '@/pages/PlatformAdminPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { StudentsPage } from '@/pages/StudentsPage';
@@ -65,6 +66,7 @@ export function App() {
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
+      <Route path="platform-admin" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
       <Route path="help/search" element={<HelpSearchPage />} />
       <Route path="help/categories/:slug" element={<HelpCategoryPage />} />
