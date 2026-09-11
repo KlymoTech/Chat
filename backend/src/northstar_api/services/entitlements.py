@@ -17,6 +17,7 @@ from northstar_api.models import (
     DocumentChunk,
     KnowledgeKind,
     KnowledgeSource,
+    KnowledgeStatus,
     Message,
     Tenant,
     TenantMembership,
@@ -72,10 +73,14 @@ def _stored_source_bytes(source: KnowledgeSource) -> int:
         amount = float(match.group(1))
         multiplier = {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3}[match.group(2)]
         return max(0, int(amount * multiplier))
-    if getattr(source, "kind", None) in {KnowledgeKind.URL, KnowledgeKind.SITEMAP}:
+    if (
+        getattr(source, "kind", None) in {KnowledgeKind.URL, KnowledgeKind.SITEMAP}
+        and getattr(source, "status", None) != KnowledgeStatus.FAILED
+    ):
         # Remote sources have no authoritative byte size until extraction. Reserve
         # the configured maximum while they are pending so concurrent crawls cannot
-        # all bypass the storage quota before chunks are written.
+        # all bypass the storage quota before chunks are written. Failed remote
+        # sources retain no indexed/uploaded payload, so release that reservation.
         return get_settings().knowledge_max_extracted_characters * 4
     return 0
 
