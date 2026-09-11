@@ -20,6 +20,7 @@ from northstar_api.models import (
     WorkspaceRole,
 )
 from northstar_api.security import hash_password
+from northstar_api.services.subscriptions import create_subscription_for_tenant
 from northstar_api.signup_schemas import SignupRequest
 from northstar_api.workspace_invitations import (
     WorkspaceInvitationError,
@@ -164,6 +165,7 @@ async def provision_signup(
     )
     session.add_all([tenant, user])
     await session.flush()
+    await create_subscription_for_tenant(session, tenant=tenant, plan="starter")
     session.add(EmailVerificationState(user_id=user.id, verified_at=None))
 
     workspace = Workspace(

@@ -393,20 +393,20 @@ async def invite_workspace_member(
 
 @collection_router.get("", response_model=list[WorkspaceOut])
 async def list_workspaces(principal: WorkspaceViewPrincipal, session: DBSession) -> list[WorkspaceOut]:
-    rows = (
-        await session.execute(
-            select(Tenant, Workspace, WorkspaceMembership)
-            .join(Workspace, Workspace.tenant_id == Tenant.id)
-            .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
-            .where(
-                Tenant.id == principal.tenant_id,
-                WorkspaceMembership.user_id == principal.user_id,
-                WorkspaceMembership.tenant_id == principal.tenant_id,
-                Workspace.status == WorkspaceStatus.ACTIVE,
-            )
-            .order_by(Workspace.name, Workspace.id)
+    query = (
+        select(Tenant, Workspace, WorkspaceMembership)
+        .join(Workspace, Workspace.tenant_id == Tenant.id)
+        .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
+        .where(
+            Tenant.id == principal.tenant_id,
+            WorkspaceMembership.user_id == principal.user_id,
+            WorkspaceMembership.tenant_id == principal.tenant_id,
+            Workspace.status == WorkspaceStatus.ACTIVE,
         )
-    ).all()
+    )
+    if principal.token_id.startswith("api_key:") and principal.workspace_id is not None:
+        query = query.where(Workspace.id == principal.workspace_id)
+    rows = (await session.execute(query.order_by(Workspace.name, Workspace.id))).all()
     results: list[WorkspaceOut] = []
     for tenant, workspace, membership in rows:
         member_count = int(
@@ -470,6 +470,8 @@ async def get_workspace_by_id(
     principal: WorkspaceViewPrincipal,
     session: DBSession,
 ) -> WorkspaceOut:
+    if principal.token_id.startswith("api_key:") and workspace_id != principal.workspace_id:
+        raise HTTPException(status_code=403, detail="API key is scoped to a different workspace")
     tenant, workspace, membership, member_count = await _load_workspace(
         principal.tenant_id, workspace_id, principal.user_id, session
     )

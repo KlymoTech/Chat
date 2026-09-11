@@ -1,21 +1,17 @@
 import {
-  Building2, Check, Copy, CreditCard, KeyRound, LockKeyhole, Mail, Plus, ShieldCheck,
-  Sparkles, Trash2,
+  Building2, Mail, ShieldCheck,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MFASecurityPanel } from '@/components/mfa-security-panel';
 import { useAuth, useToast } from '@/components/providers';
+import { SubscriptionBillingPanel } from '@/components/SubscriptionBillingPanel';
 import { Button, Badge, Card, Field, PageLoader, Switch } from '@/components/ui';
+import { WorkspaceAPIKeysPanel } from '@/components/WorkspaceAPIKeysPanel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
 import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
-import { readStorage, writeStorage } from '@/lib/storage';
 import { workspaceApi, type WorkspaceSettings } from '@/lib/workspace-api';
 import '@/pages/WorkspaceTeam.css';
-
-interface LocalKey { id: string; name: string; prefix: string; createdAt: string }
-
-const KEYS_KEY = 'northstar.workspace.api-keys';
 
 export function WorkspacePage() {
   const { session } = useAuth();
@@ -24,8 +20,6 @@ export function WorkspacePage() {
   const section = params.get('section') ?? 'workspace';
   const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
   const [saving, setSaving] = useState(false);
-  const [keys, setKeys] = useState<LocalKey[]>(() => readStorage(KEYS_KEY, []));
-  const [newSecret, setNewSecret] = useState('');
   const [masking, setMasking] = useState(true);
   const [digest, setDigest] = useState(true);
 
@@ -42,16 +36,6 @@ export function WorkspacePage() {
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
     } finally { setSaving(false); }
-  }
-
-  function createKey() {
-    const raw = `nsk_live_${crypto.randomUUID().replaceAll('-', '')}`;
-    const item = { id: crypto.randomUUID(), name: `Production ${keys.length + 1}`, prefix: `${raw.slice(0, 14)}••••${raw.slice(-4)}`, createdAt: new Date().toISOString() };
-    const next = [item, ...keys]; setKeys(next); writeStorage(KEYS_KEY, next); setNewSecret(raw);
-  }
-
-  function revokeKey(id: string) {
-    const next = keys.filter((item) => item.id !== id); setKeys(next); writeStorage(KEYS_KEY, next); pushToast('API key revoked');
   }
 
   if (!workspace) return <PageLoader />;
@@ -75,10 +59,7 @@ export function WorkspacePage() {
 
         {section === 'team' ? <WorkspaceTeamPanel workspace={workspace} /> : null}
 
-        {section === 'developer' ? <Card className="workspace-panel"><PanelHeading icon={KeyRound} title="API keys" description="Create and revoke credentials used by your server-side integrations." action={<Button icon={Plus} onClick={createKey}>Create secret key</Button>} />
-          {newSecret ? <div className="workspace-secret"><LockKeyhole /><div><strong>Copy this key now</strong><small>For security, it will not be shown again.</small><code>{newSecret}</code></div><button type="button" className="icon-button" aria-label="Copy new API key" onClick={() => void navigator.clipboard.writeText(newSecret).then(() => pushToast('Secret key copied'))}><Copy /></button><button type="button" className="icon-button" aria-label="Hide new API key" onClick={() => setNewSecret('')}><Check /></button></div> : null}
-          <div className="workspace-key-list">{keys.length ? keys.map((key) => <div key={key.id}><span><strong>{key.name}</strong><small>Created {new Date(key.createdAt).toLocaleDateString()}</small></span><code>{key.prefix}</code><button type="button" className="icon-button danger-hover" onClick={() => revokeKey(key.id)} aria-label={`Revoke ${key.name}`}><Trash2 /></button></div>) : <div className="workspace-empty-row"><KeyRound /><span><strong>No API keys yet</strong><small>Create a key when you are ready to connect your backend.</small></span></div>}</div>
-        </Card> : null}
+        {section === 'developer' ? <WorkspaceAPIKeysPanel workspace={workspace} /> : null}
 
         {section === 'security' ? <Card className="workspace-panel"><PanelHeading icon={ShieldCheck} title="Security controls" description="Apply workspace-wide protection and manage your own sign-in security." />
           <div className="workspace-panel__body">
@@ -91,12 +72,10 @@ export function WorkspacePage() {
           </div>
         </Card> : null}
 
-        {section === 'billing' ? <><Card className="workspace-panel"><PanelHeading icon={CreditCard} title="Plan & billing" description="Review usage, limits, and billing information." action={<Badge tone="brand">Business</Badge>} /><div className="workspace-plan-grid"><Usage label="Conversations" value="1,892 / 5,000" width="38%" /><Usage label="AI agents" value="4 / 10" width="40%" /><Usage label="Team members" value={`${workspace.memberCount} / 20`} width="25%" /></div><div className="workspace-panel__actions workspace-panel__actions--border"><Button variant="secondary" onClick={() => pushToast('Billing portal will open after a payment provider is connected', 'info')}>Manage billing</Button><Button onClick={() => pushToast('Plan comparison opened', 'info')}>Compare plans</Button></div></Card>
-          <Card className="workspace-upgrade-card"><Sparkles /><div><strong>Need more capacity?</strong><p>Upgrade limits without changing your agents, knowledge, or integrations.</p></div><Button variant="secondary" onClick={() => pushToast('Plan comparison opened', 'info')}>View plans</Button></Card></> : null}
+        {section === 'billing' ? <SubscriptionBillingPanel workspace={workspace} /> : null}
       </div>
     </div>
   </div>;
 }
 
 function PanelHeading({ icon: Icon, title, description, action }: { icon: typeof Building2; title: string; description: string; action?: ReactNode }) { return <div className="workspace-panel__heading"><span><Icon /></span><div><h3>{title}</h3><p>{description}</p></div>{action}</div>; }
-function Usage({ label, value, width }: { label: string; value: string; width: string }) { return <div><small>{label}</small><strong>{value}</strong><span><i style={{ width }} /></span></div>; }

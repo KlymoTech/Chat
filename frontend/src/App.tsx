@@ -4,6 +4,7 @@ import { useAuth } from '@/components/providers';
 import { AgentBuilderPage } from '@/pages/AgentBuilderPage';
 import { AgentsPage } from '@/pages/AgentsPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
+import { AuditPage } from '@/pages/AuditPage';
 import { BatchesPage } from '@/pages/BatchesPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
@@ -22,6 +23,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { MFAChallengePage } from '@/pages/MFAChallengePage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { PlatformAdminPage } from '@/pages/PlatformAdminPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { SignupPage } from '@/pages/SignupPage';
 import { StudentsPage } from '@/pages/StudentsPage';
@@ -59,10 +61,12 @@ export function App() {
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
+      <Route path="audit" element={<AuditPage />} />
       <Route path="integrations" element={<IntegrationsPage />} />
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
+      <Route path="platform-admin" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
       <Route path="help/search" element={<HelpSearchPage />} />
       <Route path="help/categories/:slug" element={<HelpCategoryPage />} />

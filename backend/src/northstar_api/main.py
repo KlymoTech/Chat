@@ -14,15 +14,23 @@ from starlette.responses import Response
 
 from northstar_api import __version__
 from northstar_api.config import get_settings
-from northstar_api.database import SessionFactory, close_database, initialize_schema
+from northstar_api.database import (
+    SessionFactory,
+    close_database,
+    initialize_schema,
+    set_tenant_context,
+    tenant_context,
+)
 from northstar_api.health import router as health_router
 from northstar_api.help_config import get_help_settings
+from northstar_api.lead_crm.audit import AuditCategory, AuditOutcome, AuditSeverity, record_audit_event
 from northstar_api.logging import configure_logging, request_id_ctx
 from northstar_api.middleware import RequestContextMiddleware
 from northstar_api.routers import api_router
+from northstar_api.security import Principal
+from northstar_api.services.help_content import sync_help_content
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.seed import seed_from_environment
-from northstar_api.services.help_content import sync_help_content
 
 settings = get_settings()
 help_settings = get_help_settings()
@@ -92,6 +100,53 @@ def _widget_cors_headers(origin: str) -> dict[str, str]:
     }
 
 
+def _relative_api_path(path: str) -> str:
+    for prefix in (settings.app_api_prefix.rstrip("/"), "/v1"):
+        if path == prefix:
+            return "/"
+        if path.startswith(prefix + "/"):
+            return path[len(prefix) :]
+    return path
+
+
+def _audit_category(path: str) -> AuditCategory:
+    if path.startswith(("/auth", "/mfa", "/password", "/email-verification")):
+        return "security"
+    if path.startswith(("/workspace/invitations", "/workspace/members")):
+        return "access"
+    if path.startswith(("/workspace/api-keys", "/chat/completions")):
+        return "api"
+    if path.startswith(("/workspace", "/workspaces")):
+        return "workspace"
+    if path.startswith("/agents"):
+        return "agent"
+    if path.startswith(("/conversations", "/messages", "/chat")):
+        return "conversation"
+    if path.startswith("/education"):
+        return "education"
+    if path.startswith(("/leads", "/qualification")):
+        return "lead"
+    if path.startswith("/crm"):
+        return "crm"
+    if path.startswith(("/channels", "/whatsapp", "/widget")):
+        return "channel"
+    if path.startswith("/billing"):
+        return "billing"
+    if path.startswith("/integrations"):
+        return "integration"
+    return "system"
+
+
+def _audit_outcome(status_code: int) -> tuple[AuditOutcome, AuditSeverity]:
+    if status_code < 400:
+        return "success", "info"
+    if status_code in {401, 403}:
+        return "denied", "warning"
+    if status_code >= 500:
+        return "failure", "critical"
+    return "failure", "warning"
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
     response = await call_next(request)
@@ -101,6 +156,68 @@ async def security_headers(request: Request, call_next: RequestResponseEndpoint)
     response.headers.setdefault("Permissions-Policy", "camera=(), geolocation=(), payment=()")
     if settings.is_production:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+@app.middleware("http")
+async def authenticated_mutation_audit(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    """Append a safe audit envelope for authenticated state-changing API requests.
+
+    Domain-specific audit events continue to be emitted by existing CRM/integration
+    code. This generic envelope intentionally stores no request/response body, so it
+    cannot duplicate secrets or change business transaction behavior. Audit write
+    failures are observable but never allowed to fail the completed customer action.
+    """
+    response = await call_next(request)
+    method = request.method.upper()
+    if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return response
+
+    path = _relative_api_path(request.url.path)
+    if path.startswith(("/audit", "/integration-audit")):
+        return response
+    principal = getattr(request.state, "principal", None)
+    if not isinstance(principal, Principal):
+        return response
+
+    category = _audit_category(path)
+    outcome, severity = _audit_outcome(response.status_code)
+    route = request.scope.get("route")
+    route_path = str(getattr(route, "path", path))
+    credential_type = "api_key" if principal.token_id.startswith("api_key:") else "session"
+    context_token = tenant_context.set(None)
+    try:
+        async with SessionFactory() as session:
+            await set_tenant_context(session, principal.tenant_id)
+            record_audit_event(
+                session,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                actor_user_id=principal.user_id,
+                action=f"{category}.{method.lower()}",
+                entity_type=category,
+                entity_id=route_path,
+                category=category,
+                severity=severity,
+                outcome=outcome,
+                metadata={
+                    "method": method,
+                    "route": route_path,
+                    "statusCode": response.status_code,
+                    "credentialType": credential_type,
+                },
+                request=request,
+            )
+            await session.commit()
+    except Exception as exc:  # audit observability must never break a completed mutation
+        logger.warning(
+            "audit_event_write_failed",
+            path=route_path,
+            method=method,
+            error=type(exc).__name__,
+        )
+    finally:
+        tenant_context.reset(context_token)
     return response
 
 

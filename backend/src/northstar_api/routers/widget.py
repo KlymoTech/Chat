@@ -24,6 +24,7 @@ from northstar_api.schemas import (
 )
 from northstar_api.security import create_widget_token, decode_token
 from northstar_api.services.education_chat import education_chat_coordinator
+from northstar_api.services.entitlements import EntitlementError, require_capacity
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.streaming import chat_sse_response
 
@@ -172,6 +173,10 @@ async def _create_session(
             detail="Widget session capacity exceeded",
             headers={"Retry-After": str(limiter.retry_after)},
         )
+    try:
+        await require_capacity(session, tenant_id=agent.tenant_id, resource="conversations")
+    except EntitlementError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
     conversation = Conversation(
         tenant_id=agent.tenant_id,
         workspace_id=agent.workspace_id,
@@ -233,6 +238,10 @@ async def widget_message(
         session_origin, list(active_agent.security.get("allowedDomains", []))
     ):
         raise HTTPException(status_code=403, detail="This widget session is no longer permitted")
+    try:
+        await require_capacity(session, tenant_id=tenant_id, resource="tokens")
+    except EntitlementError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
     prepared = await education_chat_coordinator.prepare(
         session,
         tenant_id=tenant_id,

@@ -41,6 +41,7 @@ from northstar_api.services.education_runtime_authorization import (
     authorize_education_access,
     identity_candidate_for_event,
 )
+from northstar_api.services.entitlements import EntitlementError, require_capacity, require_channel
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
 
@@ -95,6 +96,7 @@ async def _get_or_create_conversation(
     )
     if conversation:
         return conversation
+    await require_capacity(session, tenant_id=event.tenant_id, resource="conversations")
     conversation = Conversation(
         tenant_id=event.tenant_id,
         workspace_id=agent.workspace_id,
@@ -153,6 +155,7 @@ async def _get_or_create_education_conversation(
     if conversation:
         return conversation
 
+    await require_capacity(session, tenant_id=event.tenant_id, resource="conversations")
     conversation = Conversation(
         tenant_id=event.tenant_id,
         workspace_id=agent.workspace_id,
@@ -352,6 +355,40 @@ async def _process_education_message(
     await session.commit()
 
 
+async def _reject_for_entitlement(
+    session: AsyncSession,
+    *,
+    raw: RawWebhookEvent,
+    provider: str,
+    exc: EntitlementError,
+) -> None:
+    raw.processing_status = "rejected"
+    raw.processed_at = datetime.now(UTC)
+    raw.attempt_count += 1
+    raw.last_error = f"plan entitlement: {exc.code}"[:500]
+    enqueue_event(
+        session,
+        tenant_id=raw.tenant_id,
+        aggregate_type="raw_webhook_event",
+        aggregate_id=raw.id,
+        event_type="channel.event.processed.v1",
+        payload={
+            "rawEventId": str(raw.id),
+            "provider": provider,
+            "leadId": None,
+            "entitlementDenied": exc.code,
+        },
+    )
+    await session.commit()
+    logger.info(
+        "channel_plan_entitlement_rejected",
+        tenant_id=str(raw.tenant_id),
+        raw_event_id=str(raw.id),
+        provider=provider,
+        code=exc.code,
+    )
+
+
 async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
     inserted = await session.scalar(
         pg_insert(ProcessedEvent)
@@ -392,6 +429,21 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
         await session.commit()
         return
 
+    try:
+        await require_channel(
+            session,
+            tenant_id=event.tenant_id,
+            provider=canonical.provider.value,
+        )
+    except EntitlementError as exc:
+        await _reject_for_entitlement(
+            session,
+            raw=raw,
+            provider=canonical.provider.value,
+            exc=exc,
+        )
+        return
+
     raw_agent_id = connection.configuration_json.get("agentId")
     try:
         agent_id = UUID(str(raw_agent_id))
@@ -417,17 +469,27 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
         workspace_id=agent.workspace_id,
         agent_id=agent.id,
     )
-    if purpose is AgentPurpose.EDUCATION:
-        await _process_education_message(
+    try:
+        if purpose is AgentPurpose.EDUCATION:
+            await _process_education_message(
+                session,
+                raw=raw,
+                connection=connection,
+                canonical=canonical,
+                agent=agent,
+            )
+            return
+
+        conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+    except EntitlementError as exc:
+        await _reject_for_entitlement(
             session,
             raw=raw,
-            connection=connection,
-            canonical=canonical,
-            agent=agent,
+            provider=canonical.provider.value,
+            exc=exc,
         )
         return
 
-    conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
     await _persist_message(session, event=canonical, conversation=conversation)
     contact = await lead_domain_service.identity.resolve_or_create_contact(
         session,
