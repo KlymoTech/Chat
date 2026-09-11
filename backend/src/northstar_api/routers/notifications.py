@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from northstar_api.dependencies import CurrentPrincipal, DBSession, get_current_principal
+from northstar_api.dependencies import DBSession, get_current_principal
 from northstar_api.notifications import Notification
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
@@ -29,8 +30,8 @@ class NotificationOut(APIModel):
     action_url: str | None
     action_label: str | None
     metadata: dict[str, object]
-    read_at: object | None
-    created_at: object
+    read_at: datetime | None
+    created_at: datetime
 
 
 class UnreadCountOut(APIModel):
@@ -41,18 +42,23 @@ class MarkAllReadOut(APIModel):
     updated: int
 
 
-def _human_principal(principal: Principal) -> Principal:
+def require_human_notification_principal(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+) -> Principal:
     if principal.token_id.startswith("api_key:"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API keys do not have a human notification inbox",
         )
     if principal.workspace_id is None:
-        raise HTTPException(status_code=403, detail="Workspace access is unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Workspace access is unavailable",
+        )
     return principal
 
 
-HumanPrincipal = Annotated[Principal, Depends(lambda principal=Depends(get_current_principal): _human_principal(principal))]
+HumanPrincipal = Annotated[Principal, Depends(require_human_notification_principal)]
 
 
 def _out(value: Notification) -> NotificationOut:
@@ -121,7 +127,7 @@ async def read_notification(
         notification_id=notification_id,
     )
     if value is None:
-        raise HTTPException(status_code=404, detail="Notification not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     await session.commit()
     return _out(value)
 
