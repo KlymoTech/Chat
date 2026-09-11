@@ -6,7 +6,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from northstar_api.dependencies import DBSession, require_permissions
-from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.services.workspace_api_keys import (
     WorkspaceAPIKeyError,
@@ -26,6 +25,14 @@ APIKeyViewPrincipal = Annotated[Principal, Depends(require_permissions("api_keys
 APIKeyManagePrincipal = Annotated[Principal, Depends(require_permissions("api_keys.manage"))]
 
 
+def _require_interactive_session(principal: Principal) -> None:
+    if principal.token_id.startswith("api_key:"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys cannot manage API keys",
+        )
+
+
 def _out(record: WorkspaceAPIKey) -> WorkspaceAPIKeyOut:
     return WorkspaceAPIKeyOut(
         id=record.id,
@@ -41,6 +48,7 @@ async def get_workspace_api_keys(
     principal: APIKeyViewPrincipal,
     session: DBSession,
 ) -> list[WorkspaceAPIKeyOut]:
+    _require_interactive_session(principal)
     assert principal.workspace_id is not None
     values = await list_workspace_api_keys(
         session,
@@ -56,6 +64,7 @@ async def create_workspace_api_key(
     principal: APIKeyManagePrincipal,
     session: DBSession,
 ) -> WorkspaceAPIKeyCreated:
+    _require_interactive_session(principal)
     assert principal.workspace_id is not None
     issued = await issue_workspace_api_key(
         session,
@@ -78,6 +87,7 @@ async def delete_workspace_api_key(
     principal: APIKeyManagePrincipal,
     session: DBSession,
 ) -> Response:
+    _require_interactive_session(principal)
     assert principal.workspace_id is not None
     try:
         await revoke_workspace_api_key(
