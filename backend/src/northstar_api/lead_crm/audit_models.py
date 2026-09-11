@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,12 +43,16 @@ class IntegrationAuditEvent(Base):
     action: Mapped[str] = mapped_column(String(160))
     entity_type: Mapped[str] = mapped_column(String(100))
     entity_id: Mapped[str] = mapped_column(String(160))
-    category: Mapped[str] = mapped_column(String(40), default="integration")
-    severity: Mapped[str] = mapped_column(String(20), default="info")
-    outcome: Mapped[str] = mapped_column(String(20), default="success")
+    category: Mapped[str] = mapped_column(
+        String(40), default="integration", server_default="integration"
+    )
+    severity: Mapped[str] = mapped_column(String(20), default="info", server_default="info")
+    outcome: Mapped[str] = mapped_column(String(20), default="success", server_default="success")
     before_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     after_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        MutableJSON, default=dict, server_default=text("'{}'")
+    )
     request_id: Mapped[str | None] = mapped_column(String(128), index=True)
     ip_address: Mapped[str | None] = mapped_column(String(80))
     user_agent: Mapped[str | None] = mapped_column(String(500))
