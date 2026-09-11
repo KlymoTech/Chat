@@ -8,9 +8,17 @@ const mocks = vi.hoisted(() => ({
   pushToast: vi.fn(),
   getSubscription: vi.fn(),
   getEntitlements: vi.fn(),
+  cancelSubscription: vi.fn(),
+  reactivateSubscription: vi.fn(),
+  role: 'owner',
 }));
 
 vi.mock('@/components/providers', () => ({
+  useAuth: () => ({
+    session: {
+      user: { id: 'user-1', name: 'Owner', email: 'owner@example.com', role: mocks.role },
+    },
+  }),
   useToast: () => ({ pushToast: mocks.pushToast }),
 }));
 
@@ -18,6 +26,8 @@ vi.mock('@/lib/billing-api', () => ({
   billingApi: {
     getSubscription: mocks.getSubscription,
     getEntitlements: mocks.getEntitlements,
+    cancelSubscription: mocks.cancelSubscription,
+    reactivateSubscription: mocks.reactivateSubscription,
   },
 }));
 
@@ -104,8 +114,22 @@ const entitlements = {
 
 describe('SubscriptionBillingPanel', () => {
   beforeEach(() => {
+    mocks.role = 'owner';
     mocks.getSubscription.mockResolvedValue(subscription);
     mocks.getEntitlements.mockResolvedValue(entitlements);
+    mocks.cancelSubscription.mockResolvedValue({
+      ...subscription,
+      status: 'cancelled',
+      trialEndsAt: null,
+      cancelledAt: '2026-09-11T12:00:00Z',
+    });
+    mocks.reactivateSubscription.mockResolvedValue({
+      ...subscription,
+      status: 'active',
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+      cancelledAt: null,
+    });
   });
 
   afterEach(() => {
@@ -131,12 +155,70 @@ describe('SubscriptionBillingPanel', () => {
     expect(screen.getByText(/White-label: Upgrade required/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Manage billing' }));
-    expect(mocks.pushToast).toHaveBeenCalledWith(
-      'Billing portal will open after a payment provider is connected',
-      'info',
-    );
+    expect(screen.getByRole('dialog', { name: 'Manage subscription' })).toBeInTheDocument();
+    expect(screen.getByText('Cancel subscription now')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm cancellation' })).toBeDisabled();
     expect(mocks.getSubscription).toHaveBeenCalledWith('starter');
     expect(mocks.getEntitlements).toHaveBeenCalledWith('starter');
+  });
+
+  it('requires explicit CANCEL confirmation and applies safe soft offboarding', async () => {
+    const user = userEvent.setup();
+    render(<SubscriptionBillingPanel workspace={workspace} />);
+    await screen.findByText('Professional · Trial');
+
+    await user.click(screen.getByRole('button', { name: 'Manage billing' }));
+    await user.type(screen.getByLabelText('Type CANCEL to confirm'), 'CANCEL');
+    await user.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
+
+    await waitFor(() => expect(mocks.cancelSubscription).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Professional · Cancelled')).toBeInTheDocument();
+    expect(screen.getByText(/New resource creation and other plan-gated writes are blocked/)).toBeInTheDocument();
+    expect(mocks.pushToast).toHaveBeenCalledWith(
+      'Subscription cancelled. Existing tenant data has been preserved',
+      'success',
+    );
+  });
+
+  it('lets a billing manager remove a scheduled cancellation', async () => {
+    const user = userEvent.setup();
+    mocks.getSubscription.mockResolvedValueOnce({
+      ...subscription,
+      status: 'active',
+      trialEndsAt: null,
+      currentPeriodEnd: '2026-10-01T00:00:00Z',
+      cancelAtPeriodEnd: true,
+    });
+    render(<SubscriptionBillingPanel workspace={workspace} />);
+
+    expect(await screen.findByText('Professional · Active')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Manage billing' }));
+    expect(screen.getByText('Cancellation is scheduled')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Keep subscription' }));
+
+    await waitFor(() => expect(mocks.reactivateSubscription).toHaveBeenCalledTimes(1));
+    expect(mocks.cancelSubscription).not.toHaveBeenCalled();
+  });
+
+  it('does not expose billing mutations to a user without billing management permission', async () => {
+    mocks.role = 'member';
+    render(<SubscriptionBillingPanel workspace={{ ...workspace, permissions: ['workspace.view'] }} />);
+
+    expect(await screen.findByText('Professional · Trial')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Compare plans' })).toBeInTheDocument();
+  });
+
+  it('never presents a provider-backed subscription as locally cancellable', async () => {
+    const user = userEvent.setup();
+    mocks.getSubscription.mockResolvedValueOnce({ ...subscription, provider: 'stripe' });
+    render(<SubscriptionBillingPanel workspace={workspace} />);
+
+    await screen.findByText('Provider: Stripe');
+    await user.click(screen.getByRole('button', { name: 'Manage billing' }));
+    expect(screen.getByText('Provider-managed subscription')).toBeInTheDocument();
+    expect(screen.getByText(/must be cancelled through its provider workflow/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm cancellation' })).not.toBeInTheDocument();
   });
 
   it('shows authorization failures instead of inventing billing access', async () => {
