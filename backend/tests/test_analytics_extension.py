@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 
+from northstar_api.agent_purpose import AgentPurpose, AgentPurposeSetting
 from northstar_api.database import SessionFactory
 from northstar_api.education import EducationCourse
 from northstar_api.education_batches import EducationBatch
@@ -182,7 +183,7 @@ async def test_analytics_excludes_other_workspace_data(
     client: AsyncClient,
     auth_headers: dict[str, str],
 ) -> None:
-    tenant_id, workspace_id, _ = await _scope(client, auth_headers)
+    tenant_id, _, _ = await _scope(client, auth_headers)
     before = await client.get("/api/v1/analytics/summary?days=30", headers=auth_headers)
     assert before.status_code == 200, before.text
     baseline = before.json()
@@ -230,4 +231,42 @@ async def test_analytics_excludes_other_workspace_data(
     payload = after.json()
     assert payload["conversations"] == baseline["conversations"]
     assert payload["leads"]["created"] == baseline["leads"]["created"]
-    assert UUID(workspace_id.hex) == workspace_id  # keep the asserted scope explicit
+    assert payload["agents"]["total"] == baseline["agents"]["total"]
+
+
+async def test_analytics_does_not_count_soft_deleted_agent_purpose_rows(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    tenant_id, workspace_id, _ = await _scope(client, auth_headers)
+    before = await client.get("/api/v1/analytics/summary?days=30", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    baseline = before.json()["agents"]
+    suffix = uuid4().hex[:8]
+
+    async with SessionFactory() as session:
+        deleted_agent = Agent(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            name=f"Deleted Analytics Agent {suffix}",
+            deleted_at=datetime.now(UTC),
+        )
+        session.add(deleted_agent)
+        await session.flush()
+        session.add(
+            AgentPurposeSetting(
+                agent_id=deleted_agent.id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                purpose=AgentPurpose.EDUCATION.value,
+            )
+        )
+        await session.commit()
+
+    after = await client.get("/api/v1/analytics/summary?days=30", headers=auth_headers)
+    assert after.status_code == 200, after.text
+    agents = after.json()["agents"]
+    assert agents["total"] == baseline["total"]
+    assert agents["active"] == baseline["active"]
+    assert agents["education"] == baseline["education"]
+    assert agents["support"] == baseline["support"]
