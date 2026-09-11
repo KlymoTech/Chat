@@ -96,9 +96,12 @@ describe('auditApi', () => {
     );
   });
 
-  it('surfaces authorization errors and never invents security events', async () => {
+  it('surfaces HTTP failures and never invents security events', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Insufficient permission' } }, 403));
     await expect(auditApi.list()).rejects.toThrow('Insufficient permission');
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Audit storage unavailable' } }, 503));
+    await expect(auditApi.list()).rejects.toThrow('Audit storage unavailable');
 
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
     await expect(auditApi.list()).resolves.toEqual([]);
