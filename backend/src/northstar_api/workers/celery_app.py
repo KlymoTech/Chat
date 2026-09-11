@@ -12,7 +12,11 @@ dead_letter_exchange = Exchange("app.jobs.dlx", type="direct", durable=True)
 celery_app = Celery(
     "northstar",
     broker=settings.rabbitmq_url,
-    include=["northstar_api.workers.tasks", "northstar_api.workers.telegram_tasks"],
+    include=[
+        "northstar_api.workers.tasks",
+        "northstar_api.workers.telegram_tasks",
+        "northstar_api.workers.meta_messaging_tasks",
+    ],
 )
 celery_app.conf.update(
     task_serializer="json",
@@ -83,6 +87,22 @@ celery_app.conf.update(
             routing_key="telegram.failed",
             durable=True,
         ),
+        Queue(
+            "meta.outbound",
+            exchange=jobs_exchange,
+            routing_key="meta.outbound",
+            durable=True,
+            queue_arguments={
+                "x-dead-letter-exchange": dead_letter_exchange.name,
+                "x-dead-letter-routing-key": "meta.failed",
+            },
+        ),
+        Queue(
+            "meta.failed",
+            exchange=dead_letter_exchange,
+            routing_key="meta.failed",
+            durable=True,
+        ),
     ),
     task_routes={
         "northstar.ingest_source": {"queue": "ingest.source", "routing_key": "ingest.source"},
@@ -97,6 +117,10 @@ celery_app.conf.update(
         "northstar.send_telegram_message": {
             "queue": "telegram.outbound",
             "routing_key": "telegram.outbound",
+        },
+        "northstar.send_meta_message": {
+            "queue": "meta.outbound",
+            "routing_key": "meta.outbound",
         },
     },
 )
