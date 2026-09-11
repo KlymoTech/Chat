@@ -1,6 +1,6 @@
 import {
   BarChart3, Bell, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
-  LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, Sparkles, UsersRound, X,
+  LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, ShieldCheck, Sparkles, UsersRound, X,
 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -16,6 +16,7 @@ const navigation = [
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/audit', label: 'Audit', icon: ShieldCheck },
   { to: '/integrations', label: 'Integrations', icon: PlugZap },
   { to: '/deploy', label: 'Deploy', icon: Code2 },
 ];
@@ -42,6 +43,14 @@ export function AppShell() {
   const { workspaces, activeWorkspace, loading, selectWorkspace, createWorkspace } = useWorkspace();
   const location = useLocation(); const navigate = useNavigate();
   const initials = useMemo(() => (session?.user.name || 'NS').split(' ').map((item) => item[0]).join('').slice(0, 2).toUpperCase(), [session]);
+  const canViewAudit = Boolean(
+    session?.user.role === 'owner'
+    || session?.user.role === 'admin'
+    || session?.user.role === 'security_admin'
+    || activeWorkspace?.permissions?.includes('*')
+    || activeWorkspace?.permissions?.includes('audit.view'),
+  );
+  const visibleNavigation = navigation.filter((item) => item.to !== '/audit' || canViewAudit);
   const submitWorkspace = async (event: FormEvent) => {
     event.preventDefault();
     const name = workspaceName.trim();
@@ -59,7 +68,7 @@ export function AppShell() {
     <aside className="rail" aria-label="Primary navigation">
       <Link to="/" className="rail__brand" aria-label="Northstar AI home"><Brand compact /></Link>
       <nav className="rail__nav">
-        {navigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title={label}><Icon /><span>{label}</span></NavLink>)}
+        {visibleNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title={label}><Icon /><span>{label}</span></NavLink>)}
       </nav>
       <div className="rail__bottom">
         <NavLink to="/workspace" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Workspace"><Settings2 /><span>Workspace</span></NavLink>
@@ -110,7 +119,7 @@ export function AppShell() {
       <main className="content"><Outlet key={activeWorkspace?.id ?? 'workspace-loading'} /></main>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {navigation.slice(0, 6).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
+      {visibleNavigation.slice(0, 6).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
     </nav>
     <button className="command-fab" aria-label="Open command palette"><Command /></button>
   </div>;
