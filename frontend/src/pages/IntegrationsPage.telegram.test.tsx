@@ -71,7 +71,7 @@ describe('IntegrationsPage Telegram setup', () => {
     render(<IntegrationsPage />);
 
     await screen.findByText('Messaging channels');
-    await user.type(screen.getByPlaceholderText('Connection name'), 'Admissions Telegram');
+    await user.type(screen.getAllByPlaceholderText('Connection name')[0]!, 'Admissions Telegram');
     await user.type(screen.getByPlaceholderText('Agent ID'), '11111111-1111-1111-1111-111111111111');
     await user.click(screen.getByRole('button', { name: 'Add channel' }));
 
@@ -84,7 +84,7 @@ describe('IntegrationsPage Telegram setup', () => {
     render(<IntegrationsPage />);
 
     await screen.findByText('Messaging channels');
-    await user.type(screen.getByPlaceholderText('Connection name'), 'Admissions Telegram');
+    await user.type(screen.getAllByPlaceholderText('Connection name')[0]!, 'Admissions Telegram');
     await user.type(screen.getByPlaceholderText('Agent ID'), '11111111-1111-1111-1111-111111111111');
     await user.type(screen.getByPlaceholderText('Telegram Bot token'), '123456:bot-secret');
     await user.type(screen.getByPlaceholderText('Telegram webhook secret token'), 'webhook-secret');
