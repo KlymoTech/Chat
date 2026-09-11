@@ -105,7 +105,7 @@ export function EducationStudentDetailPage() {
           <div className="student-detail-section-heading"><div><MessagesSquare /><span><h3>Education conversations</h3><p>Conversations attached through the existing Education authorization context.</p></span></div></div>
           {conversations.length ? <div className="student-detail-conversations">{conversations.map((conversation) => <article key={conversation.id}>
             <div><strong>{conversation.publicId}</strong><small>{conversation.agentName} · {conversation.channel}</small></div>
-            <div><Badge tone={conversation.state === 'resolved' ? 'success' : conversation.state === 'waiting' ? 'warning' : 'neutral'}>{conversation.state}</Badge><small>{relativeTime(conversation.updatedAt)}</small></div>
+            <div><Badge tone={conversation.state === 'resolved' ? 'success' : conversation.state === 'escalated' ? 'warning' : 'neutral'}>{conversation.state}</Badge><small>{relativeTime(conversation.updatedAt)}</small></div>
             {conversation.resolution ? <p>Resolution: {conversation.resolution}</p> : null}
           </article>)}</div> : <EmptyState icon={MessagesSquare} title="No Education conversations" description="Authorized Education conversations will appear here without changing the existing inbox." />}
         </Card>
