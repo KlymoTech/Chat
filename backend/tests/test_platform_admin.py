@@ -1,17 +1,29 @@
 from __future__ import annotations
 
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from northstar_api.database import SessionFactory
 from northstar_api.models import Tenant
+from northstar_api.routers.platform_admin import platform_admin_emails
 from northstar_api.subscriptions import SubscriptionStatus, TenantSubscription
 
 
 def _enable(monkeypatch, email: str) -> None:
     monkeypatch.setenv("PLATFORM_ADMIN_EMAILS", f'["{email.upper()}"]')
+
+
+def test_platform_admin_allowlist_parser_is_explicit_and_case_insensitive() -> None:
+    assert platform_admin_emails("") == frozenset()
+    assert platform_admin_emails(" Admin@Example.com , ops@example.com ") == frozenset(
+        {"admin@example.com", "ops@example.com"}
+    )
+    assert platform_admin_emails('["Admin@Example.com", "OPS@example.com"]') == frozenset(
+        {"admin@example.com", "ops@example.com"}
+    )
+    assert platform_admin_emails("[not-json") == frozenset()
 
 
 async def test_platform_admin_is_disabled_without_explicit_allowlist(
@@ -137,7 +149,7 @@ async def test_platform_admin_rejects_workspace_api_keys(
         assert revoked.status_code == 204, revoked.text
 
 
-async def test_platform_admin_tenant_detail_does_not_leak_a_different_id(
+async def test_platform_admin_tenant_detail_returns_not_found_for_unknown_tenant(
     client: AsyncClient,
     auth_headers: dict[str, str],
     session_payload: dict,
