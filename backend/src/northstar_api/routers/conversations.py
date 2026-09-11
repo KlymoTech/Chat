@@ -39,6 +39,7 @@ from northstar_api.security import Principal
 from northstar_api.services.conversation_resolution import conversation_resolution_service
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.whatsapp import token_expiry_is_current
+from northstar_api.workers.instagram_tasks import send_instagram_message
 from northstar_api.workers.tasks import send_whatsapp_human_reply
 from northstar_api.workers.telegram_tasks import send_telegram_message
 
@@ -116,6 +117,16 @@ def _telegram_chat_id(conversation: Conversation) -> str | None:
     return chat_id
 
 
+def _instagram_recipient_id(conversation: Conversation) -> str | None:
+    visitor_id = conversation.visitor_id or ""
+    if not visitor_id.startswith("instagram:"):
+        return None
+    recipient_id = visitor_id.removeprefix("instagram:").strip()
+    if not recipient_id or not recipient_id.isdigit():
+        return None
+    return recipient_id
+
+
 async def _telegram_connection_for_conversation(
     session: AsyncSession,
     principal: Principal,
@@ -168,6 +179,64 @@ async def _telegram_connection_for_conversation(
     if not credentials.get("webhook_secret"):
         raise HTTPException(status_code=409, detail="Telegram webhook secret is not configured")
     return connection, chat_id
+
+
+async def _instagram_connection_for_conversation(
+    session: AsyncSession,
+    principal: Principal,
+    conversation: Conversation,
+) -> tuple[ChannelConnection, str] | None:
+    recipient_id = _instagram_recipient_id(conversation)
+    if recipient_id is None:
+        return None
+    rows = (
+        await session.execute(
+            select(ChannelConnection, WorkspaceChannelConnection)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelConnection.tenant_id == principal.tenant_id,
+                ChannelConnection.provider == ChannelProvider.INSTAGRAM.value,
+                ChannelConnection.status != "disabled",
+                WorkspaceChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.workspace_id == principal.workspace_id,
+            )
+            .with_for_update()
+        )
+    ).all()
+    matches = [
+        connection
+        for connection, scope in rows
+        if (scope.agent_id is None or scope.agent_id == conversation.agent_id)
+        and str((connection.configuration_json or {}).get("agentId") or "") == str(conversation.agent_id)
+    ]
+    if not matches:
+        raise HTTPException(status_code=409, detail="Instagram is not connected for this agent")
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple Instagram connections match this agent; disable the duplicate connection before replying",
+        )
+    connection = matches[0]
+    try:
+        credentials = (
+            credential_store.decrypt(connection.credentials_encrypted)
+            if connection.credentials_encrypted
+            else {}
+        )
+    except CredentialStoreError as exc:
+        raise HTTPException(status_code=409, detail="Instagram credentials require reconnection") from exc
+    if not credentials.get("access_token"):
+        raise HTTPException(status_code=409, detail="Instagram access token is not configured")
+    if not credentials.get("app_secret"):
+        raise HTTPException(status_code=409, detail="Instagram app secret is not configured")
+    if not credentials.get("verify_token"):
+        raise HTTPException(status_code=409, detail="Instagram webhook verify token is not configured")
+    if not str((connection.configuration_json or {}).get("instagramAccountId") or ""):
+        raise HTTPException(status_code=409, detail="Instagram professional account ID is not configured")
+    return connection, recipient_id
 
 
 @router.get("", response_model=PageResult[ConversationOut])
@@ -331,6 +400,7 @@ async def reply_to_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
     whatsapp_connection: WhatsAppConnection | None = None
     telegram_target: tuple[ChannelConnection, str] | None = None
+    instagram_target: tuple[ChannelConnection, str] | None = None
     if conversation.channel == Channel.WHATSAPP:
         if not conversation.visitor_id or not conversation.visitor_id.isdigit():
             raise HTTPException(status_code=409, detail="WhatsApp recipient is unavailable")
@@ -389,6 +459,12 @@ async def reply_to_conversation(
             principal,
             conversation,
         )
+        if telegram_target is None:
+            instagram_target = await _instagram_connection_for_conversation(
+                session,
+                principal,
+                conversation,
+            )
     sequence = int(
         await session.scalar(
             select(func.coalesce(func.max(Message.sequence), 0)).where(
@@ -398,7 +474,9 @@ async def reply_to_conversation(
         )
         or 0
     )
-    queued_external = whatsapp_connection is not None or telegram_target is not None
+    queued_external = (
+        whatsapp_connection is not None or telegram_target is not None or instagram_target is not None
+    )
     message = Message(
         tenant_id=principal.tenant_id,
         workspace_id=conversation.workspace_id,
@@ -413,6 +491,7 @@ async def reply_to_conversation(
     await session.flush()
     delivery: WhatsAppOutboundDelivery | None = None
     telegram_delivery: ChannelOutboundDelivery | None = None
+    instagram_delivery: ChannelOutboundDelivery | None = None
     if whatsapp_connection:
         delivery = WhatsAppOutboundDelivery(
             tenant_id=principal.tenant_id,
@@ -437,6 +516,19 @@ async def reply_to_conversation(
             status="queued",
         )
         session.add(telegram_delivery)
+        await session.flush()
+    elif instagram_target:
+        instagram_connection, recipient_id = instagram_target
+        instagram_delivery = ChannelOutboundDelivery(
+            tenant_id=principal.tenant_id,
+            workspace_id=conversation.workspace_id,
+            connection_id=instagram_connection.id,
+            message_id=message.id,
+            provider=ChannelProvider.INSTAGRAM.value,
+            recipient_external_id=recipient_id,
+            status="queued",
+        )
+        session.add(instagram_delivery)
         await session.flush()
     enqueue_event(
         session,
@@ -491,6 +583,25 @@ async def reply_to_conversation(
             telegram_delivery.status = "failed"
             telegram_delivery.next_dispatch_at = datetime.now(UTC)
             telegram_delivery.last_error = "queue dispatch unavailable"
+        await session.commit()
+    elif instagram_delivery:
+        try:
+            await asyncio.to_thread(
+                send_instagram_message.apply_async,
+                args=[str(instagram_delivery.id)],
+                queue="instagram.outbound",
+                routing_key="instagram.outbound",
+            )
+            instagram_delivery.dispatch_attempts += 1
+            instagram_delivery.dispatched_at = datetime.now(UTC)
+            instagram_delivery.next_dispatch_at = datetime.now(UTC) + timedelta(minutes=5)
+            instagram_delivery.last_error = None
+        except Exception:
+            # The durable dispatcher will retry this database-backed delivery.
+            instagram_delivery.dispatch_attempts += 1
+            instagram_delivery.status = "failed"
+            instagram_delivery.next_dispatch_at = datetime.now(UTC)
+            instagram_delivery.last_error = "queue dispatch unavailable"
         await session.commit()
     await session.refresh(message)
     return MessageOut(
