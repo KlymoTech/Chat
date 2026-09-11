@@ -149,6 +149,32 @@ export interface AnalyticsSummary {
   chart: Array<{ label: string; conversations: number; resolved: number }>;
   topQuestions: Array<{ question: string; count: number; resolutionRate: number }>;
   channels: Array<{ channel: string; value: number }>;
+  agents: {
+    total: number;
+    active: number;
+    support: number;
+    leadGeneration: number;
+    education: number;
+  };
+  leads: {
+    created: number;
+    qualified: number;
+    converted: number;
+    qualificationRate: number;
+    conversionRate: number;
+  };
+  crm: {
+    deliveries: number;
+    verified: number;
+    failed: number;
+    successRate: number;
+  };
+  education: {
+    students: number;
+    activeEnrollments: number;
+    conversations: number;
+    activityEvents: number;
+  };
 }
 
 export interface Integration {
