@@ -124,4 +124,12 @@ describe('WorkspaceAPIKeysPanel', () => {
     expect(screen.queryByRole('button', { name: 'Create secret key' })).not.toBeInTheDocument();
     expect(mocks.list).not.toHaveBeenCalled();
   });
+
+  it('keeps the existing demo/offline capability when permission metadata is absent', async () => {
+    render(<WorkspaceAPIKeysPanel workspace={{ ...workspace, permissions: undefined }} />);
+
+    expect(await screen.findByText('Production 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create secret key' })).toBeInTheDocument();
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
 });
