@@ -58,8 +58,6 @@ def _error_from_response(response: httpx.Response) -> InstagramAPIError:
                 meta_code = None
             supplied = error.get("message")
             if isinstance(supplied, str) and supplied.strip():
-                # Provider messages can include request context but must never be
-                # allowed to echo credentials from our request URL/body.
                 message = supplied[:500]
     reconnect = status in {401, 403} or meta_code in {102, 190}
     retryable = status == 429 or status >= 500 or meta_code in {1, 2, 4, 17, 32, 613}
@@ -76,11 +74,14 @@ class InstagramMessagingClient:
     def __init__(self, *, timeout_seconds: float = 15.0) -> None:
         self.timeout_seconds = timeout_seconds
 
-    def _base(self) -> str:
-        settings = get_settings()
-        return settings.instagram_graph_base_url.rstrip("/")
+    @staticmethod
+    def _base() -> str:
+        # The Instagram Login messaging surface is intentionally separate from
+        # the Facebook Graph host used by the WhatsApp integration.
+        return "https://graph.instagram.com"
 
-    def _version(self) -> str:
+    @staticmethod
+    def _version() -> str:
         return get_settings().meta_graph_api_version.strip("/")
 
     async def account_identity(self, access_token: str, instagram_user_id: str) -> dict[str, Any]:
@@ -116,10 +117,7 @@ class InstagramMessagingClient:
         if not text.strip():
             raise InstagramAPIError("Instagram message text is empty")
         url = f"{self._base()}/{self._version()}/{instagram_user_id}/messages"
-        body = {
-            "recipient": {"id": recipient_id},
-            "message": {"text": text},
-        }
+        body = {"recipient": {"id": recipient_id}, "message": {"text": text}}
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
