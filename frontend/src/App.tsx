@@ -10,6 +10,7 @@ import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
 import { DeployPage } from '@/pages/DeployPage';
 import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage';
+import { EducationAccessRequestsPage } from '@/pages/EducationAccessRequestsPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
 import { IntegrationsPage } from '@/pages/IntegrationsPage';
 import { HelpArticlePage } from '@/pages/HelpArticlePage';
@@ -60,6 +61,7 @@ export function App() {
       <Route path="education/courses" element={<CoursesPage />} />
       <Route path="education/batches" element={<BatchesPage />} />
       <Route path="education/students" element={<StudentsPage />} />
+      <Route path="education/access-requests" element={<EducationAccessRequestsPage />} />
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
