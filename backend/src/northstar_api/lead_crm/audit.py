@@ -47,6 +47,15 @@ _SENSITIVE_KEYS = {
     "codeverifier",
     "twostepverificationpin",
 }
+_SENSITIVE_SUFFIXES = (
+    "password",
+    "secret",
+    "token",
+    "authorization",
+    "cookie",
+    "apikey",
+    "codeverifier",
+)
 _REDACTED = "[REDACTED]"
 
 
@@ -54,11 +63,16 @@ def _key_id(value: object) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value).lower())
 
 
+def _sensitive_key(value: object) -> bool:
+    key = _key_id(value)
+    return key in _SENSITIVE_KEYS or key.endswith(_SENSITIVE_SUFFIXES)
+
+
 def redact_audit_payload(value: Any) -> Any:
     """Recursively redact secrets before durable storage and before API output."""
     if isinstance(value, dict):
         return {
-            str(key): (_REDACTED if _key_id(key) in _SENSITIVE_KEYS else redact_audit_payload(item))
+            str(key): (_REDACTED if _sensitive_key(key) else redact_audit_payload(item))
             for key, item in value.items()
         }
     if isinstance(value, list):
