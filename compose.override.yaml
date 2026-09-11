@@ -26,3 +26,11 @@ services:
     command: ["python", "-m", "northstar_api.workers.notification_consumer"]
     environment:
       OTEL_SERVICE_NAME: northstar-notification-consumer
+
+  instagram-outbound-consumer:
+    extends:
+      file: compose.yaml
+      service: analytics-consumer
+    command: ["python", "-m", "northstar_api.workers.instagram_outbound_consumer"]
+    environment:
+      OTEL_SERVICE_NAME: northstar-instagram-outbound-consumer
