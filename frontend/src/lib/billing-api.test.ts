@@ -89,6 +89,47 @@ describe('billingApi', () => {
     }));
   });
 
+  it('cancels and reactivates only through authenticated backend mutations', async () => {
+    const cancelled = {
+      ...subscription,
+      status: 'cancelled',
+      cancelledAt: '2026-09-11T12:00:00Z',
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(cancelled));
+
+    await expect(billingApi.cancelSubscription()).resolves.toEqual(cancelled);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/cancel', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ confirmation: 'CANCEL' }),
+      headers: expect.objectContaining({
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer session-token',
+        'X-Workspace-ID': 'workspace-1',
+      }),
+    }));
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(subscription));
+    await expect(billingApi.reactivateSubscription()).resolves.toEqual(subscription);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/reactivate', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer session-token',
+        'X-Workspace-ID': 'workspace-1',
+      }),
+    }));
+  });
+
+  it('never invents a successful billing mutation when the backend rejects or is offline', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Provider workflow required' } }, 409));
+    await expect(billingApi.cancelSubscription()).rejects.toThrow('Provider workflow required');
+
+    fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    await expect(billingApi.reactivateSubscription()).rejects.toThrow('Network unavailable');
+  });
+
   it('does not hide authorization errors behind demo billing state', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Insufficient permission' } }, 403));
     await expect(billingApi.getSubscription('starter')).rejects.toThrow('Insufficient permission');
