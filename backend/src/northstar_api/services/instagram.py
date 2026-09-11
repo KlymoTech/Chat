@@ -89,7 +89,11 @@ class InstagramMessagingClient:
         except ValueError:
             retry_after = None
         reconnect = response.status_code in {401, 403} or code == 190
-        retryable = response.status_code == 429 or response.status_code >= 500 or code in {4, 17, 32, 613}
+        retryable = (
+            response.status_code == 429
+            or response.status_code >= 500
+            or code in {4, 17, 32, 613}
+        )
         raise InstagramAPIError(
             message,
             status_code=response.status_code,
@@ -110,12 +114,16 @@ class InstagramMessagingClient:
         self,
         access_token: str,
         *,
+        sender_account_id: str,
         recipient_id: str,
         text: str,
         api_version: str,
     ) -> str:
+        sender = sender_account_id.strip()
         recipient = recipient_id.strip()
         message = text.strip()
+        if not sender:
+            raise InstagramAPIError("Instagram professional account ID is not configured")
         if not recipient:
             raise InstagramAPIError("Instagram recipient is unavailable")
         if not message:
@@ -123,13 +131,15 @@ class InstagramMessagingClient:
         version = normalize_instagram_api_version(api_version)
         result = await self._request(
             "POST",
-            f"{version}/me/messages",
+            f"{version}/{sender}/messages",
             access_token=access_token,
             json={"recipient": {"id": recipient}, "message": {"text": message}},
         )
         message_id = result.get("message_id")
         if message_id is None:
-            raise InstagramAPIError("Instagram accepted the request without returning a message ID")
+            raise InstagramAPIError(
+                "Instagram accepted the request without returning a message ID"
+            )
         return str(message_id)
 
 
