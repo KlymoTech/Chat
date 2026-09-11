@@ -26,6 +26,7 @@ from northstar_api.routers import (
     knowledge,
     leads,
     mfa,
+    notifications,
     password_reset,
     qualification,
     whatsapp,
@@ -64,6 +65,7 @@ api_router.include_router(analytics.router)
 # Preserve the historical integration audit endpoint and add the broader SaaS audit API.
 api_router.include_router(integration_audit.router)
 api_router.include_router(integration_audit.audit_router)
+api_router.include_router(notifications.router)
 api_router.include_router(integrations.router)
 api_router.include_router(help.router)
 api_router.include_router(widget.router)
