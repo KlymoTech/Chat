@@ -85,10 +85,13 @@ def upgrade() -> None:
     for tenant_id, plan in tenants:
         if tenant_id in existing_tenant_ids:
             continue
+        normalized_tenant_id = (
+            tenant_id if isinstance(tenant_id, uuid.UUID) else uuid.UUID(str(tenant_id))
+        )
         bind.execute(
             subscription_table.insert().values(
                 id=uuid.uuid4(),
-                tenant_id=tenant_id,
+                tenant_id=normalized_tenant_id,
                 plan=(plan or "starter").strip().lower(),
                 status="active",
                 cancel_at_period_end=False,
