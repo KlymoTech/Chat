@@ -1,0 +1,135 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import { EducationStudentImportPage } from '@/pages/EducationStudentImportPage';
+
+const mocks = vi.hoisted(() => ({
+  preview: vi.fn(),
+  commit: vi.fn(),
+  pushToast: vi.fn(),
+}));
+
+vi.mock('@/components/providers', () => ({
+  useToast: () => ({ pushToast: mocks.pushToast }),
+}));
+
+vi.mock('@/lib/education-student-import-api', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/education-student-import-api')>('@/lib/education-student-import-api');
+  return {
+    ...actual,
+    educationStudentImportApi: {
+      preview: mocks.preview,
+      commit: mocks.commit,
+    },
+  };
+});
+
+const validPreview = {
+  totalRows: 1,
+  validRows: 1,
+  invalidRows: 0,
+  rows: [{
+    rowNumber: 1,
+    valid: true,
+    errors: [],
+    warnings: [],
+    row: {
+      studentNumber: 'STUDENT-001',
+      name: 'Asha Verma',
+      email: 'asha@example.com',
+      identityType: null,
+      identifier: null,
+      identityVerified: false,
+      courseCode: null,
+      batchCode: null,
+      agentPublicId: null,
+      enrollmentStatus: 'active',
+      startsOn: null,
+      endsOn: null,
+      customFields: {},
+    },
+  }],
+};
+
+function renderPage() {
+  return render(<MemoryRouter><EducationStudentImportPage /></MemoryRouter>);
+}
+
+describe('EducationStudentImportPage', () => {
+  beforeEach(() => {
+    mocks.preview.mockResolvedValue(validPreview);
+    mocks.commit.mockResolvedValue({
+      committed: true,
+      preview: validPreview,
+      result: { createdStudents: 1, createdIdentities: 0, createdEnrollments: 0 },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('parses pasted spreadsheet data and requests server preview', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const textarea = screen.getByLabelText('Student import data');
+    await user.clear(textarea);
+    await user.type(textarea, 'student_id\tname\temail{enter}STUDENT-001\tAsha Verma\tasha@example.com');
+    await user.click(screen.getByRole('button', { name: /preview import/i }));
+
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalledTimes(1));
+    expect(mocks.preview.mock.calls[0]?.[0]).toEqual([expect.objectContaining({
+      studentNumber: 'STUDENT-001',
+      name: 'Asha Verma',
+      email: 'asha@example.com',
+    })]);
+    expect(await screen.findByText('Server validation preview')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /commit import/i })).toBeEnabled();
+  });
+
+  it('blocks commit when the server reports invalid rows', async () => {
+    const user = userEvent.setup();
+    mocks.preview.mockResolvedValue({
+      ...validPreview,
+      validRows: 0,
+      invalidRows: 1,
+      rows: [{
+        ...validPreview.rows[0],
+        valid: false,
+        errors: ['Student ID already exists in this workspace'],
+      }],
+    });
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /preview import/i }));
+
+    expect(await screen.findByText('Student ID already exists in this workspace')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /commit import/i })).toBeDisabled();
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a successful preview when source data changes', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /preview import/i }));
+    expect(await screen.findByText('Server validation preview')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /commit import/i })).toBeEnabled();
+
+    await user.type(screen.getByLabelText('Student import data'), ' ');
+    expect(screen.queryByText('Server validation preview')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /commit import/i })).toBeDisabled();
+  });
+
+  it('commits exactly the rows from the latest valid preview', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /preview import/i }));
+    await screen.findByText('Server validation preview');
+    await user.click(screen.getByRole('button', { name: /commit import/i }));
+
+    await waitFor(() => expect(mocks.commit).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Import completed')).toBeInTheDocument();
+    expect(screen.getByText(/1 Students, 0 identities and 0 enrollments/i)).toBeInTheDocument();
+  });
+});
