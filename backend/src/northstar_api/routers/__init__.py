@@ -30,6 +30,7 @@ from northstar_api.routers import (
     password_reset,
     platform_admin,
     qualification,
+    slack_webhooks,
     whatsapp,
     widget,
     workspace,
@@ -61,6 +62,8 @@ api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
+# Slack's URL-verification path must precede the provider-parameterized route.
+api_router.include_router(slack_webhooks.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
 # Preserve the historical integration audit endpoint and add the broader SaaS audit API.
