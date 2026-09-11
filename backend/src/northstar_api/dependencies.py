@@ -35,7 +35,6 @@ from northstar_api.services.workspace_api_keys import find_active_workspace_api_
 
 bearer = HTTPBearer(auto_error=False)
 DBSession = Annotated[AsyncSession, Depends(get_session)]
-_API_KEY_ALLOWED_PERMISSIONS = WORKSPACE_ROLE_PERMISSIONS[WorkspaceRole.MANAGER]
 
 
 async def get_current_principal(
@@ -114,22 +113,24 @@ async def authenticate_api_key(
     api_key.last_used_at = datetime.now(UTC)
     await session.commit()
     await set_tenant_context(session, api_key.tenant_id)
-    creator_permissions = (
-        TENANT_ROLE_PERMISSIONS[tenant_membership.role]
-        | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
+
+    # API keys are workspace service credentials, not tenant administrator sessions.
+    # They are capped to the creator's workspace role, with workspace_admin reduced
+    # to manager-level capabilities so a leaked server credential cannot mutate
+    # tenant membership, billing, security policy, workspace settings, or other keys.
+    service_workspace_role = (
+        WorkspaceRole.MANAGER
+        if workspace_membership.role == WorkspaceRole.ADMIN
+        else workspace_membership.role
     )
-    permissions = (
-        _API_KEY_ALLOWED_PERMISSIONS
-        if "*" in creator_permissions
-        else creator_permissions & _API_KEY_ALLOWED_PERMISSIONS
-    )
+    permissions = WORKSPACE_ROLE_PERMISSIONS[service_workspace_role]
     return Principal(
         user_id=api_key.created_by_user_id,
         tenant_id=api_key.tenant_id,
-        role=tenant_membership.role,
+        role=Role.MEMBER,
         token_id=f"api_key:{api_key.id}",
         workspace_id=api_key.workspace_id,
-        workspace_role=workspace_membership.role,
+        workspace_role=service_workspace_role,
         permissions=permissions,
         agent_ids=await _agent_scope(session, workspace_membership, api_key.created_by_user_id),
     )
