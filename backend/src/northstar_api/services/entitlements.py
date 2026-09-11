@@ -13,6 +13,7 @@ from northstar_api.entitlements import PlanEntitlement, entitlement_for_plan
 from northstar_api.models import (
     Agent,
     Conversation,
+    DocumentChunk,
     KnowledgeSource,
     Message,
     Tenant,
@@ -136,12 +137,26 @@ async def entitlement_usage(session: AsyncSession, *, tenant_id: UUID) -> Entitl
         )
         or 0
     )
-    sources = list(
+    chunk_contents = list(
         await session.scalars(
-            select(KnowledgeSource).where(KnowledgeSource.tenant_id == tenant_id)
+            select(DocumentChunk.content).where(DocumentChunk.tenant_id == tenant_id)
         )
     )
-    storage_bytes = sum(_stored_source_bytes(source) for source in sources)
+    pending_sources = list(
+        await session.scalars(
+            select(KnowledgeSource).where(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.chunk_count == 0,
+            )
+        )
+    )
+    # Ongoing storage represents indexed knowledge. Before a source is chunked,
+    # its source content/known upload label is counted so concurrent uploads do
+    # not temporarily disappear from usage. Once chunked, stored chunk bytes are
+    # the authoritative searchable footprint already retained by Northstar.
+    storage_bytes = sum(len(content.encode("utf-8")) for content in chunk_contents) + sum(
+        _stored_source_bytes(source) for source in pending_sources
+    )
     return EntitlementUsage(
         workspaces=workspaces,
         agents=agents,
