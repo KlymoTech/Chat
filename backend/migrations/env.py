@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from northstar_api import (
     agent_purpose,  # noqa: F401
     education,  # noqa: F401
+    education_access_recovery,  # noqa: F401
     education_batches,  # noqa: F401
     education_conversation_context,  # noqa: F401
     education_enrollments,  # noqa: F401
