@@ -49,15 +49,17 @@ async def validate_student_import(
     workspace_id: UUID,
     rows: list[StudentImportRow],
 ) -> tuple[StudentImportPreview, list[ResolvedStudentImportRow]]:
-    existing_student_numbers = set(
-        await session.scalars(
-            select(EducationStudent.student_number).where(
+    existing_students = (
+        await session.execute(
+            select(EducationStudent.student_number, EducationStudent.email).where(
                 EducationStudent.tenant_id == tenant_id,
                 EducationStudent.workspace_id == workspace_id,
             )
         )
-    )
-    existing_identity_keys = set(
+    ).all()
+    existing_student_numbers = {student_number for student_number, _ in existing_students}
+    existing_emails = {email.lower() for _, email in existing_students if email}
+    existing_identity_rows = (
         await session.execute(
             select(
                 EducationStudentIdentity.identity_type,
@@ -67,7 +69,11 @@ async def validate_student_import(
                 EducationStudentIdentity.workspace_id == workspace_id,
             )
         )
-    )
+    ).all()
+    existing_identity_keys = {
+        (identity_type, normalized_identifier)
+        for identity_type, normalized_identifier in existing_identity_rows
+    }
     courses = {
         course.code: course
         for course in (
@@ -104,6 +110,7 @@ async def validate_student_import(
     }
 
     student_counts = Counter(row.student_number for row in rows)
+    email_counts = Counter(str(row.email).lower() for row in rows if row.email is not None)
     normalized_identities: list[str | None] = []
     identity_keys: list[tuple[str, str] | None] = []
     for row in rows:
@@ -137,6 +144,13 @@ async def validate_student_import(
             errors.append("Student ID is duplicated inside this import")
         if row.student_number in existing_student_numbers:
             errors.append("Student ID already exists in this workspace")
+
+        if row.email is not None:
+            normalized_email = str(row.email).lower()
+            if email_counts[normalized_email] > 1:
+                warnings.append("Email is shared by multiple rows in this import")
+            if normalized_email in existing_emails:
+                warnings.append("Email is already used by another Student in this workspace")
 
         if row.identity_type is not None:
             if normalized_identifier is None:
@@ -193,14 +207,19 @@ async def validate_student_import(
                 else:
                     agent_id = agent.id
 
-            today = datetime.now(UTC).date()
             if batch is not None:
-                if batch.starts_on is not None and today < batch.starts_on:
-                    errors.append("Batch has not started yet")
-                if batch.ends_on is not None and today > batch.ends_on:
-                    errors.append("Batch has already ended")
-            if row.starts_on is not None and row.ends_on is not None and row.ends_on < row.starts_on:
-                errors.append("Enrollment end date cannot be before start date")
+                if row.starts_on is not None and batch.starts_on is not None:
+                    if row.starts_on < batch.starts_on:
+                        errors.append("Enrollment cannot start before the Batch starts")
+                if row.ends_on is not None and batch.ends_on is not None:
+                    if row.ends_on > batch.ends_on:
+                        errors.append("Enrollment cannot end after the Batch ends")
+                if row.starts_on is not None and batch.ends_on is not None:
+                    if row.starts_on > batch.ends_on:
+                        errors.append("Enrollment cannot start after the Batch ends")
+                if row.ends_on is not None and batch.starts_on is not None:
+                    if row.ends_on < batch.starts_on:
+                        errors.append("Enrollment cannot end before the Batch starts")
         else:
             warnings.append("Student will be created without an Enrollment")
 
