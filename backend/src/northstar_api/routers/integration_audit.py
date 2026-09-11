@@ -16,6 +16,7 @@ from northstar_api.database import get_session
 from northstar_api.dependencies import AdminPrincipal, require_permissions
 from northstar_api.lead_crm.audit import redact_audit_payload
 from northstar_api.lead_crm.audit_models import IntegrationAuditEvent
+from northstar_api.models import Role
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 
@@ -41,6 +42,7 @@ AuditCategory = Literal[
 ]
 AuditSeverity = Literal["info", "warning", "critical"]
 AuditOutcome = Literal["success", "denied", "failure"]
+_TENANT_AUDIT_ROLES = frozenset({Role.OWNER, Role.ADMIN, Role.SECURITY_ADMIN})
 
 
 class IntegrationAuditOut(BaseModel):
@@ -152,12 +154,12 @@ def _scoped_query(
 ) -> Select[tuple[IntegrationAuditEvent]]:
     query = select(IntegrationAuditEvent).where(IntegrationAuditEvent.tenant_id == principal.tenant_id)
     if principal.workspace_id is not None:
-        query = query.where(
-            or_(
-                IntegrationAuditEvent.workspace_id == principal.workspace_id,
-                IntegrationAuditEvent.workspace_id.is_(None),
-            )
-        )
+        workspace_clause = IntegrationAuditEvent.workspace_id == principal.workspace_id
+        # Legacy/tenant-wide rows have no workspace_id. Only tenant security roles
+        # may inspect those rows; a workspace-only admin remains strictly scoped.
+        if principal.role in _TENANT_AUDIT_ROLES:
+            workspace_clause = or_(workspace_clause, IntegrationAuditEvent.workspace_id.is_(None))
+        query = query.where(workspace_clause)
     if category:
         query = query.where(IntegrationAuditEvent.category == category)
     if severity:
