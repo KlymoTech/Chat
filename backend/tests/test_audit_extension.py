@@ -133,7 +133,7 @@ async def test_audit_export_is_csv_safe_and_api_keys_cannot_view_audit(
     auth_headers: dict[str, str],
 ) -> None:
     tenant_id, workspace_id = await _workspace_scope(client, auth_headers)
-    formula_id = f"=2+2-{uuid4().hex}"
+    formula_id = f"=cmd-{uuid4().hex}"
     async with SessionFactory() as session:
         record_audit_event(
             session,
