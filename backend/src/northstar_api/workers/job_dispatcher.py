@@ -18,7 +18,7 @@ from northstar_api.models import (
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
-from northstar_api.workers.meta_messaging_tasks import send_meta_message
+from northstar_api.workers.facebook_messenger_tasks import send_facebook_messenger_message
 from northstar_api.workers.instagram_tasks import send_instagram_message
 from northstar_api.workers.tasks import (
     ingest_source,
@@ -31,9 +31,8 @@ settings = get_settings()
 configure_logging(settings)
 logger = structlog.get_logger(__name__)
 TELEGRAM_DISPATCH_MAX_ATTEMPTS = 8
-META_DISPATCH_MAX_ATTEMPTS = 8
-META_OUTBOUND_PROVIDERS = ("facebook_messenger",)
 INSTAGRAM_DISPATCH_MAX_ATTEMPTS = 8
+MESSENGER_DISPATCH_MAX_ATTEMPTS = 8
 
 
 def whatsapp_dispatch_failure_state(
@@ -110,9 +109,9 @@ async def dispatch_forever() -> None:
                 await session.execute(
                     update(ChannelOutboundDelivery)
                     .where(
-                        ChannelOutboundDelivery.provider.in_(META_OUTBOUND_PROVIDERS),
+                        ChannelOutboundDelivery.provider == "instagram",
                         ChannelOutboundDelivery.status.in_(("queued", "failed")),
-                        ChannelOutboundDelivery.dispatch_attempts >= META_DISPATCH_MAX_ATTEMPTS,
+                        ChannelOutboundDelivery.dispatch_attempts >= INSTAGRAM_DISPATCH_MAX_ATTEMPTS,
                         or_(
                             ChannelOutboundDelivery.next_dispatch_at.is_(None),
                             ChannelOutboundDelivery.next_dispatch_at <= now,
@@ -123,9 +122,9 @@ async def dispatch_forever() -> None:
                 await session.execute(
                     update(ChannelOutboundDelivery)
                     .where(
-                        ChannelOutboundDelivery.provider == "instagram",
+                        ChannelOutboundDelivery.provider == "facebook_messenger",
                         ChannelOutboundDelivery.status.in_(("queued", "failed")),
-                        ChannelOutboundDelivery.dispatch_attempts >= INSTAGRAM_DISPATCH_MAX_ATTEMPTS,
+                        ChannelOutboundDelivery.dispatch_attempts >= MESSENGER_DISPATCH_MAX_ATTEMPTS,
                         or_(
                             ChannelOutboundDelivery.next_dispatch_at.is_(None),
                             ChannelOutboundDelivery.next_dispatch_at <= now,
@@ -324,56 +323,6 @@ async def dispatch_forever() -> None:
                             error=type(exc).__name__,
                             retry_in=delay,
                         )
-                meta_deliveries = (
-                    await session.scalars(
-                        select(ChannelOutboundDelivery)
-                        .where(
-                            ChannelOutboundDelivery.provider.in_(META_OUTBOUND_PROVIDERS),
-                            ChannelOutboundDelivery.status.in_(("queued", "failed")),
-                            ChannelOutboundDelivery.dispatch_attempts < META_DISPATCH_MAX_ATTEMPTS,
-                            or_(
-                                ChannelOutboundDelivery.next_dispatch_at.is_(None),
-                                ChannelOutboundDelivery.next_dispatch_at <= now,
-                            ),
-                        )
-                        .order_by(ChannelOutboundDelivery.created_at)
-                        .with_for_update(skip_locked=True)
-                        .limit(50)
-                    )
-                ).all()
-                for delivery in meta_deliveries:
-                    try:
-                        await asyncio.to_thread(
-                            send_meta_message.apply_async,
-                            args=[str(delivery.id)],
-                            queue="meta.outbound",
-                            routing_key="meta.outbound",
-                            retry=True,
-                        )
-                        delivery.status = "queued"
-                        delivery.dispatched_at = now
-                        delivery.dispatch_attempts += 1
-                        delivery.next_dispatch_at = now + timedelta(minutes=5)
-                        delivery.last_error = None
-                        dispatched += 1
-                    except Exception as exc:
-                        (
-                            delivery.dispatch_attempts,
-                            delivery.status,
-                            delivery.next_dispatch_at,
-                            delay,
-                        ) = whatsapp_dispatch_failure_state(
-                            delivery.dispatch_attempts,
-                            META_DISPATCH_MAX_ATTEMPTS,
-                            now,
-                        )
-                        delivery.last_error = "queue dispatch unavailable"
-                        logger.warning(
-                            "meta_outbound_dispatch_failed",
-                            delivery_id=str(delivery.id),
-                            error=type(exc).__name__,
-                            retry_in=delay,
-                        )
                 instagram_deliveries = (
                     await session.scalars(
                         select(ChannelOutboundDelivery)
@@ -420,6 +369,56 @@ async def dispatch_forever() -> None:
                         delivery.last_error = "queue dispatch unavailable"
                         logger.warning(
                             "instagram_outbound_dispatch_failed",
+                            delivery_id=str(delivery.id),
+                            error=type(exc).__name__,
+                            retry_in=delay,
+                        )
+                messenger_deliveries = (
+                    await session.scalars(
+                        select(ChannelOutboundDelivery)
+                        .where(
+                            ChannelOutboundDelivery.provider == "facebook_messenger",
+                            ChannelOutboundDelivery.status.in_(("queued", "failed")),
+                            ChannelOutboundDelivery.dispatch_attempts < MESSENGER_DISPATCH_MAX_ATTEMPTS,
+                            or_(
+                                ChannelOutboundDelivery.next_dispatch_at.is_(None),
+                                ChannelOutboundDelivery.next_dispatch_at <= now,
+                            ),
+                        )
+                        .order_by(ChannelOutboundDelivery.created_at)
+                        .with_for_update(skip_locked=True)
+                        .limit(50)
+                    )
+                ).all()
+                for delivery in messenger_deliveries:
+                    try:
+                        await asyncio.to_thread(
+                            send_facebook_messenger_message.apply_async,
+                            args=[str(delivery.id)],
+                            queue="facebook_messenger.outbound",
+                            routing_key="facebook_messenger.outbound",
+                            retry=True,
+                        )
+                        delivery.status = "queued"
+                        delivery.dispatched_at = now
+                        delivery.dispatch_attempts += 1
+                        delivery.next_dispatch_at = now + timedelta(minutes=5)
+                        delivery.last_error = None
+                        dispatched += 1
+                    except Exception as exc:
+                        (
+                            delivery.dispatch_attempts,
+                            delivery.status,
+                            delivery.next_dispatch_at,
+                            delay,
+                        ) = whatsapp_dispatch_failure_state(
+                            delivery.dispatch_attempts,
+                            MESSENGER_DISPATCH_MAX_ATTEMPTS,
+                            now,
+                        )
+                        delivery.last_error = "queue dispatch unavailable"
+                        logger.warning(
+                            "facebook_messenger_outbound_dispatch_failed",
                             delivery_id=str(delivery.id),
                             error=type(exc).__name__,
                             retry_in=delay,

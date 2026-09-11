@@ -15,8 +15,8 @@ celery_app = Celery(
     include=[
         "northstar_api.workers.tasks",
         "northstar_api.workers.telegram_tasks",
-        "northstar_api.workers.meta_messaging_tasks",
         "northstar_api.workers.instagram_tasks",
+        "northstar_api.workers.facebook_messenger_tasks",
     ],
 )
 celery_app.conf.update(
@@ -89,22 +89,6 @@ celery_app.conf.update(
             durable=True,
         ),
         Queue(
-            "meta.outbound",
-            exchange=jobs_exchange,
-            routing_key="meta.outbound",
-            durable=True,
-            queue_arguments={
-                "x-dead-letter-exchange": dead_letter_exchange.name,
-                "x-dead-letter-routing-key": "meta.failed",
-            },
-        ),
-        Queue(
-            "meta.failed",
-            exchange=dead_letter_exchange,
-            routing_key="meta.failed",
-            durable=True,
-        ),
-        Queue(
             "instagram.outbound",
             exchange=jobs_exchange,
             routing_key="instagram.outbound",
@@ -118,6 +102,22 @@ celery_app.conf.update(
             "instagram.failed",
             exchange=dead_letter_exchange,
             routing_key="instagram.failed",
+            durable=True,
+        ),
+        Queue(
+            "facebook_messenger.outbound",
+            exchange=jobs_exchange,
+            routing_key="facebook_messenger.outbound",
+            durable=True,
+            queue_arguments={
+                "x-dead-letter-exchange": dead_letter_exchange.name,
+                "x-dead-letter-routing-key": "facebook_messenger.failed",
+            },
+        ),
+        Queue(
+            "facebook_messenger.failed",
+            exchange=dead_letter_exchange,
+            routing_key="facebook_messenger.failed",
             durable=True,
         ),
     ),
@@ -135,13 +135,13 @@ celery_app.conf.update(
             "queue": "telegram.outbound",
             "routing_key": "telegram.outbound",
         },
-        "northstar.send_meta_message": {
-            "queue": "meta.outbound",
-            "routing_key": "meta.outbound",
-        },
         "northstar.send_instagram_message": {
             "queue": "instagram.outbound",
             "routing_key": "instagram.outbound",
+        },
+        "northstar.send_facebook_messenger_message": {
+            "queue": "facebook_messenger.outbound",
+            "routing_key": "facebook_messenger.outbound",
         },
     },
 )
