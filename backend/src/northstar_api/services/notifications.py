@@ -30,11 +30,14 @@ async def create_notification(
     source_event_id: UUID | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> Notification:
+    normalized_dedupe_key = dedupe_key.strip()[:220]
+    if not normalized_dedupe_key:
+        raise ValueError("notification dedupe_key must not be empty")
     existing = await session.scalar(
         select(Notification).where(
             Notification.tenant_id == tenant_id,
             Notification.recipient_user_id == recipient_user_id,
-            Notification.dedupe_key == dedupe_key,
+            Notification.dedupe_key == normalized_dedupe_key,
         )
     )
     if existing is not None:
@@ -50,7 +53,7 @@ async def create_notification(
         body=body[:1000],
         action_url=action_url[:500] if action_url else None,
         action_label=action_label[:120] if action_label else None,
-        dedupe_key=dedupe_key[:220],
+        dedupe_key=normalized_dedupe_key,
         source_event_id=source_event_id,
         metadata_json=metadata or {},
     )
@@ -66,7 +69,7 @@ async def create_notification(
             select(Notification).where(
                 Notification.tenant_id == tenant_id,
                 Notification.recipient_user_id == recipient_user_id,
-                Notification.dedupe_key == dedupe_key,
+                Notification.dedupe_key == normalized_dedupe_key,
             )
         )
         if existing is None:
