@@ -54,6 +54,7 @@ class ChannelConnectionOut(BaseModel):
     name: str
     status: str
     configuration: dict[str, Any]
+    webhook_path: str
     last_health_at: datetime | None
     last_event_at: datetime | None
     last_failure_at: datetime | None
@@ -80,6 +81,9 @@ def _out(value: ChannelConnection, scope: WorkspaceChannelConnection) -> Channel
         name=value.name,
         status=value.status,
         configuration=value.configuration_json,
+        webhook_path=(
+            f"/api/v1/webhooks/channels/{value.tenant_id}/{value.provider}/{value.public_id}"
+        ),
         last_health_at=value.last_health_at,
         last_event_at=value.last_event_at,
         last_failure_at=value.last_failure_at,
