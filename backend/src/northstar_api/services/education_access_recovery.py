@@ -12,6 +12,7 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
@@ -157,13 +158,15 @@ async def issue_education_access_recovery(
 
     normalized_email = email.strip().lower()
     student = await session.scalar(
-        select(EducationStudent).where(
+        select(EducationStudent)
+        .where(
             EducationStudent.tenant_id == agent.tenant_id,
             EducationStudent.workspace_id == agent.workspace_id,
             EducationStudent.student_number == student_number,
             func.lower(EducationStudent.email) == normalized_email,
             EducationStudent.status == StudentStatus.ACTIVE.value,
         )
+        .with_for_update()
     )
     if student is None or not student.email:
         return None
@@ -180,6 +183,7 @@ async def issue_education_access_recovery(
 
     existing_identity = await session.scalar(
         select(EducationStudentIdentity).where(
+            EducationStudentIdentity.tenant_id == agent.tenant_id,
             EducationStudentIdentity.workspace_id == agent.workspace_id,
             EducationStudentIdentity.identity_type == identity_type.value,
             EducationStudentIdentity.normalized_identifier == normalized_identifier,
@@ -319,6 +323,7 @@ async def verify_education_access_recovery(
 
     identity = await session.scalar(
         select(EducationStudentIdentity).where(
+            EducationStudentIdentity.tenant_id == challenge.tenant_id,
             EducationStudentIdentity.workspace_id == challenge.workspace_id,
             EducationStudentIdentity.identity_type == challenge.identity_type,
             EducationStudentIdentity.normalized_identifier == challenge.normalized_identifier,
@@ -337,12 +342,14 @@ async def verify_education_access_recovery(
     if identity is None:
         has_other = await session.scalar(
             select(EducationStudentIdentity.id).where(
+                EducationStudentIdentity.tenant_id == challenge.tenant_id,
+                EducationStudentIdentity.workspace_id == challenge.workspace_id,
                 EducationStudentIdentity.student_id == challenge.student_id,
                 EducationStudentIdentity.identity_type == challenge.identity_type,
                 EducationStudentIdentity.status != StudentIdentityStatus.REVOKED.value,
             )
         )
-        identity = EducationStudentIdentity(
+        candidate = EducationStudentIdentity(
             tenant_id=challenge.tenant_id,
             workspace_id=challenge.workspace_id,
             student_id=challenge.student_id,
@@ -354,8 +361,36 @@ async def verify_education_access_recovery(
             is_primary=has_other is None,
             verified_at=now,
         )
-        session.add(identity)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(candidate)
+                await session.flush()
+            identity = candidate
+        except IntegrityError:
+            # Another verification may have claimed this unique workspace/type/identifier
+            # while this challenge was in flight. Re-read the winner and only continue
+            # when it belongs to this same Student; never turn a uniqueness race into
+            # an ownership bypass or an internal server error.
+            identity = await session.scalar(
+                select(EducationStudentIdentity).where(
+                    EducationStudentIdentity.tenant_id == challenge.tenant_id,
+                    EducationStudentIdentity.workspace_id == challenge.workspace_id,
+                    EducationStudentIdentity.identity_type == challenge.identity_type,
+                    EducationStudentIdentity.normalized_identifier == challenge.normalized_identifier,
+                )
+            )
+            if (
+                identity is None
+                or identity.student_id != challenge.student_id
+                or identity.status == StudentIdentityStatus.REVOKED.value
+            ):
+                challenge.consumed_at = now
+                raise EducationAccessRecoveryError("Verification code is invalid or expired") from None
+            already_verified = identity.status == StudentIdentityStatus.VERIFIED.value
+            if not already_verified:
+                identity.status = StudentIdentityStatus.VERIFIED.value
+                identity.verified_at = now
+                await session.flush()
     elif not already_verified:
         identity.status = StudentIdentityStatus.VERIFIED.value
         identity.verified_at = now
