@@ -2,11 +2,12 @@ import {
   BarChart3, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
   LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, ShieldCheck, Sparkles, UsersRound, X,
 } from 'lucide-react';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth, useToast, useWorkspace } from '@/components/providers';
+import { platformAdminApi } from '@/lib/platform-admin-api';
 
 const navigation = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
@@ -24,6 +25,7 @@ const navigation = [
 
 function pageTitle(pathname: string): string {
   if (pathname === '/') return 'Overview';
+  if (pathname.startsWith('/platform-admin')) return 'Platform Control Plane';
   if (pathname.startsWith('/workspace/white-label')) return 'White Label';
   if (pathname.startsWith('/workspace')) return 'Workspace';
   if (pathname.startsWith('/help')) return 'Help Center';
@@ -39,6 +41,7 @@ export function AppShell() {
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceSlug, setWorkspaceSlug] = useState('');
+  const [platformAdmin, setPlatformAdmin] = useState(false);
   const { session, logout } = useAuth();
   const { pushToast } = useToast();
   const { workspaces, activeWorkspace, loading, selectWorkspace, createWorkspace } = useWorkspace();
@@ -52,6 +55,19 @@ export function AppShell() {
     || activeWorkspace?.permissions?.includes('audit.view'),
   );
   const visibleNavigation = navigation.filter((item) => item.to !== '/audit' || canViewAudit);
+
+  useEffect(() => {
+    let active = true;
+    if (!session) {
+      setPlatformAdmin(false);
+      return () => { active = false; };
+    }
+    void platformAdminApi.canAccess()
+      .then((allowed) => { if (active) setPlatformAdmin(allowed); })
+      .catch(() => { if (active) setPlatformAdmin(false); });
+    return () => { active = false; };
+  }, [session?.accessToken, session?.user.email]);
+
   const submitWorkspace = async (event: FormEvent) => {
     event.preventDefault();
     const name = workspaceName.trim();
@@ -113,7 +129,7 @@ export function AppShell() {
           <NotificationBell />
           <div className="account-menu">
             <button className="account-button" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen}><span className="avatar">{initials}</span><span className="account-copy"><strong>{session?.user.name}</strong><small>{session?.user.role}</small></span><ChevronDown /></button>
-            {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div><Link to="/workspace" onClick={() => setAccountOpen(false)}><Settings2 />Workspace settings</Link><Link to="/help" onClick={() => setAccountOpen(false)}><CircleHelp />Help Center</Link><button onClick={() => void logout().then(() => navigate('/login'))}><LogOut />Sign out</button></div> : null}
+            {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div>{platformAdmin ? <Link to="/platform-admin" onClick={() => setAccountOpen(false)}><ShieldCheck />Platform control plane</Link> : null}<Link to="/workspace" onClick={() => setAccountOpen(false)}><Settings2 />Workspace settings</Link><Link to="/help" onClick={() => setAccountOpen(false)}><CircleHelp />Help Center</Link><button onClick={() => void logout().then(() => navigate('/login'))}><LogOut />Sign out</button></div> : null}
           </div>
         </div>
       </header>
