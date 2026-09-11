@@ -127,3 +127,9 @@ class StudentImportCommitResult(APIModel):
     created_students: int
     created_identities: int
     created_enrollments: int
+
+
+class StudentImportCommitResponse(APIModel):
+    committed: bool
+    preview: StudentImportPreview
+    result: StudentImportCommitResult | None = None
