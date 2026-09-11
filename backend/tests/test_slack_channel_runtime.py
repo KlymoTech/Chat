@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import httpx
@@ -115,7 +116,7 @@ async def test_slack_normalizes_threaded_messages_and_ignores_bot_messages() -> 
         _context(),
         payload=payload,
         correlation_id="corr-1",
-        received_at=httpx.Headers().__class__.__mro__[0] and __import__("datetime").datetime.now(__import__("datetime").UTC),
+        received_at=datetime.now(UTC),
     )
     assert len(values) == 1
     event = values[0]
@@ -132,7 +133,7 @@ async def test_slack_normalizes_threaded_messages_and_ignores_bot_messages() -> 
             _context(),
             payload=bot_payload,
             correlation_id="corr-2",
-            received_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+            received_at=datetime.now(UTC),
         )
         == []
     )
