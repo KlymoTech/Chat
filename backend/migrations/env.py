@@ -21,6 +21,7 @@ from northstar_api import (
     help_models,  # noqa: F401
     mfa,  # noqa: F401
     models,  # noqa: F401
+    notifications,  # noqa: F401
     password_reset,  # noqa: F401
     subscriptions,  # noqa: F401
     workspace_api_keys,  # noqa: F401
