@@ -5,7 +5,7 @@ import { activeWorkspaceId } from '@/lib/workspace-api';
 
 export type StudentEnrollmentStatus = 'pending' | 'active' | 'suspended' | 'expired' | 'revoked' | 'graduated';
 export type StudentAccessState = StudentEnrollmentStatus | 'scheduled';
-export type StudentConversationState = 'open' | 'waiting' | 'resolved';
+export type StudentConversationState = 'open' | 'resolved' | 'escalated';
 
 export interface StudentDetailIdentity {
   id: string;
