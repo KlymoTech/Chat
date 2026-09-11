@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
-from northstar_api.models import Tenant
+from northstar_api.models import Tenant, TenantMembership, User
 from northstar_api.services.subscriptions import set_subscription_state
 from northstar_api.subscriptions import SubscriptionStatus, TenantSubscription
 
@@ -120,3 +120,41 @@ async def test_subscription_lifecycle_states_and_legacy_plan_stay_in_sync(
             assert restored.past_due_at is None
             assert restored.suspended_at is None
             assert restored.cancelled_at is None
+
+
+async def test_self_service_signup_creates_starter_subscription_in_same_account_flow(
+    client: AsyncClient,
+) -> None:
+    seed = uuid4().hex[:10]
+    email = f"subscription-signup-{seed}@example.com"
+    response = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Subscription Owner",
+            "email": email,
+            "password": "Subscription-Password-2026!",
+            "organizationName": f"Subscription Organization {seed}",
+            "termsAccepted": True,
+            "privacyAccepted": True,
+        },
+    )
+    assert response.status_code == 201, response.text
+
+    async with SessionFactory() as session:
+        user = await session.scalar(select(User).where(User.email == email))
+        assert user is not None
+        membership = await session.scalar(
+            select(TenantMembership).where(TenantMembership.user_id == user.id)
+        )
+        assert membership is not None
+        subscription = await session.scalar(
+            select(TenantSubscription).where(
+                TenantSubscription.tenant_id == membership.tenant_id
+            )
+        )
+        assert subscription is not None
+        assert subscription.plan == "starter"
+        assert subscription.status is SubscriptionStatus.ACTIVE
+        tenant = await session.get(Tenant, membership.tenant_id)
+        assert tenant is not None
+        assert tenant.plan == subscription.plan
