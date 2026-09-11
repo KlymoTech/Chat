@@ -28,6 +28,7 @@ from northstar_api.routers import (
     mfa,
     notifications,
     password_reset,
+    platform_admin,
     qualification,
     whatsapp,
     widget,
@@ -77,3 +78,4 @@ api_router.include_router(workspace_invitations.router)
 api_router.include_router(workspace_invitations.public_router)
 api_router.include_router(workspace_api_keys.router)
 api_router.include_router(billing.router)
+api_router.include_router(platform_admin.router)
