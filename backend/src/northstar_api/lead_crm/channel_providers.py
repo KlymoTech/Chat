@@ -238,13 +238,22 @@ class TelegramConnector(ChannelConnector):
         ]
 
     async def health_check(self, context: ChannelConnectionContext) -> dict[str, str]:
-        return {
-            "status": (
-                "healthy"
-                if context.credentials.get("bot_token") and context.credentials.get("webhook_secret")
-                else "configuration_error"
-            )
-        }
+        bot_token = str(context.credentials.get("bot_token") or "")
+        webhook_secret = str(context.credentials.get("webhook_secret") or "")
+        if not bot_token or not webhook_secret:
+            return {"status": "configuration_error"}
+        from northstar_api.services.telegram import TelegramAPIError, telegram_client
+
+        try:
+            identity = await telegram_client.get_me(bot_token)
+        except TelegramAPIError as exc:
+            if exc.requires_reconnect:
+                return {"status": "auth_required"}
+            if exc.retryable:
+                return {"status": "unhealthy"}
+            return {"status": "configuration_error"}
+        username = str(identity.get("username") or "")
+        return {"status": "healthy", **({"username": username} if username else {})}
 
 
 class SignedAPIConnector(ChannelConnector):
