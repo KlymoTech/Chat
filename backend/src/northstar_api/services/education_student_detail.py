@@ -22,6 +22,7 @@ from northstar_api.education_student_detail_schemas import (
 from northstar_api.education_student_identities import (
     EducationStudentIdentity,
     StudentIdentityStatus,
+    StudentIdentityType,
 )
 from northstar_api.education_student_schemas import StudentOut
 from northstar_api.education_students import EducationStudent
@@ -85,10 +86,10 @@ async def get_student_detail(
     identities = [
         StudentDetailIdentityOut(
             id=value.id,
-            identity_type=value.identity_type,
+            identity_type=StudentIdentityType(value.identity_type),
             identifier=value.identifier,
             label=value.label,
-            status=value.status,
+            status=StudentIdentityStatus(value.status),
             is_primary=value.is_primary,
             verified_at=value.verified_at,
             created_at=value.created_at,
@@ -130,7 +131,7 @@ async def get_student_detail(
             agent_name=agent.name,
             starts_on=enrollment.starts_on,
             ends_on=enrollment.ends_on,
-            status=enrollment.status,
+            status=EnrollmentStatus(enrollment.status),
             access_state=enrollment_access_state(
                 enrollment.status,
                 enrollment.starts_on,
