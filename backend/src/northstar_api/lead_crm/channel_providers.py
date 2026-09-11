@@ -169,30 +169,55 @@ class MetaMessagingConnector(ChannelConnector):
         return output
 
     async def health_check(self, context: ChannelConnectionContext) -> dict[str, str]:
-        if self.provider != ChannelProvider.INSTAGRAM:
-            return await super().health_check(context)
-        access_token = str(context.credentials.get("access_token") or "")
-        app_secret = str(context.credentials.get("app_secret") or "")
-        verify_token = str(context.credentials.get("verify_token") or "")
-        account_id = str(context.configuration.get("instagramAccountId") or "")
-        if not access_token or not app_secret or not verify_token or not account_id:
-            return {"status": "configuration_error"}
-        from northstar_api.services.instagram import InstagramAPIError, instagram_client
+        if self.provider == ChannelProvider.INSTAGRAM:
+            access_token = str(context.credentials.get("access_token") or "")
+            app_secret = str(context.credentials.get("app_secret") or "")
+            verify_token = str(context.credentials.get("verify_token") or "")
+            account_id = str(context.configuration.get("instagramAccountId") or "")
+            if not access_token or not app_secret or not verify_token or not account_id:
+                return {"status": "configuration_error"}
+            from northstar_api.services.instagram import InstagramAPIError, instagram_client
 
-        try:
-            identity = await instagram_client.get_account(
-                access_token,
-                account_id=account_id,
-                api_version=context.configuration.get("apiVersion"),
-            )
-        except InstagramAPIError as exc:
-            if exc.requires_reconnect:
-                return {"status": "auth_required"}
-            if exc.retryable:
-                return {"status": "unhealthy"}
-            return {"status": "configuration_error"}
-        username = str(identity.get("username") or "")
-        return {"status": "healthy", **({"username": username} if username else {})}
+            try:
+                identity = await instagram_client.get_account(
+                    access_token,
+                    account_id=account_id,
+                    api_version=context.configuration.get("apiVersion"),
+                )
+            except InstagramAPIError as exc:
+                if exc.requires_reconnect:
+                    return {"status": "auth_required"}
+                if exc.retryable:
+                    return {"status": "unhealthy"}
+                return {"status": "configuration_error"}
+            username = str(identity.get("username") or "")
+            return {"status": "healthy", **({"username": username} if username else {})}
+
+        if self.provider == ChannelProvider.FACEBOOK_MESSENGER:
+            page_access_token = str(context.credentials.get("page_access_token") or "")
+            app_secret = str(context.credentials.get("app_secret") or "")
+            verify_token = str(context.credentials.get("verify_token") or "")
+            page_id = str(context.configuration.get("pageId") or "")
+            if not page_access_token or not app_secret or not verify_token or not page_id:
+                return {"status": "configuration_error"}
+            from northstar_api.services.facebook_messenger import MessengerAPIError, messenger_client
+
+            try:
+                identity = await messenger_client.get_page(
+                    page_access_token,
+                    page_id=page_id,
+                    api_version=context.configuration.get("apiVersion"),
+                )
+            except MessengerAPIError as exc:
+                if exc.requires_reconnect:
+                    return {"status": "auth_required"}
+                if exc.retryable:
+                    return {"status": "unhealthy"}
+                return {"status": "configuration_error"}
+            page_name = str(identity.get("name") or "")
+            return {"status": "healthy", **({"page": page_name} if page_name else {})}
+
+        return await super().health_check(context)
 
 
 class TelegramConnector(ChannelConnector):
