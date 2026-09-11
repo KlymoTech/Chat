@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.engine import Connection
 
 revision = "0030_audit_extension"
 down_revision = "0029_tenant_subscriptions"
@@ -15,11 +16,11 @@ branch_labels = None
 depends_on = None
 
 
-def _columns(bind: sa.Connection) -> set[str]:
+def _columns(bind: Connection) -> set[str]:
     return {column["name"] for column in sa.inspect(bind).get_columns("integration_audit_events")}
 
 
-def _indexes(bind: sa.Connection) -> set[str]:
+def _indexes(bind: Connection) -> set[str]:
     return {index["name"] for index in sa.inspect(bind).get_indexes("integration_audit_events")}
 
 
@@ -29,7 +30,7 @@ def upgrade() -> None:
         return
 
     columns = _columns(bind)
-    additions: list[sa.Column] = []
+    additions = []
     if "workspace_id" not in columns:
         additions.append(sa.Column("workspace_id", sa.Uuid(), nullable=True))
     if "category" not in columns:
