@@ -3,11 +3,22 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from northstar_api.database import SessionFactory
 from northstar_api.notifications import Notification
 from northstar_api.services.notifications import create_notification, project_notification_event
+
+
+async def _clear_user_notifications(tenant_id: UUID, user_id: UUID) -> None:
+    async with SessionFactory() as session:
+        await session.execute(
+            delete(Notification).where(
+                Notification.tenant_id == tenant_id,
+                Notification.recipient_user_id == user_id,
+            )
+        )
+        await session.commit()
 
 
 async def test_notification_inbox_is_scoped_deduplicated_and_readable(
@@ -21,6 +32,7 @@ async def test_notification_inbox_is_scoped_deduplicated_and_readable(
     workspace_id = UUID(workspace['id'])
     tenant_id = UUID(workspace['tenantId'])
     user_id = UUID(session_payload['user']['id'])
+    await _clear_user_notifications(tenant_id, user_id)
 
     secondary_response = await client.post(
         '/api/v1/workspaces',
@@ -126,6 +138,7 @@ async def test_notification_event_projection_targets_workspace_admins(
     workspace_id = UUID(workspace['id'])
     tenant_id = UUID(workspace['tenantId'])
     user_id = UUID(session_payload['user']['id'])
+    await _clear_user_notifications(tenant_id, user_id)
     event_id = uuid4()
 
     async with SessionFactory() as session:
@@ -155,10 +168,17 @@ async def test_notification_event_projection_targets_workspace_admins(
         assert values[0].workspace_id == workspace_id
 
 
-async def test_api_keys_cannot_open_human_notification_inbox(
+async def test_api_key_security_notifications_and_human_only_inbox(
     client: AsyncClient,
     auth_headers: dict[str, str],
+    session_payload: dict,
 ) -> None:
+    workspace_response = await client.get('/api/v1/workspace', headers=auth_headers)
+    workspace = workspace_response.json()
+    tenant_id = UUID(workspace['tenantId'])
+    user_id = UUID(session_payload['user']['id'])
+    await _clear_user_notifications(tenant_id, user_id)
+
     created = await client.post(
         '/api/v1/workspace/api-keys',
         headers=auth_headers,
@@ -166,6 +186,13 @@ async def test_api_keys_cannot_open_human_notification_inbox(
     )
     assert created.status_code == 201, created.text
     secret = created.json()['secret']
+    key_id = created.json()['id']
+
+    inbox = await client.get('/api/v1/notifications', headers=auth_headers)
+    assert inbox.status_code == 200, inbox.text
+    created_notice = next(item for item in inbox.json() if item['title'] == 'API key created')
+    assert created_notice['category'] == 'security'
+    assert created_notice['metadata']['apiKeyId'] == key_id
 
     denied = await client.get(
         '/api/v1/notifications',
@@ -173,3 +200,11 @@ async def test_api_keys_cannot_open_human_notification_inbox(
     )
     assert denied.status_code == 403, denied.text
     assert 'human notification inbox' in denied.json()['error']['message']
+
+    revoked = await client.delete(f'/api/v1/workspace/api-keys/{key_id}', headers=auth_headers)
+    assert revoked.status_code == 204, revoked.text
+    after_revoke = await client.get('/api/v1/notifications', headers=auth_headers)
+    assert after_revoke.status_code == 200, after_revoke.text
+    revoked_notice = next(item for item in after_revoke.json() if item['title'] == 'API key revoked')
+    assert revoked_notice['severity'] == 'warning'
+    assert revoked_notice['metadata']['apiKeyId'] == key_id
