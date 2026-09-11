@@ -46,6 +46,28 @@ def split_slack_text(text: str, limit: int = SLACK_TEXT_LIMIT) -> list[str]:
     return chunks
 
 
+def encode_slack_target(channel_id: str, thread_ts: str) -> str:
+    channel = channel_id.strip()
+    thread = thread_ts.strip()
+    if not channel or "|" in channel:
+        raise SlackAPIError("Slack channel ID is invalid")
+    if not thread or "|" in thread:
+        raise SlackAPIError("Slack thread timestamp is invalid")
+    return f"{channel}|{thread}"
+
+
+def decode_slack_target(value: str) -> tuple[str, str] | None:
+    channel, separator, thread_ts = value.strip().partition("|")
+    if not separator or not channel or not thread_ts:
+        return None
+    if not channel[0] in {"C", "D", "G"} or not channel[1:].isalnum():
+        return None
+    pieces = thread_ts.split(".", 1)
+    if len(pieces) != 2 or not all(piece.isdigit() for piece in pieces):
+        return None
+    return channel, thread_ts
+
+
 class SlackWebClient:
     def __init__(self, *, timeout_seconds: float = 10.0, api_base: str = SLACK_API_BASE) -> None:
         self.timeout_seconds = timeout_seconds
