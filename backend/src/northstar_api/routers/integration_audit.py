@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import AdminPrincipal, require_permissions
@@ -148,7 +149,7 @@ def _scoped_query(
     from_time: datetime | None,
     to_time: datetime | None,
     search: str | None,
-):
+) -> Select[tuple[IntegrationAuditEvent]]:
     query = select(IntegrationAuditEvent).where(IntegrationAuditEvent.tenant_id == principal.tenant_id)
     if principal.workspace_id is not None:
         query = query.where(
@@ -251,6 +252,13 @@ async def list_audit_events(
     return [_audit_out(value) for value in values]
 
 
+def _csv_cell(value: object | None) -> str:
+    text = "" if value is None else str(value)
+    if text.startswith(("=", "+", "-", "@", "\t", "\r", "\n")):
+        return "'" + text
+    return text
+
+
 @audit_router.get("/export")
 async def export_audit_events(
     principal: AuditViewPrincipal,
@@ -292,17 +300,17 @@ async def export_audit_events(
     for value in values:
         writer.writerow(
             [
-                value.created_at.isoformat(),
-                str(value.workspace_id or ""),
-                str(value.actor_user_id or ""),
-                value.category,
-                value.severity,
-                value.outcome,
-                value.action,
-                value.entity_type,
-                value.entity_id,
-                value.request_id or "",
-                value.ip_address or "",
+                _csv_cell(value.created_at.isoformat()),
+                _csv_cell(value.workspace_id),
+                _csv_cell(value.actor_user_id),
+                _csv_cell(value.category),
+                _csv_cell(value.severity),
+                _csv_cell(value.outcome),
+                _csv_cell(value.action),
+                _csv_cell(value.entity_type),
+                _csv_cell(value.entity_id),
+                _csv_cell(value.request_id),
+                _csv_cell(value.ip_address),
             ]
         )
     return Response(
