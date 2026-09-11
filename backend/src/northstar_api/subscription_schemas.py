@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from northstar_api.schemas import APIModel
@@ -22,3 +23,7 @@ class TenantSubscriptionOut(APIModel):
     cancelled_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class TenantSubscriptionCancellationRequest(APIModel):
+    confirmation: Literal["CANCEL"]
