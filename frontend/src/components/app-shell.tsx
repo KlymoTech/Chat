@@ -96,7 +96,7 @@ export function AppShell() {
       <div className="rail__bottom">
         <NavLink to="/workspace" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Workspace"><Settings2 /><span>Workspace</span></NavLink>
         <NavLink to="/help" className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title="Help"><CircleHelp /><span>Help</span></NavLink>
-        <button className="rail-link rail-toggle" onClick={() => setExpanded((value) => !value)} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>{expanded ? <PanelLeftClose /> : <PanelLeftOpen />}<span>{expanded ? 'Collapse' : 'Expand'} </span></button>
+        <button className="rail-link rail-toggle" onClick={() => setExpanded((value) => !value)} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}>{expanded ? <PanelLeftClose /> : <PanelLeftOpen />}<span>{expanded ? 'Collapse' : 'Expand'}</span></button>
       </div>
     </aside>
     <div className="app-main">
