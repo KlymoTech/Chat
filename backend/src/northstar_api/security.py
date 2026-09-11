@@ -280,5 +280,5 @@ def token_fingerprint(token: str) -> str:
 
 
 def generate_api_key() -> tuple[str, str, str]:
-    plaintext = "nsk_" + secrets.token_urlsafe(32)
-    return plaintext, plaintext[:12], token_fingerprint(plaintext)
+    plaintext = "nsk_live_" + secrets.token_urlsafe(32)
+    return plaintext, plaintext[:16], token_fingerprint(plaintext)
