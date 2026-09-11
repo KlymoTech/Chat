@@ -186,13 +186,20 @@ async def enforce_plan_entitlements(
         if method == "POST" and path.startswith("/agents/") and path.endswith("/knowledge"):
             body = await _json_body(request)
             content = body.get("content")
+            kind = str(body.get("kind") or "").lower()
+            additional = 0
             if isinstance(content, str) and content:
-                await require_capacity(
-                    session,
-                    tenant_id=principal.tenant_id,
-                    resource="storage",
-                    additional=len(content.encode("utf-8")),
-                )
+                additional = len(content.encode("utf-8"))
+            elif kind in {"url", "sitemap"}:
+                additional = get_settings().knowledge_max_extracted_characters * 4
+            # Even a previously staged file must still respect suspended/cancelled
+            # subscription state when it is finally attached to Knowledge.
+            await require_capacity(
+                session,
+                tenant_id=principal.tenant_id,
+                resource="storage",
+                additional=additional,
+            )
             return
 
         if method == "POST" and path in {"/chat/stream", "/chat/completions"}:
