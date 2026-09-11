@@ -1,10 +1,11 @@
 import {
-  Building2, CreditCard, Mail, ShieldCheck, Sparkles,
+  Building2, Mail, ShieldCheck,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MFASecurityPanel } from '@/components/mfa-security-panel';
 import { useAuth, useToast } from '@/components/providers';
+import { SubscriptionBillingPanel } from '@/components/SubscriptionBillingPanel';
 import { Button, Badge, Card, Field, PageLoader, Switch } from '@/components/ui';
 import { WorkspaceAPIKeysPanel } from '@/components/WorkspaceAPIKeysPanel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
@@ -71,12 +72,10 @@ export function WorkspacePage() {
           </div>
         </Card> : null}
 
-        {section === 'billing' ? <><Card className="workspace-panel"><PanelHeading icon={CreditCard} title="Plan & billing" description="Review usage, limits, and billing information." action={<Badge tone="brand">Business</Badge>} /><div className="workspace-plan-grid"><Usage label="Conversations" value="1,892 / 5,000" width="38%" /><Usage label="AI agents" value="4 / 10" width="40%" /><Usage label="Team members" value={`${workspace.memberCount} / 20`} width="25%" /></div><div className="workspace-panel__actions workspace-panel__actions--border"><Button variant="secondary" onClick={() => pushToast('Billing portal will open after a payment provider is connected', 'info')}>Manage billing</Button><Button onClick={() => pushToast('Plan comparison opened', 'info')}>Compare plans</Button></div></Card>
-          <Card className="workspace-upgrade-card"><Sparkles /><div><strong>Need more capacity?</strong><p>Upgrade limits without changing your agents, knowledge, or integrations.</p></div><Button variant="secondary" onClick={() => pushToast('Plan comparison opened', 'info')}>View plans</Button></Card></> : null}
+        {section === 'billing' ? <SubscriptionBillingPanel workspace={workspace} /> : null}
       </div>
     </div>
   </div>;
 }
 
 function PanelHeading({ icon: Icon, title, description, action }: { icon: typeof Building2; title: string; description: string; action?: ReactNode }) { return <div className="workspace-panel__heading"><span><Icon /></span><div><h3>{title}</h3><p>{description}</p></div>{action}</div>; }
-function Usage({ label, value, width }: { label: string; value: string; width: string }) { return <div><small>{label}</small><strong>{value}</strong><span><i style={{ width }} /></span></div>; }
