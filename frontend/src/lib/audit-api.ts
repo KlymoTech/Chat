@@ -98,8 +98,8 @@ async function errorFor(response: Response): Promise<AuditRequestError> {
   );
 }
 
-function shouldSurface(error: unknown): boolean {
-  return error instanceof AuditRequestError && error.status >= 400 && error.status < 500;
+function isHttpError(error: unknown): error is AuditRequestError {
+  return error instanceof AuditRequestError;
 }
 
 export const auditApi = {
@@ -112,7 +112,7 @@ export const auditApi = {
       if (!response.ok) throw await errorFor(response);
       return response.json() as Promise<AuditEvent[]>;
     } catch (error) {
-      if (shouldSurface(error)) throw error;
+      if (isHttpError(error)) throw error;
       // Standalone/demo previews have no durable audit backend. Never invent
       // security events; an empty trail is safer than fabricated audit history.
       return [];
@@ -128,7 +128,7 @@ export const auditApi = {
       if (!response.ok) throw await errorFor(response);
       return response.blob();
     } catch (error) {
-      if (shouldSurface(error)) throw error;
+      if (isHttpError(error)) throw error;
       return new Blob([
         'created_at,workspace_id,actor_user_id,category,severity,outcome,action,entity_type,entity_id,request_id,ip_address\r\n',
       ], { type: 'text/csv;charset=utf-8' });
