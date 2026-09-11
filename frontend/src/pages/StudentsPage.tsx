@@ -1,5 +1,6 @@
 import { Archive, GraduationCap, Link2, Pencil, Plus, RotateCcw, Search, UserRound, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { StudentEnrollmentsModal } from '@/components/student-enrollments-modal';
 import { StudentIdentitiesModal } from '@/components/student-identities-modal';
 import { useToast } from '@/components/providers';
@@ -290,6 +291,7 @@ export function StudentsPage() {
           <td><Badge tone={student.status === 'active' ? 'success' : 'neutral'}>{student.status}</Badge></td>
           <td><time dateTime={student.updatedAt}>{relativeTime(student.updatedAt)}</time></td>
           <td><div className="student-actions">
+            <Link className="button button--secondary button--sm" to={`/education/students/${student.id}`}>Details</Link>
             <Button variant="secondary" size="sm" icon={Link2} onClick={() => setIdentityStudent(student)}>Identities</Button>
             <Button variant="secondary" size="sm" icon={GraduationCap} onClick={() => setEnrollmentStudent(student)}>Enrollments</Button>
             <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEdit(student)}>Edit</Button>
