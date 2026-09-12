@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   pushToast: vi.fn(),
   getSubscription: vi.fn(),
   getEntitlements: vi.fn(),
+  createCheckout: vi.fn(),
+  createPortal: vi.fn(),
   cancelSubscription: vi.fn(),
   reactivateSubscription: vi.fn(),
   role: 'owner',
@@ -26,6 +28,8 @@ vi.mock('@/lib/billing-api', () => ({
   billingApi: {
     getSubscription: mocks.getSubscription,
     getEntitlements: mocks.getEntitlements,
+    createCheckout: mocks.createCheckout,
+    createPortal: mocks.createPortal,
     cancelSubscription: mocks.cancelSubscription,
     reactivateSubscription: mocks.reactivateSubscription,
   },
@@ -117,6 +121,8 @@ describe('SubscriptionBillingPanel', () => {
     mocks.role = 'owner';
     mocks.getSubscription.mockResolvedValue(subscription);
     mocks.getEntitlements.mockResolvedValue(entitlements);
+    mocks.createCheckout.mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/test' });
+    mocks.createPortal.mockResolvedValue({ url: 'https://billing.stripe.com/p/session/test' });
     mocks.cancelSubscription.mockResolvedValue({
       ...subscription,
       status: 'cancelled',
@@ -160,6 +166,19 @@ describe('SubscriptionBillingPanel', () => {
     expect(screen.getByRole('button', { name: 'Confirm cancellation' })).toBeDisabled();
     expect(mocks.getSubscription).toHaveBeenCalledWith('starter');
     expect(mocks.getEntitlements).toHaveBeenCalledWith('starter');
+  });
+
+  it('replaces the plan placeholder with a real upgrade choice without changing current state first', async () => {
+    const user = userEvent.setup();
+    render(<SubscriptionBillingPanel workspace={workspace} />);
+    await screen.findByText('Professional · Trial');
+
+    await user.click(screen.getByRole('button', { name: 'Compare plans' }));
+    expect(screen.getByRole('dialog', { name: 'Compare plans' })).toBeInTheDocument();
+    expect(screen.getByText('Business')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose Business' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Choose Professional' })).not.toBeInTheDocument();
+    expect(mocks.createCheckout).not.toHaveBeenCalled();
   });
 
   it('requires explicit CANCEL confirmation and applies safe soft offboarding', async () => {
@@ -206,19 +225,24 @@ describe('SubscriptionBillingPanel', () => {
 
     expect(await screen.findByText('Professional · Trial')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Compare plans' })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Compare plans' }));
+    expect(screen.getByText('Ask a tenant billing administrator to upgrade this plan.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Choose Business' })).not.toBeInTheDocument();
   });
 
-  it('never presents a provider-backed subscription as locally cancellable', async () => {
+  it('routes Stripe-managed subscriptions to the secure provider portal instead of local cancellation', async () => {
     const user = userEvent.setup();
     mocks.getSubscription.mockResolvedValueOnce({ ...subscription, provider: 'stripe' });
     render(<SubscriptionBillingPanel workspace={workspace} />);
 
     await screen.findByText('Provider: Stripe');
     await user.click(screen.getByRole('button', { name: 'Manage billing' }));
-    expect(screen.getByText('Provider-managed subscription')).toBeInTheDocument();
-    expect(screen.getByText(/must be cancelled through its provider workflow/)).toBeInTheDocument();
+    expect(screen.getByText('Stripe-managed subscription')).toBeInTheDocument();
+    expect(screen.getByText(/Signed Stripe webhooks keep Northstar subscription status/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open billing portal' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Confirm cancellation' })).not.toBeInTheDocument();
+    expect(mocks.cancelSubscription).not.toHaveBeenCalled();
   });
 
   it('shows authorization failures instead of inventing billing access', async () => {
