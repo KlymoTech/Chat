@@ -136,7 +136,7 @@ async def channel_operations_case() -> AsyncIterator[tuple[AsyncSession, Princip
         await session.flush()
 
         statuses = ["queued", "processing", "failed", "rejected", "sent"]
-        for message, status in zip(primary_messages, statuses, strict=True):
+        for message, status in zip(primary_messages[:5], statuses, strict=True):
             session.add(
                 ChannelOutboundDelivery(
                     tenant_id=tenant.id,
