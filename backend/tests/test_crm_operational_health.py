@@ -179,7 +179,7 @@ async def test_operational_health_aggregates_only_active_workspace(operations_ca
 
     assert result.overall_status == "attention"
     assert result.connection_count == 1
-    assert result.healthy_connections == 1
+    assert result.healthy_connections == 0
     assert result.attention_connections == 1
     assert result.pending_deliveries == 1
     assert result.retrying_deliveries == 1
