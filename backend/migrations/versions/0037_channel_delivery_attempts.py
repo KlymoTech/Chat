@@ -31,7 +31,12 @@ def upgrade() -> None:
         sa.Column("attempt_number", sa.Integer(), nullable=False),
         sa.Column("outcome", sa.String(length=40), nullable=False),
         sa.Column("error_code", sa.String(length=120), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
