@@ -4,6 +4,7 @@ import type { EducationStudent } from '@/lib/education-student-api';
 import type { Agent } from '@/types';
 
 export type EnrollmentStatusFilter = 'all' | EnrollmentStatus;
+export type EnrollmentAdminAgent = Pick<Agent, 'id' | 'publicId' | 'name'>;
 
 export interface EnrollmentAdminFilters {
   status: EnrollmentStatusFilter;
@@ -57,7 +58,7 @@ export function filterEnrollmentAdminRecords(
   students: readonly EducationStudent[],
   courses: readonly EducationCourse[],
   batches: readonly EducationBatch[],
-  agents: readonly Agent[],
+  agents: readonly EnrollmentAdminAgent[],
   filters: EnrollmentAdminFilters,
 ): EducationEnrollment[] {
   const studentById = new Map(students.map((student) => [student.id, student]));
