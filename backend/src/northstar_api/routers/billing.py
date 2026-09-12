@@ -250,12 +250,17 @@ async def stripe_webhook(request: Request, session: DBSession) -> BillingWebhook
             "customer.subscription.deleted",
         }:
             tenant_id = _stripe_tenant_id(stripe_object)
-            if tenant_id is None:
+            subscription_id = stripe_object.get("id")
+            if tenant_id is None or not isinstance(subscription_id, str):
                 return BillingWebhookOut(processed=False)
+            # Webhook delivery order is not guaranteed. Re-read the current
+            # subscription before applying state so a delayed old event cannot
+            # regress a newer plan, payment or cancellation transition.
+            stripe_subscription = await stripe_billing_client.retrieve_subscription(subscription_id)
             await _sync_stripe_subscription(
                 session,
                 tenant_id=tenant_id,
-                stripe_subscription=stripe_object,
+                stripe_subscription=stripe_subscription,
             )
             return BillingWebhookOut(processed=True)
 
