@@ -23,6 +23,7 @@ class ChannelOperationalConnectionHealthOut(BaseModel):
     pending_webhook_events: int
     failed_webhook_events: int
     rejected_webhook_events: int
+    stale_webhook_events: int
 
 
 class ChannelOperationalHealthOut(BaseModel):
@@ -38,4 +39,5 @@ class ChannelOperationalHealthOut(BaseModel):
     pending_webhook_events: int
     failed_webhook_events: int
     rejected_webhook_events: int
+    stale_webhook_events: int
     connections: list[ChannelOperationalConnectionHealthOut]
