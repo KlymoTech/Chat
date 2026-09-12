@@ -124,3 +124,44 @@ class ChannelOutboundDelivery(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class ChannelDeliveryAttempt(Base):
+    """Append-only, safe operational evidence for one outbound delivery attempt."""
+
+    __tablename__ = "channel_delivery_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "delivery_id",
+            "phase",
+            "attempt_number",
+            name="uq_channel_delivery_attempt_number",
+        ),
+        Index(
+            "ix_channel_delivery_attempt_scope",
+            "tenant_id",
+            "workspace_id",
+            "delivery_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    delivery_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("channel_outbound_deliveries.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    phase: Mapped[str] = mapped_column(String(20), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(40), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
