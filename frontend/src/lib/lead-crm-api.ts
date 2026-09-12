@@ -113,6 +113,20 @@ export interface CRMDeliveryView {
   created_at: string;
 }
 
+export interface CRMDeliveryAttemptView {
+  id: string;
+  delivery_id: string;
+  attempt_number: number;
+  started_at: string;
+  finished_at?: string | null;
+  http_status?: number | null;
+  latency_ms?: number | null;
+  result_status?: string | null;
+  normalized_error_code?: string | null;
+  provider_error_code?: string | null;
+  provider_request_id?: string | null;
+}
+
 export interface LeadActivityView {
   id: string;
   event_type: string;
@@ -223,6 +237,7 @@ export const leadCrmApi = {
     call<CRMRouteView>(`/crm/routes/${id}`, { method: 'PATCH', body: JSON.stringify(value) }),
   deleteRoute: (id: string) => call<void>(`/crm/routes/${id}`, { method: 'DELETE' }),
   deliveriesForLead: (leadId: string) => call<CRMDeliveryView[]>(`/leads/${leadId}/deliveries`),
+  deliveryAttempts: (deliveryId: string) => call<CRMDeliveryAttemptView[]>(`/crm/deliveries/${deliveryId}/attempts`),
   activityForLead: (leadId: string) => call<LeadActivityView[]>(`/leads/${leadId}/activity`),
   syncLead: (leadId: string, reason = 'manual') => call(`/leads/${leadId}/sync`, { method: 'POST', body: JSON.stringify({ reason }) }),
   qualifyLead: (leadId: string, score: number, reason: string) => call(`/leads/${leadId}/qualify`, { method: 'POST', body: JSON.stringify({ score, reason }) }),
