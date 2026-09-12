@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -10,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
-from northstar_api.lead_crm.audit import redact_audit_payload
 from northstar_api.lead_crm.connectors import CRMError
 from northstar_api.lead_crm.integration_health_history_schemas import CRMHealthSnapshotOut
 from northstar_api.lead_crm.models import CRMConnection, IntegrationHealthSnapshot
@@ -22,6 +22,17 @@ router = APIRouter(prefix="/crm/connections", tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
 CRMViewPrincipal = Annotated[Principal, Depends(require_permissions("crm.view"))]
 CRMManagePrincipal = Annotated[Principal, Depends(require_permissions("crm.manage"))]
+
+_SENSITIVE_CHECK_KEYS = {
+    "accesstoken",
+    "apikey",
+    "authorization",
+    "clientsecret",
+    "cookie",
+    "refreshtoken",
+    "secret",
+    "token",
+}
 
 
 async def _scoped_connection(
@@ -46,13 +57,12 @@ async def _scoped_connection(
 def _safe_checks(value: object) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
-    redacted = redact_audit_payload(value)
-    if not isinstance(redacted, dict):
-        return {}
-    return {
-        str(key)[:80]: str(item)[:160]
-        for key, item in redacted.items()
-    }
+    safe: dict[str, str] = {}
+    for key, item in value.items():
+        label = str(key)[:80]
+        normalized_key = re.sub(r"[^a-z0-9]", "", label.lower())
+        safe[label] = "[REDACTED]" if normalized_key in _SENSITIVE_CHECK_KEYS else str(item)[:160]
+    return safe
 
 
 def _failure_checks(status: str) -> dict[str, str]:
