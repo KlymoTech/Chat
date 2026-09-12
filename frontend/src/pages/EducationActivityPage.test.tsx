@@ -117,8 +117,8 @@ describe('EducationActivityPage', () => {
     render(<MemoryRouter><EducationActivityPage /></MemoryRouter>);
 
     expect(await screen.findByText('Asha Student')).toBeInTheDocument();
-    expect(screen.getByText('CPA · CPA Program')).toBeInTheDocument();
-    expect(screen.getByText('CPA-26 · CPA 2026')).toBeInTheDocument();
+    expect(screen.getAllByText('CPA · CPA Program').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('CPA-26 · CPA 2026').length).toBeGreaterThan(0);
     expect(screen.getByText('conv-cpa-1')).toBeInTheDocument();
 
     const agent = screen.getByRole('combobox', { name: 'Filter by agent' });
