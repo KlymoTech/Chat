@@ -45,4 +45,38 @@ describe('lead CRM API client', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/crm/routes/route-1', expect.objectContaining({ method: 'PATCH' }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/crm/routes/route-1', expect.objectContaining({ method: 'DELETE' }));
   });
+
+  it('runs and reads workspace-scoped CRM health history endpoints with the active auth context', async () => {
+    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
+    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    const snapshot = {
+      id: 'snapshot-1',
+      connection_id: 'crm-1',
+      status: 'healthy',
+      checks: { api: 'ok' },
+      latency_ms: 24,
+      checked_at: '2026-09-12T09:00:00Z',
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(snapshot), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([snapshot]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await leadCrmApi.runHealthCheck('crm-1');
+    await leadCrmApi.healthHistory('crm-1', 25);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/crm/connections/crm-1/health-check', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer access-token',
+        'X-Workspace-ID': 'workspace-1',
+      }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/crm/connections/crm-1/health-history?limit=25', expect.objectContaining({
+      headers: expect.objectContaining({
+        Authorization: 'Bearer access-token',
+        'X-Workspace-ID': 'workspace-1',
+      }),
+    }));
+  });
 });
