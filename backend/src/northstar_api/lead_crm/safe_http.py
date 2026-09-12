@@ -17,6 +17,8 @@ async def request_public(
     url: str,
     *,
     headers: Mapping[str, str] | None = None,
+    params: Mapping[str, Any] | None = None,
+    form_data: Mapping[str, str] | None = None,
     json_body: Any = None,
     content: bytes | None = None,
     timeout_seconds: float = 20,
@@ -27,6 +29,9 @@ async def request_public(
     hostname is resolved once, all returned addresses must be public, and the
     actual TCP connection uses a validated IP while preserving the original
     Host header and TLS SNI/certificate hostname.
+
+    Native CRM OAuth and API clients use the same helper as generic connectors,
+    so configured provider domains cannot bypass the public-HTTPS boundary.
     """
     try:
         target = await safe_fetch._resolve_public_target(url)
@@ -52,6 +57,8 @@ async def request_public(
                     method.upper(),
                     pinned_url,
                     headers=outgoing_headers,
+                    params=params,
+                    data=form_data,
                     json=json_body,
                     content=content,
                     extensions=extensions,
