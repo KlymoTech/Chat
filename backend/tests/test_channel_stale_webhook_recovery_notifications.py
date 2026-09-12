@@ -85,7 +85,11 @@ async def stale_webhook_recovery_case() -> AsyncIterator[
                 processing_status=status,
                 attempt_count=1 if status != "received" else 0,
                 received_at=now - timedelta(minutes=20),
-                processed_at=now - timedelta(minutes=1) if status in {"processed", "ignored", "rejected"} else None,
+                processed_at=(
+                    now - timedelta(minutes=1)
+                    if status in {"processed", "ignored", "rejected"}
+                    else None
+                ),
                 last_error=f"private {name} error must not leak",
                 correlation_id=f"private-{name}-correlation",
             )
