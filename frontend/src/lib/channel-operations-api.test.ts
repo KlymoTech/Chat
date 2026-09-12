@@ -21,6 +21,7 @@ describe('channel operations health API client', () => {
       pending_webhook_events: 3,
       failed_webhook_events: 1,
       rejected_webhook_events: 2,
+      stale_webhook_events: 1,
       connections: [],
     };
     const fetchMock = vi.fn().mockResolvedValue(

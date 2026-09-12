@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -26,6 +27,7 @@ ChannelsViewPrincipal = Annotated[Principal, Depends(require_permissions("integr
 _PENDING_STATUSES = frozenset({"queued", "processing"})
 _RETRYING_STATUSES = frozenset({"failed"})
 _FAILED_STATUSES = frozenset({"rejected", "reconnect_required", "dispatch_failed"})
+_WEBHOOK_STALE_AFTER = timedelta(minutes=5)
 _ATTENTION_CONNECTION_STATUSES = frozenset(
     {
         "degraded",
@@ -39,11 +41,16 @@ _ATTENTION_CONNECTION_STATUSES = frozenset(
 )
 
 
+def _aware(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def _connection_needs_attention(row: ChannelOperationalConnectionHealthOut) -> bool:
     return (
         row.status in _ATTENTION_CONNECTION_STATUSES
         or row.failed_deliveries > 0
         or row.failed_webhook_events > 0
+        or row.stale_webhook_events > 0
     )
 
 
@@ -76,6 +83,7 @@ async def channel_operational_health(
 
     delivery_counts: dict[UUID, Counter[str]] = {}
     webhook_counts: dict[UUID, Counter[str]] = {}
+    stale_webhook_counts: Counter[UUID] = Counter()
     if connection_ids:
         rows = list(
             await session.execute(
@@ -93,16 +101,24 @@ async def channel_operational_health(
         connection_id_by_key = {str(connection_id): connection_id for connection_id in connection_ids}
         webhook_rows = list(
             await session.execute(
-                select(RawWebhookEvent.connection_key, RawWebhookEvent.processing_status).where(
+                select(
+                    RawWebhookEvent.connection_key,
+                    RawWebhookEvent.processing_status,
+                    RawWebhookEvent.received_at,
+                ).where(
                     RawWebhookEvent.tenant_id == principal.tenant_id,
                     RawWebhookEvent.connection_key.in_(list(connection_id_by_key)),
                 )
             )
         )
-        for connection_key, processing_status in webhook_rows:
+        stale_cutoff = datetime.now(UTC) - _WEBHOOK_STALE_AFTER
+        for connection_key, processing_status, received_at in webhook_rows:
             connection_id = connection_id_by_key.get(connection_key)
-            if connection_id is not None:
-                webhook_counts.setdefault(connection_id, Counter())[processing_status] += 1
+            if connection_id is None:
+                continue
+            webhook_counts.setdefault(connection_id, Counter())[processing_status] += 1
+            if processing_status == "received" and _aware(received_at) <= stale_cutoff:
+                stale_webhook_counts[connection_id] += 1
 
     connection_rows: list[ChannelOperationalConnectionHealthOut] = []
     for connection in connections:
@@ -127,6 +143,7 @@ async def channel_operational_health(
                 pending_webhook_events=webhook_statuses["received"],
                 failed_webhook_events=webhook_statuses["failed"],
                 rejected_webhook_events=webhook_statuses["rejected"],
+                stale_webhook_events=stale_webhook_counts[connection.id],
             )
         )
 
@@ -142,6 +159,7 @@ async def channel_operational_health(
     pending_webhook_total = sum(row.pending_webhook_events for row in connection_rows)
     failed_webhook_total = sum(row.failed_webhook_events for row in connection_rows)
     rejected_webhook_total = sum(row.rejected_webhook_events for row in connection_rows)
+    stale_webhook_total = sum(row.stale_webhook_events for row in connection_rows)
     has_nonhealthy_nonattention_connection = any(
         row.status != "healthy" and not _connection_needs_attention(row)
         for row in connection_rows
@@ -172,5 +190,6 @@ async def channel_operational_health(
         pending_webhook_events=pending_webhook_total,
         failed_webhook_events=failed_webhook_total,
         rejected_webhook_events=rejected_webhook_total,
+        stale_webhook_events=stale_webhook_total,
         connections=connection_rows,
     )
