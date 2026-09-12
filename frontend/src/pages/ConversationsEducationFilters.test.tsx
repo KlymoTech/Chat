@@ -122,16 +122,18 @@ describe('ConversationsPage Education filters', () => {
     await waitFor(() => expect(mocks.conversationList).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'education-agent', educationScope: true,
     })));
+    expect(await screen.findByRole('option', { name: 'CPA · CPA Program' })).toBeInTheDocument();
 
     await user.selectOptions(course, 'course-1');
     await waitFor(() => expect(mocks.batchList).toHaveBeenCalledWith({ courseId: 'course-1', status: 'active' }));
+    expect(await screen.findByRole('option', { name: 'CPA-26 · CPA 2026' })).toBeInTheDocument();
     expect(batch).not.toBeDisabled();
 
     await user.selectOptions(batch, 'batch-1');
     await waitFor(() => expect(mocks.enrollmentList).toHaveBeenCalledWith({
       agentId: 'education-agent', courseId: 'course-1', batchId: 'batch-1',
     }));
-    await waitFor(() => expect(screen.getByRole('option', { name: 'NS-1001 · Asha Student' })).toBeInTheDocument());
+    expect(await screen.findByRole('option', { name: 'NS-1001 · Asha Student' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /Unassigned Student/ })).not.toBeInTheDocument();
     expect(student).not.toBeDisabled();
 
