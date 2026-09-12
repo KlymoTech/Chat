@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
 from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.logging import configure_logging
+from northstar_api.services.notifications import notify_workspace_admins
 
 settings = get_settings()
 configure_logging(settings)
@@ -45,6 +47,7 @@ _FAILURE_STATUSES = frozenset(
         "configuration_error",
     }
 )
+_ATTENTION_STATUSES = _FAILURE_STATUSES
 _KNOWN_HEALTH_STATUSES = _ELIGIBLE_STATUSES - {"configured"}
 
 
@@ -96,6 +99,84 @@ def _record_status(
         connection.last_error = f"Scheduled channel health check reported {status}"[:1000]
 
 
+def _health_transition(previous_status: str, current_status: str) -> str | None:
+    """Return an actionable transition while suppressing repeated poll alerts."""
+
+    previous_attention = previous_status in _ATTENTION_STATUSES
+    current_attention = current_status in _ATTENTION_STATUSES
+    if current_attention and not previous_attention:
+        return "incident"
+    if previous_attention and current_status == "healthy":
+        return "recovery"
+    return None
+
+
+async def _notify_health_transition(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    tenant_id: UUID,
+    connection_id: UUID,
+    connection_name: str,
+    provider: str,
+    previous_status: str,
+    current_status: str,
+    checked_at: datetime,
+) -> int:
+    transition = _health_transition(previous_status, current_status)
+    if transition is None:
+        return 0
+
+    async with factory() as session:
+        await set_tenant_context(session, tenant_id)
+        workspace_id = await session.scalar(
+            select(WorkspaceChannelConnection.workspace_id).where(
+                WorkspaceChannelConnection.tenant_id == tenant_id,
+                WorkspaceChannelConnection.connection_id == connection_id,
+            )
+        )
+        if workspace_id is None:
+            return 0
+
+        provider_label = provider.replace("_", " ").title()
+        metadata = {
+            "connectionId": str(connection_id),
+            "provider": provider,
+            "previousStatus": previous_status,
+            "currentStatus": current_status,
+            "transition": transition,
+        }
+        if transition == "incident":
+            title = "Channel connection needs attention"
+            body = (
+                f"{connection_name} ({provider_label}) changed from "
+                f"{previous_status} to {current_status}."
+            )
+            severity = "warning"
+        else:
+            title = "Channel connection recovered"
+            body = f"{connection_name} ({provider_label}) is healthy again."
+            severity = "info"
+
+        recipients = await notify_workspace_admins(
+            session,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            title=title,
+            body=body,
+            dedupe_key=(
+                f"channel-health:{connection_id}:{transition}:"
+                f"{_aware(checked_at).isoformat()}"
+            ),
+            category="channel",
+            severity=severity,
+            action_url="/integrations",
+            action_label="Review channel health",
+            metadata=metadata,
+        )
+        await session.commit()
+        return recipients
+
+
 async def _due_connections(session: AsyncSession, *, now: datetime) -> list[tuple[UUID, UUID]]:
     cutoff = now - timedelta(seconds=HEALTH_INTERVAL_SECONDS)
     rows = list(
@@ -122,6 +203,11 @@ async def monitor_connection(
     """Check one due channel connection using its existing connector contract."""
 
     checked_at = now or datetime.now(UTC)
+    previous_status: str
+    current_status: str
+    connection_name: str
+    provider: str
+
     async with factory() as session:
         await set_tenant_context(session, tenant_id)
         connection = await session.scalar(
@@ -136,38 +222,69 @@ async def monitor_connection(
             await session.commit()
             return False
 
+        previous_status = connection.status
+        current_status = previous_status
+        connection_name = connection.name
+        provider = connection.provider
         credentials: dict[str, Any] = {}
+        credentials_ready = True
         if connection.credentials_encrypted:
             try:
                 credentials = credential_store.decrypt(connection.credentials_encrypted)
             except CredentialStoreError:
+                credentials_ready = False
+                current_status = "auth_required"
                 _record_status(
                     connection,
-                    status="auth_required",
+                    status=current_status,
                     checked_at=checked_at,
                     error_code="credential_error",
                 )
-                await session.commit()
-                return True
 
-        try:
-            context = _context(connection, credentials)
-            connector = channel_registry.get(context.provider)
-        except (KeyError, ValueError):
-            _record_status(
-                connection,
-                status="configuration_error",
-                checked_at=checked_at,
-                error_code="configuration_error",
-            )
-            await session.commit()
-            return True
+        if credentials_ready:
+            try:
+                context = _context(connection, credentials)
+                connector = channel_registry.get(context.provider)
+            except (KeyError, ValueError):
+                current_status = "configuration_error"
+                _record_status(
+                    connection,
+                    status=current_status,
+                    checked_at=checked_at,
+                    error_code="configuration_error",
+                )
+            else:
+                result = await connector.health_check(context)
+                current_status = _normalized_health_status(result.get("status"))
+                _record_status(connection, status=current_status, checked_at=checked_at)
 
-        result = await connector.health_check(context)
-        status = _normalized_health_status(result.get("status"))
-        _record_status(connection, status=status, checked_at=checked_at)
         await session.commit()
-        return True
+
+    if _health_transition(previous_status, current_status) is not None:
+        try:
+            await _notify_health_transition(
+                factory,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                connection_name=connection_name,
+                provider=provider,
+                previous_status=previous_status,
+                current_status=current_status,
+                checked_at=checked_at,
+            )
+        except Exception as exc:
+            # Health persistence is primary. A notification failure cannot undo
+            # the completed provider check or its durable connection status.
+            logger.exception(
+                "channel_health_monitor_notification_failed",
+                tenant_id=str(tenant_id),
+                connection_id=str(connection_id),
+                previous_status=previous_status,
+                current_status=current_status,
+                error=type(exc).__name__,
+            )
+
+    return True
 
 
 async def run_once(factory: async_sessionmaker[AsyncSession]) -> dict[str, int]:
