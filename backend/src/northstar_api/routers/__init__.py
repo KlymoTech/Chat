@@ -14,6 +14,7 @@ from northstar_api.routers import (
     crm_schema,
     crm_scoped,
     crm_webhooks,
+    crm_workspace_settings,
     education,
     education_access_recovery,
     education_access_requests,
@@ -69,6 +70,7 @@ api_router.include_router(qualification.router)
 # Workspace-aware CRM routes are registered before their legacy-compatible
 # implementations so identical HTTP paths enforce the active workspace boundary.
 api_router.include_router(crm_scoped.router)
+api_router.include_router(crm_workspace_settings.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)
