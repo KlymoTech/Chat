@@ -78,9 +78,9 @@ x-api-environment: &api-environment
   STRIPE_PRICE_PROFESSIONAL: ${STRIPE_PRICE_PROFESSIONAL:-}
   STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS:-}
   STRIPE_PRICE_ENTERPRISE: ${STRIPE_PRICE_ENTERPRISE:-}
-  STRIPE_CHECKOUT_SUCCESS_URL: ${STRIPE_CHECKOUT_SUCCESS_URL:-http://localhost:3000/settings?billing=success}
-  STRIPE_CHECKOUT_CANCEL_URL: ${STRIPE_CHECKOUT_CANCEL_URL:-http://localhost:3000/settings?billing=cancelled}
-  STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-http://localhost:3000/settings}
+  STRIPE_CHECKOUT_SUCCESS_URL: ${STRIPE_CHECKOUT_SUCCESS_URL:-http://localhost:3100/settings?billing=success}
+  STRIPE_CHECKOUT_CANCEL_URL: ${STRIPE_CHECKOUT_CANCEL_URL:-http://localhost:3100/settings?billing=cancelled}
+  STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-http://localhost:3100/settings}
   STRIPE_API_BASE_URL: ${STRIPE_API_BASE_URL:-https://api.stripe.com}
   STRIPE_TIMEOUT_SECONDS: ${STRIPE_TIMEOUT_SECONDS:-10}
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: ${STRIPE_WEBHOOK_TOLERANCE_SECONDS:-300}
@@ -153,207 +153,274 @@ services:
       interval: 15s
       timeout: 3s
       retries: 5
-    logging: *json-logging
+      start_period: 10s
     networks:
       - edge
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
 
   api:
     <<: *api-runtime
-    user: "10001:10001"
-    command: ["uvicorn", "northstar_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    command: ["uvicorn", "northstar_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
     ports:
       - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      minio:
         condition: service_healthy
     healthcheck:
       test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()",
-        ]
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)
       interval: 15s
-      timeout: 4s
-      retries: 10
-      start_period: 20s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
     networks:
       - edge
-      - private
+      - data
+      - egress
+    security_opt:
+      - no-new-privileges:true
 
-  migrations:
+  migrate:
     image: northstar/api:${IMAGE_TAG:-local}
     build: *api-build
-    user: "10001:10001"
-    restart: "no"
-    command: ["sh", "-c", "alembic upgrade head"]
+    command: ["alembic", "upgrade", "head"]
     environment:
       <<: *api-environment
       DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgresql+asyncpg://northstar:replace-local-postgres-password@postgres:5432/northstar}
       DATABASE_APPLY_RUNTIME_ROLE: "false"
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - private
+      - data
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
 
-  outbox-publisher:
+  worker:
     <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-outbox"]
+    command: ["celery", "-A", "northstar_api.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-2}"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-worker
     depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  analytics-consumer:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-analytics"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  notifications-consumer:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-notifications"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  object-cleaner:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-object-cleaner"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    networks:
-      - private
-
-  crm-router:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-crm-router"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  crm-delivery:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-crm-delivery"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  crm-reconciliation:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-crm-reconciliation"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - private
-
-  crm-webhooks:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-crm-webhooks"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  channel-router:
-    <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-channel-router"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - private
-
-  celery-worker:
-    <<: *api-runtime
-    user: "10001:10001"
-    command:
-      [
-        "celery",
-        "-A",
-        "northstar_api.workers.celery_app:celery_app",
-        "worker",
-        "--loglevel=INFO",
-        "--concurrency=${CELERY_CONCURRENCY:-2}",
-        "-Q",
-        "jobs,whatsapp.outbound,whatsapp.failed,telegram.outbound,telegram.failed,instagram.outbound,instagram.failed,facebook_messenger.outbound,facebook_messenger.failed,slack.outbound,slack.failed",
-      ]
-    depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A northstar_api.workers.celery_app:celery_app inspect ping --destination "celery@$${HOSTNAME}" --timeout 5 2>/dev/null | grep -q pong
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
-      - private
+      - data
+      - events
+      - egress
+    security_opt:
+      - no-new-privileges:true
 
   job-dispatcher:
     <<: *api-runtime
-    user: "10001:10001"
-    command: ["northstar-job-dispatcher"]
+    command: ["python", "-m", "northstar_api.workers.job_dispatcher"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-job-dispatcher
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+    healthcheck:
+      disable: true
     networks:
-      - private
+      - data
+      - events
+    security_opt:
+      - no-new-privileges:true
+
+  outbox-relay:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.outbox_publisher"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-outbox-relay
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - events
+    security_opt:
+      - no-new-privileges:true
+
+  analytics-consumer:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.analytics_consumer"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-analytics-consumer
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - events
+    security_opt:
+      - no-new-privileges:true
+
+  object-cleaner:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.object_cleaner"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-object-cleaner
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - events
+    security_opt:
+      - no-new-privileges:true
+
+  crm-router:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.crm_router_consumer"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-crm-router
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [data, events]
+    security_opt: [no-new-privileges:true]
+
+  crm-delivery:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.crm_delivery_worker"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-crm-delivery
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [data, events, egress]
+    security_opt: [no-new-privileges:true]
+
+  crm-reconciliation:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.crm_reconciliation"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-crm-reconciliation
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks: [data, egress]
+    security_opt: [no-new-privileges:true]
+
+  channel-event-consumer:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.channel_event_consumer"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-channel-event-consumer
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [data, events]
+    security_opt: [no-new-privileges:true]
+
+  crm-webhook-consumer:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.crm_webhook_consumer"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-crm-webhook-consumer
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [data, events]
+    security_opt: [no-new-privileges:true]
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.0-pg16@sha256:a132765ec351c65111b5b675928a3a0515a466a40f97277329db8b8209ad8bc9
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-northstar}
@@ -363,131 +430,174 @@ services:
       POSTGRES_RUNTIME_PASSWORD: ${POSTGRES_RUNTIME_PASSWORD:-replace-local-postgres-runtime-password}
       POSTGRES_SERVICE_USER: ${POSTGRES_SERVICE_USER:-northstar_service}
       POSTGRES_SERVICE_PASSWORD: ${POSTGRES_SERVICE_PASSWORD:-replace-local-postgres-service-password}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      POSTGRES_INITDB_ARGS: --data-checksums
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgres/init.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
+      - ./database/postgres/002-runtime-roles.sh:/docker-entrypoint-initdb.d/002-runtime-roles.sh:ro
+    shm_size: 256mb
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-northstar} -d ${POSTGRES_DB:-northstar}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    logging: *json-logging
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     networks:
-      - private
+      - data
+      - local-access
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.2-alpine@sha256:02419de7eddf55aa5bcf49efb74e88fa8d931b4d77c07eff8a6b2144472b6952
     restart: unless-stopped
-    command:
-      [
-        "redis-server",
-        "--appendonly",
-        "yes",
-        "--requirepass",
-        "${REDIS_PASSWORD:-replace-local-redis-password}",
-        "--maxmemory",
-        "256mb",
-        "--maxmemory-policy",
-        "allkeys-lru",
-      ]
-    volumes:
-      - redis_data:/data
-    ports:
-      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-replace-local-redis-password}
-    logging: *json-logging
+    command:
+      - /bin/sh
+      - -ec
+      - exec redis-server --appendonly yes --appendfsync everysec --requirepass "$${REDIS_PASSWORD}"
+    ports:
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
-      - private
+      - data
+      - local-access
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    restart: unless-stopped
+    image: rabbitmq:4.0.5-management-alpine@sha256:54759523c0b09074814b1233e6985babe9fd34e3462d2fea522361cb83b2fd76
     hostname: rabbitmq
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-northstar}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-replace-local-rabbitmq-password}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-northstar}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
     ports:
       - "${RABBITMQ_BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_BIND_ADDRESS:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 20
-    logging: *json-logging
+      retries: 12
+      start_period: 20s
     networks:
-      - private
+      - events
+      - local-access
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
 
   kafka:
-    image: bitnami/kafka:3.9
+    image: apache/kafka:3.9.2@sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02
+    hostname: kafka
     restart: unless-stopped
     environment:
-      KAFKA_ENABLE_KRAFT: "yes"
-      KAFKA_CFG_NODE_ID: 1
-      KAFKA_CFG_PROCESS_ROLES: broker,controller
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_CFG_LOG_RETENTION_HOURS: 168
-      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
-      KAFKA_CLUSTER_ID: ${KAFKA_CLUSTER_ID:-4L6g3nShT-eMCtK--X86sw}
-    volumes:
-      - kafka_data:/bitnami/kafka
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-4L6g3nShT-eMCtK--X86sw}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Kafka 3.9 resolves the controller listener into advertised metadata;
+      # binding it to 0.0.0.0 fails KRaft validation. The service DNS name is
+      # routable inside both Kafka networks.
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://kafka:9093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-29092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     ports:
-      - "${KAFKA_BIND_ADDRESS:-127.0.0.1}:${KAFKA_HOST_PORT:-29092}:9092"
+      - "${KAFKA_BIND_ADDRESS:-127.0.0.1}:${KAFKA_HOST_PORT:-29092}:29092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-    logging: *json-logging
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     networks:
-      - private
+      - events
+      - local-access
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-northstar}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-replace-local-minio-password}
       MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
-    volumes:
-      - minio_data:/data
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
     ports:
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    logging: *json-logging
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
     networks:
-      - private
+      - data
+      - local-access
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
 
-networks:
-  edge:
-  private:
-    internal: true
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-northstar}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-replace-local-minio-password}
+      S3_BUCKET: ${S3_BUCKET:-northstar-knowledge}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do sleep 2; done
+        mc mb --ignore-existing "local/$${S3_BUCKET}"
+        mc anonymous set none "local/$${S3_BUCKET}"
+        mc version enable "local/$${S3_BUCKET}"
+        lifecycle="$$(mc ilm rule ls --json "local/$${S3_BUCKET}" 2>/dev/null || true)"
+        case "$${lifecycle}" in
+          *'"Expiration":{"Days":1,"ExpiredObjectAllVersions":true}'*'"Prefix":"staging/"'*) ;;
+          *) mc ilm rule add --expire-days 1 --expire-all-object-versions --prefix staging/ "local/$${S3_BUCKET}" ;;
+        esac
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - data
+    logging: *json-logging
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   postgres_data:
@@ -495,3 +605,21 @@ volumes:
   rabbitmq_data:
   kafka_data:
   minio_data:
+
+networks:
+  edge:
+    driver: bridge
+  # Local worker outbound access for crawls and model/embedding providers.
+  # Production should replace this unrestricted bridge with an egress policy.
+  egress:
+    driver: bridge
+  # A non-internal bridge is required for Docker's loopback-only published
+  # development ports. Application traffic still uses data/events below.
+  local-access:
+    driver: bridge
+  data:
+    driver: bridge
+    internal: true
+  events:
+    driver: bridge
+    internal: true
