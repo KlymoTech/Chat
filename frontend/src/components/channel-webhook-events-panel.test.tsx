@@ -5,10 +5,19 @@ import { ChannelWebhookEventsPanel } from '@/components/channel-webhook-events-p
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  requeue: vi.fn(),
+  useAuth: vi.fn(),
+}));
+
+vi.mock('@/components/providers', () => ({
+  useAuth: mocks.useAuth,
 }));
 
 vi.mock('@/lib/channel-webhook-events-api', () => ({
-  channelWebhookEventsApi: { list: mocks.list },
+  channelWebhookEventsApi: {
+    list: mocks.list,
+    requeue: mocks.requeue,
+  },
 }));
 
 const connections = [
@@ -25,6 +34,7 @@ const events = [{
   processing_status: 'failed',
   attempt_count: 2,
   error_code: 'processing_failed',
+  can_requeue: true,
   correlation_id: 'corr-safe-1',
   received_at: '2026-09-12T13:00:00Z',
   processed_at: null,
@@ -32,7 +42,14 @@ const events = [{
 
 describe('ChannelWebhookEventsPanel', () => {
   beforeEach(() => {
+    mocks.useAuth.mockReturnValue({ session: { user: { role: 'admin' } } });
     mocks.list.mockResolvedValue(events);
+    mocks.requeue.mockResolvedValue({
+      ...events[0],
+      processing_status: 'received',
+      error_code: null,
+      can_requeue: false,
+    });
   });
 
   afterEach(() => {
@@ -50,6 +67,7 @@ describe('ChannelWebhookEventsPanel', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.queryByText('raw provider error')).not.toBeInTheDocument();
     expect(screen.queryByText('private message')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Requeue event' })).toBeInTheDocument();
     expect(mocks.list).toHaveBeenCalledWith({
       connectionId: undefined,
       processingStatus: undefined,
@@ -95,6 +113,38 @@ describe('ChannelWebhookEventsPanel', () => {
     await screen.findByText('Support Slack');
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+  });
+
+  it('lets an admin requeue only a server-approved replayable failure and reloads evidence', async () => {
+    const user = userEvent.setup();
+    render(<ChannelWebhookEventsPanel connections={connections} />);
+
+    await screen.findByText('Support Slack');
+    await user.click(screen.getByRole('button', { name: 'Requeue event' }));
+
+    await waitFor(() => expect(mocks.requeue).toHaveBeenCalledWith('event-1'));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Failed webhook requeued through the existing channel event pipeline.',
+    );
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps requeue hidden from viewers even when the event is replayable', async () => {
+    mocks.useAuth.mockReturnValue({ session: { user: { role: 'member' } } });
+    render(<ChannelWebhookEventsPanel connections={connections} />);
+
+    expect(await screen.findByText('Support Slack')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Requeue event' })).not.toBeInTheDocument();
+    expect(mocks.requeue).not.toHaveBeenCalled();
+  });
+
+  it('keeps requeue hidden when the backend marks the failure non-replayable', async () => {
+    mocks.list.mockResolvedValue([{ ...events[0], can_requeue: false }]);
+    render(<ChannelWebhookEventsPanel connections={connections} />);
+
+    expect(await screen.findByText('Support Slack')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Requeue event' })).not.toBeInTheDocument();
+    expect(mocks.requeue).not.toHaveBeenCalled();
   });
 
   it('shows an explicit empty state', async () => {
