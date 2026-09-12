@@ -6,6 +6,12 @@ import { ChannelOperationalHealthPanel } from '@/components/channel-operational-
 const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   deliveries: vi.fn(),
+  requeue: vi.fn(),
+  useAuth: vi.fn(),
+}));
+
+vi.mock('@/components/providers', () => ({
+  useAuth: mocks.useAuth,
 }));
 
 vi.mock('@/lib/channel-operations-api', () => ({
@@ -13,7 +19,7 @@ vi.mock('@/lib/channel-operations-api', () => ({
 }));
 
 vi.mock('@/lib/channel-deliveries-api', () => ({
-  channelDeliveriesApi: { list: mocks.deliveries },
+  channelDeliveriesApi: { list: mocks.deliveries, requeue: mocks.requeue },
 }));
 
 const attentionHealth = {
@@ -41,8 +47,10 @@ const attentionHealth = {
 
 describe('ChannelOperationalHealthPanel', () => {
   beforeEach(() => {
+    mocks.useAuth.mockReturnValue({ session: { user: { role: 'admin' } } });
     mocks.health.mockResolvedValue(attentionHealth);
     mocks.deliveries.mockResolvedValue([]);
+    mocks.requeue.mockResolvedValue(null);
   });
 
   afterEach(() => {
