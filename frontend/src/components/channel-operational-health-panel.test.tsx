@@ -5,10 +5,15 @@ import { ChannelOperationalHealthPanel } from '@/components/channel-operational-
 
 const mocks = vi.hoisted(() => ({
   health: vi.fn(),
+  deliveries: vi.fn(),
 }));
 
 vi.mock('@/lib/channel-operations-api', () => ({
   channelOperationsApi: { health: mocks.health },
+}));
+
+vi.mock('@/lib/channel-deliveries-api', () => ({
+  channelDeliveriesApi: { list: mocks.deliveries },
 }));
 
 const attentionHealth = {
@@ -37,6 +42,7 @@ const attentionHealth = {
 describe('ChannelOperationalHealthPanel', () => {
   beforeEach(() => {
     mocks.health.mockResolvedValue(attentionHealth);
+    mocks.deliveries.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -54,6 +60,7 @@ describe('ChannelOperationalHealthPanel', () => {
     expect(screen.getByText('Terminal failures')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('1 terminal outbound delivery failure state(s)');
     expect(mocks.health).toHaveBeenCalledOnce();
+    expect(mocks.deliveries).not.toHaveBeenCalled();
   });
 
   it('refreshes channel operational health on demand', async () => {
@@ -63,6 +70,22 @@ describe('ChannelOperationalHealthPanel', () => {
     await screen.findByText('Student Telegram');
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(mocks.health).toHaveBeenCalledTimes(2));
+  });
+
+  it('loads individual delivery evidence only after the user opens it', async () => {
+    const user = userEvent.setup();
+    render(<ChannelOperationalHealthPanel />);
+
+    await screen.findByText('Student Telegram');
+    expect(mocks.deliveries).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'View delivery evidence' }));
+
+    await waitFor(() => expect(mocks.deliveries).toHaveBeenCalledWith({
+      connectionId: undefined,
+      status: undefined,
+      limit: 100,
+    }));
+    expect(screen.getByRole('option', { name: 'Student Telegram · telegram' })).toBeInTheDocument();
   });
 
   it('shows an explicit empty state when the Workspace has no channel connections', async () => {
@@ -80,5 +103,6 @@ describe('ChannelOperationalHealthPanel', () => {
 
     expect(await screen.findByText('No channel operations to monitor')).toBeInTheDocument();
     expect(screen.getByText('Connect a provider-neutral messaging channel in this Workspace to begin monitoring delivery health.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View delivery evidence' })).not.toBeInTheDocument();
   });
 });
