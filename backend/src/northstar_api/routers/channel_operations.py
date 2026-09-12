@@ -16,6 +16,7 @@ from northstar_api.lead_crm.channel_operations_health_schemas import (
     ChannelOperationalHealthOut,
 )
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
+from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.security import Principal
 
 router = APIRouter(prefix="/channels/operations", tags=["channels"])
@@ -39,7 +40,11 @@ _ATTENTION_CONNECTION_STATUSES = frozenset(
 
 
 def _connection_needs_attention(row: ChannelOperationalConnectionHealthOut) -> bool:
-    return row.status in _ATTENTION_CONNECTION_STATUSES or row.failed_deliveries > 0
+    return (
+        row.status in _ATTENTION_CONNECTION_STATUSES
+        or row.failed_deliveries > 0
+        or row.failed_webhook_events > 0
+    )
 
 
 @router.get("/health", response_model=ChannelOperationalHealthOut)
@@ -70,6 +75,7 @@ async def channel_operational_health(
     connection_ids = [connection.id for connection in connections]
 
     delivery_counts: dict[UUID, Counter[str]] = {}
+    webhook_counts: dict[UUID, Counter[str]] = {}
     if connection_ids:
         rows = list(
             await session.execute(
@@ -84,9 +90,24 @@ async def channel_operational_health(
             if connection_id is not None:
                 delivery_counts.setdefault(connection_id, Counter())[status] += 1
 
+        connection_id_by_key = {str(connection_id): connection_id for connection_id in connection_ids}
+        webhook_rows = list(
+            await session.execute(
+                select(RawWebhookEvent.connection_key, RawWebhookEvent.processing_status).where(
+                    RawWebhookEvent.tenant_id == principal.tenant_id,
+                    RawWebhookEvent.connection_key.in_(list(connection_id_by_key)),
+                )
+            )
+        )
+        for connection_key, processing_status in webhook_rows:
+            connection_id = connection_id_by_key.get(connection_key)
+            if connection_id is not None:
+                webhook_counts.setdefault(connection_id, Counter())[processing_status] += 1
+
     connection_rows: list[ChannelOperationalConnectionHealthOut] = []
     for connection in connections:
         counts = delivery_counts.get(connection.id, Counter())
+        webhook_statuses = webhook_counts.get(connection.id, Counter())
         pending = sum(counts[status] for status in _PENDING_STATUSES)
         retrying = sum(counts[status] for status in _RETRYING_STATUSES)
         failed = sum(counts[status] for status in _FAILED_STATUSES)
@@ -103,12 +124,13 @@ async def channel_operational_health(
                 pending_deliveries=pending,
                 retrying_deliveries=retrying,
                 failed_deliveries=failed,
+                pending_webhook_events=webhook_statuses["received"],
+                failed_webhook_events=webhook_statuses["failed"],
+                rejected_webhook_events=webhook_statuses["rejected"],
             )
         )
 
-    attention_connections = sum(
-        1 for row in connection_rows if _connection_needs_attention(row)
-    )
+    attention_connections = sum(1 for row in connection_rows if _connection_needs_attention(row))
     healthy_connections = sum(
         1
         for row in connection_rows
@@ -117,6 +139,9 @@ async def channel_operational_health(
     pending_total = sum(row.pending_deliveries for row in connection_rows)
     retrying_total = sum(row.retrying_deliveries for row in connection_rows)
     failed_total = sum(row.failed_deliveries for row in connection_rows)
+    pending_webhook_total = sum(row.pending_webhook_events for row in connection_rows)
+    failed_webhook_total = sum(row.failed_webhook_events for row in connection_rows)
+    rejected_webhook_total = sum(row.rejected_webhook_events for row in connection_rows)
     has_nonhealthy_nonattention_connection = any(
         row.status != "healthy" and not _connection_needs_attention(row)
         for row in connection_rows
@@ -126,7 +151,12 @@ async def channel_operational_health(
         overall_status = "empty"
     elif attention_connections:
         overall_status = "attention"
-    elif retrying_total or pending_total or has_nonhealthy_nonattention_connection:
+    elif (
+        retrying_total
+        or pending_total
+        or pending_webhook_total
+        or has_nonhealthy_nonattention_connection
+    ):
         overall_status = "active"
     else:
         overall_status = "healthy"
@@ -139,5 +169,8 @@ async def channel_operational_health(
         pending_deliveries=pending_total,
         retrying_deliveries=retrying_total,
         failed_deliveries=failed_total,
+        pending_webhook_events=pending_webhook_total,
+        failed_webhook_events=failed_webhook_total,
+        rejected_webhook_events=rejected_webhook_total,
         connections=connection_rows,
     )
