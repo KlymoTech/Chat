@@ -38,6 +38,13 @@ export interface CRMConnectionView {
   updated_at: string;
 }
 
+export interface CRMWorkspaceSettings {
+  connection_id: string;
+  auto_sync_new_leads: boolean;
+  auto_sync_updates: boolean;
+  updated_at: string;
+}
+
 export interface CRMFieldSchemaView {
   connectionId: string;
   objectName: string;
@@ -195,6 +202,9 @@ export const leadCrmApi = {
   connections: () => call<CRMConnectionView[]>('/crm/connections'),
   createConnection: (value: { provider: CRMProviderId; name: string; environment?: string; region?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
     call<CRMConnectionView>('/crm/connections', { method: 'POST', body: JSON.stringify(value) }),
+  workspaceSettings: (id: string) => call<CRMWorkspaceSettings>(`/crm/connections/${id}/workspace-settings`),
+  updateWorkspaceSettings: (id: string, value: Partial<Pick<CRMWorkspaceSettings, 'auto_sync_new_leads' | 'auto_sync_updates'>>) =>
+    call<CRMWorkspaceSettings>(`/crm/connections/${id}/workspace-settings`, { method: 'PATCH', body: JSON.stringify(value) }),
   testConnection: (id: string) => call<CRMConnectionHealth>(`/crm/connections/${id}/test`, { method: 'POST' }),
   startOAuth: (id: string) => call<{ authorizationUrl: string; expiresIn: number; workspaceId?: string }>(`/crm/connections/${id}/oauth/start`, { method: 'POST' }),
   reconnect: (id: string) => call<{ authorizationUrl: string; expiresIn: number; workspaceId?: string }>(`/crm/connections/${id}/reconnect`, { method: 'POST' }),
