@@ -52,7 +52,7 @@ describe('CRMOperationalHealthPanel', () => {
     expect(await screen.findByText('Zoho Production')).toBeInTheDocument();
     expect(screen.getByText('attention')).toBeInTheDocument();
     expect(screen.getByText('Pending deliveries')).toBeInTheDocument();
-    expect(screen.getByText('Retrying')).toBeInTheDocument();
+    expect(screen.getAllByText('Retrying').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Open dead letters')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('1 failed delivery state(s) and 1 unresolved dead-letter incident(s)');
     expect(mocks.health).toHaveBeenCalledOnce();
