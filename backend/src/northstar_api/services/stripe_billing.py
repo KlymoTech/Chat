@@ -215,7 +215,7 @@ class StripeBillingClient:
         try:
             async with httpx.AsyncClient(timeout=self.settings.stripe_timeout_seconds) as client:
                 response = await client.request(method, url, headers=headers, data=data)
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except httpx.RequestError as exc:
             raise StripeBillingError("Stripe billing service is temporarily unavailable", 503) from exc
         try:
             payload = response.json()
