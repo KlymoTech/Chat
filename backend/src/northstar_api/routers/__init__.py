@@ -6,6 +6,7 @@ from northstar_api.routers import (
     auth,
     billing,
     channel_health_history,
+    channel_operations,
     channels,
     chat,
     conversations,
@@ -95,6 +96,7 @@ api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
 # Slack's URL-verification path must precede the provider-parameterized route.
 api_router.include_router(slack_webhooks.router)
+api_router.include_router(channel_operations.router)
 api_router.include_router(channel_health_history.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
