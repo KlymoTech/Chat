@@ -54,14 +54,18 @@ async def _scoped_connection(
     )
 
 
+def _sensitive_check_key(value: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", value.lower())
+    return any(normalized == key or normalized.endswith(key) for key in _SENSITIVE_CHECK_KEYS)
+
+
 def _safe_checks(value: object) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
     safe: dict[str, str] = {}
     for key, item in value.items():
         label = str(key)[:80]
-        normalized_key = re.sub(r"[^a-z0-9]", "", label.lower())
-        safe[label] = "[REDACTED]" if normalized_key in _SENSITIVE_CHECK_KEYS else str(item)[:160]
+        safe[label] = "[REDACTED]" if _sensitive_check_key(label) else str(item)[:160]
     return safe
 
 
