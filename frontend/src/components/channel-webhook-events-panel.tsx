@@ -2,12 +2,17 @@ import { CircleAlert, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { channelWebhookEventsApi } from '@/lib/channel-webhook-events-api';
-import type { ChannelConnectionView } from '@/lib/lead-crm-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 
+export interface ChannelWebhookConnectionOption {
+  id: string;
+  name: string;
+  provider: string;
+}
+
 interface ChannelWebhookEventsPanelProps {
-  connections: ChannelConnectionView[];
+  connections: ChannelWebhookConnectionOption[];
 }
 
 function statusTone(status: string): 'success' | 'warning' | 'brand' | 'neutral' {
