@@ -138,7 +138,8 @@ describe('ChannelOutboundDeliveriesPanel', () => {
 
     await screen.findByText('message-safe-reference');
     await user.click(screen.getByRole('button', { name: 'View attempts' }));
-    await waitFor(() => expect(mocks.attempts).toHaveBeenCalledTimes(1));
+    await screen.findByText('provider_retryable');
+    expect(mocks.attempts).toHaveBeenCalledTimes(1);
     expect(mocks.list).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Refresh attempts' }));
