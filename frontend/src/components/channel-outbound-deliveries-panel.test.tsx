@@ -5,10 +5,16 @@ import { ChannelOutboundDeliveriesPanel } from '@/components/channel-outbound-de
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  requeue: vi.fn(),
+  useAuth: vi.fn(),
+}));
+
+vi.mock('@/components/providers', () => ({
+  useAuth: mocks.useAuth,
 }));
 
 vi.mock('@/lib/channel-deliveries-api', () => ({
-  channelDeliveriesApi: { list: mocks.list },
+  channelDeliveriesApi: { list: mocks.list, requeue: mocks.requeue },
 }));
 
 const connections = [{
@@ -34,9 +40,27 @@ const delivery = {
   updated_at: '2026-09-12T18:31:00Z',
 };
 
+const dispatchFailedDelivery = {
+  ...delivery,
+  id: 'dispatch-failure-1',
+  status: 'dispatch_failed',
+  error_code: 'dispatch_failed',
+  dispatch_attempts: 8,
+  next_dispatch_at: null,
+};
+
 describe('ChannelOutboundDeliveriesPanel', () => {
   beforeEach(() => {
+    mocks.useAuth.mockReturnValue({ session: { user: { role: 'admin' } } });
     mocks.list.mockResolvedValue([delivery]);
+    mocks.requeue.mockResolvedValue({
+      ...dispatchFailedDelivery,
+      status: 'queued',
+      error_code: null,
+      dispatch_attempts: 0,
+      dispatched_at: null,
+      next_dispatch_at: '2026-09-12T18:40:00Z',
+    });
   });
 
   afterEach(() => {
@@ -55,6 +79,7 @@ describe('ChannelOutboundDeliveriesPanel', () => {
     expect(screen.queryByText('private-recipient-42')).not.toBeInTheDocument();
     expect(screen.queryByText('provider-secret-id')).not.toBeInTheDocument();
     expect(screen.queryByText('Bearer secret-token provider response body')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Requeue dispatch' })).not.toBeInTheDocument();
     expect(mocks.list).toHaveBeenCalledWith({
       connectionId: undefined,
       status: undefined,
@@ -89,6 +114,31 @@ describe('ChannelOutboundDeliveriesPanel', () => {
     await screen.findByText('message-safe-reference');
     await user.click(screen.getByRole('button', { name: 'Refresh deliveries' }));
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+  });
+
+  it('lets an admin requeue only an exhausted dispatch failure and reloads evidence', async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue([dispatchFailedDelivery]);
+    render(<ChannelOutboundDeliveriesPanel connections={connections} />);
+
+    expect((await screen.findAllByText('dispatch_failed')).length).toBeGreaterThanOrEqual(2);
+    await user.click(screen.getByRole('button', { name: 'Requeue dispatch' }));
+
+    await waitFor(() => expect(mocks.requeue).toHaveBeenCalledWith('dispatch-failure-1'));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Dispatch failure requeued through the existing channel dispatcher.',
+    );
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps the dispatch recovery action hidden from viewers', async () => {
+    mocks.useAuth.mockReturnValue({ session: { user: { role: 'member' } } });
+    mocks.list.mockResolvedValue([dispatchFailedDelivery]);
+    render(<ChannelOutboundDeliveriesPanel connections={connections} />);
+
+    expect((await screen.findAllByText('dispatch_failed')).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole('button', { name: 'Requeue dispatch' })).not.toBeInTheDocument();
+    expect(mocks.requeue).not.toHaveBeenCalled();
   });
 
   it('shows an explicit empty state', async () => {

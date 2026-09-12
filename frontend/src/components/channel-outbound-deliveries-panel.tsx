@@ -1,5 +1,6 @@
 import { Activity, CircleAlert, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/components/providers';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { channelDeliveriesApi } from '@/lib/channel-deliveries-api';
 import { relativeTime } from '@/lib/format';
@@ -23,8 +24,13 @@ interface ChannelOutboundDeliveriesPanelProps {
 }
 
 export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundDeliveriesPanelProps) {
+  const { session } = useAuth();
+  const canManage = session?.user.role === 'owner' || session?.user.role === 'admin';
   const [connectionId, setConnectionId] = useState('');
   const [status, setStatus] = useState('');
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const deliveries = useApi(
     () => channelDeliveriesApi.list({
       connectionId: connectionId || undefined,
@@ -33,6 +39,21 @@ export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundD
     }),
     [connectionId, status],
   );
+
+  const requeue = async (deliveryId: string) => {
+    setActionId(deliveryId);
+    setActionMessage(null);
+    setActionError(null);
+    try {
+      await channelDeliveriesApi.requeue(deliveryId);
+      setActionMessage('Dispatch failure requeued through the existing channel dispatcher.');
+      deliveries.reload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not requeue channel delivery');
+    } finally {
+      setActionId(null);
+    }
+  };
 
   return <Card>
     <div className="page-heading page-heading--split">
@@ -67,6 +88,9 @@ export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundD
       </label>
     </div>
 
+    {actionMessage ? <p role="status">{actionMessage}</p> : null}
+    {actionError ? <p role="alert">{actionError}</p> : null}
+
     {deliveries.loading && !deliveries.data ? <p>Loading channel outbound deliveries…</p> : deliveries.error && !deliveries.data ? <EmptyState
       icon={CircleAlert}
       title="Channel outbound deliveries are unavailable"
@@ -77,7 +101,7 @@ export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundD
       title="No outbound delivery evidence found"
       description="No provider-neutral outbound deliveries match the selected Workspace filters yet."
     /> : <div className="leads-table-wrap"><table className="leads-table">
-      <thead><tr><th>Updated</th><th>Connection</th><th>Provider</th><th>Status</th><th>Attempts</th><th>Next retry</th><th>Normalized error</th><th>Message ref</th></tr></thead>
+      <thead><tr><th>Updated</th><th>Connection</th><th>Provider</th><th>Status</th><th>Attempts</th><th>Next retry</th><th>Normalized error</th><th>Message ref</th><th>Action</th></tr></thead>
       <tbody>{deliveries.data.map((delivery) => <tr key={delivery.id}>
         <td><strong>{new Date(delivery.updated_at).toLocaleString()}</strong><small>{relativeTime(delivery.updated_at)}</small></td>
         <td>{delivery.connection_name ?? 'Disconnected historical delivery'}</td>
@@ -87,6 +111,12 @@ export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundD
         <td>{delivery.next_dispatch_at ? <><strong>{new Date(delivery.next_dispatch_at).toLocaleString()}</strong><small>{relativeTime(delivery.next_dispatch_at)}</small></> : '—'}</td>
         <td>{delivery.error_code ? <code>{delivery.error_code}</code> : '—'}</td>
         <td><code>{delivery.message_id}</code></td>
+        <td>{canManage && delivery.status === 'dispatch_failed' ? <Button
+          variant="secondary"
+          size="sm"
+          disabled={actionId === delivery.id}
+          onClick={() => void requeue(delivery.id)}
+        >{actionId === delivery.id ? 'Requeueing…' : 'Requeue dispatch'}</Button> : '—'}</td>
       </tr>)}</tbody>
     </table></div>}
   </Card>;
