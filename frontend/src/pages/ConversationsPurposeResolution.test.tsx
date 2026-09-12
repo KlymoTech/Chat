@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   agentList: vi.fn<() => Promise<Agent[]>>(),
   conversationList: vi.fn<() => Promise<PageResult<Conversation>>>(),
   resolve: vi.fn<(conversationId: string) => Promise<Conversation>>(),
+  resolveEducationSalesIntent: vi.fn(),
+  educationSalesSettings: vi.fn(),
   updateState: vi.fn(),
   reply: vi.fn(),
 }));
@@ -36,6 +38,13 @@ vi.mock('@/lib/conversation-api', () => ({
   conversationApi: {
     list: mocks.conversationList,
     resolve: mocks.resolve,
+    resolveEducationSalesIntent: mocks.resolveEducationSalesIntent,
+  },
+}));
+
+vi.mock('@/lib/education-sales-settings-api', () => ({
+  educationSalesSettingsApi: {
+    get: mocks.educationSalesSettings,
   },
 }));
 
@@ -86,6 +95,13 @@ async function renderAndResolve(purpose: Agent['purpose']): Promise<void> {
 
 describe('ConversationsPage purpose-aware resolution feedback', () => {
   beforeEach(() => {
+    mocks.educationSalesSettings.mockResolvedValue({ createUpsellLeads: false });
+    mocks.resolveEducationSalesIntent.mockResolvedValue({
+      conversationId: baseConversation.id,
+      state: 'resolved',
+      leadId: 'lead-1',
+      leadCreated: true,
+    });
     mocks.updateState.mockResolvedValue(baseConversation);
     mocks.reply.mockResolvedValue(undefined);
   });
@@ -100,6 +116,7 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
     expect(mocks.pushToast).toHaveBeenCalledWith(
       'Education conversation resolved and student history updated',
     );
+    expect(mocks.resolveEducationSalesIntent).not.toHaveBeenCalled();
   });
 
   it('preserves the Lead Generation finalized-lead confirmation', async () => {
@@ -110,5 +127,33 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
   it('uses a neutral confirmation for Support', async () => {
     await renderAndResolve('support');
     expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved');
+  });
+
+  it('shows a separate opt-in Education sales action and routes it without normal Resolve', async () => {
+    mocks.educationSalesSettings.mockResolvedValue({ createUpsellLeads: true });
+    mocks.agentList.mockResolvedValue([agentForPurpose('education')]);
+    mocks.conversationList.mockResolvedValue({
+      items: [baseConversation],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ConversationsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Resolve + sales lead' }));
+
+    await waitFor(() => {
+      expect(mocks.resolveEducationSalesIntent).toHaveBeenCalledWith(baseConversation.id);
+    });
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.pushToast).toHaveBeenCalledWith(
+      'Education conversation resolved and sales Lead created',
+    );
   });
 });
