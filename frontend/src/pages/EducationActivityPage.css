@@ -219,6 +219,41 @@
   white-space: nowrap;
 }
 
+.education-activity-topics {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: var(--surface-subtle, #f8fafc);
+}
+
+.education-activity-topics > strong {
+  color: var(--text-secondary, #64748b);
+  font-size: .75rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.education-activity-topics ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.education-activity-topics li {
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #0f172a);
+  font-size: .82rem;
+  overflow-wrap: anywhere;
+}
+
 .education-activity-card__footer {
   padding-top: 2px;
   font-size: .78rem;
@@ -272,5 +307,13 @@
 
   .education-activity-meta {
     grid-template-columns: 1fr;
+  }
+
+  .education-activity-topics ul {
+    display: grid;
+  }
+
+  .education-activity-topics li {
+    border-radius: 10px;
   }
 }
