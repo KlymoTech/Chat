@@ -5,13 +5,23 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from northstar_api.database import Base
-from northstar_api.lead_crm.models import CRMConnection, CRMDelivery, IntegrationDeadLetter
+from northstar_api.lead_crm.connectors import CRMError
+from northstar_api.lead_crm.domain import NormalizedCRMErrorCode
+from northstar_api.lead_crm.models import (
+    CRMConnection,
+    CRMDelivery,
+    IntegrationDeadLetter,
+    LeadActivityEvent,
+)
 from northstar_api.models import Agent, Lead, Role, Tenant, Workspace, WorkspaceRole
-from northstar_api.routers.crm_dead_letters import list_crm_dead_letters
+from northstar_api.routers.crm_dead_letters import list_crm_dead_letters, replay_crm_dead_letter
 from northstar_api.security import Principal
+from northstar_api.workers.crm_delivery_worker import _mark_failure
 
 
 @pytest.fixture
@@ -129,7 +139,7 @@ async def dead_letter_case() -> AsyncIterator[
             token_id="dead-letter-test",
             workspace_id=workspace.id,
             workspace_role=WorkspaceRole.MANAGER,
-            permissions=frozenset({"crm.view"}),
+            permissions=frozenset({"crm.view", "crm.manage"}),
         )
         yield session, principal, connection, primary_dead_letter, other_dead_letter
 
@@ -182,3 +192,91 @@ async def test_dead_letter_filters_status_and_connection(dead_letter_case) -> No
     assert open_rows == []
     assert [row.id for row in resolved_rows] == [primary_dead_letter.id]
     assert [row.id for row in all_rows] == [primary_dead_letter.id]
+
+
+async def test_replay_resolves_incident_and_queues_existing_delivery_retry(dead_letter_case) -> None:
+    session, principal, _, primary_dead_letter, _ = dead_letter_case
+
+    result = await replay_crm_dead_letter(primary_dead_letter.id, principal, session)
+
+    assert result.dead_letter_id == primary_dead_letter.id
+    assert result.delivery_id == primary_dead_letter.delivery_id
+    assert result.dead_letter_status == "resolved"
+    assert result.delivery_status == "retrying"
+
+    await session.refresh(primary_dead_letter)
+    delivery = await session.get(CRMDelivery, primary_dead_letter.delivery_id)
+    assert delivery is not None
+    assert delivery.status == "retrying"
+    assert delivery.next_retry_at is not None
+    assert primary_dead_letter.status == "resolved"
+    assert primary_dead_letter.resolved_at is not None
+    assert primary_dead_letter.metadata_json["secretDiagnostic"] == "must-not-be-returned"
+    assert primary_dead_letter.metadata_json["resolution"]["type"] == "replay_requested"
+    assert primary_dead_letter.metadata_json["resolution"]["userId"] == str(principal.user_id)
+
+    activity = list(
+        await session.scalars(
+            select(LeadActivityEvent).where(
+                LeadActivityEvent.tenant_id == principal.tenant_id,
+                LeadActivityEvent.event_type == "lead.crm.retry.requested.v1",
+            )
+        )
+    )
+    assert len(activity) == 1
+    assert activity[0].details_json["deliveryId"] == str(delivery.id)
+
+    with pytest.raises(HTTPException) as repeated:
+        await replay_crm_dead_letter(primary_dead_letter.id, principal, session)
+    assert repeated.value.status_code == 409
+
+
+async def test_replay_cannot_cross_workspace_boundary(dead_letter_case) -> None:
+    session, principal, _, _, other_dead_letter = dead_letter_case
+
+    with pytest.raises(HTTPException) as denied:
+        await replay_crm_dead_letter(other_dead_letter.id, principal, session)
+
+    assert denied.value.status_code == 404
+    await session.refresh(other_dead_letter)
+    other_delivery = await session.get(CRMDelivery, other_dead_letter.delivery_id)
+    assert other_dead_letter.status == "open"
+    assert other_delivery is not None and other_delivery.status == "dead_letter"
+
+
+async def test_failed_replay_cycle_creates_new_open_incident_and_keeps_history(dead_letter_case) -> None:
+    session, principal, connection, primary_dead_letter, _ = dead_letter_case
+    await replay_crm_dead_letter(primary_dead_letter.id, principal, session)
+
+    delivery = await session.get(CRMDelivery, primary_dead_letter.delivery_id)
+    assert delivery is not None
+    delivery.retry_cycle_attempts = 5
+    await _mark_failure(
+        session,
+        delivery,
+        connection,
+        CRMError(
+            NormalizedCRMErrorCode.NETWORK_ERROR,
+            "Provider unavailable after manual replay",
+            retryable=True,
+        ),
+    )
+    await session.commit()
+
+    incidents = list(
+        await session.scalars(
+            select(IntegrationDeadLetter)
+            .where(
+                IntegrationDeadLetter.tenant_id == principal.tenant_id,
+                IntegrationDeadLetter.delivery_id == delivery.id,
+            )
+            .order_by(IntegrationDeadLetter.created_at, IntegrationDeadLetter.id)
+        )
+    )
+    assert len(incidents) == 2
+    assert {incident.status for incident in incidents} == {"resolved", "open"}
+    assert primary_dead_letter.id in {incident.id for incident in incidents if incident.status == "resolved"}
+    new_open = next(incident for incident in incidents if incident.status == "open")
+    assert new_open.id != primary_dead_letter.id
+    assert new_open.reason_code == NormalizedCRMErrorCode.NETWORK_ERROR.value
+    assert delivery.status == "dead_letter"

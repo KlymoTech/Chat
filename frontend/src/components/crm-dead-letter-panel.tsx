@@ -1,5 +1,6 @@
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { crmDeadLetterApi, type CRMDeadLetterStatus } from '@/lib/crm-dead-letter-api';
 import type { CRMConnectionView } from '@/lib/lead-crm-api';
@@ -17,8 +18,13 @@ function statusTone(status: string): 'success' | 'warning' | 'neutral' {
 }
 
 export function CRMDeadLetterPanel({ connections }: CRMDeadLetterPanelProps) {
+  const { session } = useAuth();
+  const { pushToast } = useToast();
   const [status, setStatus] = useState<CRMDeadLetterStatus>('open');
   const [connectionId, setConnectionId] = useState('');
+  const [confirmingReplayId, setConfirmingReplayId] = useState<string | null>(null);
+  const [replayingId, setReplayingId] = useState<string | null>(null);
+  const canManage = session?.user.role === 'owner' || session?.user.role === 'admin';
   const deadLetters = useApi(
     () => crmDeadLetterApi.list({ status, connectionId: connectionId || undefined }),
     [status, connectionId],
@@ -29,11 +35,25 @@ export function CRMDeadLetterPanel({ connections }: CRMDeadLetterPanelProps) {
   );
   const rows = deadLetters.data ?? [];
 
+  const replay = async (deadLetterId: string) => {
+    setReplayingId(deadLetterId);
+    try {
+      const result = await crmDeadLetterApi.replay(deadLetterId);
+      pushToast(`CRM replay queued · delivery ${result.delivery_status}`);
+      setConfirmingReplayId(null);
+      deadLetters.reload();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Could not replay CRM dead letter', 'error');
+    } finally {
+      setReplayingId(null);
+    }
+  };
+
   return <Card>
     <div className="page-heading page-heading--split">
       <div>
         <h3>CRM dead-letter queue</h3>
-        <p>Review deliveries that exhausted automatic retries. Visibility is read-only here; recovery actions remain separate from the existing retry state machine.</p>
+        <p>Review deliveries that exhausted automatic retries. Admins can explicitly replay an open incident through the existing workspace-scoped retry state machine.</p>
       </div>
       <Badge tone={rows.some((item) => item.status === 'open') ? 'warning' : 'neutral'}>
         {rows.filter((item) => item.status === 'open').length} open
@@ -56,7 +76,7 @@ export function CRMDeadLetterPanel({ connections }: CRMDeadLetterPanelProps) {
           {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
         </select>
       </label>
-      <Button variant="secondary" size="sm" icon={RefreshCw} disabled={deadLetters.loading} onClick={deadLetters.reload}>Refresh</Button>
+      <Button variant="secondary" size="sm" icon={RefreshCw} disabled={deadLetters.loading || Boolean(replayingId)} onClick={deadLetters.reload}>Refresh</Button>
     </div>
 
     {deadLetters.loading && !deadLetters.data ? <p>Loading CRM dead letters…</p> : deadLetters.error ? (
@@ -67,7 +87,7 @@ export function CRMDeadLetterPanel({ connections }: CRMDeadLetterPanelProps) {
         action={<Button variant="secondary" onClick={deadLetters.reload}>Try again</Button>}
       />
     ) : rows.length ? <div className="leads-table-wrap"><table className="leads-table">
-      <thead><tr><th>Status</th><th>CRM</th><th>Provider</th><th>Reason</th><th>Lead / delivery</th><th>Created</th></tr></thead>
+      <thead><tr><th>Status</th><th>CRM</th><th>Provider</th><th>Reason</th><th>Lead / delivery</th><th>Created</th><th>Recovery</th></tr></thead>
       <tbody>{rows.map((item) => <tr key={item.id}>
         <td><Badge tone={statusTone(item.status)}>{item.status}</Badge></td>
         <td>{connectionNames.get(item.connection_id) ?? item.connection_id}</td>
@@ -75,6 +95,10 @@ export function CRMDeadLetterPanel({ connections }: CRMDeadLetterPanelProps) {
         <td><strong>{item.reason_code ?? 'unknown'}</strong>{item.reason_message ? <small>{item.reason_message}</small> : null}</td>
         <td><small>Lead {item.lead_id}</small><small>Delivery {item.delivery_id}</small></td>
         <td><time dateTime={item.created_at}>{relativeTime(item.created_at)}</time>{item.resolved_at ? <small>Resolved {relativeTime(item.resolved_at)}</small> : null}</td>
+        <td>{item.status !== 'open' ? '—' : !canManage ? <Badge>Admin only</Badge> : confirmingReplayId === item.id ? <div>
+          <Button size="sm" disabled={Boolean(replayingId)} onClick={() => void replay(item.id)}>{replayingId === item.id ? 'Replaying…' : 'Confirm replay'}</Button>{' '}
+          <Button variant="secondary" size="sm" disabled={Boolean(replayingId)} onClick={() => setConfirmingReplayId(null)}>Cancel</Button>
+        </div> : <Button variant="secondary" size="sm" disabled={Boolean(replayingId)} onClick={() => setConfirmingReplayId(item.id)}>Replay</Button>}</td>
       </tr>)}</tbody>
     </table></div> : <EmptyState
       icon={CircleAlert}
