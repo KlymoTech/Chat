@@ -186,8 +186,19 @@ jobs:
         run: docker compose up --detach --no-build
       - name: Run end-to-end smoke checks
         run: bash scripts/smoke.sh
-      - name: Verify migration head
-        run: docker compose exec -T api alembic current | grep -q '0027_workspace_invitations (head)'
+      - name: Verify migration heads
+        run: |
+          current_heads="$(docker compose exec -T api alembic current | sed -n 's/ (head)$//p' | sort)"
+          expected_heads="$(docker compose exec -T api alembic heads | sed -n 's/ (head)$//p' | sort)"
+          if [ -z "$expected_heads" ]; then
+            echo 'Alembic reported no repository migration heads' >&2
+            exit 1
+          fi
+          if [ "$current_heads" != "$expected_heads" ]; then
+            echo 'Database migration heads do not match the repository heads' >&2
+            printf 'Current:\n%s\nExpected:\n%s\n' "$current_heads" "$expected_heads" >&2
+            exit 1
+          fi
       - name: Verify CRM API and migrated verification columns
         run: |
           docker compose exec -T api python - <<'PY'
