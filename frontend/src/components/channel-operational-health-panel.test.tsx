@@ -38,6 +38,7 @@ const attentionHealth = {
   pending_webhook_events: 3,
   failed_webhook_events: 1,
   rejected_webhook_events: 2,
+  stale_webhook_events: 1,
   connections: [{
     connection_id: 'connection-1',
     name: 'Student Telegram',
@@ -53,6 +54,7 @@ const attentionHealth = {
     pending_webhook_events: 3,
     failed_webhook_events: 1,
     rejected_webhook_events: 2,
+    stale_webhook_events: 1,
   }],
 };
 
@@ -81,8 +83,9 @@ describe('ChannelOperationalHealthPanel', () => {
     expect(screen.getAllByText('Inbound pending').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Inbound failed').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Inbound rejected').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Inbound stale').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('status')).toHaveTextContent(
-      '1 terminal outbound delivery failure state(s) and 1 failed inbound webhook event(s)',
+      '1 terminal outbound delivery failure state(s), 1 failed inbound webhook event(s), and 1 stale inbound webhook event(s)',
     );
     expect(mocks.health).toHaveBeenCalledOnce();
     expect(mocks.deliveries).not.toHaveBeenCalled();
@@ -146,6 +149,7 @@ describe('ChannelOperationalHealthPanel', () => {
       pending_webhook_events: 0,
       failed_webhook_events: 0,
       rejected_webhook_events: 0,
+      stale_webhook_events: 0,
       connections: [],
     });
     render(<ChannelOperationalHealthPanel />);
