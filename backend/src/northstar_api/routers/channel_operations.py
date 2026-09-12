@@ -17,6 +17,7 @@ from northstar_api.lead_crm.channel_operations_health_schemas import (
     ChannelOperationalHealthOut,
 )
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
+from northstar_api.lead_crm.channel_webhook_timing import channel_webhook_pending_since_expression
 from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.security import Principal
 
@@ -99,12 +100,13 @@ async def channel_operational_health(
                 delivery_counts.setdefault(connection_id, Counter())[status] += 1
 
         connection_id_by_key = {str(connection_id): connection_id for connection_id in connection_ids}
+        pending_since = channel_webhook_pending_since_expression()
         webhook_rows = list(
             await session.execute(
                 select(
                     RawWebhookEvent.connection_key,
                     RawWebhookEvent.processing_status,
-                    RawWebhookEvent.received_at,
+                    pending_since.label("pending_since"),
                 ).where(
                     RawWebhookEvent.tenant_id == principal.tenant_id,
                     RawWebhookEvent.connection_key.in_(list(connection_id_by_key)),
@@ -112,12 +114,15 @@ async def channel_operational_health(
             )
         )
         stale_cutoff = datetime.now(UTC) - _WEBHOOK_STALE_AFTER
-        for connection_key, processing_status, received_at in webhook_rows:
+        for connection_key, processing_status, effective_pending_since in webhook_rows:
             connection_id = connection_id_by_key.get(connection_key)
             if connection_id is None:
                 continue
             webhook_counts.setdefault(connection_id, Counter())[processing_status] += 1
-            if processing_status == "received" and _aware(received_at) <= stale_cutoff:
+            if (
+                processing_status == "received"
+                and _aware(effective_pending_since) <= stale_cutoff
+            ):
                 stale_webhook_counts[connection_id] += 1
 
     connection_rows: list[ChannelOperationalConnectionHealthOut] = []
