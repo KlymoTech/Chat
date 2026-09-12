@@ -7,6 +7,13 @@ import { Badge, Button, Card, EmptyState, Modal, PageLoader } from '@/components
 import { api } from '@/lib/api';
 import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/education-api';
 import {
+  activeStudentsForEnrollment,
+  batchesForCourse,
+  enrollmentAdminSummary,
+  filterEnrollmentAdminRecords,
+  type EnrollmentStatusFilter,
+} from '@/lib/education-enrollment-admin';
+import {
   educationEnrollmentApi,
   type EducationEnrollment,
   type EnrollmentStatus,
@@ -16,8 +23,6 @@ import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import type { Agent } from '@/types';
 import './EducationEnrollmentsPage.css';
-
-type EnrollmentStatusFilter = 'all' | EnrollmentStatus;
 
 const statusLabels: Record<EnrollmentStatus, string> = {
   pending: 'Pending',
@@ -82,54 +87,28 @@ export function EducationEnrollmentsPage() {
     [agents.data],
   );
   const visibleBatches = useMemo(
-    () => (batches.data ?? []).filter((batch) => courseId === 'all' || batch.courseId === courseId),
+    () => batchesForCourse(batches.data ?? [], courseId),
     [batches.data, courseId],
   );
-
-  const records = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return (enrollments.data ?? []).filter((enrollment) => {
-      if (status !== 'all' && enrollment.status !== status) return false;
-      if (courseId !== 'all' && enrollment.courseId !== courseId) return false;
-      if (batchId !== 'all' && enrollment.batchId !== batchId) return false;
-      if (agentId !== 'all' && enrollment.agentId !== agentId) return false;
-      if (!query) return true;
-      const student = studentById.get(enrollment.studentId);
-      const course = courseById.get(enrollment.courseId);
-      const batch = batchById.get(enrollment.batchId);
-      const agent = agentById.get(enrollment.agentId);
-      return [
-        student?.studentNumber,
-        student?.name,
-        student?.email,
-        course?.code,
-        course?.name,
-        batch?.code,
-        batch?.name,
-        agent?.publicId,
-        agent?.name,
-        enrollment.status,
-      ].filter(Boolean).join(' ').toLowerCase().includes(query);
-    });
-  }, [agentById, agentId, batchById, batchId, courseById, courseId, enrollments.data, search, status, studentById]);
-
-  const activeStudents = useMemo(() => {
-    const query = pickerSearch.trim().toLowerCase();
-    return (students.data ?? [])
-      .filter((student) => student.status === 'active')
-      .filter((student) => !query || `${student.studentNumber} ${student.name} ${student.email ?? ''}`.toLowerCase().includes(query))
-      .sort((left, right) => left.name.localeCompare(right.name) || left.studentNumber.localeCompare(right.studentNumber));
-  }, [pickerSearch, students.data]);
-
-  const summary = useMemo(() => {
-    const all = enrollments.data ?? [];
-    return {
-      total: all.length,
-      active: all.filter((item) => item.status === 'active').length,
-      pending: all.filter((item) => item.status === 'pending').length,
-      restricted: all.filter((item) => item.status === 'suspended' || item.status === 'expired' || item.status === 'revoked').length,
-    };
-  }, [enrollments.data]);
+  const records = useMemo(
+    () => filterEnrollmentAdminRecords(
+      enrollments.data ?? [],
+      students.data ?? [],
+      courses.data ?? [],
+      batches.data ?? [],
+      agents.data ?? [],
+      { status, courseId, batchId, agentId, search },
+    ),
+    [agentId, agents.data, batchId, batches.data, courseId, courses.data, enrollments.data, search, status, students.data],
+  );
+  const activeStudents = useMemo(
+    () => activeStudentsForEnrollment(students.data ?? [], pickerSearch),
+    [pickerSearch, students.data],
+  );
+  const summary = useMemo(
+    () => enrollmentAdminSummary(enrollments.data ?? []),
+    [enrollments.data],
+  );
 
   const loading = [enrollments, students, courses, batches, agents].some((state) => state.loading && !state.data);
   const error = enrollments.error || students.error || courses.error || batches.error || agents.error;
