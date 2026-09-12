@@ -82,27 +82,43 @@ def _parse_modified(value: object) -> datetime | None:
 
 def _apply_field(lead: Lead, profile: LeadProfile, field: str, value: Any) -> bool:
     if field == "status" and isinstance(value, str):
-        lead.status = value[:40]
-        profile.lifecycle_status = value[:40]
+        normalized = value[:40]
+        if lead.status == normalized and profile.lifecycle_status == normalized:
+            return False
+        lead.status = normalized
+        profile.lifecycle_status = normalized
         return True
     if field == "name" and (value is None or isinstance(value, str)):
+        if lead.name == value:
+            return False
         lead.name = value
         return True
     if field == "email" and (value is None or isinstance(value, str)):
+        if lead.email == value:
+            return False
         lead.email = value
         return True
     if field == "phone" and (value is None or isinstance(value, str)):
+        if lead.phone == value:
+            return False
         lead.phone = value
         return True
     if field == "company" and (value is None or isinstance(value, str)):
+        if profile.company == value:
+            return False
         profile.company = value
         return True
     if field == "jobTitle" and (value is None or isinstance(value, str)):
+        if profile.job_title == value:
+            return False
         profile.job_title = value
         return True
     if field.startswith("custom."):
         custom = dict(profile.custom_fields_json or {})
-        custom[field.removeprefix("custom.")] = value
+        key = field.removeprefix("custom.")
+        if custom.get(key) == value:
+            return False
+        custom[key] = value
         profile.custom_fields_json = custom
         return True
     return False
@@ -200,6 +216,17 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
             continue
         if _apply_field(lead, profile, target, value):
             changed[target] = value
+
+    if not changed:
+        if modified_at is not None and (
+            reference.external_modified_at is None or modified_at > reference.external_modified_at
+        ):
+            reference.external_modified_at = modified_at
+        webhook.processing_status = "ignored"
+        webhook.last_error = "no_effective_changes"
+        webhook.processed_at = datetime.now(UTC)
+        await session.commit()
+        return
 
     reference.external_modified_at = modified_at
     reference.sync_version += 1
