@@ -4,10 +4,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, event, func, inspect
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.mutable import MutableDict, MutableList
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Mapper, mapped_column
 
 from northstar_api.database import Base
 from northstar_api.lead_crm.domain import ChannelProvider
@@ -163,3 +164,65 @@ class ChannelDeliveryAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
+
+
+_PROVIDER_ATTEMPT_ERROR_CODES = {
+    "failed": "provider_retryable",
+    "reconnect_required": "provider_reconnect_required",
+    "rejected": "provider_rejected",
+    "cancelled": "delivery_unavailable",
+}
+
+
+@event.listens_for(ChannelOutboundDelivery, "after_update")
+def _capture_channel_delivery_attempt(
+    _mapper: Mapper[ChannelOutboundDelivery],
+    connection: Connection,
+    delivery: ChannelOutboundDelivery,
+) -> None:
+    """Persist safe evidence from existing delivery state transitions.
+
+    The workers remain authoritative for all state and retry decisions. This hook
+    only observes their already-persisted counter/status transitions in the same
+    transaction and never reads or copies raw provider/error payload fields.
+    """
+
+    state = inspect(delivery)
+    dispatch_history = state.attrs.dispatch_attempts.history
+    previous_dispatch = next(
+        (value for value in dispatch_history.deleted if isinstance(value, int)),
+        delivery.dispatch_attempts,
+    )
+    if dispatch_history.has_changes() and delivery.dispatch_attempts > previous_dispatch:
+        publish_failed = delivery.status in {"failed", "dispatch_failed"}
+        connection.execute(
+            ChannelDeliveryAttempt.__table__.insert().values(
+                id=uuid.uuid4(),
+                tenant_id=delivery.tenant_id,
+                workspace_id=delivery.workspace_id,
+                delivery_id=delivery.id,
+                phase="dispatch",
+                attempt_number=delivery.dispatch_attempts,
+                outcome="publish_failed" if publish_failed else "published",
+                error_code="broker_publish_failed" if publish_failed else None,
+            )
+        )
+
+    status_history = state.attrs.status.history
+    previous_status = next(
+        (value for value in status_history.deleted if isinstance(value, str)),
+        None,
+    )
+    if previous_status == "processing" and delivery.status != "processing":
+        connection.execute(
+            ChannelDeliveryAttempt.__table__.insert().values(
+                id=uuid.uuid4(),
+                tenant_id=delivery.tenant_id,
+                workspace_id=delivery.workspace_id,
+                delivery_id=delivery.id,
+                phase="provider",
+                attempt_number=delivery.attempt_count,
+                outcome=delivery.status[:40],
+                error_code=_PROVIDER_ATTEMPT_ERROR_CODES.get(delivery.status),
+            )
+        )
