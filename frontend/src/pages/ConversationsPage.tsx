@@ -93,6 +93,7 @@ export function ConversationsPage() {
   const result = useApi(
     () => conversationApi.list({
       agentId: agentId === 'all' ? undefined : agentId,
+      educationScope: isEducationAgent,
       courseId: isEducationAgent && courseId !== 'all' ? courseId : undefined,
       batchId: isEducationAgent && batchId !== 'all' ? batchId : undefined,
       studentId: isEducationAgent && studentId !== 'all' ? studentId : undefined,
