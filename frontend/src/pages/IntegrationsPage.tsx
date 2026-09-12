@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { CRMDeadLetterPanel } from '@/components/crm-dead-letter-panel';
 import { CRMManagementPanel } from '@/components/crm-management-panel';
 import { CRMOperationalHealthPanel } from '@/components/crm-operational-health-panel';
+import { CRMWebhookEventsPanel } from '@/components/crm-webhook-events-panel';
 import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
 import { WhatsAppIntegrationModal } from '@/components/whatsapp-integration-modal';
@@ -40,6 +41,7 @@ export function IntegrationsPage() {
   const [category, setCategory] = useState<'all' | Integration['category']>('all');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
+  const [showWebhookEvents, setShowWebhookEvents] = useState(false);
   const [crmProvider, setCrmProvider] = useState<CRMProviderId>('zoho');
   const [crmName, setCrmName] = useState('');
   const [crmClientId, setCrmClientId] = useState('');
@@ -187,6 +189,12 @@ export function IntegrationsPage() {
     <CRMManagementPanel connections={crmConnections.data ?? []} canManage={canManage} onConnectionsChanged={crmConnections.reload} />
     <CRMOperationalHealthPanel />
     <CRMDeadLetterPanel connections={crmConnections.data ?? []} />
+    {showWebhookEvents ? <CRMWebhookEventsPanel connections={crmConnections.data ?? []} /> : <Card>
+      <div className="page-heading page-heading--split">
+        <div><h3>CRM inbound webhook activity</h3><p>Review safe inbound processing status and correlation evidence without exposing webhook payloads or headers.</p></div>
+        <Button variant="secondary" onClick={() => setShowWebhookEvents(true)}>View webhook activity</Button>
+      </div>
+    </Card>}
 
     <Card className="integration-hero"><div><span className="integration-hero__icon"><PlugZap /></span><span><Badge tone="purple">Integration marketplace</Badge><h3>Your AI agent, everywhere work happens.</h3><p>Keep knowledge in sync and give customers fast answers on every channel.</p></span></div><div className="integration-orbits"><span><Hash /></span><span><Database /></span><span><MessageCircle /></span><span><Zap /></span></div></Card>
     <div className="integration-toolbar"><div className="category-tabs">{(['all', 'channel', 'data', 'automation', 'developer'] as const).map((item) => <button key={item} className={category === item ? 'is-active' : ''} onClick={() => setCategory(item)}>{item === 'all' ? 'All integrations' : item}</button>)}</div><div className="search-box"><Search /><input aria-label="Search integrations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search integrations" /></div></div>
