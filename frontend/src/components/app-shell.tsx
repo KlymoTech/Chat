@@ -1,10 +1,11 @@
 import {
-  BarChart3, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, FileSpreadsheet, GraduationCap, Inbox,
+  BarChart3, Building2, Check, ChevronDown, CircleHelp, ClipboardList, Code2, Command, ContactRound, FileSpreadsheet, GraduationCap, History, Inbox,
   LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, ShieldCheck, Sparkles, UsersRound, X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
+import { CommandPalette } from '@/components/CommandPalette';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth, useToast, useWorkspace } from '@/components/providers';
 import { platformAdminApi } from '@/lib/platform-admin-api';
@@ -15,8 +16,10 @@ const navigation = [
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/education/batches', label: 'Batches', icon: GraduationCap },
   { to: '/education/students', label: 'Students', icon: UsersRound, end: true },
+  { to: '/education/enrollments', label: 'Enrollments', icon: ClipboardList },
   { to: '/education/students/import', label: 'Imports', icon: FileSpreadsheet },
   { to: '/education/access-requests', label: 'Access Requests', icon: ShieldCheck },
+  { to: '/education/activity', label: 'Activity', icon: History },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
@@ -41,6 +44,7 @@ export function AppShell() {
   const [expanded, setExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceSlug, setWorkspaceSlug] = useState('');
@@ -59,7 +63,10 @@ export function AppShell() {
   );
   const visibleNavigation = navigation.filter((item) => item.to !== '/audit' || canViewAudit);
   const mobileNavigation = visibleNavigation.filter((item) => (
-    item.to !== '/education/students/import' && item.to !== '/education/access-requests'
+    item.to !== '/education/enrollments'
+    && item.to !== '/education/students/import'
+    && item.to !== '/education/access-requests'
+    && item.to !== '/education/activity'
   )).slice(0, 6);
 
   useEffect(() => {
@@ -73,6 +80,17 @@ export function AppShell() {
       .catch(() => { if (active) setPlatformAdmin(false); });
     return () => { active = false; };
   }, [session?.accessToken, session?.user.email]);
+
+  useEffect(() => {
+    const handleCommandShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setCommandOpen((value) => !value);
+      }
+    };
+    window.addEventListener('keydown', handleCommandShortcut);
+    return () => window.removeEventListener('keydown', handleCommandShortcut);
+  }, []);
 
   const submitWorkspace = async (event: FormEvent) => {
     event.preventDefault();
@@ -131,7 +149,7 @@ export function AppShell() {
           <div className="topbar__page"><span className="topbar__eyebrow">{activeWorkspace?.name ?? 'Workspace'}</span><h1>{pageTitle(location.pathname)}</h1></div>
         </div>
         <div className="topbar__actions">
-          <button className="search-trigger" aria-label="Search"><Search /><span>Search</span><kbd>⌘ K</kbd></button>
+          <button className="search-trigger" type="button" aria-label="Search" aria-haspopup="dialog" onClick={() => setCommandOpen(true)}><Search /><span>Search</span><kbd>⌘ K</kbd></button>
           <NotificationBell />
           <div className="account-menu">
             <button className="account-button" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen}><span className="avatar">{initials}</span><span className="account-copy"><strong>{session?.user.name}</strong><small>{session?.user.role}</small></span><ChevronDown /></button>
@@ -144,6 +162,15 @@ export function AppShell() {
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
     </nav>
-    <button className="command-fab" aria-label="Open command palette"><Command /></button>
+    <button className="command-fab" type="button" aria-label="Open command palette" aria-haspopup="dialog" onClick={() => setCommandOpen(true)}><Command /></button>
+    <CommandPalette
+      open={commandOpen}
+      onClose={() => setCommandOpen(false)}
+      navigation={visibleNavigation}
+      workspaces={workspaces}
+      activeWorkspaceId={activeWorkspace?.id}
+      onSelectWorkspace={selectWorkspace}
+      canViewPlatformAdmin={platformAdmin}
+    />
   </div>;
 }

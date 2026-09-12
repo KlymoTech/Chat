@@ -32,6 +32,11 @@ def _lead_id(payload: dict[str, object]) -> UUID:
         raise ValueError("CRM sync event has no valid leadId") from exc
 
 
+def _sync_reason(payload: dict[str, object]) -> str | None:
+    value = payload.get("reason")
+    return str(value) if value is not None else None
+
+
 async def consume_forever() -> None:
     engine = build_engine(settings)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -64,6 +69,7 @@ async def consume_forever() -> None:
                         if event.event_type != message.topic:
                             raise ValueError("event type does not match Kafka topic")
                         lead_id = _lead_id(event.payload)
+                        sync_reason = _sync_reason(event.payload)
                     except ValueError as exc:
                         async with factory() as session:
                             await quarantine_event(
@@ -113,12 +119,14 @@ async def consume_forever() -> None:
                                         tenant_id=event.tenant_id,
                                         lead_id=lead_id,
                                         correlation_id=str(event.event_id),
+                                        sync_reason=sync_reason,
                                     )
                                     await session.commit()
                                     logger.info(
                                         "crm_routes_evaluated",
                                         event_id=str(event.event_id),
                                         lead_id=str(lead_id),
+                                        sync_reason=sync_reason,
                                         delivery_count=len(deliveries),
                                     )
                             else:

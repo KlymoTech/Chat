@@ -11,6 +11,8 @@ import { CoursesPage } from '@/pages/CoursesPage';
 import { DeployPage } from '@/pages/DeployPage';
 import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage';
 import { EducationAccessRequestsPage } from '@/pages/EducationAccessRequestsPage';
+import { EducationActivityPage } from '@/pages/EducationActivityPage';
+import { EducationEnrollmentsPage } from '@/pages/EducationEnrollmentsPage';
 import { EducationStudentDetailPage } from '@/pages/EducationStudentDetailPage';
 import { EducationStudentImportPage } from '@/pages/EducationStudentImportPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
@@ -63,9 +65,11 @@ export function App() {
       <Route path="education/courses" element={<CoursesPage />} />
       <Route path="education/batches" element={<BatchesPage />} />
       <Route path="education/students" element={<StudentsPage />} />
+      <Route path="education/enrollments" element={<EducationEnrollmentsPage />} />
       <Route path="education/students/import" element={<EducationStudentImportPage />} />
       <Route path="education/students/:studentId" element={<EducationStudentDetailPage />} />
       <Route path="education/access-requests" element={<EducationAccessRequestsPage />} />
+      <Route path="education/activity" element={<EducationActivityPage />} />
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />

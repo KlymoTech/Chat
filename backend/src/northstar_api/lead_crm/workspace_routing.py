@@ -57,6 +57,7 @@ class WorkspaceCRMRouteService:
         tenant_id: UUID,
         lead_id: UUID,
         correlation_id: str | None = None,
+        sync_reason: str | None = None,
     ) -> list[CRMDelivery]:
         lead = await session.scalar(
             select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id)
@@ -101,20 +102,26 @@ class WorkspaceCRMRouteService:
 
         deliveries: list[CRMDelivery] = []
         for connection_id in connection_ids:
+            connection_conditions = [
+                CRMConnection.id == connection_id,
+                CRMConnection.tenant_id == tenant_id,
+                CRMConnection.status.not_in(("disabled", "configuration_error")),
+                WorkspaceCRMConnection.tenant_id == tenant_id,
+                WorkspaceCRMConnection.workspace_id == lead.workspace_id,
+            ]
+            if sync_reason == "manual":
+                pass
+            elif sync_reason in (None, "lead_created"):
+                connection_conditions.append(WorkspaceCRMConnection.auto_sync_new_leads.is_(True))
+            else:
+                connection_conditions.append(WorkspaceCRMConnection.auto_sync_updates.is_(True))
             connection = await session.scalar(
                 select(CRMConnection)
                 .join(
                     WorkspaceCRMConnection,
                     WorkspaceCRMConnection.connection_id == CRMConnection.id,
                 )
-                .where(
-                    CRMConnection.id == connection_id,
-                    CRMConnection.tenant_id == tenant_id,
-                    CRMConnection.status.not_in(("disabled", "configuration_error")),
-                    WorkspaceCRMConnection.tenant_id == tenant_id,
-                    WorkspaceCRMConnection.workspace_id == lead.workspace_id,
-                    WorkspaceCRMConnection.auto_sync_new_leads.is_(True),
-                )
+                .where(*connection_conditions)
             )
             if not connection:
                 continue

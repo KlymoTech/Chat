@@ -89,6 +89,37 @@ describe('billingApi', () => {
     }));
   });
 
+  it('creates hosted checkout and portal redirects only through authenticated backend mutations', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://checkout.stripe.com/c/pay/test' }));
+    await expect(billingApi.createCheckout('professional')).resolves.toEqual({
+      url: 'https://checkout.stripe.com/c/pay/test',
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/checkout', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ plan: 'professional' }),
+      headers: expect.objectContaining({
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer session-token',
+        'X-Workspace-ID': 'workspace-1',
+      }),
+    }));
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://billing.stripe.com/p/session/test' }));
+    await expect(billingApi.createPortal()).resolves.toEqual({
+      url: 'https://billing.stripe.com/p/session/test',
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/portal', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer session-token',
+        'X-Workspace-ID': 'workspace-1',
+      }),
+    }));
+  });
+
   it('cancels and reactivates only through authenticated backend mutations', async () => {
     const cancelled = {
       ...subscription,
@@ -128,6 +159,9 @@ describe('billingApi', () => {
 
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
     await expect(billingApi.reactivateSubscription()).rejects.toThrow('Network unavailable');
+
+    fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    await expect(billingApi.createCheckout('professional')).rejects.toThrow('Network unavailable');
   });
 
   it('does not hide authorization errors behind demo billing state', async () => {

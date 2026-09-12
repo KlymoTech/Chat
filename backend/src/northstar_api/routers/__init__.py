@@ -14,11 +14,15 @@ from northstar_api.routers import (
     crm_schema,
     crm_scoped,
     crm_webhooks,
+    crm_workspace_settings,
     education,
     education_access_recovery,
     education_access_requests,
+    education_activity,
     education_batches,
+    education_conversations,
     education_enrollments,
+    education_lms_import,
     education_student_detail,
     education_student_identities,
     education_student_import,
@@ -50,14 +54,17 @@ api_router.include_router(password_reset.router)
 api_router.include_router(mfa.router)
 api_router.include_router(agents.router)
 api_router.include_router(education.router)
+api_router.include_router(education_activity.router)
 api_router.include_router(education_batches.router)
 api_router.include_router(education_students.router)
 api_router.include_router(education_student_detail.router)
 api_router.include_router(education_student_identities.router)
 api_router.include_router(education_student_import.router)
+api_router.include_router(education_lms_import.router)
 api_router.include_router(education_enrollments.router)
 api_router.include_router(education_access_recovery.router)
 api_router.include_router(education_access_requests.router)
+api_router.include_router(education_conversations.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
@@ -65,6 +72,7 @@ api_router.include_router(qualification.router)
 # Workspace-aware CRM routes are registered before their legacy-compatible
 # implementations so identical HTTP paths enforce the active workspace boundary.
 api_router.include_router(crm_scoped.router)
+api_router.include_router(crm_workspace_settings.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)

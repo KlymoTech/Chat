@@ -1,13 +1,17 @@
 import { Archive, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, Inbox, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast, useWorkspace } from '@/components/providers';
 import { Badge, Button, EmptyState, PageLoader } from '@/components/ui';
 import { api } from '@/lib/api';
 import { conversationApi } from '@/lib/conversation-api';
+import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/education-api';
+import { educationEnrollmentApi, type EducationEnrollment } from '@/lib/education-enrollment-api';
+import { educationStudentApi, type EducationStudent } from '@/lib/education-student-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import type { Conversation, ConversationState } from '@/types';
+import './ConversationsPage.css';
 
 type ChannelFilter = 'all' | 'widget' | 'api' | 'slack' | 'whatsapp';
 
@@ -19,6 +23,9 @@ export function ConversationsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filter, setFilter] = useState<'all' | ConversationState>('all');
   const [agentId, setAgentId] = useState('all');
+  const [courseId, setCourseId] = useState('all');
+  const [batchId, setBatchId] = useState('all');
+  const [studentId, setStudentId] = useState('all');
   const [channel, setChannel] = useState<ChannelFilter>('all');
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
@@ -29,16 +36,74 @@ export function ConversationsPage() {
   }, [search]);
 
   const agents = useApi(() => api.agents.list(), [activeWorkspace?.id]);
+  const filterAgent = agentId === 'all' ? null : agents.data?.find((item) => item.id === agentId) ?? null;
+  const isEducationAgent = filterAgent?.purpose === 'education';
+
+  const courses = useApi(
+    () => isEducationAgent
+      ? educationApi.courses.list({ status: 'active' })
+      : Promise.resolve([] as EducationCourse[]),
+    [activeWorkspace?.id, isEducationAgent],
+  );
+  const batches = useApi(
+    () => isEducationAgent && courseId !== 'all'
+      ? educationApi.batches.list({ courseId, status: 'active' })
+      : Promise.resolve([] as EducationBatch[]),
+    [activeWorkspace?.id, isEducationAgent, courseId],
+  );
+  const enrollments = useApi(
+    () => isEducationAgent && courseId !== 'all' && batchId !== 'all'
+      ? educationEnrollmentApi.list({ agentId, courseId, batchId })
+      : Promise.resolve([] as EducationEnrollment[]),
+    [activeWorkspace?.id, isEducationAgent, agentId, courseId, batchId],
+  );
+  const students = useApi(
+    () => isEducationAgent && batchId !== 'all'
+      ? educationStudentApi.list({ status: 'active' })
+      : Promise.resolve([] as EducationStudent[]),
+    [activeWorkspace?.id, isEducationAgent, batchId],
+  );
+  const eligibleStudentIds = useMemo(
+    () => new Set((enrollments.data ?? []).map((item) => item.studentId)),
+    [enrollments.data],
+  );
+  const eligibleStudents = useMemo(
+    () => (students.data ?? []).filter((student) => eligibleStudentIds.has(student.id)),
+    [students.data, eligibleStudentIds],
+  );
+
+  useEffect(() => {
+    if (!isEducationAgent) {
+      setCourseId('all');
+      setBatchId('all');
+      setStudentId('all');
+    }
+  }, [isEducationAgent]);
+
+  useEffect(() => {
+    if (
+      studentId !== 'all'
+      && !eligibleStudents.some((student) => student.id === studentId)
+      && !students.loading
+    ) {
+      setStudentId('all');
+    }
+  }, [eligibleStudents, studentId, students.loading]);
+
   const result = useApi(
     () => conversationApi.list({
       agentId: agentId === 'all' ? undefined : agentId,
+      educationScope: isEducationAgent,
+      courseId: isEducationAgent && courseId !== 'all' ? courseId : undefined,
+      batchId: isEducationAgent && batchId !== 'all' ? batchId : undefined,
+      studentId: isEducationAgent && studentId !== 'all' ? studentId : undefined,
       channel: channel === 'all' ? undefined : channel,
       state: filter === 'all' ? undefined : filter,
       search: debouncedSearch || undefined,
       page: 1,
       pageSize: 50,
     }),
-    [activeWorkspace?.id, agentId, channel, filter, debouncedSearch],
+    [activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch],
   );
 
   const conversations = result.data?.items ?? [];
@@ -52,6 +117,24 @@ export function ConversationsPage() {
       setParams({ selected: conversations[0].id }, { replace: true });
     }
   }, [conversations, params, setParams]);
+
+  const changeAgent = (nextAgentId: string) => {
+    setAgentId(nextAgentId);
+    setCourseId('all');
+    setBatchId('all');
+    setStudentId('all');
+  };
+
+  const changeCourse = (nextCourseId: string) => {
+    setCourseId(nextCourseId);
+    setBatchId('all');
+    setStudentId('all');
+  };
+
+  const changeBatch = (nextBatchId: string) => {
+    setBatchId(nextBatchId);
+    setStudentId('all');
+  };
 
   const setState = async (state: ConversationState) => {
     if (!selected) return;
@@ -88,12 +171,18 @@ export function ConversationsPage() {
       <div className="inbox-title"><div><h2>Conversations</h2><Badge tone="brand">{result.data?.total ?? 0} results</Badge></div><button className="icon-button" aria-label="Conversation actions"><MoreHorizontal /></button></div>
       <div className="inbox-tools">
         <div className="search-box"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" /></div>
-        <div className="filter-select"><Filter /><select value={agentId} onChange={(event) => setAgentId(event.target.value)} aria-label="Filter by agent"><option value="all">All agents</option>{agents.data?.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown /></div>
+        <div className="filter-select"><Filter /><select value={agentId} onChange={(event) => changeAgent(event.target.value)} aria-label="Filter by agent"><option value="all">All agents</option>{agents.data?.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown /></div>
         <div className="filter-select"><Filter /><select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)} aria-label="Filter by channel"><option value="all">All channels</option><option value="widget">Website</option><option value="whatsapp">WhatsApp</option><option value="slack">Slack</option><option value="api">API</option></select><ChevronDown /></div>
         <div className="filter-select"><Filter /><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)} aria-label="Filter conversations"><option value="all">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="resolved">Resolved</option></select><ChevronDown /></div>
       </div>
+      {isEducationAgent ? <div className="education-inbox-filters" aria-label="Education conversation filters">
+        <div className="education-inbox-filters__heading"><strong>Education scope</strong><span>Course → Batch → Student</span></div>
+        <div className="filter-select"><Filter /><select value={courseId} onChange={(event) => changeCourse(event.target.value)} aria-label="Filter by course"><option value="all">All courses</option>{courses.data?.map((course) => <option key={course.id} value={course.id}>{course.code} · {course.name}</option>)}</select><ChevronDown /></div>
+        <div className="filter-select"><Filter /><select value={batchId} disabled={courseId === 'all'} onChange={(event) => changeBatch(event.target.value)} aria-label="Filter by batch"><option value="all">All batches</option>{batches.data?.map((batch) => <option key={batch.id} value={batch.id}>{batch.code} · {batch.name}</option>)}</select><ChevronDown /></div>
+        <div className="filter-select"><Filter /><select value={studentId} disabled={batchId === 'all'} onChange={(event) => setStudentId(event.target.value)} aria-label="Filter by student"><option value="all">All students</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.studentNumber} · {student.name}</option>)}</select><ChevronDown /></div>
+      </div> : null}
       <div className="conversation-items">{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar">{conversation.visitorName.charAt(0)}</span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge><em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
-      {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description="Try another workspace, agent, channel, status, or search." /> : null}
+      {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description={isEducationAgent ? 'Try another Course, Batch, Student, channel, status, or search.' : 'Try another workspace, agent, channel, status, or search.'} /> : null}
     </section>
     {selected ? <ConversationDetail conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} onBack={() => setParams({})} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
   </div>;
