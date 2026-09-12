@@ -109,10 +109,12 @@ class WorkspaceCRMRouteService:
                 WorkspaceCRMConnection.tenant_id == tenant_id,
                 WorkspaceCRMConnection.workspace_id == lead.workspace_id,
             ]
-            if sync_reason == "lead_updated":
-                connection_conditions.append(WorkspaceCRMConnection.auto_sync_updates.is_(True))
+            if sync_reason == "manual":
+                pass
             elif sync_reason in (None, "lead_created"):
                 connection_conditions.append(WorkspaceCRMConnection.auto_sync_new_leads.is_(True))
+            else:
+                connection_conditions.append(WorkspaceCRMConnection.auto_sync_updates.is_(True))
             connection = await session.scalar(
                 select(CRMConnection)
                 .join(
