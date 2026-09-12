@@ -14,6 +14,7 @@ from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
 from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelHealthSnapshot
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
+from northstar_api.lead_crm.channel_webhook_timing import channel_webhook_pending_since_expression
 from northstar_api.lead_crm.channels import ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider
@@ -193,7 +194,7 @@ async def _stale_webhook_events(
     *,
     now: datetime,
 ) -> list[tuple[UUID, UUID, UUID]]:
-    """Return unalerted bound stale events without letting old work starve the batch."""
+    """Return unalerted bound stale events using the latest queue/requeue timestamp."""
 
     cutoff = now - _STALE_WEBHOOK_AFTER
     bound_connection_ids = list(
@@ -207,8 +208,9 @@ async def _stale_webhook_events(
         Notification.source_event_id.is_not(None),
         Notification.dedupe_key.like(f"{_STALE_WEBHOOK_INCIDENT_PREFIX}%"),
     )
+    pending_since = channel_webhook_pending_since_expression()
     values: list[tuple[UUID, UUID, UUID]] = []
-    cursor_received_at: datetime | None = None
+    cursor_pending_since: datetime | None = None
     cursor_id: UUID | None = None
 
     while len(values) < STALE_WEBHOOK_BATCH_SIZE:
@@ -216,26 +218,26 @@ async def _stale_webhook_events(
             RawWebhookEvent.id,
             RawWebhookEvent.tenant_id,
             RawWebhookEvent.connection_key,
-            RawWebhookEvent.received_at,
+            pending_since.label("pending_since"),
         ).where(
             RawWebhookEvent.processing_status == "received",
-            RawWebhookEvent.received_at <= cutoff,
+            pending_since <= cutoff,
             RawWebhookEvent.connection_key.in_([str(value) for value in bound_connection_ids]),
             ~RawWebhookEvent.id.in_(alerted_event_ids),
         )
-        if cursor_received_at is not None and cursor_id is not None:
+        if cursor_pending_since is not None and cursor_id is not None:
             query = query.where(
                 or_(
-                    RawWebhookEvent.received_at > cursor_received_at,
+                    pending_since > cursor_pending_since,
                     and_(
-                        RawWebhookEvent.received_at == cursor_received_at,
+                        pending_since == cursor_pending_since,
                         RawWebhookEvent.id > cursor_id,
                     ),
                 )
             )
         rows = list(
             await session.execute(
-                query.order_by(RawWebhookEvent.received_at, RawWebhookEvent.id).limit(
+                query.order_by(pending_since, RawWebhookEvent.id).limit(
                     STALE_WEBHOOK_SCAN_PAGE_SIZE
                 )
             )
@@ -252,7 +254,7 @@ async def _stale_webhook_events(
                 )
             )
         )
-        for raw_event_id, tenant_id, connection_key, _received_at in rows:
+        for raw_event_id, tenant_id, connection_key, _pending_since in rows:
             if f"{_STALE_WEBHOOK_INCIDENT_PREFIX}{raw_event_id}" in existing_keys:
                 continue
             try:
@@ -263,7 +265,7 @@ async def _stale_webhook_events(
             if len(values) >= STALE_WEBHOOK_BATCH_SIZE:
                 break
 
-        cursor_received_at = rows[-1][3]
+        cursor_pending_since = rows[-1][3]
         cursor_id = rows[-1][0]
         if len(rows) < STALE_WEBHOOK_SCAN_PAGE_SIZE:
             break
@@ -284,13 +286,14 @@ async def _notify_stale_webhook_event(
     cutoff = now - _STALE_WEBHOOK_AFTER
     async with factory() as session:
         await set_tenant_context(session, tenant_id)
+        pending_since = channel_webhook_pending_since_expression()
         raw = await session.scalar(
             select(RawWebhookEvent).where(
                 RawWebhookEvent.id == raw_event_id,
                 RawWebhookEvent.tenant_id == tenant_id,
                 RawWebhookEvent.connection_key == str(connection_id),
                 RawWebhookEvent.processing_status == "received",
-                RawWebhookEvent.received_at <= cutoff,
+                pending_since <= cutoff,
             )
         )
         if raw is None:
