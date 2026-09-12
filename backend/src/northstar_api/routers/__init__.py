@@ -8,6 +8,7 @@ from northstar_api.routers import (
     channel_deliveries,
     channel_health_history,
     channel_operations,
+    channel_webhook_events,
     channels,
     chat,
     conversations,
@@ -100,6 +101,7 @@ api_router.include_router(slack_webhooks.router)
 api_router.include_router(channel_operations.router)
 api_router.include_router(channel_deliveries.router)
 api_router.include_router(channel_health_history.router)
+api_router.include_router(channel_webhook_events.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
 # Preserve the historical integration audit endpoint and add the broader SaaS audit API.
