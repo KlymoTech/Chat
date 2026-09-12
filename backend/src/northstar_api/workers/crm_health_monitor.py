@@ -22,6 +22,8 @@ settings = get_settings()
 configure_logging(settings)
 logger = structlog.get_logger(__name__)
 
+HEALTH_INTERVAL_SECONDS = 300
+HEALTH_BATCH_SIZE = 50
 _ELIGIBLE_STATUSES = frozenset(
     {
         CRMConnectionStatus.CONNECTING.value,
@@ -79,7 +81,7 @@ def _is_due(connection: CRMConnection, *, now: datetime) -> bool:
         return False
     if connection.last_health_at is None:
         return True
-    cutoff = now - timedelta(seconds=settings.crm_health_monitor_interval_seconds)
+    cutoff = now - timedelta(seconds=HEALTH_INTERVAL_SECONDS)
     return _aware(connection.last_health_at) <= cutoff
 
 
@@ -105,7 +107,7 @@ def _add_snapshot(
 
 
 async def _due_connections(session: AsyncSession, *, now: datetime) -> list[tuple[UUID, UUID]]:
-    cutoff = now - timedelta(seconds=settings.crm_health_monitor_interval_seconds)
+    cutoff = now - timedelta(seconds=HEALTH_INTERVAL_SECONDS)
     rows = list(
         await session.execute(
             select(CRMConnection.id, CRMConnection.tenant_id)
@@ -114,7 +116,7 @@ async def _due_connections(session: AsyncSession, *, now: datetime) -> list[tupl
                 or_(CRMConnection.last_health_at.is_(None), CRMConnection.last_health_at <= cutoff),
             )
             .order_by(CRMConnection.last_health_at.asc().nullsfirst(), CRMConnection.id)
-            .limit(settings.crm_health_monitor_batch_size)
+            .limit(HEALTH_BATCH_SIZE)
         )
     )
     return [(connection_id, tenant_id) for connection_id, tenant_id in rows]
@@ -257,8 +259,8 @@ async def run_forever() -> None:
 
     logger.info(
         "crm_health_monitor_started",
-        interval_seconds=settings.crm_health_monitor_interval_seconds,
-        batch_size=settings.crm_health_monitor_batch_size,
+        interval_seconds=HEALTH_INTERVAL_SECONDS,
+        batch_size=HEALTH_BATCH_SIZE,
     )
     try:
         while not stop.is_set():
@@ -266,10 +268,7 @@ async def run_forever() -> None:
             if result["due"] or result["failed"]:
                 logger.info("crm_health_monitor_completed", **result)
             try:
-                await asyncio.wait_for(
-                    stop.wait(),
-                    timeout=float(settings.crm_health_monitor_interval_seconds),
-                )
+                await asyncio.wait_for(stop.wait(), timeout=float(HEALTH_INTERVAL_SECONDS))
             except TimeoutError:
                 pass
     finally:
