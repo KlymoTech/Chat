@@ -1,6 +1,7 @@
 import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, RefreshCw, Search, Terminal, Users, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CRMDeadLetterPanel } from '@/components/crm-dead-letter-panel';
+import { CRMHealthHistoryPanel } from '@/components/crm-health-history-panel';
 import { CRMManagementPanel } from '@/components/crm-management-panel';
 import { CRMOperationalHealthPanel } from '@/components/crm-operational-health-panel';
 import { CRMWebhookEventsPanel } from '@/components/crm-webhook-events-panel';
@@ -41,6 +42,7 @@ export function IntegrationsPage() {
   const [category, setCategory] = useState<'all' | Integration['category']>('all');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
+  const [showHealthHistory, setShowHealthHistory] = useState(false);
   const [showWebhookEvents, setShowWebhookEvents] = useState(false);
   const [crmProvider, setCrmProvider] = useState<CRMProviderId>('zoho');
   const [crmName, setCrmName] = useState('');
@@ -188,6 +190,12 @@ export function IntegrationsPage() {
 
     <CRMManagementPanel connections={crmConnections.data ?? []} canManage={canManage} onConnectionsChanged={crmConnections.reload} />
     <CRMOperationalHealthPanel />
+    {showHealthHistory ? <CRMHealthHistoryPanel connections={crmConnections.data ?? []} canManage={canManage} /> : <Card>
+      <div className="page-heading page-heading--split">
+        <div><h3>CRM health history</h3><p>Run recorded health checks and review safe historical status and latency evidence for each Workspace CRM.</p></div>
+        <Button variant="secondary" onClick={() => setShowHealthHistory(true)}>View health history</Button>
+      </div>
+    </Card>}
     <CRMDeadLetterPanel connections={crmConnections.data ?? []} />
     {showWebhookEvents ? <CRMWebhookEventsPanel connections={crmConnections.data ?? []} /> : <Card>
       <div className="page-heading page-heading--split">

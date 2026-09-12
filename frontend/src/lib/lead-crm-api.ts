@@ -127,6 +127,15 @@ export interface CRMDeliveryAttemptView {
   provider_request_id?: string | null;
 }
 
+export interface CRMHealthSnapshotView {
+  id: string;
+  connection_id: string;
+  status: string;
+  checks: Record<string, string>;
+  latency_ms?: number | null;
+  checked_at: string;
+}
+
 export interface LeadActivityView {
   id: string;
   event_type: string;
@@ -220,6 +229,8 @@ export const leadCrmApi = {
   updateWorkspaceSettings: (id: string, value: Partial<Pick<CRMWorkspaceSettings, 'auto_sync_new_leads' | 'auto_sync_updates'>>) =>
     call<CRMWorkspaceSettings>(`/crm/connections/${id}/workspace-settings`, { method: 'PATCH', body: JSON.stringify(value) }),
   testConnection: (id: string) => call<CRMConnectionHealth>(`/crm/connections/${id}/test`, { method: 'POST' }),
+  runHealthCheck: (id: string) => call<CRMHealthSnapshotView>(`/crm/connections/${id}/health-check`, { method: 'POST' }),
+  healthHistory: (id: string, limit = 50) => call<CRMHealthSnapshotView[]>(`/crm/connections/${id}/health-history?limit=${limit}`),
   startOAuth: (id: string) => call<{ authorizationUrl: string; expiresIn: number; workspaceId?: string }>(`/crm/connections/${id}/oauth/start`, { method: 'POST' }),
   reconnect: (id: string) => call<{ authorizationUrl: string; expiresIn: number; workspaceId?: string }>(`/crm/connections/${id}/reconnect`, { method: 'POST' }),
   disableConnection: (id: string) => call<void>(`/crm/connections/${id}`, { method: 'DELETE' }),
