@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session, set_tenant_context
 from northstar_api.dependencies import CurrentPrincipal, require_permissions
-from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelHealthSnapshot
 from northstar_api.lead_crm.channel_scope import AgentChannelBinding, WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
@@ -290,9 +290,19 @@ async def test_channel_connection(
     credentials = _credentials(value)
     connector = channel_registry.get(ChannelProvider(value.provider))
     result = await connector.health_check(_context(value, credentials))
-    value.last_health_at = datetime.now(UTC)
+    checked_at = datetime.now(UTC)
+    value.last_health_at = checked_at
     value.status = result.get("status", "unknown")
     value.last_error = None if value.status == "healthy" else "Channel health validation failed"
+    session.add(
+        ChannelHealthSnapshot(
+            tenant_id=principal.tenant_id,
+            connection_id=value.id,
+            status=str(value.status or "unknown")[:40],
+            error_code=None,
+            checked_at=checked_at,
+        )
+    )
     await session.commit()
     return result
 
