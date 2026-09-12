@@ -21,6 +21,7 @@ from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.logging import configure_logging
 from northstar_api.notifications import Notification
 from northstar_api.services.notifications import notify_workspace_admins
+from northstar_api.workers.channel_webhook_failure_notifications import notify_failed_webhook_events
 
 settings = get_settings()
 configure_logging(settings)
@@ -590,6 +591,14 @@ async def run_once(factory: async_sessionmaker[AsyncSession]) -> dict[str, int]:
     except Exception as exc:
         logger.exception(
             "channel_stale_webhook_recovery_scan_failed",
+            error=type(exc).__name__,
+        )
+
+    try:
+        await notify_failed_webhook_events(factory)
+    except Exception as exc:
+        logger.exception(
+            "channel_failed_webhook_scan_failed",
             error=type(exc).__name__,
         )
 
