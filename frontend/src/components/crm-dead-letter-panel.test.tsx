@@ -80,7 +80,7 @@ describe('CRMDeadLetterPanel', () => {
     render(<CRMDeadLetterPanel connections={[connection, secondConnection]} />);
 
     expect(await screen.findByText('Provider timed out')).toBeInTheDocument();
-    expect(screen.getByText('Zoho Production')).toBeInTheDocument();
+    expect(screen.getAllByText('Zoho Production').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Lead lead-1')).toBeInTheDocument();
     expect(screen.getByText('Delivery delivery-1')).toBeInTheDocument();
     expect(screen.queryByText('Provider rate limit exhausted')).not.toBeInTheDocument();
@@ -98,8 +98,8 @@ describe('CRMDeadLetterPanel', () => {
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'CRM dead-letter connection' }), 'connection-2');
     await waitFor(() => expect(mocks.list).toHaveBeenCalledWith({ status: 'all', connectionId: 'connection-2' }));
-    expect(await screen.findByText('Salesforce Production')).toBeInTheDocument();
-    expect(screen.queryByText('Provider timed out')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Provider timed out')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Salesforce Production').length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows an explicit healthy empty state when there are no open dead letters', async () => {
