@@ -97,8 +97,7 @@ export function CommandPalette({
     if (!open) return;
     setQuery('');
     setActiveIndex(0);
-    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
+    inputRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
