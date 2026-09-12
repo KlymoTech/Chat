@@ -1,5 +1,6 @@
 import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, RefreshCw, Search, Terminal, Users, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { CRMDeadLetterPanel } from '@/components/crm-dead-letter-panel';
 import { CRMManagementPanel } from '@/components/crm-management-panel';
 import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
@@ -183,6 +184,7 @@ export function IntegrationsPage() {
     </Card>
 
     <CRMManagementPanel connections={crmConnections.data ?? []} canManage={canManage} onConnectionsChanged={crmConnections.reload} />
+    <CRMDeadLetterPanel connections={crmConnections.data ?? []} />
 
     <Card className="integration-hero"><div><span className="integration-hero__icon"><PlugZap /></span><span><Badge tone="purple">Integration marketplace</Badge><h3>Your AI agent, everywhere work happens.</h3><p>Keep knowledge in sync and give customers fast answers on every channel.</p></span></div><div className="integration-orbits"><span><Hash /></span><span><Database /></span><span><MessageCircle /></span><span><Zap /></span></div></Card>
     <div className="integration-toolbar"><div className="category-tabs">{(['all', 'channel', 'data', 'automation', 'developer'] as const).map((item) => <button key={item} className={category === item ? 'is-active' : ''} onClick={() => setCategory(item)}>{item === 'all' ? 'All integrations' : item}</button>)}</div><div className="search-box"><Search /><input aria-label="Search integrations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search integrations" /></div></div>
