@@ -107,7 +107,9 @@ describe('EducationEnrollmentsPage', () => {
     expect(await screen.findByRole('heading', { name: 'Enrollments' })).toBeInTheDocument();
     expect(screen.getByText('Asha Student')).toBeInTheDocument();
     expect(screen.getByText('Ravi Archived')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
+    const totalCard = screen.getByText('Total enrollments').closest('.card');
+    expect(totalCard).not.toBeNull();
+    expect(totalCard).toHaveTextContent('2');
 
     const agentFilter = screen.getByRole('combobox', { name: 'Filter enrollments by agent' });
     expect(within(agentFilter).queryByRole('option', { name: 'Support Agent' })).not.toBeInTheDocument();
