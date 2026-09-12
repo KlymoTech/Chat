@@ -1,6 +1,7 @@
 import { Activity, CircleAlert, RefreshCw, Send } from 'lucide-react';
 import { useState } from 'react';
 import { ChannelOutboundDeliveriesPanel } from '@/components/channel-outbound-deliveries-panel';
+import { ChannelWebhookEventsPanel } from '@/components/channel-webhook-events-panel';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { channelOperationsApi } from '@/lib/channel-operations-api';
 import { relativeTime } from '@/lib/format';
@@ -23,6 +24,7 @@ function connectionTone(status: string, failed: number): 'success' | 'warning' |
 export function ChannelOperationalHealthPanel() {
   const health = useApi(() => channelOperationsApi.health());
   const [showDeliveries, setShowDeliveries] = useState(false);
+  const [showWebhookEvents, setShowWebhookEvents] = useState(false);
   const data = health.data;
   const deliveryConnections = data?.connections.map((connection) => ({
     id: connection.connection_id,
@@ -81,9 +83,14 @@ export function ChannelOperationalHealthPanel() {
           <div><h4>Outbound delivery evidence</h4><p>Open the safe delivery view for individual retry and terminal-failure evidence.</p></div>
           <Button variant="secondary" onClick={() => setShowDeliveries(true)}>View delivery evidence</Button>
         </div> : null}
+        {!showWebhookEvents ? <div className="page-heading page-heading--split">
+          <div><h4>Inbound webhook evidence</h4><p>Open the safe inbound processing view without exposing raw provider payloads, headers, messages, or credentials.</p></div>
+          <Button variant="secondary" onClick={() => setShowWebhookEvents(true)}>View webhook activity</Button>
+        </div> : null}
       </>}
     </Card>
 
     {showDeliveries ? <ChannelOutboundDeliveriesPanel connections={deliveryConnections} /> : null}
+    {showWebhookEvents ? <ChannelWebhookEventsPanel connections={deliveryConnections} /> : null}
   </>;
 }
