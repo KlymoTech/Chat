@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC
 from uuid import uuid4
 
 import pytest
@@ -91,6 +92,10 @@ async def manual_health_case() -> AsyncIterator[
     await engine.dispose()
 
 
+def _utc(value):
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 async def test_manual_channel_health_check_persists_safe_snapshot(
     manual_health_case,
     monkeypatch: pytest.MonkeyPatch,
@@ -130,7 +135,7 @@ async def test_manual_channel_health_check_persists_safe_snapshot(
     snapshot = snapshots[0]
     assert snapshot.status == "healthy"
     assert snapshot.error_code is None
-    assert snapshot.checked_at == stored.last_health_at
+    assert _utc(snapshot.checked_at) == _utc(stored.last_health_at)
     rendered = str(snapshot.__dict__)
     assert "provider-detail-must-not-be-snapshotted" not in rendered
     assert "secret-token-must-not-be-snapshotted" not in rendered
