@@ -17,6 +17,7 @@ from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider
+from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.logging import configure_logging
 from northstar_api.services.notifications import notify_workspace_admins
 
@@ -26,6 +27,8 @@ logger = structlog.get_logger(__name__)
 
 HEALTH_INTERVAL_SECONDS = 300
 HEALTH_BATCH_SIZE = 50
+STALE_WEBHOOK_BATCH_SIZE = 100
+_STALE_WEBHOOK_AFTER = timedelta(minutes=5)
 _ELIGIBLE_STATUSES = frozenset(
     {
         "configured",
@@ -177,6 +180,136 @@ async def _notify_health_transition(
         return recipients
 
 
+async def _stale_webhook_events(
+    session: AsyncSession,
+    *,
+    now: datetime,
+) -> list[tuple[UUID, UUID, UUID]]:
+    cutoff = now - _STALE_WEBHOOK_AFTER
+    rows = list(
+        await session.execute(
+            select(
+                RawWebhookEvent.id,
+                RawWebhookEvent.tenant_id,
+                RawWebhookEvent.connection_key,
+            )
+            .where(
+                RawWebhookEvent.processing_status == "received",
+                RawWebhookEvent.received_at <= cutoff,
+            )
+            .order_by(RawWebhookEvent.received_at, RawWebhookEvent.id)
+            .limit(STALE_WEBHOOK_BATCH_SIZE)
+        )
+    )
+    values: list[tuple[UUID, UUID, UUID]] = []
+    for raw_event_id, tenant_id, connection_key in rows:
+        try:
+            connection_id = UUID(str(connection_key))
+        except (TypeError, ValueError):
+            continue
+        values.append((raw_event_id, tenant_id, connection_id))
+    return values
+
+
+async def _notify_stale_webhook_event(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    raw_event_id: UUID,
+    tenant_id: UUID,
+    connection_id: UUID,
+    now: datetime,
+) -> int:
+    """Project one still-stale channel webhook into a deduplicated admin notification."""
+
+    cutoff = now - _STALE_WEBHOOK_AFTER
+    async with factory() as session:
+        await set_tenant_context(session, tenant_id)
+        raw = await session.scalar(
+            select(RawWebhookEvent).where(
+                RawWebhookEvent.id == raw_event_id,
+                RawWebhookEvent.tenant_id == tenant_id,
+                RawWebhookEvent.connection_key == str(connection_id),
+                RawWebhookEvent.processing_status == "received",
+                RawWebhookEvent.received_at <= cutoff,
+            )
+        )
+        if raw is None:
+            return 0
+
+        scoped = (
+            await session.execute(
+                select(WorkspaceChannelConnection.workspace_id, ChannelConnection.name)
+                .join(
+                    ChannelConnection,
+                    ChannelConnection.id == WorkspaceChannelConnection.connection_id,
+                )
+                .where(
+                    WorkspaceChannelConnection.tenant_id == tenant_id,
+                    WorkspaceChannelConnection.connection_id == connection_id,
+                    ChannelConnection.tenant_id == tenant_id,
+                )
+            )
+        ).first()
+        if scoped is None:
+            return 0
+        workspace_id, connection_name = scoped
+
+        provider = str(raw.provider or "channel")[:60]
+        provider_label = provider.replace("_", " ").title()
+        metadata = {
+            "rawEventId": str(raw.id),
+            "connectionId": str(connection_id),
+            "provider": provider,
+            "processingStatus": "received",
+            "incident": "stale_webhook",
+        }
+        recipients = await notify_workspace_admins(
+            session,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            title="Channel webhook processing is delayed",
+            body=(
+                f"{connection_name} ({provider_label}) has an inbound webhook event "
+                "that has remained pending for more than 5 minutes."
+            ),
+            dedupe_key=f"channel-webhook-stale:{raw.id}",
+            category="channel",
+            severity="warning",
+            action_url="/integrations",
+            action_label="Review webhook activity",
+            metadata=metadata,
+        )
+        await session.commit()
+        return recipients
+
+
+async def _notify_stale_webhook_events(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    now: datetime,
+) -> None:
+    async with factory() as session:
+        stale = await _stale_webhook_events(session, now=now)
+
+    for raw_event_id, tenant_id, connection_id in stale:
+        try:
+            await _notify_stale_webhook_event(
+                factory,
+                raw_event_id=raw_event_id,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                now=now,
+            )
+        except Exception as exc:
+            logger.exception(
+                "channel_stale_webhook_notification_failed",
+                raw_event_id=str(raw_event_id),
+                tenant_id=str(tenant_id),
+                connection_id=str(connection_id),
+                error=type(exc).__name__,
+            )
+
+
 async def _due_connections(session: AsyncSession, *, now: datetime) -> list[tuple[UUID, UUID]]:
     cutoff = now - timedelta(seconds=HEALTH_INTERVAL_SECONDS)
     rows = list(
@@ -324,6 +457,17 @@ async def run_once(factory: async_sessionmaker[AsyncSession]) -> dict[str, int]:
                 tenant_id=str(tenant_id),
                 error=type(exc).__name__,
             )
+
+    try:
+        await _notify_stale_webhook_events(factory, now=now)
+    except Exception as exc:
+        # Stale-event notifications are a secondary operational projection.
+        # Their failure must not alter the existing health-monitor contract.
+        logger.exception(
+            "channel_stale_webhook_scan_failed",
+            error=type(exc).__name__,
+        )
+
     return {"due": len(due), "checked": checked, "failed": failed}
 
 
