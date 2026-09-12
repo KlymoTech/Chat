@@ -18,7 +18,10 @@ _MIGRATION_PATH = (
 
 
 def _load_migration() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("migration_0038_outbox_webhook_timing_index", _MIGRATION_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "migration_0038_outbox_webhook_timing_index",
+        _MIGRATION_PATH,
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
