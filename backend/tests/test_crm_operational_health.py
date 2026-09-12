@@ -137,6 +137,18 @@ async def operations_case() -> AsyncIterator[tuple[AsyncSession, Principal]]:
                 idempotency_key=f"other-dead-{uuid4().hex}",
                 status="dead_letter",
             ),
+            # Deliberately malformed legacy-style row: the CRM belongs to the
+            # active Workspace, but the Lead belongs to another Workspace. The
+            # operations endpoint must still exclude this row through Lead scope.
+            CRMDelivery(
+                tenant_id=tenant.id,
+                lead_id=other_lead.id,
+                connection_id=primary_connection.id,
+                provider="zoho",
+                operation="upsert",
+                idempotency_key=f"cross-workspace-{uuid4().hex}",
+                status="dead_letter",
+            ),
         ]
         session.add_all(deliveries)
         await session.flush()
@@ -154,6 +166,13 @@ async def operations_case() -> AsyncIterator[tuple[AsyncSession, Principal]]:
                 status="open",
                 reason_code="network_error",
                 reason_message="Other workspace must not leak",
+            ),
+            IntegrationDeadLetter(
+                tenant_id=tenant.id,
+                delivery_id=deliveries[4].id,
+                status="open",
+                reason_code="network_error",
+                reason_message="Cross-workspace Lead must not leak through primary CRM",
             ),
         ])
         await session.commit()
