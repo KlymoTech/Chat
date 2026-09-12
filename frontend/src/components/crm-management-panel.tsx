@@ -2,7 +2,14 @@ import { CheckCircle2, GitBranch, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card } from '@/components/ui';
-import { leadCrmApi, type CRMConnectionView, type CRMFieldSchemaView, type CRMMappingView, type CRMRouteView } from '@/lib/lead-crm-api';
+import {
+  leadCrmApi,
+  type CRMConnectionView,
+  type CRMFieldSchemaView,
+  type CRMMappingView,
+  type CRMRouteView,
+  type CRMWorkspaceSettings,
+} from '@/lib/lead-crm-api';
 
 interface CRMManagementPanelProps {
   connections: CRMConnectionView[];
@@ -24,6 +31,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   const [schema, setSchema] = useState<CRMFieldSchemaView | null>(null);
   const [mappings, setMappings] = useState<CRMMappingView[]>([]);
   const [routes, setRoutes] = useState<CRMRouteView[]>([]);
+  const [workspaceSettings, setWorkspaceSettings] = useState<CRMWorkspaceSettings | null>(null);
   const [mappingText, setMappingText] = useState('{\n  "fields": {}\n}');
   const [routeName, setRouteName] = useState('Qualified leads');
   const [routePriority, setRoutePriority] = useState('100');
@@ -33,6 +41,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   useEffect(() => {
     if (!connections.length) {
       setSelectedId('');
+      setWorkspaceSettings(null);
       return;
     }
     if (!connections.some((connection) => connection.id === selectedId)) {
@@ -48,14 +57,16 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   const load = useCallback(async () => {
     if (!selectedId) return;
     try {
-      const [nextSchema, nextMappings, nextRoutes] = await Promise.all([
+      const [nextSchema, nextMappings, nextRoutes, nextWorkspaceSettings] = await Promise.all([
         leadCrmApi.schema(selectedId),
         leadCrmApi.mappings(selectedId),
         leadCrmApi.routes(),
+        leadCrmApi.workspaceSettings(selectedId),
       ]);
       setSchema(nextSchema);
       setMappings(nextMappings);
       setRoutes(nextRoutes);
+      setWorkspaceSettings(nextWorkspaceSettings);
       const leadMapping = nextMappings.find((item) => item.object_name === 'Leads');
       if (leadMapping) setMappingText(JSON.stringify(leadMapping.mapping, null, 2));
     } catch (error) {
@@ -92,6 +103,20 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       await load();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Schema refresh failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateAutoSync = async (field: 'auto_sync_new_leads' | 'auto_sync_updates', value: boolean) => {
+    if (!selectedId || !workspaceSettings) return;
+    setBusy(true);
+    try {
+      const updated = await leadCrmApi.updateWorkspaceSettings(selectedId, { [field]: value });
+      setWorkspaceSettings(updated);
+      pushToast('CRM auto-sync settings updated');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Could not update CRM auto-sync settings', 'error');
     } finally {
       setBusy(false);
     }
@@ -153,6 +178,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       await leadCrmApi.disableConnection(selectedId);
       pushToast('CRM connection disabled and credentials removed');
       setSelectedId('');
+      setWorkspaceSettings(null);
       onConnectionsChanged();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Could not disable CRM connection', 'error');
@@ -182,6 +208,33 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       <Button variant="secondary" size="sm" icon={RefreshCw} disabled={!canManage || busy} onClick={() => void refreshSchema()}>Refresh schema</Button>
       <Button variant="secondary" size="sm" disabled={!canManage || busy} onClick={() => void disableConnection()}>Disable connection</Button>
     </div>
+
+    <Card className="integration-card">
+      <div className="integration-card__copy">
+        <span><h3>Automatic CRM sync</h3><Badge tone={workspaceSettings?.auto_sync_new_leads || workspaceSettings?.auto_sync_updates ? 'success' : 'neutral'}>Workspace scoped</Badge></span>
+        <p>Choose which automatic Lead events create CRM deliveries for this connection. Manual Sync remains available even when automation is disabled.</p>
+        <label>
+          <input
+            type="checkbox"
+            aria-label="Automatically sync new leads"
+            checked={workspaceSettings?.auto_sync_new_leads ?? false}
+            disabled={!canManage || busy || !workspaceSettings}
+            onChange={(event) => void updateAutoSync('auto_sync_new_leads', event.target.checked)}
+          />
+          Automatically sync new leads
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            aria-label="Automatically sync lead updates"
+            checked={workspaceSettings?.auto_sync_updates ?? false}
+            disabled={!canManage || busy || !workspaceSettings}
+            onChange={(event) => void updateAutoSync('auto_sync_updates', event.target.checked)}
+          />
+          Automatically sync lead updates
+        </label>
+      </div>
+    </Card>
 
     <div className="integration-grid">
       <Card className="integration-card">
