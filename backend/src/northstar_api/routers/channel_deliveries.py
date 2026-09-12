@@ -11,8 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.audit import record_audit_event
-from northstar_api.lead_crm.channel_delivery_schemas import ChannelOutboundDeliveryOut
-from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
+from northstar_api.lead_crm.channel_delivery_schemas import (
+    ChannelDeliveryAttemptOut,
+    ChannelOutboundDeliveryOut,
+)
+from northstar_api.lead_crm.channel_models import (
+    ChannelConnection,
+    ChannelDeliveryAttempt,
+    ChannelOutboundDelivery,
+)
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.security import Principal
 
@@ -115,6 +122,71 @@ async def list_channel_deliveries(
         )
     ).all()
     return [_out(delivery, connection_name) for delivery, connection_name in rows]
+
+
+@router.get("/{delivery_id}/attempts", response_model=list[ChannelDeliveryAttemptOut])
+async def list_channel_delivery_attempts(
+    delivery_id: UUID,
+    principal: ChannelsViewPrincipal,
+    session: DB,
+    limit: int = Query(default=100, ge=1, le=200),
+) -> list[ChannelDeliveryAttemptOut]:
+    """List safe immutable attempt evidence for one delivery in the active Workspace."""
+
+    if principal.workspace_id is None:
+        raise HTTPException(status_code=403, detail="Workspace access is unavailable")
+
+    visible_delivery = await session.scalar(
+        select(ChannelOutboundDelivery.id)
+        .outerjoin(ChannelConnection, ChannelConnection.id == ChannelOutboundDelivery.connection_id)
+        .outerjoin(
+            WorkspaceChannelConnection,
+            WorkspaceChannelConnection.connection_id == ChannelOutboundDelivery.connection_id,
+        )
+        .where(
+            ChannelOutboundDelivery.id == delivery_id,
+            ChannelOutboundDelivery.tenant_id == principal.tenant_id,
+            ChannelOutboundDelivery.workspace_id == principal.workspace_id,
+            or_(
+                ChannelOutboundDelivery.connection_id.is_(None),
+                and_(
+                    ChannelConnection.tenant_id == principal.tenant_id,
+                    WorkspaceChannelConnection.tenant_id == principal.tenant_id,
+                    WorkspaceChannelConnection.workspace_id == principal.workspace_id,
+                ),
+            ),
+        )
+    )
+    if visible_delivery is None:
+        raise HTTPException(status_code=404, detail="Channel delivery not found in this workspace")
+
+    attempts = list(
+        await session.scalars(
+            select(ChannelDeliveryAttempt)
+            .where(
+                ChannelDeliveryAttempt.tenant_id == principal.tenant_id,
+                ChannelDeliveryAttempt.workspace_id == principal.workspace_id,
+                ChannelDeliveryAttempt.delivery_id == delivery_id,
+            )
+            .order_by(
+                ChannelDeliveryAttempt.created_at.desc(),
+                ChannelDeliveryAttempt.id.desc(),
+            )
+            .limit(limit)
+        )
+    )
+    return [
+        ChannelDeliveryAttemptOut(
+            id=attempt.id,
+            delivery_id=attempt.delivery_id,
+            phase=attempt.phase,
+            attempt_number=attempt.attempt_number,
+            outcome=attempt.outcome,
+            error_code=attempt.error_code,
+            created_at=attempt.created_at,
+        )
+        for attempt in attempts
+    ]
 
 
 @router.post("/{delivery_id}/requeue", response_model=ChannelOutboundDeliveryOut)
