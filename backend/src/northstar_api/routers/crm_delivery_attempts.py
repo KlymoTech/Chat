@@ -8,19 +8,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
-from northstar_api.dependencies import CurrentPrincipal
+from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.delivery_attempt_schemas import CRMDeliveryAttemptOut
 from northstar_api.lead_crm.models import CRMDelivery, CRMDeliveryAttempt
 from northstar_api.models import Lead
+from northstar_api.security import Principal
 
 router = APIRouter(prefix="/crm/deliveries", tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
+LeadViewPrincipal = Annotated[Principal, Depends(require_permissions("leads.view"))]
 
 
 @router.get("/{delivery_id}/attempts", response_model=list[CRMDeliveryAttemptOut])
 async def list_crm_delivery_attempts(
     delivery_id: UUID,
-    principal: CurrentPrincipal,
+    principal: LeadViewPrincipal,
     session: DB,
 ) -> list[CRMDeliveryAttemptOut]:
     """Return safe attempt evidence for one delivery in the active Workspace."""
