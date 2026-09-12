@@ -6,9 +6,11 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from northstar_api.database import Base
+from northstar_api.lead_crm.audit_models import IntegrationAuditEvent
 from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.models import (
@@ -19,6 +21,7 @@ from northstar_api.models import (
     MessageRole,
     Role,
     Tenant,
+    User,
     Workspace,
     WorkspaceRole,
 )
@@ -35,18 +38,25 @@ async def requeue_case() -> AsyncIterator[tuple[AsyncSession, Principal, dict[st
 
     async with factory() as session:
         tenant = Tenant(slug=f"requeue-{uuid4().hex}", name="Dispatch requeue")
-        session.add(tenant)
+        user = User(
+            email=f"channel-requeue-{uuid4().hex}@example.com",
+            name="Channel Admin",
+            password_hash="test-only",
+        )
+        session.add_all([tenant, user])
         await session.flush()
 
         workspace = Workspace(
             tenant_id=tenant.id,
             name="Primary workspace",
             slug=f"primary-requeue-{uuid4().hex[:8]}",
+            created_by=user.id,
         )
         other_workspace = Workspace(
             tenant_id=tenant.id,
             name="Other workspace",
             slug=f"other-requeue-{uuid4().hex[:8]}",
+            created_by=user.id,
         )
         session.add_all([workspace, other_workspace])
         await session.flush()
@@ -198,19 +208,20 @@ async def requeue_case() -> AsyncIterator[tuple[AsyncSession, Principal, dict[st
         await session.commit()
 
         principal = Principal(
-            user_id=uuid4(),
+            user_id=user.id,
             tenant_id=tenant.id,
-            role=Role.MEMBER,
+            role=Role.ADMIN,
             token_id="channel-requeue",
             workspace_id=workspace.id,
-            workspace_role=WorkspaceRole.MANAGER,
-            permissions=frozenset({"integrations.manage"}),
+            workspace_role=WorkspaceRole.ADMIN,
+            permissions=frozenset({"integrations.manage", "audit.view"}),
         )
         yield session, principal, {
             "retryable_id": retryable.id,
             "rejected_id": rejected.id,
             "blocked_id": blocked.id,
             "other_id": other_delivery.id,
+            "connection_id": connection.id,
         }
 
     await engine.dispose()
@@ -236,6 +247,24 @@ async def test_dispatch_failed_delivery_is_requeued_for_existing_dispatcher(requ
     assert stored.dispatched_at is None
     assert stored.next_dispatch_at is not None
     assert stored.last_error is None
+
+    audit = await session.scalar(
+        select(IntegrationAuditEvent).where(
+            IntegrationAuditEvent.action == "channel.delivery.dispatch_requeued",
+            IntegrationAuditEvent.entity_id == str(ids["retryable_id"]),
+        )
+    )
+    assert audit is not None
+    assert audit.tenant_id == principal.tenant_id
+    assert audit.workspace_id == principal.workspace_id
+    assert audit.actor_user_id == principal.user_id
+    assert audit.category == "channel"
+    assert audit.severity == "warning"
+    assert audit.before_json == {"status": "dispatch_failed", "dispatchAttempts": 8}
+    assert audit.after_json["status"] == "queued"
+    assert audit.after_json["dispatchAttempts"] == 0
+    assert audit.metadata_json["connectionId"] == str(ids["connection_id"])
+    assert "recipient" not in str(audit.metadata_json).lower()
 
 
 async def test_non_dispatch_failure_is_not_manually_requeued(requeue_case) -> None:
