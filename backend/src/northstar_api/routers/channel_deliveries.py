@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.channel_delivery_schemas import ChannelOutboundDeliveryOut
 from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
@@ -166,12 +167,38 @@ async def requeue_channel_dispatch_failure(
             detail="Channel connection must be operational before requeue",
         )
 
+    before_dispatch_attempts = delivery.dispatch_attempts
     now = datetime.now(UTC)
     delivery.status = "queued"
     delivery.dispatch_attempts = 0
     delivery.dispatched_at = None
     delivery.next_dispatch_at = now
     delivery.last_error = None
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="channel.delivery.dispatch_requeued",
+        entity_type="channel_outbound_delivery",
+        entity_id=str(delivery.id),
+        category="channel",
+        severity="warning",
+        before={
+            "status": "dispatch_failed",
+            "dispatchAttempts": before_dispatch_attempts,
+        },
+        after={
+            "status": "queued",
+            "dispatchAttempts": 0,
+            "nextDispatchAt": now.isoformat(),
+        },
+        metadata={
+            "connectionId": str(connection.id),
+            "provider": delivery.provider,
+            "messageId": str(delivery.message_id),
+        },
+    )
     await session.commit()
     await session.refresh(delivery)
     return _out(delivery, connection.name)
