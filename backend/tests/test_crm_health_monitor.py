@@ -98,7 +98,11 @@ async def test_due_health_check_persists_safe_snapshot_and_updates_connection(
         assert refreshed is not None
         assert refreshed.status == "healthy"
         assert refreshed.last_error is None
-        assert refreshed.last_health_at == checked_at.replace(tzinfo=None) or refreshed.last_health_at == checked_at
+        assert refreshed.last_health_at is not None
+        refreshed_health_at = refreshed.last_health_at
+        if refreshed_health_at.tzinfo is None:
+            refreshed_health_at = refreshed_health_at.replace(tzinfo=UTC)
+        assert refreshed_health_at == checked_at
         snapshots = list(
             await session.scalars(
                 select(IntegrationHealthSnapshot).where(
