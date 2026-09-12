@@ -41,7 +41,7 @@ export interface WorkspaceSettings {
   memberCount: number;
   preferences: WorkspacePreferences;
   whiteLabel: WhiteLabelSettings;
-  educationCreateUpsellLeads: boolean;
+  educationCreateUpsellLeads?: boolean;
 }
 
 export interface WorkspaceTeamMember {
