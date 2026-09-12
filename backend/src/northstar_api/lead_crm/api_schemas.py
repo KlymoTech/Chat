@@ -50,6 +50,18 @@ class CRMConnectionOut(LeadCRMModel):
     updated_at: datetime
 
 
+class CRMWorkspaceSettingsPatch(LeadCRMModel):
+    auto_sync_new_leads: bool | None = None
+    auto_sync_updates: bool | None = None
+
+
+class CRMWorkspaceSettingsOut(LeadCRMModel):
+    connection_id: UUID
+    auto_sync_new_leads: bool
+    auto_sync_updates: bool
+    updated_at: datetime
+
+
 class CRMRouteCreate(LeadCRMModel):
     name: str = Field(min_length=2, max_length=160)
     enabled: bool = True
