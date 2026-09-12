@@ -46,6 +46,33 @@ class ChannelConnection(Base):
     )
 
 
+class ChannelHealthSnapshot(Base):
+    """Safe durable history for scheduled channel connection health checks."""
+
+    __tablename__ = "channel_health_snapshots"
+    __table_args__ = (
+        Index(
+            "ix_channel_health_snapshots_connection_checked",
+            "tenant_id",
+            "connection_id",
+            "checked_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("channel_connections.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(120))
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
 class ChannelOutboundDelivery(Base):
     """Durable provider-neutral outbound delivery state.
 
