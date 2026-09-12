@@ -9,6 +9,7 @@ from northstar_api.routers import (
     chat,
     conversations,
     crm,
+    crm_dead_letters,
     crm_delivery_attempts,
     crm_oauth,
     crm_route_admin,
@@ -79,6 +80,7 @@ api_router.include_router(qualification.router)
 api_router.include_router(crm_scoped.router)
 api_router.include_router(crm_workspace_settings.router)
 api_router.include_router(crm_delivery_attempts.router)
+api_router.include_router(crm_dead_letters.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)
