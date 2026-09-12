@@ -86,6 +86,7 @@ class WorkspaceOut(APIModel):
     member_count: int
     preferences: WorkspacePreferences
     white_label: WhiteLabelSettings
+    education_create_upsell_leads: bool = False
 
 
 class WorkspacePatch(APIModel):
@@ -93,6 +94,7 @@ class WorkspacePatch(APIModel):
     slug: str | None = Field(default=None, min_length=2, max_length=80, pattern=r"^[a-z0-9-]+$")
     preferences: WorkspacePreferences | None = None
     white_label: WhiteLabelSettings | None = None
+    education_create_upsell_leads: bool | None = None
 
 
 class WorkspaceCreate(APIModel):
@@ -130,6 +132,7 @@ def _workspace_response(
         white_label=WhiteLabelSettings.model_validate(
             {"companyName": tenant.name, **(workspace.branding_json or {})}
         ),
+        education_create_upsell_leads=bool(settings.get("educationCreateUpsellLeads", False)),
     )
 
 
@@ -208,6 +211,8 @@ async def update_workspace(
         workspace.date_format = payload.preferences.date_format
     if payload.white_label is not None:
         workspace.branding_json = payload.white_label.model_dump(by_alias=True, mode="json")
+    if payload.education_create_upsell_leads is not None:
+        settings["educationCreateUpsellLeads"] = payload.education_create_upsell_leads
     workspace.settings_json = settings
     await session.commit()
     await session.refresh(workspace)
