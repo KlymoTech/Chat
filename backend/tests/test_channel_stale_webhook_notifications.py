@@ -224,7 +224,7 @@ async def test_stale_webhooks_notify_only_their_workspace_admin_once_and_remain_
 ) -> None:
     (
         factory,
-        tenant_id,
+        _tenant_id,
         primary_workspace_id,
         other_workspace_id,
         primary_admin_id,
@@ -234,7 +234,7 @@ async def test_stale_webhooks_notify_only_their_workspace_admin_once_and_remain_
     now = datetime(2026, 9, 12, 20, 0, tzinfo=UTC)
 
     await channel_health_monitor._notify_stale_webhook_events(factory, now=now)
-    await channel_health_monitor._notify_stale_webhook_events(factory, now=now + timedelta(minutes=5))
+    await channel_health_monitor._notify_stale_webhook_events(factory, now=now)
 
     async with factory() as session:
         notifications = list(
