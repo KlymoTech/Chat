@@ -42,7 +42,7 @@ async def resolve_education_sales_intent(
     principal: ConversationsResolvePrincipal,
     session: DB,
 ) -> EducationUpsellResolutionOut:
-    conditions: list[object] = [
+    conditions = [
         Conversation.id == conversation_id,
         Conversation.tenant_id == principal.tenant_id,
         Conversation.workspace_id == principal.workspace_id,
