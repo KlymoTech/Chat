@@ -22,3 +22,15 @@ class CRMDeadLetterOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
+
+
+class CRMDeadLetterReplayOut(BaseModel):
+    """Result of safely queueing the existing delivery retry for one dead letter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dead_letter_id: UUID
+    delivery_id: UUID
+    dead_letter_status: str
+    delivery_status: str
+    replayed_at: datetime
