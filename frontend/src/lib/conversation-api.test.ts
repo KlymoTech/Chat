@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const fallbackList = vi.fn();
+const mocks = vi.hoisted(() => ({
+  fallbackList: vi.fn(),
+}));
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
@@ -10,7 +12,7 @@ vi.mock('@/lib/api', async () => {
       ...actual.api,
       conversations: {
         ...actual.api.conversations,
-        list: fallbackList,
+        list: mocks.fallbackList,
       },
     },
   };
@@ -110,18 +112,18 @@ describe('conversationApi Education filters', () => {
     }));
 
     await expect(conversationApi.list({ courseId: 'course-1' })).rejects.toMatchObject({ status: 403 });
-    expect(fallbackList).not.toHaveBeenCalled();
+    expect(mocks.fallbackList).not.toHaveBeenCalled();
   });
 
   it('does not leak generic demo conversations when Education context cannot be loaded', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network unavailable')));
-    fallbackList.mockResolvedValue({
+    mocks.fallbackList.mockResolvedValue({
       items: [{ id: 'generic-1' }], total: 1, page: 1, pageSize: 50,
     });
 
     const result = await conversationApi.list({ educationScope: true, agentId: 'education-agent' });
 
-    expect(fallbackList).toHaveBeenCalledTimes(1);
+    expect(mocks.fallbackList).toHaveBeenCalledTimes(1);
     expect(result.items).toEqual([]);
     expect(result.total).toBe(0);
   });
