@@ -6,10 +6,18 @@ import type { CRMConnectionView } from '@/lib/lead-crm-api';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  replay: vi.fn(),
+  pushToast: vi.fn(),
+  authRole: { current: 'owner' },
+}));
+
+vi.mock('@/components/providers', () => ({
+  useAuth: () => ({ session: { user: { role: mocks.authRole.current } } }),
+  useToast: () => ({ pushToast: mocks.pushToast }),
 }));
 
 vi.mock('@/lib/crm-dead-letter-api', () => ({
-  crmDeadLetterApi: { list: mocks.list },
+  crmDeadLetterApi: { list: mocks.list, replay: mocks.replay },
 }));
 
 const connection: CRMConnectionView = {
@@ -62,12 +70,20 @@ const resolvedDeadLetter = {
 
 describe('CRMDeadLetterPanel', () => {
   beforeEach(() => {
+    mocks.authRole.current = 'owner';
     mocks.list.mockImplementation(async ({ status, connectionId }: { status?: string; connectionId?: string }) => {
       const rows = [openDeadLetter, resolvedDeadLetter];
       return rows.filter((item) => (
         (!status || status === 'all' || item.status === status)
         && (!connectionId || item.connection_id === connectionId)
       ));
+    });
+    mocks.replay.mockResolvedValue({
+      dead_letter_id: 'dead-letter-1',
+      delivery_id: 'delivery-1',
+      dead_letter_status: 'resolved',
+      delivery_status: 'retrying',
+      replayed_at: '2026-09-12T09:15:00Z',
     });
   });
 
@@ -100,6 +116,43 @@ describe('CRMDeadLetterPanel', () => {
     await waitFor(() => expect(mocks.list).toHaveBeenCalledWith({ status: 'all', connectionId: 'connection-2' }));
     await waitFor(() => expect(screen.queryByText('Provider timed out')).not.toBeInTheDocument());
     expect(screen.getAllByText('Salesforce Production').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('requires explicit confirmation before replaying an open dead letter', async () => {
+    const user = userEvent.setup();
+    render(<CRMDeadLetterPanel connections={[connection]} />);
+
+    await screen.findByText('Provider timed out');
+    await user.click(screen.getByRole('button', { name: 'Replay' }));
+    expect(mocks.replay).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Confirm replay' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Confirm replay' }));
+    await waitFor(() => expect(mocks.replay).toHaveBeenCalledWith('dead-letter-1'));
+    expect(mocks.pushToast).toHaveBeenCalledWith('CRM replay queued · delivery retrying');
+    await waitFor(() => expect(mocks.list.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('can cancel a replay confirmation without mutating the dead letter', async () => {
+    const user = userEvent.setup();
+    render(<CRMDeadLetterPanel connections={[connection]} />);
+
+    await screen.findByText('Provider timed out');
+    await user.click(screen.getByRole('button', { name: 'Replay' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(mocks.replay).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Replay' })).toBeInTheDocument();
+  });
+
+  it('keeps replay read-only for users without CRM management access in the UI', async () => {
+    mocks.authRole.current = 'member';
+    render(<CRMDeadLetterPanel connections={[connection]} />);
+
+    await screen.findByText('Provider timed out');
+    expect(screen.getByText('Admin only')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Replay' })).not.toBeInTheDocument();
+    expect(mocks.replay).not.toHaveBeenCalled();
   });
 
   it('shows an explicit healthy empty state when there are no open dead letters', async () => {
