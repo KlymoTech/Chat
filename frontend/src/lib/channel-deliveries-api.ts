@@ -36,10 +36,11 @@ function currentSession(): Session | null {
   }
 }
 
-async function call<T>(path: string): Promise<T> {
+async function call<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
   const active = currentSession();
   const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
+    method,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
@@ -62,4 +63,6 @@ export const channelDeliveriesApi = {
     params.set('limit', String(limit));
     return call<ChannelOutboundDeliveryView[]>(`/channels/deliveries?${params.toString()}`);
   },
+  requeue: (deliveryId: string) =>
+    call<ChannelOutboundDeliveryView>(`/channels/deliveries/${encodeURIComponent(deliveryId)}/requeue`, 'POST'),
 };
