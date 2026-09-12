@@ -82,6 +82,7 @@ def test_all_crm_worker_manifests_have_matching_readiness_and_liveness_probes() 
         "crm-router.yaml": "northstar_api.workers.crm_router_consumer",
         "crm-webhook-consumer.yaml": "northstar_api.workers.crm_webhook_consumer",
         "crm-reconciliation.yaml": "northstar_api.workers.crm_reconciliation",
+        "crm-health-monitor.yaml": "northstar_api.workers.crm_health_monitor",
     }
 
     for filename, module in expected.items():
