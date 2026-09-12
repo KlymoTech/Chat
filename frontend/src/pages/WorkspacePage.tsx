@@ -31,7 +31,12 @@ export function WorkspacePage() {
     if (!workspace) return;
     setSaving(true);
     try {
-      const saved = await workspaceApi.update({ name: workspace.name, slug: workspace.slug, preferences: workspace.preferences });
+      const saved = await workspaceApi.update({
+        name: workspace.name,
+        slug: workspace.slug,
+        preferences: workspace.preferences,
+        educationCreateUpsellLeads: workspace.educationCreateUpsellLeads,
+      });
       setWorkspace(saved); pushToast('Workspace settings saved');
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
@@ -52,6 +57,12 @@ export function WorkspacePage() {
               <div className="two-fields"><Field label="Workspace name" htmlFor="workspace-name"><input id="workspace-name" value={workspace.name} onChange={(event) => setWorkspace({ ...workspace, name: event.target.value })} /></Field><Field label="Workspace slug" htmlFor="workspace-slug"><div className="prefix-input"><span>app.northstar.ai/</span><input id="workspace-slug" value={workspace.slug} onChange={(event) => setWorkspace({ ...workspace, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /></div></Field></div>
               <div className="two-fields"><Field label="Timezone"><select value={workspace.preferences.timezone} onChange={(event) => setWorkspace({ ...workspace, preferences: { ...workspace.preferences, timezone: event.target.value } })}><option>Asia/Calcutta</option><option>UTC</option><option>America/New_York</option><option>Europe/London</option></select></Field><Field label="Date format"><select value={workspace.preferences.dateFormat} onChange={(event) => setWorkspace({ ...workspace, preferences: { ...workspace.preferences, dateFormat: event.target.value as WorkspaceSettings['preferences']['dateFormat'] } })}><option>DD/MM/YYYY</option><option>MM/DD/YYYY</option><option>YYYY-MM-DD</option></select></Field></div>
               <Field label="Default workspace language"><select value={workspace.preferences.defaultLanguage} onChange={(event) => setWorkspace({ ...workspace, preferences: { ...workspace.preferences, defaultLanguage: event.target.value } })}><option>English</option><option>Hindi</option><option>Spanish</option><option>French</option><option>German</option><option>Arabic</option></select></Field>
+              <Switch
+                checked={workspace.educationCreateUpsellLeads}
+                onChange={(checked) => setWorkspace({ ...workspace, educationCreateUpsellLeads: checked })}
+                label="Create upsell leads from Education Agents"
+                description="When enabled, authorized Education conversations with clear course purchase, pricing, enrollment, or upgrade intent create a Lead when resolved and reuse the existing CRM sync pipeline. Education conversations never create Leads by default."
+              />
               <div className="workspace-panel__actions"><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save workspace'}</Button></div>
             </div>
           </Card>
