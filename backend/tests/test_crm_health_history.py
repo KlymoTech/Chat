@@ -103,6 +103,7 @@ async def test_health_check_persists_only_safe_snapshot_fields(
                 "api": "ok",
                 "credentials": "configured",
                 "access_token": "must-not-be-persisted",
+                "oauth_access_token": "prefixed-secret-must-not-be-persisted",
             },
             "latencyMs": 37,
             "details": {"access_token": "also-must-not-be-persisted"},
@@ -119,6 +120,7 @@ async def test_health_check_persists_only_safe_snapshot_fields(
         "api": "ok",
         "credentials": "configured",
         "access_token": "[REDACTED]",
+        "oauth_access_token": "[REDACTED]",
     }
     assert set(result.model_dump()) == {
         "id", "connection_id", "status", "checks", "latency_ms", "checked_at",
