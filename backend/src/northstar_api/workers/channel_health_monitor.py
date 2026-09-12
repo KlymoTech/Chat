@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import signal
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -65,7 +66,7 @@ def _normalized_health_status(value: object) -> str:
     return normalized if normalized in _KNOWN_HEALTH_STATUSES else "unknown"
 
 
-def _context(connection: ChannelConnection, credentials: dict[str, object]) -> ChannelConnectionContext:
+def _context(connection: ChannelConnection, credentials: dict[str, Any]) -> ChannelConnectionContext:
     return ChannelConnectionContext(
         tenant_id=connection.tenant_id,
         connection_id=connection.id,
@@ -135,7 +136,7 @@ async def monitor_connection(
             await session.commit()
             return False
 
-        credentials: dict[str, object] = {}
+        credentials: dict[str, Any] = {}
         if connection.credentials_encrypted:
             try:
                 credentials = credential_store.decrypt(connection.credentials_encrypted)
