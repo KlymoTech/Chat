@@ -15,6 +15,7 @@ resources:
   - crm-router.yaml
   - crm-delivery.yaml
   - crm-reconciliation.yaml
+  - crm-health-monitor.yaml
   - channel-event-consumer.yaml
   - crm-webhook-consumer.yaml
   - availability.yaml
@@ -47,7 +48,7 @@ patches:
         value: {type: RuntimeDefault}
   - target:
       kind: Deployment
-      name: northstar-(api|web|worker|analytics-consumer|object-cleaner|crm-delivery|crm-reconciliation)
+      name: northstar-(api|web|worker|analytics-consumer|object-cleaner|crm-delivery|crm-reconciliation|crm-health-monitor)
     patch: |-
       - op: add
         path: /spec/strategy

@@ -383,6 +383,22 @@ services:
     networks: [data, egress]
     security_opt: [no-new-privileges:true]
 
+  crm-health-monitor:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.crm_health_monitor"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-crm-health-monitor
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks: [data, egress]
+    security_opt: [no-new-privileges:true]
+
   channel-event-consumer:
     <<: *api-runtime
     command: ["python", "-m", "northstar_api.workers.channel_event_consumer"]
