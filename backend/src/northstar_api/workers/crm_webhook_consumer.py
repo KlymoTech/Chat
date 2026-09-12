@@ -24,6 +24,7 @@ from northstar_api.lead_crm.models import (
 )
 from northstar_api.logging import configure_logging
 from northstar_api.models import Lead, ProcessedEvent
+from northstar_api.services.outbox import enqueue_event
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
 
 settings = get_settings()
@@ -105,6 +106,16 @@ def _apply_field(lead: Lead, profile: LeadProfile, field: str, value: Any) -> bo
         profile.custom_fields_json = custom
         return True
     return False
+
+
+def _fanout_payload(lead_id: UUID, origin_connection_id: UUID, changed: dict[str, Any]) -> dict[str, str] | None:
+    if not changed:
+        return None
+    return {
+        "leadId": str(lead_id),
+        "reason": "crm_inbound",
+        "originConnectionId": str(origin_connection_id),
+    }
 
 
 async def _process(session: AsyncSession, event: EventEnvelope) -> None:
@@ -208,6 +219,16 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
             },
         )
     )
+    fanout_payload = _fanout_payload(lead.id, connection.id, changed)
+    if fanout_payload is not None:
+        enqueue_event(
+            session,
+            tenant_id=event.tenant_id,
+            aggregate_type="lead",
+            aggregate_id=lead.id,
+            event_type="lead.crm.sync.requested.v1",
+            payload=fanout_payload,
+        )
     webhook.processing_status = "processed"
     webhook.processed_at = datetime.now(UTC)
     webhook.last_error = None

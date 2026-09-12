@@ -58,6 +58,7 @@ class WorkspaceCRMRouteService:
         lead_id: UUID,
         correlation_id: str | None = None,
         sync_reason: str | None = None,
+        origin_connection_id: UUID | None = None,
     ) -> list[CRMDelivery]:
         lead = await session.scalar(
             select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id)
@@ -102,6 +103,22 @@ class WorkspaceCRMRouteService:
 
         deliveries: list[CRMDelivery] = []
         for connection_id in connection_ids:
+            if origin_connection_id is not None and connection_id == origin_connection_id:
+                session.add(
+                    LeadActivityEvent(
+                        tenant_id=tenant_id,
+                        lead_id=lead.id,
+                        event_type="lead.crm.delivery.suppressed.v1",
+                        correlation_id=correlation_id,
+                        details_json={
+                            "workspaceId": str(lead.workspace_id),
+                            "connectionId": str(connection_id),
+                            "reason": "inbound_origin",
+                        },
+                    )
+                )
+                continue
+
             connection_conditions = [
                 CRMConnection.id == connection_id,
                 CRMConnection.tenant_id == tenant_id,

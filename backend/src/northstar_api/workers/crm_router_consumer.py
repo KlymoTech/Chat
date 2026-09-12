@@ -37,6 +37,16 @@ def _sync_reason(payload: dict[str, object]) -> str | None:
     return str(value) if value is not None else None
 
 
+def _origin_connection_id(payload: dict[str, object]) -> UUID | None:
+    value = payload.get("originConnectionId")
+    if value in (None, ""):
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("CRM sync event has invalid originConnectionId") from exc
+
+
 async def consume_forever() -> None:
     engine = build_engine(settings)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -70,6 +80,7 @@ async def consume_forever() -> None:
                             raise ValueError("event type does not match Kafka topic")
                         lead_id = _lead_id(event.payload)
                         sync_reason = _sync_reason(event.payload)
+                        origin_connection_id = _origin_connection_id(event.payload)
                     except ValueError as exc:
                         async with factory() as session:
                             await quarantine_event(
@@ -120,6 +131,7 @@ async def consume_forever() -> None:
                                         lead_id=lead_id,
                                         correlation_id=str(event.event_id),
                                         sync_reason=sync_reason,
+                                        origin_connection_id=origin_connection_id,
                                     )
                                     await session.commit()
                                     logger.info(
@@ -127,6 +139,9 @@ async def consume_forever() -> None:
                                         event_id=str(event.event_id),
                                         lead_id=str(lead_id),
                                         sync_reason=sync_reason,
+                                        origin_connection_id=(
+                                            str(origin_connection_id) if origin_connection_id else None
+                                        ),
                                         delivery_count=len(deliveries),
                                     )
                             else:
