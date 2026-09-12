@@ -223,6 +223,7 @@ async def monitor_connection(
             return False
 
         previous_status = connection.status
+        current_status = previous_status
         connection_name = connection.name
         provider = connection.provider
         credentials: dict[str, Any] = {}
