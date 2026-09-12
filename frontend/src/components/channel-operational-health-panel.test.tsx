@@ -6,6 +6,7 @@ import { ChannelOperationalHealthPanel } from '@/components/channel-operational-
 const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   deliveries: vi.fn(),
+  webhookEvents: vi.fn(),
   requeue: vi.fn(),
   useAuth: vi.fn(),
 }));
@@ -20,6 +21,10 @@ vi.mock('@/lib/channel-operations-api', () => ({
 
 vi.mock('@/lib/channel-deliveries-api', () => ({
   channelDeliveriesApi: { list: mocks.deliveries, requeue: mocks.requeue },
+}));
+
+vi.mock('@/lib/channel-webhook-events-api', () => ({
+  channelWebhookEventsApi: { list: mocks.webhookEvents },
 }));
 
 const attentionHealth = {
@@ -50,6 +55,7 @@ describe('ChannelOperationalHealthPanel', () => {
     mocks.useAuth.mockReturnValue({ session: { user: { role: 'admin' } } });
     mocks.health.mockResolvedValue(attentionHealth);
     mocks.deliveries.mockResolvedValue([]);
+    mocks.webhookEvents.mockResolvedValue([]);
     mocks.requeue.mockResolvedValue(null);
   });
 
@@ -58,7 +64,7 @@ describe('ChannelOperationalHealthPanel', () => {
     vi.clearAllMocks();
   });
 
-  it('renders Workspace channel totals and per-connection operational evidence', async () => {
+  it('renders Workspace channel totals without eagerly loading detailed evidence', async () => {
     render(<ChannelOperationalHealthPanel />);
 
     expect(await screen.findByText('Student Telegram')).toBeInTheDocument();
@@ -69,6 +75,7 @@ describe('ChannelOperationalHealthPanel', () => {
     expect(screen.getByRole('status')).toHaveTextContent('1 terminal outbound delivery failure state(s)');
     expect(mocks.health).toHaveBeenCalledOnce();
     expect(mocks.deliveries).not.toHaveBeenCalled();
+    expect(mocks.webhookEvents).not.toHaveBeenCalled();
   });
 
   it('refreshes channel operational health on demand', async () => {
@@ -94,6 +101,26 @@ describe('ChannelOperationalHealthPanel', () => {
       limit: 100,
     }));
     expect(screen.getByRole('option', { name: 'Student Telegram · telegram' })).toBeInTheDocument();
+    expect(mocks.webhookEvents).not.toHaveBeenCalled();
+  });
+
+  it('loads inbound webhook evidence only after the user opens it', async () => {
+    const user = userEvent.setup();
+    render(<ChannelOperationalHealthPanel />);
+
+    await screen.findByText('Student Telegram');
+    expect(mocks.webhookEvents).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'View webhook activity' }));
+
+    await waitFor(() => expect(mocks.webhookEvents).toHaveBeenCalledWith({
+      connectionId: undefined,
+      processingStatus: undefined,
+      provider: undefined,
+      limit: 100,
+    }));
+    expect(await screen.findByText('Channel inbound webhook activity')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Student Telegram · telegram' })).toBeInTheDocument();
+    expect(mocks.deliveries).not.toHaveBeenCalled();
   });
 
   it('shows an explicit empty state when the Workspace has no channel connections', async () => {
@@ -112,5 +139,6 @@ describe('ChannelOperationalHealthPanel', () => {
     expect(await screen.findByText('No channel operations to monitor')).toBeInTheDocument();
     expect(screen.getByText('Connect a provider-neutral messaging channel in this Workspace to begin monitoring delivery health.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View delivery evidence' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View webhook activity' })).not.toBeInTheDocument();
   });
 });
