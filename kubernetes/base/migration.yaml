@@ -16,7 +16,7 @@ spec:
       containers:
         - name: migrate
           image: northstar/api:replace-with-immutable-tag
-          command: [alembic, upgrade, head]
+          command: [alembic, upgrade, heads]
           envFrom: [{configMapRef: {name: northstar-config}}, {secretRef: {name: northstar-secrets}}]
           env: [{name: DATABASE_URL, valueFrom: {secretKeyRef: {name: northstar-secrets, key: MIGRATION_DATABASE_URL}}}]
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
