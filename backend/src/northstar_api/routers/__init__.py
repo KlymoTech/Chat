@@ -9,6 +9,7 @@ from northstar_api.routers import (
     chat,
     conversations,
     crm,
+    crm_delivery_attempts,
     crm_oauth,
     crm_route_admin,
     crm_schema,
@@ -77,6 +78,7 @@ api_router.include_router(qualification.router)
 # implementations so identical HTTP paths enforce the active workspace boundary.
 api_router.include_router(crm_scoped.router)
 api_router.include_router(crm_workspace_settings.router)
+api_router.include_router(crm_delivery_attempts.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)
