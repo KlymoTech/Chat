@@ -1,5 +1,5 @@
 import { Activity, Bot, ChevronDown, Clock3, Filter, GraduationCap, Inbox, Search, UserRound } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useWorkspace } from '@/components/providers';
 import { Badge, EmptyState, PageLoader } from '@/components/ui';
@@ -217,7 +217,7 @@ function FilterSelect({
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return <label className="education-activity-select">
     <Filter />
