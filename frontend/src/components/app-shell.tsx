@@ -1,5 +1,5 @@
 import {
-  BarChart3, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, GraduationCap, Inbox,
+  BarChart3, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, FileSpreadsheet, GraduationCap, Inbox,
   LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, ShieldCheck, Sparkles, UsersRound, X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
@@ -14,7 +14,9 @@ const navigation = [
   { to: '/agents', label: 'Agents', icon: Sparkles },
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/education/batches', label: 'Batches', icon: GraduationCap },
-  { to: '/education/students', label: 'Students', icon: UsersRound },
+  { to: '/education/students', label: 'Students', icon: UsersRound, end: true },
+  { to: '/education/students/import', label: 'Imports', icon: FileSpreadsheet },
+  { to: '/education/access-requests', label: 'Access Requests', icon: ShieldCheck },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
@@ -30,6 +32,7 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/workspace')) return 'Workspace';
   if (pathname.startsWith('/help')) return 'Help Center';
   if (pathname.startsWith('/agents/') && pathname !== '/agents/new') return 'Agent workspace';
+  if (pathname.startsWith('/education/students/import')) return 'Imports';
   const item = navigation.find((nav) => nav.to !== '/' && pathname.startsWith(nav.to));
   return item?.label ?? 'Workspace';
 }
@@ -55,6 +58,9 @@ export function AppShell() {
     || activeWorkspace?.permissions?.includes('audit.view'),
   );
   const visibleNavigation = navigation.filter((item) => item.to !== '/audit' || canViewAudit);
+  const mobileNavigation = visibleNavigation.filter((item) => (
+    item.to !== '/education/students/import' && item.to !== '/education/access-requests'
+  )).slice(0, 6);
 
   useEffect(() => {
     let active = true;
@@ -136,7 +142,7 @@ export function AppShell() {
       <main className="content"><Outlet key={activeWorkspace?.id ?? 'workspace-loading'} /></main>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {visibleNavigation.slice(0, 6).map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
+      {mobileNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} aria-label={label}><Icon /><span>{label}</span></NavLink>)}
     </nav>
     <button className="command-fab" aria-label="Open command palette"><Command /></button>
   </div>;

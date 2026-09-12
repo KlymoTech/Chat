@@ -38,9 +38,11 @@ from northstar_api.schemas import (
 from northstar_api.security import Principal
 from northstar_api.services.conversation_resolution import conversation_resolution_service
 from northstar_api.services.outbox import enqueue_event
+from northstar_api.services.slack import decode_slack_target
 from northstar_api.services.whatsapp import token_expiry_is_current
 from northstar_api.workers.facebook_messenger_tasks import send_facebook_messenger_message
 from northstar_api.workers.instagram_tasks import send_instagram_message
+from northstar_api.workers.slack_tasks import send_slack_message
 from northstar_api.workers.tasks import send_whatsapp_human_reply
 from northstar_api.workers.telegram_tasks import send_telegram_message
 
@@ -136,6 +138,14 @@ def _facebook_messenger_recipient_id(conversation: Conversation) -> str | None:
     if not recipient_id or not recipient_id.isdigit():
         return None
     return recipient_id
+
+
+def _slack_delivery_target(conversation: Conversation) -> str | None:
+    visitor_id = conversation.visitor_id or ""
+    if conversation.channel != Channel.SLACK or not visitor_id.startswith("slack:"):
+        return None
+    target = visitor_id.removeprefix("slack:").strip()
+    return target if decode_slack_target(target) is not None else None
 
 
 async def _telegram_connection_for_conversation(
@@ -314,6 +324,60 @@ async def _facebook_messenger_connection_for_conversation(
     return connection, recipient_id
 
 
+async def _slack_connection_for_conversation(
+    session: AsyncSession,
+    principal: Principal,
+    conversation: Conversation,
+) -> tuple[ChannelConnection, str] | None:
+    target = _slack_delivery_target(conversation)
+    if target is None:
+        return None
+    rows = (
+        await session.execute(
+            select(ChannelConnection, WorkspaceChannelConnection)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelConnection.tenant_id == principal.tenant_id,
+                ChannelConnection.provider == ChannelProvider.SLACK.value,
+                ChannelConnection.status != "disabled",
+                WorkspaceChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.workspace_id == principal.workspace_id,
+            )
+            .with_for_update()
+        )
+    ).all()
+    matches = [
+        connection
+        for connection, scope in rows
+        if (scope.agent_id is None or scope.agent_id == conversation.agent_id)
+        and str((connection.configuration_json or {}).get("agentId") or "") == str(conversation.agent_id)
+    ]
+    if not matches:
+        raise HTTPException(status_code=409, detail="Slack is not connected for this agent")
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple Slack connections match this agent; disable the duplicate connection before replying",
+        )
+    connection = matches[0]
+    try:
+        credentials = (
+            credential_store.decrypt(connection.credentials_encrypted)
+            if connection.credentials_encrypted
+            else {}
+        )
+    except CredentialStoreError as exc:
+        raise HTTPException(status_code=409, detail="Slack credentials require reconnection") from exc
+    if not credentials.get("bot_token"):
+        raise HTTPException(status_code=409, detail="Slack bot token is not configured")
+    if not credentials.get("signing_secret"):
+        raise HTTPException(status_code=409, detail="Slack signing secret is not configured")
+    return connection, target
+
+
 @router.get("", response_model=PageResult[ConversationOut])
 async def list_conversations(
     principal: ConversationsViewPrincipal,
@@ -477,6 +541,7 @@ async def reply_to_conversation(
     telegram_target: tuple[ChannelConnection, str] | None = None
     instagram_target: tuple[ChannelConnection, str] | None = None
     messenger_target: tuple[ChannelConnection, str] | None = None
+    slack_target: tuple[ChannelConnection, str] | None = None
     if conversation.channel == Channel.WHATSAPP:
         if not conversation.visitor_id or not conversation.visitor_id.isdigit():
             raise HTTPException(status_code=409, detail="WhatsApp recipient is unavailable")
@@ -547,6 +612,12 @@ async def reply_to_conversation(
                 principal,
                 conversation,
             )
+        if telegram_target is None and instagram_target is None and messenger_target is None:
+            slack_target = await _slack_connection_for_conversation(
+                session,
+                principal,
+                conversation,
+            )
     sequence = int(
         await session.scalar(
             select(func.coalesce(func.max(Message.sequence), 0)).where(
@@ -561,6 +632,7 @@ async def reply_to_conversation(
         or telegram_target is not None
         or instagram_target is not None
         or messenger_target is not None
+        or slack_target is not None
     )
     message = Message(
         tenant_id=principal.tenant_id,
@@ -578,6 +650,7 @@ async def reply_to_conversation(
     telegram_delivery: ChannelOutboundDelivery | None = None
     instagram_delivery: ChannelOutboundDelivery | None = None
     messenger_delivery: ChannelOutboundDelivery | None = None
+    slack_delivery: ChannelOutboundDelivery | None = None
     if whatsapp_connection:
         delivery = WhatsAppOutboundDelivery(
             tenant_id=principal.tenant_id,
@@ -628,6 +701,19 @@ async def reply_to_conversation(
             status="queued",
         )
         session.add(messenger_delivery)
+        await session.flush()
+    elif slack_target:
+        slack_connection, target = slack_target
+        slack_delivery = ChannelOutboundDelivery(
+            tenant_id=principal.tenant_id,
+            workspace_id=conversation.workspace_id,
+            connection_id=slack_connection.id,
+            message_id=message.id,
+            provider=ChannelProvider.SLACK.value,
+            recipient_external_id=target,
+            status="queued",
+        )
+        session.add(slack_delivery)
         await session.flush()
     enqueue_event(
         session,
@@ -720,6 +806,25 @@ async def reply_to_conversation(
             messenger_delivery.status = "failed"
             messenger_delivery.next_dispatch_at = datetime.now(UTC)
             messenger_delivery.last_error = "queue dispatch unavailable"
+        await session.commit()
+    elif slack_delivery:
+        try:
+            await asyncio.to_thread(
+                send_slack_message.apply_async,
+                args=[str(slack_delivery.id)],
+                queue="slack.outbound",
+                routing_key="slack.outbound",
+            )
+            slack_delivery.dispatch_attempts += 1
+            slack_delivery.dispatched_at = datetime.now(UTC)
+            slack_delivery.next_dispatch_at = datetime.now(UTC) + timedelta(minutes=5)
+            slack_delivery.last_error = None
+        except Exception:
+            # The durable dispatcher will retry this database-backed delivery.
+            slack_delivery.dispatch_attempts += 1
+            slack_delivery.status = "failed"
+            slack_delivery.next_dispatch_at = datetime.now(UTC)
+            slack_delivery.last_error = "queue dispatch unavailable"
         await session.commit()
     await session.refresh(message)
     return MessageOut(

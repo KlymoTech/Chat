@@ -15,9 +15,13 @@ from northstar_api.routers import (
     crm_scoped,
     crm_webhooks,
     education,
+    education_access_recovery,
+    education_access_requests,
     education_batches,
     education_enrollments,
+    education_student_detail,
     education_student_identities,
+    education_student_import,
     education_students,
     email_verification,
     help,
@@ -30,6 +34,7 @@ from northstar_api.routers import (
     password_reset,
     platform_admin,
     qualification,
+    slack_webhooks,
     whatsapp,
     widget,
     workspace,
@@ -47,8 +52,12 @@ api_router.include_router(agents.router)
 api_router.include_router(education.router)
 api_router.include_router(education_batches.router)
 api_router.include_router(education_students.router)
+api_router.include_router(education_student_detail.router)
 api_router.include_router(education_student_identities.router)
+api_router.include_router(education_student_import.router)
 api_router.include_router(education_enrollments.router)
+api_router.include_router(education_access_recovery.router)
+api_router.include_router(education_access_requests.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
@@ -61,6 +70,8 @@ api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
+# Slack's URL-verification path must precede the provider-parameterized route.
+api_router.include_router(slack_webhooks.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
 # Preserve the historical integration audit endpoint and add the broader SaaS audit API.
