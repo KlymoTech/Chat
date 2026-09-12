@@ -13,6 +13,7 @@ from northstar_api.lead_crm.api_schemas import (
     CRMWorkspaceSettingsOut,
     CRMWorkspaceSettingsPatch,
 )
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection
 from northstar_api.security import Principal
 
@@ -77,11 +78,30 @@ async def update_crm_workspace_settings(
     if not binding:
         raise HTTPException(status_code=404, detail="CRM connection not found in this workspace")
 
+    before = {
+        "autoSyncNewLeads": binding.auto_sync_new_leads,
+        "autoSyncUpdates": binding.auto_sync_updates,
+    }
     if payload.auto_sync_new_leads is not None:
         binding.auto_sync_new_leads = payload.auto_sync_new_leads
     if payload.auto_sync_updates is not None:
         binding.auto_sync_updates = payload.auto_sync_updates
 
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.workspace_settings.updated",
+        entity_type="crm_connection",
+        entity_id=str(connection_id),
+        category="crm",
+        before=before,
+        after={
+            "autoSyncNewLeads": binding.auto_sync_new_leads,
+            "autoSyncUpdates": binding.auto_sync_updates,
+        },
+    )
     await session.commit()
     await session.refresh(binding)
     return _settings_out(binding)
