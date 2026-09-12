@@ -18,6 +18,26 @@ const statusLabels: Record<SubscriptionStatus, string> = {
   cancelled: 'Cancelled',
 };
 
+const checkoutPlans = [
+  {
+    id: 'professional',
+    name: 'Professional',
+    description: 'More agents, seats, conversations, tokens, channels and CRM access.',
+  },
+  {
+    id: 'business',
+    name: 'Business',
+    description: 'Higher capacity, every channel, CRM, API and white-label capabilities.',
+  },
+] as const;
+
+const planRank: Record<string, number> = {
+  starter: 0,
+  professional: 1,
+  business: 2,
+  enterprise: 3,
+};
+
 export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSettings }) {
   const { session } = useAuth();
   const { pushToast } = useToast();
@@ -25,6 +45,7 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
   const [entitlements, setEntitlements] = useState<TenantEntitlements | null>(null);
   const [error, setError] = useState('');
   const [manageOpen, setManageOpen] = useState(false);
+  const [plansOpen, setPlansOpen] = useState(false);
   const [confirmation, setConfirmation] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -74,6 +95,8 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
   const limits = entitlements?.limits;
   const usage = entitlements?.usage;
   const memberUsage = usage ? usage.members + usage.pendingMemberSeats : 0;
+  const currentRank = planRank[plan.toLowerCase()] ?? Number.MAX_SAFE_INTEGER;
+  const availableCheckoutPlans = checkoutPlans.filter((candidate) => (planRank[candidate.id] ?? 0) > currentRank);
 
   const applySubscription = (next: TenantSubscription) => {
     setSubscription(next);
@@ -119,6 +142,30 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
     }
   };
 
+  const startCheckout = async (nextPlan: string) => {
+    if (!canManageBilling) return;
+    setSaving(true);
+    try {
+      const redirect = await billingApi.createCheckout(nextPlan);
+      window.location.assign(redirect.url);
+    } catch (reason) {
+      pushToast(reason instanceof Error ? reason.message : 'Secure checkout could not be opened', 'error');
+      setSaving(false);
+    }
+  };
+
+  const openBillingPortal = async () => {
+    if (!canManageBilling) return;
+    setSaving(true);
+    try {
+      const redirect = await billingApi.createPortal();
+      window.location.assign(redirect.url);
+    } catch (reason) {
+      pushToast(reason instanceof Error ? reason.message : 'Billing portal could not be opened', 'error');
+      setSaving(false);
+    }
+  };
+
   return <>
     <Card className="workspace-panel">
       <PanelHeading
@@ -137,11 +184,11 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
         <Usage label="Knowledge storage" used={usage?.storageBytes ?? 0} limit={limits?.storageBytes} bytes />
       </div>
       <div className="workspace-panel__actions workspace-panel__actions--border">
-        {canManageBilling ? <Button variant="secondary" onClick={() => { setConfirmation(''); setManageOpen(true); }} disabled={!subscription}>Manage billing</Button> : null}
-        <Button onClick={() => pushToast('Plan comparison opened', 'info')}>Compare plans</Button>
+        {canManageBilling ? <Button variant="secondary" onClick={() => { setConfirmation(''); setManageOpen(true); }} disabled={!subscription || saving}>Manage billing</Button> : null}
+        <Button onClick={() => setPlansOpen(true)}>Compare plans</Button>
       </div>
     </Card>
-    <Card className="workspace-upgrade-card"><Sparkles /><div><strong>Need more capacity?</strong><p>Upgrade limits without changing your agents, knowledge, integrations, or existing workspace data.</p></div><Button variant="secondary" onClick={() => pushToast('Plan comparison opened', 'info')}>View plans</Button></Card>
+    <Card className="workspace-upgrade-card"><Sparkles /><div><strong>Need more capacity?</strong><p>Upgrade limits without changing your agents, knowledge, integrations, or existing workspace data.</p></div><Button variant="secondary" onClick={() => setPlansOpen(true)}>View plans</Button></Card>
 
     <Modal
       open={manageOpen}
@@ -150,7 +197,10 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
       description="Subscription offboarding changes billing state only. Existing tenant data is never deleted by this action."
       size="sm"
       closeDisabled={saving}
-      footer={subscription?.provider ? <Button variant="secondary" onClick={() => setManageOpen(false)} disabled={saving}>Close</Button> : subscription?.cancelAtPeriodEnd || subscription?.status === 'cancelled' ? <>
+      footer={subscription?.provider === 'stripe' ? <>
+        <Button variant="secondary" onClick={() => setManageOpen(false)} disabled={saving}>Close</Button>
+        <Button onClick={() => void openBillingPortal()} disabled={saving}>{saving ? 'Opening…' : 'Open billing portal'}</Button>
+      </> : subscription?.provider ? <Button variant="secondary" onClick={() => setManageOpen(false)} disabled={saving}>Close</Button> : subscription?.cancelAtPeriodEnd || subscription?.status === 'cancelled' ? <>
         <Button variant="secondary" onClick={() => setManageOpen(false)} disabled={saving}>Close</Button>
         <Button onClick={() => void reactivateSubscription()} disabled={saving}>{subscription.cancelAtPeriodEnd ? 'Keep subscription' : 'Reactivate subscription'}</Button>
       </> : <>
@@ -158,12 +208,26 @@ export function SubscriptionBillingPanel({ workspace }: { workspace: WorkspaceSe
         <Button variant="danger" onClick={() => void cancelSubscription()} disabled={saving || confirmation !== 'CANCEL'}>{saving ? 'Cancelling…' : 'Confirm cancellation'}</Button>
       </>}
     >
-      {subscription?.provider ? <div className="workspace-empty-row"><CreditCard /><span><strong>Provider-managed subscription</strong><small>{formatPlan(subscription.provider)} billing must be cancelled through its provider workflow. Northstar will not mark it cancelled locally without provider confirmation.</small></span></div> : subscription?.cancelAtPeriodEnd ? <div className="workspace-empty-row"><CreditCard /><span><strong>Cancellation is scheduled</strong><small>{subscription.currentPeriodEnd ? `Access remains on the current subscription until ${formatDate(subscription.currentPeriodEnd)}.` : 'Cancellation is pending.'}</small><small>Choose Keep subscription to remove the scheduled offboarding.</small></span></div> : subscription?.status === 'cancelled' ? <div className="workspace-empty-row"><CreditCard /><span><strong>Subscription is cancelled</strong><small>Your existing tenant, workspaces, agents, knowledge, Leads and CRM records are preserved.</small><small>Reactivate to restore plan-gated creation and write capabilities.</small></span></div> : <div style={{ display: 'grid', gap: 18 }}>
+      {subscription?.provider === 'stripe' ? <div className="workspace-empty-row"><CreditCard /><span><strong>Stripe-managed subscription</strong><small>Plan changes, payment methods, invoices and cancellation are managed in Stripe's secure customer portal. Signed Stripe webhooks keep Northstar subscription status and entitlements synchronized.</small></span></div> : subscription?.provider ? <div className="workspace-empty-row"><CreditCard /><span><strong>Provider-managed subscription</strong><small>{formatPlan(subscription.provider)} billing must be cancelled through its provider workflow. Northstar will not mark it cancelled locally without provider confirmation.</small></span></div> : subscription?.cancelAtPeriodEnd ? <div className="workspace-empty-row"><CreditCard /><span><strong>Cancellation is scheduled</strong><small>{subscription.currentPeriodEnd ? `Access remains on the current subscription until ${formatDate(subscription.currentPeriodEnd)}.` : 'Cancellation is pending.'}</small><small>Choose Keep subscription to remove the scheduled offboarding.</small></span></div> : subscription?.status === 'cancelled' ? <div className="workspace-empty-row"><CreditCard /><span><strong>Subscription is cancelled</strong><small>Your existing tenant, workspaces, agents, knowledge, Leads and CRM records are preserved.</small><small>Reactivate to restore plan-gated creation and write capabilities.</small></span></div> : <div style={{ display: 'grid', gap: 18 }}>
         <div className="workspace-empty-row"><CreditCard /><span><strong>{subscription?.currentPeriodEnd ? 'Schedule cancellation' : 'Cancel subscription now'}</strong><small>{subscription?.currentPeriodEnd ? `The subscription will stay active until ${formatDate(subscription.currentPeriodEnd)}. Existing data will be preserved.` : 'No external billing period is connected, so cancellation takes effect immediately. Existing data will be preserved.'}</small><small>After cancellation, new resource creation and other plan-gated writes are blocked until reactivation.</small></span></div>
         <Field label="Type CANCEL to confirm" hint="This does not delete tenant or workspace data.">
           <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" disabled={saving} />
         </Field>
       </div>}
+    </Modal>
+
+    <Modal
+      open={plansOpen}
+      onClose={() => { if (!saving) setPlansOpen(false); }}
+      title="Compare plans"
+      description={subscription?.provider === 'stripe'
+        ? 'Your subscription is already provider-managed. Use the secure billing portal for plan changes.'
+        : 'Choose a higher plan to continue in Stripe hosted checkout. Northstar changes entitlements only after a signed provider webhook confirms the subscription.'}
+      size="md"
+      closeDisabled={saving}
+      footer={<Button variant="secondary" onClick={() => setPlansOpen(false)} disabled={saving}>Close</Button>}
+    >
+      {subscription?.provider === 'stripe' ? <div className="workspace-empty-row"><CreditCard /><span><strong>{formatPlan(plan)} is managed by Stripe</strong><small>Use the customer portal to change plans, payment methods or cancellation settings.</small>{canManageBilling ? <Button onClick={() => void openBillingPortal()} disabled={saving}>{saving ? 'Opening…' : 'Open billing portal'}</Button> : null}</span></div> : availableCheckoutPlans.length ? <div style={{ display: 'grid', gap: 14 }}>{availableCheckoutPlans.map((candidate) => <Card key={candidate.id}><div className="workspace-empty-row"><Sparkles /><span><strong>{candidate.name}</strong><small>{candidate.description}</small>{canManageBilling ? <Button onClick={() => void startCheckout(candidate.id)} disabled={saving}>{saving ? 'Opening secure checkout…' : `Choose ${candidate.name}`}</Button> : <small>Ask a tenant billing administrator to upgrade this plan.</small>}</span></div></Card>)}</div> : <div className="workspace-empty-row"><Sparkles /><span><strong>No self-service upgrade is available above {formatPlan(plan)}</strong><small>Enterprise and custom contracts can continue to use the existing tenant plan without changing any workspace data.</small></span></div>}
     </Modal>
   </>;
 }
