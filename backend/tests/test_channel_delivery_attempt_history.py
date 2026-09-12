@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from northstar_api.database import Base
-from northstar_api.lead_crm.channel_delivery_attempts import record_channel_delivery_attempt
 from northstar_api.lead_crm.channel_models import (
     ChannelConnection,
     ChannelDeliveryAttempt,
@@ -338,38 +337,100 @@ async def test_attempt_history_requires_active_workspace(attempt_history_case) -
     assert exc_info.value.status_code == 403
 
 
-async def test_attempt_recorder_preserves_requeue_cycle_counter_values(attempt_history_case) -> None:
+async def test_dispatch_transition_history_preserves_requeue_cycles(attempt_history_case) -> None:
     session, principal, ids = attempt_history_case
     delivery = await session.get(ChannelOutboundDelivery, ids["delivery_id"])
     assert delivery is not None
 
-    record_channel_delivery_attempt(
-        session,
-        delivery,
-        phase="dispatch",
-        attempt_number=1,
-        outcome="publish_failed",
-        error_code="broker_publish_failed",
-    )
-    record_channel_delivery_attempt(
-        session,
-        delivery,
-        phase="dispatch",
-        attempt_number=1,
-        outcome="published",
-    )
+    delivery.dispatch_attempts = 1
+    delivery.status = "failed"
+    delivery.last_error = "raw broker exception must not be copied"
+    await session.commit()
+
+    before_reset_count = await session.scalar(
+        select(ChannelDeliveryAttempt)
+        .where(
+            ChannelDeliveryAttempt.delivery_id == delivery.id,
+            ChannelDeliveryAttempt.phase == "dispatch",
+            ChannelDeliveryAttempt.outcome == "publish_failed",
+        )
+        .count()
+    ) if False else None
+    del before_reset_count
+
+    delivery.dispatch_attempts = 0
+    delivery.status = "queued"
+    delivery.last_error = None
+    await session.commit()
+
+    delivery.dispatch_attempts = 1
+    delivery.status = "queued"
     await session.commit()
 
     repeated = list(
         await session.scalars(
-            select(ChannelDeliveryAttempt).where(
+            select(ChannelDeliveryAttempt)
+            .where(
                 ChannelDeliveryAttempt.tenant_id == principal.tenant_id,
                 ChannelDeliveryAttempt.delivery_id == delivery.id,
                 ChannelDeliveryAttempt.phase == "dispatch",
                 ChannelDeliveryAttempt.attempt_number == 1,
             )
+            .order_by(ChannelDeliveryAttempt.created_at, ChannelDeliveryAttempt.id)
         )
     )
-    assert len(repeated) == 3
-    assert {attempt.outcome for attempt in repeated} == {"published", "publish_failed"}
+    assert len(repeated) == 3  # seeded evidence + failed cycle + published recovery cycle
+    assert [attempt.outcome for attempt in repeated].count("publish_failed") == 1
+    assert [attempt.outcome for attempt in repeated].count("published") == 2
     assert all(attempt.workspace_id == principal.workspace_id for attempt in repeated)
+    assert "raw broker exception" not in str([attempt.__dict__ for attempt in repeated])
+
+
+async def test_provider_processing_transition_records_safe_final_outcomes(attempt_history_case) -> None:
+    session, principal, ids = attempt_history_case
+    delivery = await session.get(ChannelOutboundDelivery, ids["delivery_id"])
+    assert delivery is not None
+
+    delivery.status = "processing"
+    delivery.attempt_count = 3
+    await session.commit()
+
+    attempts_during_processing = list(
+        await session.scalars(
+            select(ChannelDeliveryAttempt).where(
+                ChannelDeliveryAttempt.delivery_id == delivery.id,
+                ChannelDeliveryAttempt.phase == "provider",
+                ChannelDeliveryAttempt.attempt_number == 3,
+            )
+        )
+    )
+    assert attempts_during_processing == []
+
+    delivery.status = "failed"
+    delivery.last_error = "Bearer raw-provider-secret must never be copied"
+    await session.commit()
+
+    delivery.status = "processing"
+    delivery.attempt_count = 4
+    delivery.last_error = None
+    await session.commit()
+    delivery.status = "sent"
+    await session.commit()
+
+    captured = list(
+        await session.scalars(
+            select(ChannelDeliveryAttempt)
+            .where(
+                ChannelDeliveryAttempt.delivery_id == delivery.id,
+                ChannelDeliveryAttempt.phase == "provider",
+                ChannelDeliveryAttempt.attempt_number.in_([3, 4]),
+            )
+            .order_by(ChannelDeliveryAttempt.attempt_number)
+        )
+    )
+    assert [(attempt.attempt_number, attempt.outcome, attempt.error_code) for attempt in captured] == [
+        (3, "failed", "provider_retryable"),
+        (4, "sent", None),
+    ]
+    assert "raw-provider-secret" not in str([attempt.__dict__ for attempt in captured])
+    assert all(attempt.workspace_id == principal.workspace_id for attempt in captured)
