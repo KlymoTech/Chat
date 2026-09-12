@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.dead_letter_schemas import CRMDeadLetterOut, CRMDeadLetterReplayOut
 from northstar_api.lead_crm.models import CRMDelivery, IntegrationDeadLetter
 from northstar_api.models import Lead
@@ -29,11 +30,8 @@ async def list_crm_dead_letters(
     connection_id: UUID | None = Query(default=None),
     dead_letter_status: DeadLetterStatus = Query(default="open", alias="status"),
 ) -> list[CRMDeadLetterOut]:
-    """List dead letters that resolve through a Lead in the active Workspace."""
-
     if principal.workspace_id is None:
         raise HTTPException(status_code=403, detail="Workspace access is unavailable")
-
     conditions = [
         IntegrationDeadLetter.tenant_id == principal.tenant_id,
         CRMDelivery.tenant_id == principal.tenant_id,
@@ -44,7 +42,6 @@ async def list_crm_dead_letters(
         conditions.append(CRMDelivery.connection_id == connection_id)
     if dead_letter_status != "all":
         conditions.append(IntegrationDeadLetter.status == dead_letter_status)
-
     rows = list(
         await session.execute(
             select(IntegrationDeadLetter, CRMDelivery)
@@ -79,11 +76,8 @@ async def replay_crm_dead_letter(
     principal: CRMManagePrincipal,
     session: DB,
 ) -> CRMDeadLetterReplayOut:
-    """Resolve one open DLQ incident while queueing the existing delivery retry atomically."""
-
     if principal.workspace_id is None:
         raise HTTPException(status_code=403, detail="Workspace access is unavailable")
-
     row = (
         await session.execute(
             select(IntegrationDeadLetter, CRMDelivery)
@@ -101,28 +95,32 @@ async def replay_crm_dead_letter(
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="CRM dead letter not found in this workspace")
-
     dead_letter, delivery = row
     if dead_letter.status != "open":
         raise HTTPException(status_code=409, detail="CRM dead letter has already been resolved")
     if delivery.status != "dead_letter":
         raise HTTPException(status_code=409, detail="CRM delivery is no longer in dead-letter state")
-
     replayed_at = datetime.now(UTC)
     metadata = dict(dead_letter.metadata_json or {})
-    metadata["resolution"] = {
-        "type": "replay_requested",
-        "userId": str(principal.user_id),
-        "at": replayed_at.isoformat(),
-    }
+    metadata["resolution"] = {"type": "replay_requested", "userId": str(principal.user_id), "at": replayed_at.isoformat()}
     dead_letter.metadata_json = metadata
     dead_letter.status = "resolved"
     dead_letter.resolved_at = replayed_at
-
-    # Reuse the existing workspace-scoped retry endpoint. Its commit flushes the
-    # dead-letter resolution and retry transition together in the same transaction.
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.dead_letter.replayed",
+        entity_type="crm_dead_letter",
+        entity_id=str(dead_letter.id),
+        category="crm",
+        severity="warning",
+        before={"status": "open", "deliveryStatus": "dead_letter"},
+        after={"status": "resolved", "deliveryStatus": "retrying"},
+        metadata={"deliveryId": str(delivery.id), "leadId": str(delivery.lead_id), "connectionId": str(delivery.connection_id)},
+    )
     from northstar_api.routers.crm_scoped import retry_crm_delivery
-
     retry_result = await retry_crm_delivery(delivery.id, principal, session)
     delivery_status = str(getattr(retry_result.status, "value", retry_result.status))
     return CRMDeadLetterReplayOut(
