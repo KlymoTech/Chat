@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from pydantic import Field
+
 from northstar_api.schemas import APIModel
 from northstar_api.subscriptions import SubscriptionStatus
 
@@ -27,3 +29,16 @@ class TenantSubscriptionOut(APIModel):
 
 class TenantSubscriptionCancellationRequest(APIModel):
     confirmation: Literal["CANCEL"]
+
+
+class BillingCheckoutRequest(APIModel):
+    plan: str = Field(min_length=1, max_length=40)
+
+
+class BillingRedirectOut(APIModel):
+    url: str
+
+
+class BillingWebhookOut(APIModel):
+    received: bool = True
+    processed: bool
