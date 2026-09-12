@@ -12,6 +12,21 @@ import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import './EducationActivityPage.css';
 
+function topicsAsked(details: Record<string, unknown>): string[] {
+  const value = details.topicsAsked;
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 5);
+}
+
+function ActivityTopics({ details }: { details: Record<string, unknown> }) {
+  const topics = topicsAsked(details);
+  if (!topics.length) return null;
+  return <div className="education-activity-topics">
+    <strong>Topics asked</strong>
+    <ul>{topics.map((topic) => <li key={topic}>{topic}</li>)}</ul>
+  </div>;
+}
+
 export function EducationActivityPage() {
   const { activeWorkspace } = useWorkspace();
   const [search, setSearch] = useState('');
@@ -192,6 +207,7 @@ export function EducationActivityPage() {
             <div><dt><Bot /> Agent</dt><dd>{item.agentName}</dd></div>
             <div><dt><Inbox /> Conversation</dt><dd><Link to={`/conversations?selected=${item.conversationId}`}>{item.conversationPublicId}</Link></dd></div>
           </dl>
+          <ActivityTopics details={item.details} />
           <div className="education-activity-card__footer">
             <span>Resolved {new Date(item.resolvedAt).toLocaleString()}</span>
             <span>Event: <code>{item.eventType}</code></span>
