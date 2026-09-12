@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CRMManagementPanel } from '@/components/crm-management-panel';
@@ -149,6 +149,13 @@ describe('CRMManagementPanel auto-sync settings', () => {
       ...settings,
       ...patch,
     }));
+    mocks.refreshSchema.mockResolvedValue(undefined);
+    mocks.putMapping.mockResolvedValue(undefined);
+    mocks.validateMappings.mockResolvedValue({ valid: true });
+    mocks.createRoute.mockResolvedValue(undefined);
+    mocks.updateRoute.mockResolvedValue(undefined);
+    mocks.deleteRoute.mockResolvedValue(undefined);
+    mocks.disableConnection.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -248,5 +255,107 @@ describe('CRMManagementPanel auto-sync settings', () => {
     expect(screen.queryByText('Zoho Last Name')).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Automatically sync new leads' })).not.toBeChecked();
     expect(mocks.pushToast).not.toHaveBeenCalledWith('Could not load CRM management data', 'error');
+  });
+
+  it('blocks connection switching when the Lead mapping has unsaved changes', async () => {
+    const user = userEvent.setup();
+    mocks.schema.mockImplementation(async (id: string) => id === 'connection-1' ? zohoSchema : salesforceSchema);
+    mocks.mappings.mockImplementation(async (id: string) => id === 'connection-1' ? [zohoMapping] : [salesforceMapping]);
+    mocks.workspaceSettings.mockImplementation(async (id: string) => id === 'connection-1' ? settings : secondSettings);
+
+    render(<CRMManagementPanel connections={[connection, secondConnection]} canManage onConnectionsChanged={vi.fn()} />);
+
+    const selector = screen.getByRole('combobox', { name: 'CRM management connection' });
+    const mappingEditor = await screen.findByRole('textbox', { name: 'CRM lead mapping JSON' });
+    await waitFor(() => expect(mappingEditor).toHaveValue(JSON.stringify(zohoMapping.mapping, null, 2)));
+
+    const unsavedMapping = '{\n  "fields": {\n    "Email": "email"\n  }\n}';
+    fireEvent.change(mappingEditor, { target: { value: unsavedMapping } });
+    await user.selectOptions(selector, 'connection-2');
+
+    expect(selector).toHaveValue('connection-1');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Lead mapping draft has unsaved changes');
+    expect(screen.getByRole('alert')).toHaveTextContent('Salesforce Production');
+    expect(mocks.mappings).not.toHaveBeenCalledWith('connection-2');
+
+    await user.click(screen.getByRole('button', { name: 'Stay on current CRM' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mappingEditor).toHaveValue(unsavedMapping);
+    expect(selector).toHaveValue('connection-1');
+
+    await user.selectOptions(selector, 'connection-2');
+    await user.click(await screen.findByRole('button', { name: 'Discard & switch' }));
+
+    await waitFor(() => expect(selector).toHaveValue('connection-2'));
+    await waitFor(() => expect(mocks.mappings).toHaveBeenCalledWith('connection-2'));
+    await waitFor(() => expect(mappingEditor).toHaveValue(JSON.stringify(salesforceMapping.mapping, null, 2)));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not carry an unsaved routing-rule draft to another CRM connection', async () => {
+    const user = userEvent.setup();
+    mocks.schema.mockImplementation(async (id: string) => id === 'connection-1' ? zohoSchema : salesforceSchema);
+    mocks.mappings.mockImplementation(async (id: string) => id === 'connection-1' ? [zohoMapping] : [salesforceMapping]);
+    mocks.workspaceSettings.mockImplementation(async (id: string) => id === 'connection-1' ? settings : secondSettings);
+
+    render(<CRMManagementPanel connections={[connection, secondConnection]} canManage onConnectionsChanged={vi.fn()} />);
+
+    const selector = screen.getByRole('combobox', { name: 'CRM management connection' });
+    await screen.findByText('Zoho Last Name');
+    fireEvent.change(screen.getByRole('textbox', { name: 'CRM route name' }), {
+      target: { value: 'Zoho-only high-value leads' },
+    });
+
+    await user.selectOptions(selector, 'connection-2');
+    expect(await screen.findByRole('alert')).toHaveTextContent('routing-rule draft has unsaved changes');
+    expect(selector).toHaveValue('connection-1');
+
+    await user.click(screen.getByRole('button', { name: 'Discard & switch' }));
+    await waitFor(() => expect(selector).toHaveValue('connection-2'));
+    await screen.findByText('Salesforce Email');
+
+    expect(screen.getByRole('textbox', { name: 'CRM route name' })).toHaveValue('Qualified leads');
+    expect(screen.getByRole('spinbutton', { name: 'CRM route priority' })).toHaveValue(100);
+    expect(screen.getByRole('textbox', { name: 'CRM route conditions JSON' })).toHaveValue(
+      '{\n  "qualificationStatus": "qualified"\n}',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Create route' }));
+    await waitFor(() => expect(mocks.createRoute).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Qualified leads',
+      connection_ids: ['connection-2'],
+    })));
+  });
+
+  it('allows switching without a warning after the mapping draft is saved and reloaded', async () => {
+    const user = userEvent.setup();
+    let persistedZohoMapping = zohoMapping;
+    mocks.schema.mockImplementation(async (id: string) => id === 'connection-1' ? zohoSchema : salesforceSchema);
+    mocks.mappings.mockImplementation(async (id: string) => id === 'connection-1' ? [persistedZohoMapping] : [salesforceMapping]);
+    mocks.workspaceSettings.mockImplementation(async (id: string) => id === 'connection-1' ? settings : secondSettings);
+    mocks.putMapping.mockImplementation(async (_id: string, payload: { mapping: Record<string, unknown> }) => {
+      persistedZohoMapping = { ...zohoMapping, mapping: payload.mapping as typeof zohoMapping.mapping };
+    });
+
+    render(<CRMManagementPanel connections={[connection, secondConnection]} canManage onConnectionsChanged={vi.fn()} />);
+
+    const selector = screen.getByRole('combobox', { name: 'CRM management connection' });
+    const mappingEditor = await screen.findByRole('textbox', { name: 'CRM lead mapping JSON' });
+    await waitFor(() => expect(mappingEditor).toHaveValue(JSON.stringify(zohoMapping.mapping, null, 2)));
+
+    const savedMapping = '{\n  "fields": {\n    "Last_Name": "name",\n    "Email": "email"\n  }\n}';
+    fireEvent.change(mappingEditor, { target: { value: savedMapping } });
+    await user.click(screen.getByRole('button', { name: 'Save & validate' }));
+    await waitFor(() => expect(mocks.putMapping).toHaveBeenCalledWith(
+      'connection-1',
+      { object_name: 'Leads', mapping: JSON.parse(savedMapping) },
+    ));
+    await waitFor(() => expect(mappingEditor).toHaveValue(savedMapping));
+
+    await user.selectOptions(selector, 'connection-2');
+
+    await waitFor(() => expect(selector).toHaveValue('connection-2'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.mappings).toHaveBeenCalledWith('connection-2'));
   });
 });
