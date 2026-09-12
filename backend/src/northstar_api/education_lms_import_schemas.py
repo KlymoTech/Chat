@@ -77,10 +77,16 @@ class LMSStudentImportPayload(APIModel):
             raise ValueError("LMS source is required")
         return normalized
 
+    @model_validator(mode="after")
+    def validate_existing_student_import_contract(self) -> LMSStudentImportPayload:
+        # Run the canonical Student import validation while FastAPI is still
+        # validating the request body. This preserves the existing 422 contract
+        # for malformed IDs, Course/Batch/Agent groups, dates, and custom fields.
+        _to_student_import_rows(self)
+        return self
 
-def to_student_import_rows(payload: LMSStudentImportPayload) -> list[StudentImportRow]:
-    """Translate LMS records into the existing, fully validated Student import format."""
 
+def _to_student_import_rows(payload: LMSStudentImportPayload) -> list[StudentImportRow]:
     converted: list[StudentImportRow] = []
     for row in payload.rows:
         custom_fields = dict(row.custom_fields)
@@ -109,3 +115,9 @@ def to_student_import_rows(payload: LMSStudentImportPayload) -> list[StudentImpo
             )
         )
     return converted
+
+
+def to_student_import_rows(payload: LMSStudentImportPayload) -> list[StudentImportRow]:
+    """Translate LMS records into the existing, fully validated Student import format."""
+
+    return _to_student_import_rows(payload)
