@@ -127,4 +127,48 @@ describe('conversationApi Education filters', () => {
     expect(result.items).toEqual([]);
     expect(result.total).toBe(0);
   });
+
+  it('routes explicit Education sales intent through the dedicated endpoint', async () => {
+    const payload = {
+      conversationId: 'conversation-1',
+      state: 'resolved',
+      leadId: 'lead-1',
+      leadCreated: true,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => payload,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await conversationApi.resolveEducationSalesIntent('conversation-1');
+
+    expect(result).toEqual(payload);
+    const [url, options] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain('/education/conversations/conversation-1/resolve-sales-intent');
+    expect(options).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+    });
+    expect(options.headers).toMatchObject({
+      Authorization: 'Bearer token-123',
+      'X-Workspace-ID': 'workspace-1',
+    });
+  });
+
+  it('surfaces the backend Education sales routing reason instead of hiding it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: { message: 'Education upsell Lead routing is disabled for this workspace' },
+      }),
+    }));
+
+    await expect(conversationApi.resolveEducationSalesIntent('conversation-1')).rejects.toMatchObject({
+      status: 409,
+      message: 'Education upsell Lead routing is disabled for this workspace',
+    });
+  });
 });

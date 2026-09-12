@@ -9,7 +9,10 @@ from northstar_api.routers import (
     chat,
     conversations,
     crm,
+    crm_dead_letters,
+    crm_delivery_attempts,
     crm_oauth,
+    crm_operations,
     crm_route_admin,
     crm_schema,
     crm_scoped,
@@ -23,10 +26,12 @@ from northstar_api.routers import (
     education_conversations,
     education_enrollments,
     education_lms_import,
+    education_sales_settings,
     education_student_detail,
     education_student_identities,
     education_student_import,
     education_students,
+    education_upsell,
     email_verification,
     help,
     integration_audit,
@@ -65,6 +70,8 @@ api_router.include_router(education_enrollments.router)
 api_router.include_router(education_access_recovery.router)
 api_router.include_router(education_access_requests.router)
 api_router.include_router(education_conversations.router)
+api_router.include_router(education_sales_settings.router)
+api_router.include_router(education_upsell.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(leads.router)
@@ -73,6 +80,9 @@ api_router.include_router(qualification.router)
 # implementations so identical HTTP paths enforce the active workspace boundary.
 api_router.include_router(crm_scoped.router)
 api_router.include_router(crm_workspace_settings.router)
+api_router.include_router(crm_delivery_attempts.router)
+api_router.include_router(crm_dead_letters.router)
+api_router.include_router(crm_operations.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_oauth.router)

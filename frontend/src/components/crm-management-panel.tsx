@@ -18,6 +18,9 @@ interface CRMManagementPanelProps {
 }
 
 const EMPTY_LEAD_MAPPING = '{\n  "fields": {}\n}';
+const DEFAULT_ROUTE_NAME = 'Qualified leads';
+const DEFAULT_ROUTE_PRIORITY = '100';
+const DEFAULT_ROUTE_CONDITIONS = '{\n  "qualificationStatus": "qualified"\n}';
 
 function parseObject(value: string, label: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
@@ -31,37 +34,63 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   const { pushToast } = useToast();
   const loadRequestRef = useRef(0);
   const [selectedId, setSelectedId] = useState('');
+  const [pendingConnectionId, setPendingConnectionId] = useState('');
   const [schema, setSchema] = useState<CRMFieldSchemaView | null>(null);
   const [mappings, setMappings] = useState<CRMMappingView[]>([]);
   const [routes, setRoutes] = useState<CRMRouteView[]>([]);
   const [workspaceSettings, setWorkspaceSettings] = useState<CRMWorkspaceSettings | null>(null);
   const [mappingText, setMappingText] = useState(EMPTY_LEAD_MAPPING);
-  const [routeName, setRouteName] = useState('Qualified leads');
-  const [routePriority, setRoutePriority] = useState('100');
-  const [conditionsText, setConditionsText] = useState('{\n  "qualificationStatus": "qualified"\n}');
+  const [mappingBaseline, setMappingBaseline] = useState(EMPTY_LEAD_MAPPING);
+  const [routeName, setRouteName] = useState(DEFAULT_ROUTE_NAME);
+  const [routePriority, setRoutePriority] = useState(DEFAULT_ROUTE_PRIORITY);
+  const [conditionsText, setConditionsText] = useState(DEFAULT_ROUTE_CONDITIONS);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!connections.length) {
-      setSelectedId('');
-      return;
-    }
-    if (!connections.some((connection) => connection.id === selectedId)) {
-      setSelectedId(connections[0]?.id ?? '');
-    }
-  }, [connections, selectedId]);
-
-  const selected = useMemo(
-    () => connections.find((connection) => connection.id === selectedId) ?? null,
-    [connections, selectedId],
-  );
+  const resetRouteDraft = useCallback(() => {
+    setRouteName(DEFAULT_ROUTE_NAME);
+    setRoutePriority(DEFAULT_ROUTE_PRIORITY);
+    setConditionsText(DEFAULT_ROUTE_CONDITIONS);
+  }, []);
 
   const clearConnectionState = useCallback(() => {
     setSchema(null);
     setMappings([]);
     setWorkspaceSettings(null);
     setMappingText(EMPTY_LEAD_MAPPING);
+    setMappingBaseline(EMPTY_LEAD_MAPPING);
   }, []);
+
+  useEffect(() => {
+    if (!connections.length) {
+      setSelectedId('');
+      setPendingConnectionId('');
+      clearConnectionState();
+      resetRouteDraft();
+      return;
+    }
+    if (!connections.some((connection) => connection.id === selectedId)) {
+      setPendingConnectionId('');
+      clearConnectionState();
+      resetRouteDraft();
+      setSelectedId(connections[0]?.id ?? '');
+    }
+  }, [clearConnectionState, connections, resetRouteDraft, selectedId]);
+
+  const selected = useMemo(
+    () => connections.find((connection) => connection.id === selectedId) ?? null,
+    [connections, selectedId],
+  );
+
+  const pendingConnection = useMemo(
+    () => connections.find((connection) => connection.id === pendingConnectionId) ?? null,
+    [connections, pendingConnectionId],
+  );
+
+  const mappingDirty = mappingText !== mappingBaseline;
+  const routeDraftDirty = routeName !== DEFAULT_ROUTE_NAME
+    || routePriority !== DEFAULT_ROUTE_PRIORITY
+    || conditionsText !== DEFAULT_ROUTE_CONDITIONS;
+  const hasUnsavedDraft = mappingDirty || routeDraftDirty;
 
   const load = useCallback(async () => {
     const connectionId = selectedId;
@@ -84,7 +113,11 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       setRoutes(nextRoutes);
       setWorkspaceSettings(nextWorkspaceSettings);
       const leadMapping = nextMappings.find((item) => item.object_name === 'Leads');
-      setMappingText(leadMapping ? JSON.stringify(leadMapping.mapping, null, 2) : EMPTY_LEAD_MAPPING);
+      const nextMappingText = leadMapping
+        ? JSON.stringify(leadMapping.mapping, null, 2)
+        : EMPTY_LEAD_MAPPING;
+      setMappingBaseline(nextMappingText);
+      setMappingText(nextMappingText);
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;
       pushToast(error instanceof Error ? error.message : 'Could not load CRM management data', 'error');
@@ -94,6 +127,30 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   useEffect(() => {
     void load();
   }, [load]);
+
+  const requestConnectionSwitch = (nextConnectionId: string) => {
+    if (!nextConnectionId || nextConnectionId === selectedId) return;
+    if (hasUnsavedDraft) {
+      setPendingConnectionId(nextConnectionId);
+      return;
+    }
+    setPendingConnectionId('');
+    resetRouteDraft();
+    setSelectedId(nextConnectionId);
+  };
+
+  const stayOnCurrentConnection = () => {
+    setPendingConnectionId('');
+  };
+
+  const discardDraftAndSwitch = () => {
+    const nextConnectionId = pendingConnectionId;
+    if (!nextConnectionId) return;
+    setPendingConnectionId('');
+    clearConnectionState();
+    resetRouteDraft();
+    setSelectedId(nextConnectionId);
+  };
 
   const saveMapping = async () => {
     if (!selectedId) return;
@@ -153,6 +210,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
         conditions,
         connection_ids: [selectedId],
       });
+      resetRouteDraft();
       pushToast('CRM route created');
       await load();
     } catch (error) {
@@ -194,8 +252,10 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
     try {
       await leadCrmApi.disableConnection(selectedId);
       pushToast('CRM connection disabled and credentials removed');
+      setPendingConnectionId('');
       setSelectedId('');
       clearConnectionState();
+      resetRouteDraft();
       onConnectionsChanged();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Could not disable CRM connection', 'error');
@@ -217,7 +277,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
     <div className="integration-toolbar">
       <label>
         CRM connection
-        <select aria-label="CRM management connection" value={selectedId} disabled={busy} onChange={(event) => setSelectedId(event.target.value)}>
+        <select aria-label="CRM management connection" value={selectedId} disabled={busy} onChange={(event) => requestConnectionSwitch(event.target.value)}>
           {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name} · {connection.provider}</option>)}
         </select>
       </label>
@@ -225,6 +285,22 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       <Button variant="secondary" size="sm" icon={RefreshCw} disabled={!canManage || busy} onClick={() => void refreshSchema()}>Refresh schema</Button>
       <Button variant="secondary" size="sm" disabled={!canManage || busy} onClick={() => void disableConnection()}>Disable connection</Button>
     </div>
+
+    {pendingConnection ? <div role="alert" className="integration-helper">
+      <strong>Unsaved CRM setup changes</strong>
+      <p>
+        {mappingDirty && routeDraftDirty
+          ? 'Your Lead mapping and routing-rule drafts have unsaved changes.'
+          : mappingDirty
+            ? 'Your Lead mapping draft has unsaved changes.'
+            : 'Your routing-rule draft has unsaved changes.'}{' '}
+        Switching to {pendingConnection.name} would discard those drafts.
+      </p>
+      <div>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={stayOnCurrentConnection}>Stay on current CRM</Button>{' '}
+        <Button variant="secondary" size="sm" disabled={busy} onClick={discardDraftAndSwitch}>Discard & switch</Button>
+      </div>
+    </div> : null}
 
     <Card className="integration-card">
       <div className="integration-card__copy">

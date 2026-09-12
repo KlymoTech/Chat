@@ -8,8 +8,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from northstar_api.lead_crm import providers as provider_registry
 from northstar_api.lead_crm import safe_http
-from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMError
+from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMConnector, CRMError, crm_registry
 from northstar_api.lead_crm.domain import CRMProvider, NormalizedCRMErrorCode
 from northstar_api.lead_crm.providers import secure_native
 from northstar_api.lead_crm.providers.secure_native import (
@@ -50,14 +51,45 @@ def _context(
     ],
 )
 def test_hardened_native_connectors_remain_concrete_and_provider_compatible(
-    connector_type: type[SecureSalesforceConnector],
+    connector_type: type[CRMConnector],
     provider: CRMProvider,
 ) -> None:
     assert connector_type().provider is provider
 
 
+def test_default_registry_selects_hardened_native_connectors() -> None:
+    previous = dict(crm_registry._connectors)
+    try:
+        crm_registry._connectors.clear()
+        provider_registry.register_default_connectors()
+        assert isinstance(crm_registry._connectors[CRMProvider.SALESFORCE], SecureSalesforceConnector)
+        assert isinstance(crm_registry._connectors[CRMProvider.HUBSPOT], SecureHubSpotConnector)
+        assert isinstance(crm_registry._connectors[CRMProvider.DYNAMICS365], SecureDynamics365Connector)
+        assert isinstance(crm_registry._connectors[CRMProvider.PIPEDRIVE], SecurePipedriveConnector)
+        assert isinstance(crm_registry._connectors[CRMProvider.FRESHSALES], SecureFreshsalesConnector)
+        assert isinstance(crm_registry._connectors[CRMProvider.ZOHO], SecureZohoCRMConnector)
+    finally:
+        crm_registry._connectors.clear()
+        crm_registry._connectors.update(previous)
+
+
 @pytest.mark.asyncio
-async def test_safe_public_transport_pins_dns_and_forwards_form_and_query(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_safe_public_transport_rejects_private_resolution_before_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def private_lookup(_: str, __: int) -> tuple[str, ...]:
+        return ("127.0.0.1",)
+
+    monkeypatch.setattr(safe_fetch, "_lookup_addresses", private_lookup)
+
+    with pytest.raises(safe_http.UnsafeOutboundCRMURL, match="non-public network"):
+        await safe_http.request_public("GET", "https://private.example/api")
+
+
+@pytest.mark.asyncio
+async def test_safe_public_transport_pins_dns_and_forwards_form_and_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     target = safe_fetch._ResolvedTarget(
         url=httpx.URL("https://crm.example/oauth/token"),
         hostname="crm.example",

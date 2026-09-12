@@ -30,6 +30,12 @@ from northstar_api.services.education_conversation_insights import (
 )
 from northstar_api.services.outbox import enqueue_event
 
+_EDUCATION_SALES_SETTINGS_KEY = "educationSales"
+
+
+class EducationUpsellLeadError(RuntimeError):
+    """An explicit Education sales-intent resolve request is not currently allowed."""
+
 
 @dataclass(frozen=True)
 class ConversationResolutionResult:
@@ -49,6 +55,10 @@ class ConversationResolutionService:
     to reusing the same Lead/CRM workflow for Education conversations that contain
     an explicitly detected sales/upsell intent.
 
+    An Education conversation can enter the existing Lead/CRM pipeline only when
+    the caller explicitly marks sales intent, the workspace has opted in, and the
+    conversation carries an authorized Education context.
+
     The Conversation and its messages always remain the source of truth.
     """
 
@@ -58,6 +68,7 @@ class ConversationResolutionService:
         *,
         conversation: Conversation,
         actor_user_id: UUID | None = None,
+        sales_intent: bool = False,
     ) -> ConversationResolutionResult:
         purpose = await get_agent_purpose(
             session,
@@ -65,6 +76,9 @@ class ConversationResolutionService:
             workspace_id=conversation.workspace_id,
             agent_id=conversation.agent_id,
         )
+        if purpose is AgentPurpose.EDUCATION and sales_intent:
+            await self._validate_education_upsell(session, conversation=conversation)
+
         now = datetime.now(UTC)
         previous_state = conversation.state
         was_resolved = previous_state == ConversationState.RESOLVED
@@ -107,10 +121,11 @@ class ConversationResolutionService:
                 actor_user_id=actor_user_id,
                 context=context,
             )
-            if context is not None and await self._education_upsell_enabled(
-                session,
-                conversation=conversation,
-            ) and context.sales_intent_detected:
+            if sales_intent:
+                if context is None:
+                    raise EducationUpsellLeadError(
+                        "Education upsell Lead routing requires an authorized Student enrollment context"
+                    )
                 student = await session.scalar(
                     select(EducationStudent).where(
                         EducationStudent.id == context.student_id,
@@ -124,6 +139,7 @@ class ConversationResolutionService:
                     "educationEnrollmentId": str(context.enrollment_id),
                     "educationCourseId": str(context.course_id),
                     "educationBatchId": str(context.batch_id),
+                    "leadReason": "education_upsell",
                 }
                 if student is not None:
                     extra_fields["educationStudentNumber"] = student.student_number
@@ -155,6 +171,44 @@ class ConversationResolutionService:
             lead_created=lead_created,
             education_activity_created=education_activity_created,
         )
+
+    async def _validate_education_upsell(
+        self,
+        session: AsyncSession,
+        *,
+        conversation: Conversation,
+    ) -> None:
+        workspace = await session.scalar(
+            select(Workspace).where(
+                Workspace.id == conversation.workspace_id,
+                Workspace.tenant_id == conversation.tenant_id,
+            )
+        )
+        raw_settings = (
+            (workspace.settings_json or {}).get(_EDUCATION_SALES_SETTINGS_KEY, {})
+            if workspace is not None
+            else {}
+        )
+        enabled = bool(
+            raw_settings.get("createUpsellLeads", False) if isinstance(raw_settings, dict) else False
+        )
+        if not enabled:
+            raise EducationUpsellLeadError(
+                "Education upsell Lead routing is disabled for this workspace"
+            )
+
+        context_id = await session.scalar(
+            select(EducationConversationContext.id).where(
+                EducationConversationContext.tenant_id == conversation.tenant_id,
+                EducationConversationContext.workspace_id == conversation.workspace_id,
+                EducationConversationContext.agent_id == conversation.agent_id,
+                EducationConversationContext.conversation_id == conversation.id,
+            )
+        )
+        if context_id is None:
+            raise EducationUpsellLeadError(
+                "Education upsell Lead routing requires an authorized Student enrollment context"
+            )
 
     async def _finalize_lead(
         self,
@@ -293,22 +347,6 @@ class ConversationResolutionService:
                 EducationConversationContext.conversation_id == conversation.id,
             )
         )
-
-    async def _education_upsell_enabled(
-        self,
-        session: AsyncSession,
-        *,
-        conversation: Conversation,
-    ) -> bool:
-        workspace = await session.scalar(
-            select(Workspace).where(
-                Workspace.id == conversation.workspace_id,
-                Workspace.tenant_id == conversation.tenant_id,
-            )
-        )
-        if workspace is None:
-            return False
-        return bool((workspace.settings_json or {}).get("educationCreateUpsellLeads", False))
 
     async def _record_education_resolution(
         self,
