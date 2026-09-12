@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -54,8 +55,8 @@ async def crm_operational_health(
     )
     connection_ids = [connection.id for connection in connections]
 
-    delivery_counts: dict[object, Counter[str]] = {}
-    dead_letter_counts: Counter[object] = Counter()
+    delivery_counts: dict[UUID, Counter[str]] = {}
+    dead_letter_counts: Counter[UUID] = Counter()
     if connection_ids:
         delivery_rows = list(
             await session.execute(
