@@ -16,7 +16,9 @@ from northstar_api.lead_crm.connection_context import load_connection_context
 from northstar_api.lead_crm.connectors import CRMError, crm_registry
 from northstar_api.lead_crm.domain import CRMConnectionStatus, NormalizedCRMErrorCode
 from northstar_api.lead_crm.models import CRMConnection, IntegrationHealthSnapshot
+from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection
 from northstar_api.logging import configure_logging
+from northstar_api.services.notifications import notify_workspace_admins
 
 settings = get_settings()
 configure_logging(settings)
@@ -28,6 +30,15 @@ _ELIGIBLE_STATUSES = frozenset(
     {
         CRMConnectionStatus.CONNECTING.value,
         CRMConnectionStatus.HEALTHY.value,
+        CRMConnectionStatus.DEGRADED.value,
+        CRMConnectionStatus.UNHEALTHY.value,
+        CRMConnectionStatus.AUTH_REQUIRED.value,
+        CRMConnectionStatus.RATE_LIMITED.value,
+        CRMConnectionStatus.CONFIGURATION_ERROR.value,
+    }
+)
+_ATTENTION_STATUSES = frozenset(
+    {
         CRMConnectionStatus.DEGRADED.value,
         CRMConnectionStatus.UNHEALTHY.value,
         CRMConnectionStatus.AUTH_REQUIRED.value,
@@ -85,6 +96,84 @@ def _is_due(connection: CRMConnection, *, now: datetime) -> bool:
     return _aware(connection.last_health_at) <= cutoff
 
 
+def _health_transition(previous_status: str, current_status: str) -> str | None:
+    """Return an actionable health transition without alerting on every poll."""
+
+    previous_attention = previous_status in _ATTENTION_STATUSES
+    current_attention = current_status in _ATTENTION_STATUSES
+    if current_attention and not previous_attention:
+        return "incident"
+    if previous_attention and current_status == CRMConnectionStatus.HEALTHY.value:
+        return "recovery"
+    return None
+
+
+async def _notify_health_transition(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    tenant_id: UUID,
+    connection_id: UUID,
+    connection_name: str,
+    provider: str,
+    previous_status: str,
+    current_status: str,
+    checked_at: datetime,
+) -> int:
+    transition = _health_transition(previous_status, current_status)
+    if transition is None:
+        return 0
+
+    async with factory() as session:
+        await set_tenant_context(session, tenant_id)
+        workspace_id = await session.scalar(
+            select(WorkspaceCRMConnection.workspace_id).where(
+                WorkspaceCRMConnection.tenant_id == tenant_id,
+                WorkspaceCRMConnection.connection_id == connection_id,
+            )
+        )
+        if workspace_id is None:
+            return 0
+
+        provider_label = provider.replace("_", " ").title()
+        metadata = {
+            "connectionId": str(connection_id),
+            "provider": provider,
+            "previousStatus": previous_status,
+            "currentStatus": current_status,
+            "transition": transition,
+        }
+        if transition == "incident":
+            title = "CRM connection needs attention"
+            body = (
+                f"{connection_name} ({provider_label}) changed from "
+                f"{previous_status} to {current_status}."
+            )
+            severity = "warning"
+        else:
+            title = "CRM connection recovered"
+            body = f"{connection_name} ({provider_label}) is healthy again."
+            severity = "info"
+
+        recipients = await notify_workspace_admins(
+            session,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            title=title,
+            body=body,
+            dedupe_key=(
+                f"crm-health:{connection_id}:{transition}:"
+                f"{_aware(checked_at).isoformat()}"
+            ),
+            category="crm",
+            severity=severity,
+            action_url="/integrations",
+            action_label="Review CRM health",
+            metadata=metadata,
+        )
+        await session.commit()
+        return recipients
+
+
 def _add_snapshot(
     session: AsyncSession,
     *,
@@ -136,6 +225,11 @@ async def monitor_connection(
     """
 
     checked_at = now or datetime.now(UTC)
+    previous_status: str
+    current_status: str
+    connection_name: str
+    provider: str
+
     async with factory() as session:
         await set_tenant_context(session, tenant_id)
         connection = await session.scalar(
@@ -147,6 +241,7 @@ async def monitor_connection(
             await session.commit()
             return False
 
+        previous_status = connection.status
         try:
             connection, context = await load_connection_context(
                 session,
@@ -155,18 +250,18 @@ async def monitor_connection(
             )
             connector = crm_registry.get(context.provider)
             result = await connector.health_check(context)
-            status = result.status.value
-            connection.status = status
+            current_status = result.status.value
+            connection.status = current_status
             connection.last_health_at = checked_at
             connection.last_error = (
                 None
-                if status == CRMConnectionStatus.HEALTHY.value
-                else f"Scheduled health check reported {status}"[:1000]
+                if current_status == CRMConnectionStatus.HEALTHY.value
+                else f"Scheduled health check reported {current_status}"[:1000]
             )
             _add_snapshot(
                 session,
                 connection=connection,
-                status=status,
+                status=current_status,
                 checks=_safe_checks(result.checks),
                 latency_ms=result.latency_ms,
                 checked_at=checked_at,
@@ -181,14 +276,14 @@ async def monitor_connection(
             if connection is None:
                 await session.commit()
                 return False
-            status = _crm_error_status(exc)
-            connection.status = status
+            current_status = _crm_error_status(exc)
+            connection.status = current_status
             connection.last_health_at = checked_at
             connection.last_error = f"Scheduled health check failed: {exc.code.value}"[:1000]
             _add_snapshot(
                 session,
                 connection=connection,
-                status=status,
+                status=current_status,
                 checks={"healthCheck": "failed", "errorCode": exc.code.value},
                 latency_ms=None,
                 checked_at=checked_at,
@@ -203,20 +298,48 @@ async def monitor_connection(
             if connection is None:
                 await session.commit()
                 return False
-            connection.status = CRMConnectionStatus.CONFIGURATION_ERROR.value
+            current_status = CRMConnectionStatus.CONFIGURATION_ERROR.value
+            connection.status = current_status
             connection.last_health_at = checked_at
             connection.last_error = "Scheduled health check failed: invalid provider configuration"
             _add_snapshot(
                 session,
                 connection=connection,
-                status=CRMConnectionStatus.CONFIGURATION_ERROR.value,
+                status=current_status,
                 checks={"healthCheck": "failed", "errorCode": "configuration_error"},
                 latency_ms=None,
                 checked_at=checked_at,
             )
 
+        connection_name = connection.name
+        provider = connection.provider
         await session.commit()
-        return True
+
+    if _health_transition(previous_status, current_status) is not None:
+        try:
+            await _notify_health_transition(
+                factory,
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                connection_name=connection_name,
+                provider=provider,
+                previous_status=previous_status,
+                current_status=current_status,
+                checked_at=checked_at,
+            )
+        except Exception as exc:
+            # Health persistence is the primary operation. Notification delivery
+            # must not undo a completed provider check or its durable snapshot.
+            logger.exception(
+                "crm_health_monitor_notification_failed",
+                tenant_id=str(tenant_id),
+                connection_id=str(connection_id),
+                previous_status=previous_status,
+                current_status=current_status,
+                error=type(exc).__name__,
+            )
+
+    return True
 
 
 async def run_once(factory: async_sessionmaker[AsyncSession]) -> dict[str, int]:
