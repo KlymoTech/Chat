@@ -18,6 +18,7 @@ from northstar_api.lead_crm.api_schemas import (
     CRMRouteCreate,
     CRMRouteOut,
 )
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.connectors import CRMCapabilities, CRMError, crm_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import CRMConnectionStatus
@@ -85,8 +86,6 @@ async def create_crm_connection(
     if duplicate:
         raise HTTPException(status_code=409, detail="A CRM connection with that name already exists in this workspace")
 
-    # The legacy table still has a tenant-wide unique name. Preserve compatibility
-    # while allowing the same display name in different workspaces.
     stored_name = payload.name
     tenant_name_conflict = await session.scalar(
         select(CRMConnection.id).where(
@@ -142,8 +141,6 @@ async def create_crm_connection(
         )
     )
 
-    # Default all-leads route implements the product default: a connected CRM
-    # receives every new Lead in its workspace unless the user later changes it.
     default_route = CRMRoute(
         tenant_id=principal.tenant_id,
         name=f"Auto sync {stored_name}",
@@ -160,6 +157,27 @@ async def create_crm_connection(
             workspace_id=principal.workspace_id,
             route_id=default_route.id,
         )
+    )
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.connection.created",
+        entity_type="crm_connection",
+        entity_id=str(connection.id),
+        category="crm",
+        after={
+            "provider": connection.provider,
+            "name": payload.name,
+            "environment": connection.environment,
+            "region": connection.region,
+            "status": connection.status,
+        },
+        metadata={
+            "defaultRouteId": str(default_route.id),
+            "credentialsConfigured": encrypted is not None,
+        },
     )
     await session.commit()
     await session.refresh(connection)
@@ -207,9 +225,26 @@ async def delete_crm_connection(
     value = await _scoped_connection(session, principal, connection_id)
     if not value:
         raise HTTPException(status_code=404, detail="CRM connection not found in this workspace")
+    before = {
+        "status": value.status,
+        "credentialsConfigured": bool(value.credentials_encrypted or value.credentials_ref),
+    }
     value.status = CRMConnectionStatus.DISABLED.value
     value.credentials_encrypted = None
     value.credentials_ref = None
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.connection.disabled",
+        entity_type="crm_connection",
+        entity_id=str(value.id),
+        category="crm",
+        severity="warning",
+        before=before,
+        after={"status": value.status, "credentialsConfigured": False},
+    )
     await session.commit()
 
 
@@ -244,6 +279,18 @@ async def put_crm_mapping(
 ) -> CRMMappingOut:
     if not await _scoped_connection(session, principal, connection_id):
         raise HTTPException(status_code=404, detail="CRM connection not found in this workspace")
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.mapping.updated",
+        entity_type="crm_mapping",
+        entity_id=f"{connection_id}:{payload.object_name}",
+        category="crm",
+        after={"objectName": payload.object_name, "mapping": payload.mapping},
+        metadata={"connectionId": str(connection_id)},
+    )
     return await legacy_crm.put_crm_mapping(connection_id, payload, principal, session)
 
 
@@ -302,6 +349,23 @@ async def create_crm_route(
             workspace_id=principal.workspace_id,
             route_id=value.id,
         )
+    )
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.route.created",
+        entity_type="crm_route",
+        entity_id=str(value.id),
+        category="crm",
+        after={
+            "name": payload.name,
+            "enabled": value.enabled,
+            "priority": value.priority,
+            "conditions": value.conditions_json,
+            "connectionIds": value.actions_json.get("connectionIds", []),
+        },
     )
     await session.commit()
     await session.refresh(value)
@@ -378,8 +442,34 @@ async def retry_crm_delivery(
     principal: CRMManagePrincipal,
     session: DB,
 ) -> CRMDeliveryOut:
-    if not await _scoped_delivery(session, principal, delivery_id):
+    delivery = await _scoped_delivery(session, principal, delivery_id)
+    if not delivery:
         raise HTTPException(status_code=404, detail="CRM delivery not found in this workspace")
+    verification_retry = delivery.acknowledged_at is not None
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.delivery.retry_requested",
+        entity_type="crm_delivery",
+        entity_id=str(delivery.id),
+        category="crm",
+        severity="warning",
+        before={
+            "status": delivery.status,
+            "verificationStatus": delivery.verification_status,
+        },
+        after={
+            "status": "acknowledged" if verification_retry else "retrying",
+            "verificationStatus": "pending" if verification_retry else delivery.verification_status,
+        },
+        metadata={
+            "phase": "verification" if verification_retry else "delivery",
+            "leadId": str(delivery.lead_id),
+            "connectionId": str(delivery.connection_id),
+        },
+    )
     return await legacy_crm.retry_crm_delivery(delivery_id, principal, session)
 
 
@@ -389,6 +479,24 @@ async def cancel_crm_delivery(
     principal: CRMManagePrincipal,
     session: DB,
 ) -> CRMDeliveryOut:
-    if not await _scoped_delivery(session, principal, delivery_id):
+    delivery = await _scoped_delivery(session, principal, delivery_id)
+    if not delivery:
         raise HTTPException(status_code=404, detail="CRM delivery not found in this workspace")
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.delivery.cancelled",
+        entity_type="crm_delivery",
+        entity_id=str(delivery.id),
+        category="crm",
+        severity="warning",
+        before={"status": delivery.status},
+        after={"status": "cancelled"},
+        metadata={
+            "leadId": str(delivery.lead_id),
+            "connectionId": str(delivery.connection_id),
+        },
+    )
     return await legacy_crm.cancel_crm_delivery(delivery_id, principal, session)
