@@ -2,6 +2,7 @@ import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagra
 import { useMemo, useState } from 'react';
 import { CRMDeadLetterPanel } from '@/components/crm-dead-letter-panel';
 import { CRMManagementPanel } from '@/components/crm-management-panel';
+import { CRMOperationalHealthPanel } from '@/components/crm-operational-health-panel';
 import { useAuth, useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
 import { WhatsAppIntegrationModal } from '@/components/whatsapp-integration-modal';
@@ -184,6 +185,7 @@ export function IntegrationsPage() {
     </Card>
 
     <CRMManagementPanel connections={crmConnections.data ?? []} canManage={canManage} onConnectionsChanged={crmConnections.reload} />
+    <CRMOperationalHealthPanel />
     <CRMDeadLetterPanel connections={crmConnections.data ?? []} />
 
     <Card className="integration-hero"><div><span className="integration-hero__icon"><PlugZap /></span><span><Badge tone="purple">Integration marketplace</Badge><h3>Your AI agent, everywhere work happens.</h3><p>Keep knowledge in sync and give customers fast answers on every channel.</p></span></div><div className="integration-orbits"><span><Hash /></span><span><Database /></span><span><MessageCircle /></span><span><Zap /></span></div></Card>
