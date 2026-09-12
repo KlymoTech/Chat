@@ -9,6 +9,9 @@ const SESSION_KEY = 'northstar.session';
 
 export interface ConversationFilters {
   agentId?: string;
+  courseId?: string;
+  batchId?: string;
+  studentId?: string;
   channel?: string;
   state?: ConversationState;
   search?: string;
@@ -36,17 +39,26 @@ function matchesFallback(item: Conversation, filters: ConversationFilters): bool
   );
 }
 
+function usesEducationScope(filters: ConversationFilters): boolean {
+  return Boolean(filters.courseId || filters.batchId || filters.studentId);
+}
+
 export const conversationApi = {
   async list(filters: ConversationFilters = {}): Promise<PageResult<Conversation>> {
     const params = new URLSearchParams();
     if (filters.agentId) params.set('agent_id', filters.agentId);
+    if (filters.courseId) params.set('course_id', filters.courseId);
+    if (filters.batchId) params.set('batch_id', filters.batchId);
+    if (filters.studentId) params.set('student_id', filters.studentId);
     if (filters.channel) params.set('channel', filters.channel);
     if (filters.state) params.set('state', filters.state);
     if (filters.search?.trim()) params.set('search', filters.search.trim());
     params.set('page', String(filters.page ?? 1));
     params.set('page_size', String(filters.pageSize ?? 50));
+    const educationScoped = usesEducationScope(filters);
+    const endpoint = educationScoped ? '/education/conversations' : '/conversations';
     try {
-      const response = await fetch(`${API_URL}/conversations?${params.toString()}`, {
+      const response = await fetch(`${API_URL}${endpoint}?${params.toString()}`, {
         credentials: 'include',
         headers: authHeaders(),
       });
@@ -55,9 +67,14 @@ export const conversationApi = {
     } catch (error) {
       if (!DEMO_MODE || (error instanceof ApiError && [400, 401, 403, 409, 422].includes(error.status))) throw error;
       const fallback = await api.conversations.list();
-      const items = fallback.items.filter((item) => matchesFallback(item, filters));
       const page = filters.page ?? 1;
       const pageSize = filters.pageSize ?? 50;
+      if (educationScoped) {
+        // Demo conversations do not carry immutable EducationConversationContext.
+        // Returning generic conversations here would falsely bypass Course/Batch/Student scope.
+        return { ...fallback, items: [], total: 0, page, pageSize };
+      }
+      const items = fallback.items.filter((item) => matchesFallback(item, filters));
       const start = (page - 1) * pageSize;
       return { ...fallback, items: items.slice(start, start + pageSize), total: items.length, page, pageSize };
     }
