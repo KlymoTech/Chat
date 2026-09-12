@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -100,7 +100,7 @@ async def audit_case() -> AsyncIterator[tuple[AsyncSession, Principal, CRMConnec
     await engine.dispose()
 
 
-async def _events(session: AsyncSession, tenant_id) -> list[IntegrationAuditEvent]:
+async def _events(session: AsyncSession, tenant_id: UUID) -> list[IntegrationAuditEvent]:
     return list(
         await session.scalars(
             select(IntegrationAuditEvent)
