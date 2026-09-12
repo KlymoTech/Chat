@@ -156,6 +156,14 @@ async def notify_failed_webhook_events(
                 error=type(exc).__name__,
             )
 
+    try:
+        await notify_failed_webhook_recoveries(factory)
+    except Exception as exc:
+        logger.exception(
+            "channel_failed_webhook_recovery_scan_failed",
+            error=type(exc).__name__,
+        )
+
 
 async def failed_webhook_recovery_candidates(
     session: AsyncSession,
