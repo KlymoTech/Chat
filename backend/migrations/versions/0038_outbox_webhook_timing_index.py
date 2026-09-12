@@ -15,6 +15,11 @@ branch_labels = None
 depends_on = None
 
 _INDEX_NAME = "ix_outbox_webhook_pending_lookup"
+_CREATE_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS ix_outbox_webhook_pending_lookup ON outbox_events "
+    "(tenant_id, aggregate_type, event_type, replace(aggregate_id, '-', ''), occurred_at)"
+)
+_DROP_INDEX_SQL = "DROP INDEX IF EXISTS ix_outbox_webhook_pending_lookup"
 
 
 def upgrade() -> None:
@@ -23,13 +28,7 @@ def upgrade() -> None:
     if "outbox_events" not in tables:
         return
 
-    op.execute(
-        sa.text(
-            f"CREATE INDEX IF NOT EXISTS {_INDEX_NAME} ON outbox_events "
-            "(tenant_id, aggregate_type, event_type, "
-            "replace(aggregate_id, '-', ''), occurred_at)"
-        )
-    )
+    op.execute(sa.text(_CREATE_INDEX_SQL))
 
 
 def downgrade() -> None:
@@ -38,4 +37,4 @@ def downgrade() -> None:
     if "outbox_events" not in tables:
         return
 
-    op.execute(sa.text(f"DROP INDEX IF EXISTS {_INDEX_NAME}"))
+    op.execute(sa.text(_DROP_INDEX_SQL))
