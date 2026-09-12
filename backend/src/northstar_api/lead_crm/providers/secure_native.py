@@ -6,8 +6,8 @@ from typing import Any
 
 import httpx
 
-from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMDeliveryResult, CRMError
-from northstar_api.lead_crm.domain import CRMOperation, CRMProvider, NormalizedCRMErrorCode
+from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMError
+from northstar_api.lead_crm.domain import NormalizedCRMErrorCode
 from northstar_api.lead_crm.providers.native_v2 import (
     Dynamics365Connector,
     FreshsalesConnector,
