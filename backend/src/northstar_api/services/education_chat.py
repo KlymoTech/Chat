@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
+from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.models import Agent, Channel, Conversation, ConversationState
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.chat import ChatCoordinator, PreparedChat
@@ -15,6 +16,7 @@ from northstar_api.services.education_rag import (
     EducationRagAccessDenied,
     authorized_education_retrieval_scope,
 )
+from northstar_api.services.education_sales_intent import detects_education_sales_intent
 from northstar_api.services.retrieval import (
     EducationRetrievalScope,
     Evidence,
@@ -159,6 +161,23 @@ class EducationAwareChatCoordinator(ChatCoordinator):
                 status_code=403,
                 detail="Education access is no longer authorized for this conversation",
             ) from None
+
+        if detects_education_sales_intent(request.message):
+            context = await session.scalar(
+                select(EducationConversationContext).where(
+                    EducationConversationContext.tenant_id == tenant_id,
+                    EducationConversationContext.workspace_id == agent.workspace_id,
+                    EducationConversationContext.agent_id == agent.id,
+                    EducationConversationContext.conversation_id == conversation.id,
+                )
+            )
+            if context is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Education access is no longer authorized for this conversation",
+                )
+            context.sales_intent_detected = True
+
         _education_scope.set(scope)
         return conversation
 
