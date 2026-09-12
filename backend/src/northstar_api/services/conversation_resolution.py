@@ -14,7 +14,17 @@ from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.lead_crm.models import LeadActivityEvent
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import request_id_ctx
-from northstar_api.models import Channel, Conversation, ConversationState, Lead
+from northstar_api.models import (
+    Channel,
+    Conversation,
+    ConversationState,
+    Lead,
+    Message,
+    MessageRole,
+)
+from northstar_api.services.education_conversation_insights import (
+    build_education_conversation_insights,
+)
 from northstar_api.services.outbox import enqueue_event
 
 
@@ -263,11 +273,27 @@ class ConversationResolutionService:
         if activity is not None:
             return False
 
+        student_messages = (
+            await session.scalars(
+                select(Message.content)
+                .where(
+                    Message.tenant_id == conversation.tenant_id,
+                    Message.workspace_id == conversation.workspace_id,
+                    Message.conversation_id == conversation.id,
+                    Message.role == MessageRole.USER,
+                )
+                .order_by(Message.sequence)
+            )
+        ).all()
+        insights = build_education_conversation_insights(student_messages)
+
         details = {
             "channel": conversation.channel.value,
             "conversationPublicId": conversation.public_id,
             "resolution": conversation.resolution,
             "resolvedAt": resolved_at.isoformat(),
+            "studentMessageCount": insights.student_message_count,
+            "topicsAsked": insights.topics_asked,
         }
         activity = EducationStudentActivityEvent(
             tenant_id=conversation.tenant_id,
