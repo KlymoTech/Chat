@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
-from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelHealthSnapshot
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
@@ -205,6 +205,7 @@ async def monitor_connection(
     checked_at = now or datetime.now(UTC)
     previous_status: str
     current_status: str
+    current_error_code: str | None
     connection_name: str
     provider: str
 
@@ -224,6 +225,7 @@ async def monitor_connection(
 
         previous_status = connection.status
         current_status = previous_status
+        current_error_code = None
         connection_name = connection.name
         provider = connection.provider
         credentials: dict[str, Any] = {}
@@ -234,11 +236,12 @@ async def monitor_connection(
             except CredentialStoreError:
                 credentials_ready = False
                 current_status = "auth_required"
+                current_error_code = "credential_error"
                 _record_status(
                     connection,
                     status=current_status,
                     checked_at=checked_at,
-                    error_code="credential_error",
+                    error_code=current_error_code,
                 )
 
         if credentials_ready:
@@ -247,17 +250,27 @@ async def monitor_connection(
                 connector = channel_registry.get(context.provider)
             except (KeyError, ValueError):
                 current_status = "configuration_error"
+                current_error_code = "configuration_error"
                 _record_status(
                     connection,
                     status=current_status,
                     checked_at=checked_at,
-                    error_code="configuration_error",
+                    error_code=current_error_code,
                 )
             else:
                 result = await connector.health_check(context)
                 current_status = _normalized_health_status(result.get("status"))
                 _record_status(connection, status=current_status, checked_at=checked_at)
 
+        session.add(
+            ChannelHealthSnapshot(
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                status=current_status,
+                error_code=current_error_code,
+                checked_at=checked_at,
+            )
+        )
         await session.commit()
 
     if _health_transition(previous_status, current_status) is not None:
