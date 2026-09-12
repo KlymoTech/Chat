@@ -57,6 +57,24 @@ describe('conversationApi Education filters', () => {
     });
   });
 
+  it('keeps an Education Agent scoped even when no Course, Batch or Student is selected', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => emptyPage,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await conversationApi.list({ agentId: 'education-agent', educationScope: true });
+
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain('/education/conversations?');
+    expect(String(url)).toContain('agent_id=education-agent');
+    expect(String(url)).not.toContain('course_id=');
+    expect(String(url)).not.toContain('batch_id=');
+    expect(String(url)).not.toContain('student_id=');
+  });
+
   it('routes Course, Batch and Student filters through the Education conversation endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -101,7 +119,7 @@ describe('conversationApi Education filters', () => {
       items: [{ id: 'generic-1' }], total: 1, page: 1, pageSize: 50,
     });
 
-    const result = await conversationApi.list({ courseId: 'course-1' });
+    const result = await conversationApi.list({ educationScope: true, agentId: 'education-agent' });
 
     expect(fallbackList).toHaveBeenCalledTimes(1);
     expect(result.items).toEqual([]);
