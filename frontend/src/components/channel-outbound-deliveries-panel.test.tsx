@@ -121,7 +121,7 @@ describe('ChannelOutboundDeliveriesPanel', () => {
     mocks.list.mockResolvedValue([dispatchFailedDelivery]);
     render(<ChannelOutboundDeliveriesPanel connections={connections} />);
 
-    await screen.findByText('dispatch_failed');
+    expect((await screen.findAllByText('dispatch_failed')).length).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByRole('button', { name: 'Requeue dispatch' }));
 
     await waitFor(() => expect(mocks.requeue).toHaveBeenCalledWith('dispatch-failure-1'));
@@ -136,7 +136,7 @@ describe('ChannelOutboundDeliveriesPanel', () => {
     mocks.list.mockResolvedValue([dispatchFailedDelivery]);
     render(<ChannelOutboundDeliveriesPanel connections={connections} />);
 
-    expect(await screen.findByText('dispatch_failed')).toBeInTheDocument();
+    expect((await screen.findAllByText('dispatch_failed')).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByRole('button', { name: 'Requeue dispatch' })).not.toBeInTheDocument();
     expect(mocks.requeue).not.toHaveBeenCalled();
   });
