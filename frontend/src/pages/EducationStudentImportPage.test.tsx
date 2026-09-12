@@ -70,7 +70,7 @@ describe('EducationStudentImportPage', () => {
       preview: validPreview,
       result: { createdStudents: 1, createdIdentities: 0, createdEnrollments: 0 },
     });
-    mocks.parseFile.mockResolvedValue([validPreview.rows[0].row]);
+    mocks.parseFile.mockResolvedValue([validPreview.rows[0]!.row]);
   });
 
   afterEach(() => {
