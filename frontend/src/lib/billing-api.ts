@@ -52,6 +52,10 @@ export interface TenantEntitlements {
   };
 }
 
+export interface BillingRedirect {
+  url: string;
+}
+
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
 const ALL_CHANNELS = [
@@ -189,6 +193,15 @@ export const billingApi = {
       if (shouldSurface(error)) throw error;
       return demoEntitlements(fallbackPlan);
     }
+  },
+  createCheckout(plan: string): Promise<BillingRedirect> {
+    return remote<BillingRedirect>('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan }),
+    });
+  },
+  createPortal(): Promise<BillingRedirect> {
+    return remote<BillingRedirect>('/billing/portal', { method: 'POST' });
   },
   cancelSubscription(): Promise<TenantSubscription> {
     return remote<TenantSubscription>('/billing/cancel', {
