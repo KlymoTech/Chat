@@ -12,7 +12,7 @@ spec:
         - name: crm-webhook-consumer
           image: northstar/api:replace-with-immutable-tag
           command: [python, -m, northstar_api.workers.crm_webhook_consumer]
-          envFrom: [{configMapRef: {name: northstar-config}}, {secretRef: {name: northstar-secrets}}}]
+          envFrom: [{configMapRef: {name: northstar-config}}, {secretRef: {name: northstar-secrets}}]
           env: [{name: DATABASE_URL, valueFrom: {secretKeyRef: {name: northstar-secrets, key: WORKER_DATABASE_URL}}}]
           resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
           readinessProbe:
