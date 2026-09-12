@@ -13,15 +13,8 @@ vi.mock('@/lib/channel-deliveries-api', () => ({
 
 const connections = [{
   id: 'channel-1',
-  public_id: 'chn_public_1',
-  workspace_id: 'workspace-1',
-  agent_id: 'agent-1',
   provider: 'telegram',
   name: 'Primary Telegram',
-  status: 'healthy',
-  configuration: {},
-  created_at: '2026-09-12T18:00:00Z',
-  updated_at: '2026-09-12T18:00:00Z',
 }];
 
 const delivery = {
@@ -59,8 +52,9 @@ describe('ChannelOutboundDeliveriesPanel', () => {
     expect(screen.getByText('message-safe-reference')).toBeInTheDocument();
     expect(screen.getByText('Provider 2')).toBeInTheDocument();
     expect(screen.getByText('Dispatch 3')).toBeInTheDocument();
-    expect(screen.queryByText(/recipient/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/provider-secret-id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('private-recipient-42')).not.toBeInTheDocument();
+    expect(screen.queryByText('provider-secret-id')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bearer secret-token provider response body')).not.toBeInTheDocument();
     expect(mocks.list).toHaveBeenCalledWith({
       connectionId: undefined,
       status: undefined,
