@@ -35,6 +35,9 @@ const attentionHealth = {
   pending_deliveries: 2,
   retrying_deliveries: 1,
   failed_deliveries: 1,
+  pending_webhook_events: 3,
+  failed_webhook_events: 1,
+  rejected_webhook_events: 2,
   connections: [{
     connection_id: 'connection-1',
     name: 'Student Telegram',
@@ -47,6 +50,9 @@ const attentionHealth = {
     pending_deliveries: 2,
     retrying_deliveries: 1,
     failed_deliveries: 1,
+    pending_webhook_events: 3,
+    failed_webhook_events: 1,
+    rejected_webhook_events: 2,
   }],
 };
 
@@ -64,7 +70,7 @@ describe('ChannelOperationalHealthPanel', () => {
     vi.clearAllMocks();
   });
 
-  it('renders Workspace channel totals without eagerly loading detailed evidence', async () => {
+  it('renders Workspace outbound and inbound operational totals without eager detail loads', async () => {
     render(<ChannelOperationalHealthPanel />);
 
     expect(await screen.findByText('Student Telegram')).toBeInTheDocument();
@@ -72,7 +78,12 @@ describe('ChannelOperationalHealthPanel', () => {
     expect(screen.getByText('Pending deliveries')).toBeInTheDocument();
     expect(screen.getAllByText('Retrying').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Terminal failures')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('1 terminal outbound delivery failure state(s)');
+    expect(screen.getAllByText('Inbound pending').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Inbound failed').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Inbound rejected').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '1 terminal outbound delivery failure state(s) and 1 failed inbound webhook event(s)',
+    );
     expect(mocks.health).toHaveBeenCalledOnce();
     expect(mocks.deliveries).not.toHaveBeenCalled();
     expect(mocks.webhookEvents).not.toHaveBeenCalled();
@@ -132,6 +143,9 @@ describe('ChannelOperationalHealthPanel', () => {
       pending_deliveries: 0,
       retrying_deliveries: 0,
       failed_deliveries: 0,
+      pending_webhook_events: 0,
+      failed_webhook_events: 0,
+      rejected_webhook_events: 0,
       connections: [],
     });
     render(<ChannelOperationalHealthPanel />);

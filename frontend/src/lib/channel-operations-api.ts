@@ -16,6 +16,9 @@ export interface ChannelOperationalConnectionHealth {
   pending_deliveries: number;
   retrying_deliveries: number;
   failed_deliveries: number;
+  pending_webhook_events: number;
+  failed_webhook_events: number;
+  rejected_webhook_events: number;
 }
 
 export interface ChannelOperationalHealth {
@@ -26,6 +29,9 @@ export interface ChannelOperationalHealth {
   pending_deliveries: number;
   retrying_deliveries: number;
   failed_deliveries: number;
+  pending_webhook_events: number;
+  failed_webhook_events: number;
+  rejected_webhook_events: number;
   connections: ChannelOperationalConnectionHealth[];
 }
 

@@ -20,6 +20,9 @@ class ChannelOperationalConnectionHealthOut(BaseModel):
     pending_deliveries: int
     retrying_deliveries: int
     failed_deliveries: int
+    pending_webhook_events: int
+    failed_webhook_events: int
+    rejected_webhook_events: int
 
 
 class ChannelOperationalHealthOut(BaseModel):
@@ -32,4 +35,7 @@ class ChannelOperationalHealthOut(BaseModel):
     pending_deliveries: int
     retrying_deliveries: int
     failed_deliveries: int
+    pending_webhook_events: int
+    failed_webhook_events: int
+    rejected_webhook_events: int
     connections: list[ChannelOperationalConnectionHealthOut]
