@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.education_student_activity import EducationStudentActivityEvent
+from northstar_api.education_students import EducationStudent
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.lead_crm.models import LeadActivityEvent
 from northstar_api.lead_crm.services import lead_domain_service
@@ -21,6 +23,7 @@ from northstar_api.models import (
     Lead,
     Message,
     MessageRole,
+    Workspace,
 )
 from northstar_api.services.education_conversation_insights import (
     build_education_conversation_insights,
@@ -42,7 +45,9 @@ class ConversationResolutionService:
     Lead Generation retains the existing idempotent Lead + CRM workflow.
     Education and Support resolve the Conversation without creating a new Lead by
     default. Education additionally records durable Student activity when an
-    authorization context is attached to the Conversation.
+    authorization context is attached to the Conversation. A Workspace may opt in
+    to reusing the same Lead/CRM workflow for Education conversations that contain
+    an explicitly detected sales/upsell intent.
 
     The Conversation and its messages always remain the source of truth.
     """
@@ -92,26 +97,62 @@ class ConversationResolutionService:
             )
 
         education_activity_created = False
+        lead: Lead | None = None
+        lead_created = False
         if purpose is AgentPurpose.EDUCATION:
+            context = await self._education_context(session, conversation=conversation)
             education_activity_created = await self._record_education_resolution(
                 session,
                 conversation=conversation,
                 actor_user_id=actor_user_id,
+                context=context,
             )
+            if context is not None and await self._education_upsell_enabled(
+                session,
+                conversation=conversation,
+            ) and context.sales_intent_detected:
+                student = await session.scalar(
+                    select(EducationStudent).where(
+                        EducationStudent.id == context.student_id,
+                        EducationStudent.tenant_id == conversation.tenant_id,
+                        EducationStudent.workspace_id == conversation.workspace_id,
+                    )
+                )
+                extra_fields: dict[str, Any] = {
+                    "educationUpsell": True,
+                    "educationStudentId": str(context.student_id),
+                    "educationEnrollmentId": str(context.enrollment_id),
+                    "educationCourseId": str(context.course_id),
+                    "educationBatchId": str(context.batch_id),
+                }
+                if student is not None:
+                    extra_fields["educationStudentNumber"] = student.student_number
+                lead, lead_created = await self._finalize_lead(
+                    session,
+                    conversation=conversation,
+                    actor_user_id=actor_user_id,
+                    now=now,
+                    extra_fields=extra_fields,
+                    name_override=student.name if student is not None else None,
+                    email_override=student.email if student is not None else None,
+                    sync_reason="education_upsell_conversation_resolved",
+                )
 
-        if not was_resolved or education_activity_created:
+        if not was_resolved or education_activity_created or lead_created:
             self._enqueue_conversation_events(
                 session,
                 conversation=conversation,
                 previous_state=previous_state,
                 purpose=purpose,
-                lead=None,
-                reconciled=was_resolved and education_activity_created,
+                lead=lead,
+                reconciled=was_resolved and (lead_created or education_activity_created),
             )
 
         await session.flush()
         return ConversationResolutionResult(
             purpose=purpose,
+            lead=lead,
+            lead_created=lead_created,
             education_activity_created=education_activity_created,
         )
 
@@ -122,8 +163,12 @@ class ConversationResolutionService:
         conversation: Conversation,
         actor_user_id: UUID | None,
         now: datetime,
+        extra_fields: dict[str, Any] | None = None,
+        name_override: str | None = None,
+        email_override: str | None = None,
+        sync_reason: str = "conversation_resolved",
     ) -> tuple[Lead, bool]:
-        """Preserve the existing Lead Generation resolution behavior exactly."""
+        """Create/update the single Lead linked to a resolved Conversation."""
 
         lead = await session.scalar(
             select(Lead)
@@ -141,17 +186,22 @@ class ConversationResolutionService:
             "conversationPublicId": conversation.public_id,
             "conversationResolution": conversation.resolution,
             "resolvedAt": conversation.ended_at.isoformat() if conversation.ended_at else now.isoformat(),
+            **(extra_fields or {}),
         }
+        visitor_name = conversation.visitor_name.strip() if conversation.visitor_name else ""
+        preferred_name = name_override or (
+            visitor_name if visitor_name and visitor_name != "Anonymous visitor" else None
+        )
+        preferred_email = email_override or conversation.visitor_email
 
         if lead is None:
-            visitor_name = conversation.visitor_name.strip() if conversation.visitor_name else ""
             lead = Lead(
                 tenant_id=conversation.tenant_id,
                 workspace_id=conversation.workspace_id,
                 agent_id=conversation.agent_id,
                 conversation_id=conversation.id,
-                name=visitor_name if visitor_name and visitor_name != "Anonymous visitor" else None,
-                email=conversation.visitor_email,
+                name=preferred_name,
+                email=preferred_email,
                 phone=(conversation.visitor_id if conversation.channel == Channel.WHATSAPP else None),
                 status=LeadLifecycleStatus.NEW.value,
                 consent=False,
@@ -160,10 +210,10 @@ class ConversationResolutionService:
             session.add(lead)
             await session.flush()
         else:
-            if not lead.name and conversation.visitor_name != "Anonymous visitor":
-                lead.name = conversation.visitor_name
-            if not lead.email and conversation.visitor_email:
-                lead.email = conversation.visitor_email
+            if not lead.name and preferred_name:
+                lead.name = preferred_name
+            if not lead.email and preferred_email:
+                lead.email = preferred_email
             if not lead.phone and conversation.channel == Channel.WHATSAPP:
                 lead.phone = conversation.visitor_id
             lead.fields_json = {**(lead.fields_json or {}), **source_fields}
@@ -190,6 +240,7 @@ class ConversationResolutionService:
                         "agentId": str(conversation.agent_id),
                         "conversationId": str(conversation.id),
                         "channel": conversation.channel.value,
+                        **({"educationUpsell": True} if extra_fields and extra_fields.get("educationUpsell") else {}),
                     },
                 )
             )
@@ -199,6 +250,7 @@ class ConversationResolutionService:
                 "agentId": str(conversation.agent_id),
                 "conversationId": str(conversation.id),
                 "sourceChannel": conversation.channel.value,
+                **({"educationUpsell": True} if extra_fields and extra_fields.get("educationUpsell") else {}),
             }
             enqueue_event(
                 session,
@@ -222,19 +274,18 @@ class ConversationResolutionService:
                 aggregate_type="lead",
                 aggregate_id=lead.id,
                 event_type="lead.crm.sync.requested.v1",
-                payload={**lead_payload, "reason": "conversation_resolved"},
+                payload={**lead_payload, "reason": sync_reason},
             )
 
         return lead, lead_created
 
-    async def _record_education_resolution(
+    async def _education_context(
         self,
         session: AsyncSession,
         *,
         conversation: Conversation,
-        actor_user_id: UUID | None,
-    ) -> bool:
-        context = await session.scalar(
+    ) -> EducationConversationContext | None:
+        return await session.scalar(
             select(EducationConversationContext).where(
                 EducationConversationContext.tenant_id == conversation.tenant_id,
                 EducationConversationContext.workspace_id == conversation.workspace_id,
@@ -242,6 +293,32 @@ class ConversationResolutionService:
                 EducationConversationContext.conversation_id == conversation.id,
             )
         )
+
+    async def _education_upsell_enabled(
+        self,
+        session: AsyncSession,
+        *,
+        conversation: Conversation,
+    ) -> bool:
+        workspace = await session.scalar(
+            select(Workspace).where(
+                Workspace.id == conversation.workspace_id,
+                Workspace.tenant_id == conversation.tenant_id,
+            )
+        )
+        if workspace is None:
+            return False
+        return bool((workspace.settings_json or {}).get("educationCreateUpsellLeads", False))
+
+    async def _record_education_resolution(
+        self,
+        session: AsyncSession,
+        *,
+        conversation: Conversation,
+        actor_user_id: UUID | None,
+        context: EducationConversationContext | None = None,
+    ) -> bool:
+        context = context or await self._education_context(session, conversation=conversation)
         if context is None:
             enqueue_event(
                 session,

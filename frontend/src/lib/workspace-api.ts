@@ -41,6 +41,7 @@ export interface WorkspaceSettings {
   memberCount: number;
   preferences: WorkspacePreferences;
   whiteLabel: WhiteLabelSettings;
+  educationCreateUpsellLeads: boolean;
 }
 
 export interface WorkspaceTeamMember {
@@ -66,7 +67,7 @@ export interface WorkspaceTeam {
   invitations: WorkspaceTeamInvitation[];
 }
 
-export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel'>>;
+export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel' | 'educationCreateUpsellLeads'>>;
 export interface WorkspaceCreate {
   name: string;
   slug: string;
@@ -92,6 +93,7 @@ const defaults: WorkspaceSettings = {
   slug: 'northstar',
   plan: 'business',
   memberCount: 1,
+  educationCreateUpsellLeads: false,
   preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
   whiteLabel: {
     companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',

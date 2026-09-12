@@ -3,14 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
 
 
 class EducationConversationContext(Base):
-    """Immutable authorization scope attached to one Education conversation."""
+    """Authorization scope and Education-specific runtime state for one conversation."""
 
     __tablename__ = "education_conversation_contexts"
     __table_args__ = (
@@ -56,6 +56,12 @@ class EducationConversationContext(Base):
     )
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("education_batches.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    sales_intent_detected: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
