@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ComponentProps } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -45,7 +46,7 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
-function renderPalette(overrides: Partial<React.ComponentProps<typeof CommandPalette>> = {}) {
+function renderPalette(overrides: Partial<ComponentProps<typeof CommandPalette>> = {}) {
   const onClose = vi.fn();
   const onSelectWorkspace = vi.fn();
   const workspaces = [
@@ -107,7 +108,7 @@ describe('CommandPalette', () => {
     const first = renderPalette({ workspaces: [] });
     const search = screen.getByRole('textbox', { name: 'Search pages and workspaces' });
 
-    await user.type(search, '');
+    await user.click(search);
     await user.keyboard('{ArrowDown}{Enter}');
     expect(screen.getByTestId('location')).toHaveTextContent('/agents');
     expect(first.onClose).toHaveBeenCalledTimes(1);
