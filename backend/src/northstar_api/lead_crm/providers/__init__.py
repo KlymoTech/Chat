@@ -2,24 +2,24 @@ from __future__ import annotations
 
 from northstar_api.lead_crm.connectors import crm_registry
 from northstar_api.lead_crm.providers.generic import GenericRESTConnector, GenericWebhookConnector
-from northstar_api.lead_crm.providers.native_v2 import (
-    Dynamics365Connector,
-    FreshsalesConnector,
-    HubSpotConnector,
-    PipedriveConnector,
-    SalesforceConnector,
+from northstar_api.lead_crm.providers.secure_native import (
+    SecureDynamics365Connector,
+    SecureFreshsalesConnector,
+    SecureHubSpotConnector,
+    SecurePipedriveConnector,
+    SecureSalesforceConnector,
+    SecureZohoCRMConnector,
 )
-from northstar_api.lead_crm.providers.zoho import ZohoCRMConnector
 
 
 def register_default_connectors() -> None:
     connectors = (
-        ZohoCRMConnector(),
-        SalesforceConnector(),
-        HubSpotConnector(),
-        Dynamics365Connector(),
-        PipedriveConnector(),
-        FreshsalesConnector(),
+        SecureZohoCRMConnector(),
+        SecureSalesforceConnector(),
+        SecureHubSpotConnector(),
+        SecureDynamics365Connector(),
+        SecurePipedriveConnector(),
+        SecureFreshsalesConnector(),
         GenericRESTConnector(),
         GenericWebhookConnector(),
     )
