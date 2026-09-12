@@ -9,6 +9,14 @@ from northstar_api.education_lms_import_schemas import (
     to_student_import_rows,
 )
 from northstar_api.education_student_identities import StudentIdentityType
+from northstar_api.routers.education_lms_import import router
+
+
+def test_lms_import_routes_are_registered() -> None:
+    paths = {route.path for route in router.routes}
+
+    assert "/education/students/import/lms/preview" in paths
+    assert "/education/students/import/lms/commit" in paths
 
 
 def test_lms_import_maps_into_existing_student_import_contract() -> None:
