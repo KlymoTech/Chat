@@ -9,6 +9,7 @@ const SESSION_KEY = 'northstar.session';
 
 export interface ConversationFilters {
   agentId?: string;
+  educationScope?: boolean;
   courseId?: string;
   batchId?: string;
   studentId?: string;
@@ -40,7 +41,7 @@ function matchesFallback(item: Conversation, filters: ConversationFilters): bool
 }
 
 function usesEducationScope(filters: ConversationFilters): boolean {
-  return Boolean(filters.courseId || filters.batchId || filters.studentId);
+  return Boolean(filters.educationScope || filters.courseId || filters.batchId || filters.studentId);
 }
 
 export const conversationApi = {
@@ -71,7 +72,7 @@ export const conversationApi = {
       const pageSize = filters.pageSize ?? 50;
       if (educationScoped) {
         // Demo conversations do not carry immutable EducationConversationContext.
-        // Returning generic conversations here would falsely bypass Course/Batch/Student scope.
+        // Returning generic conversations here would falsely bypass Education authorization scope.
         return { ...fallback, items: [], total: 0, page, pageSize };
       }
       const items = fallback.items.filter((item) => matchesFallback(item, filters));
