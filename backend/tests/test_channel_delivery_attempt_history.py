@@ -337,6 +337,19 @@ async def test_attempt_history_requires_active_workspace(attempt_history_case) -
     assert exc_info.value.status_code == 403
 
 
+async def _dispatch_attempts(session: AsyncSession, delivery_id: object) -> list[ChannelDeliveryAttempt]:
+    return list(
+        await session.scalars(
+            select(ChannelDeliveryAttempt)
+            .where(
+                ChannelDeliveryAttempt.delivery_id == delivery_id,
+                ChannelDeliveryAttempt.phase == "dispatch",
+            )
+            .order_by(ChannelDeliveryAttempt.created_at, ChannelDeliveryAttempt.id)
+        )
+    )
+
+
 async def test_dispatch_transition_history_preserves_requeue_cycles(attempt_history_case) -> None:
     session, principal, ids = attempt_history_case
     delivery = await session.get(ChannelOutboundDelivery, ids["delivery_id"])
@@ -346,39 +359,27 @@ async def test_dispatch_transition_history_preserves_requeue_cycles(attempt_hist
     delivery.status = "failed"
     delivery.last_error = "raw broker exception must not be copied"
     await session.commit()
-
-    before_reset_count = await session.scalar(
-        select(ChannelDeliveryAttempt)
-        .where(
-            ChannelDeliveryAttempt.delivery_id == delivery.id,
-            ChannelDeliveryAttempt.phase == "dispatch",
-            ChannelDeliveryAttempt.outcome == "publish_failed",
-        )
-        .count()
-    ) if False else None
-    del before_reset_count
+    after_failure = await _dispatch_attempts(session, delivery.id)
+    assert len(after_failure) == 2
+    assert after_failure[-1].outcome == "publish_failed"
+    assert after_failure[-1].error_code == "broker_publish_failed"
 
     delivery.dispatch_attempts = 0
     delivery.status = "queued"
     delivery.last_error = None
     await session.commit()
+    after_reset = await _dispatch_attempts(session, delivery.id)
+    assert len(after_reset) == 2  # Feature 25 counter reset is not an attempt.
 
     delivery.dispatch_attempts = 1
     delivery.status = "queued"
     await session.commit()
 
-    repeated = list(
-        await session.scalars(
-            select(ChannelDeliveryAttempt)
-            .where(
-                ChannelDeliveryAttempt.tenant_id == principal.tenant_id,
-                ChannelDeliveryAttempt.delivery_id == delivery.id,
-                ChannelDeliveryAttempt.phase == "dispatch",
-                ChannelDeliveryAttempt.attempt_number == 1,
-            )
-            .order_by(ChannelDeliveryAttempt.created_at, ChannelDeliveryAttempt.id)
-        )
-    )
+    repeated = [
+        attempt
+        for attempt in await _dispatch_attempts(session, delivery.id)
+        if attempt.attempt_number == 1
+    ]
     assert len(repeated) == 3  # seeded evidence + failed cycle + published recovery cycle
     assert [attempt.outcome for attempt in repeated].count("publish_failed") == 1
     assert [attempt.outcome for attempt in repeated].count("published") == 2
