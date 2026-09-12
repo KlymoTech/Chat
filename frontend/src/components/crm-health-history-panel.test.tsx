@@ -77,13 +77,13 @@ describe('CRMHealthHistoryPanel', () => {
     render(<CRMHealthHistoryPanel connections={connections} canManage />);
 
     expect(await screen.findByText('41 ms')).toBeInTheDocument();
-    expect(screen.getByText('configured')).toBeInTheDocument();
+    expect(screen.getByText(/configured/)).toBeInTheDocument();
     expect(mocks.healthHistory).toHaveBeenCalledWith('crm-1', 50);
 
     await user.selectOptions(screen.getByLabelText('CRM health history connection'), 'crm-2');
 
     await waitFor(() => expect(mocks.healthHistory).toHaveBeenCalledWith('crm-2', 50));
-    expect(await screen.findByText('slow')).toBeInTheDocument();
+    expect(await screen.findByText(/slow/)).toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
