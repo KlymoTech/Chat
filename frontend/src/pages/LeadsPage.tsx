@@ -1,5 +1,6 @@
 import { ChevronDown, Download, Filter, Mail, Phone, RefreshCw, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { CRMDeliveryAttempts } from '@/components/crm-delivery-attempts';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -211,7 +212,7 @@ export function LeadsPage() {
             <td>{delivery.attempt_count}</td>
             <td>{delivery.acknowledged_at ? relativeTime(delivery.acknowledged_at) : '—'}</td>
             <td><Badge tone={verification.proved ? 'success' : verification.error ? 'warning' : 'neutral'}>{verification.label}</Badge><small>Read-back attempts: {verification.attempts}</small>{verification.proved && delivery.verified_at ? <small>{relativeTime(delivery.verified_at)}</small> : null}{verification.nextAttempt ? <small>Next check: {new Date(verification.nextAttempt).toLocaleString()}</small> : null}{verification.error ? <small>{verification.error}</small> : null}</td>
-            <td>{verification.retryable ? <Button variant="secondary" disabled={Boolean(retrying)} onClick={() => void retryDelivery(delivery.id)}>{verification.retryLabel}</Button> : '—'}</td>
+            <td><div>{verification.retryable ? <Button variant="secondary" disabled={Boolean(retrying)} onClick={() => void retryDelivery(delivery.id)}>{verification.retryLabel}</Button> : null}<CRMDeliveryAttempts deliveryId={delivery.id} attemptCount={delivery.attempt_count} /></div></td>
           </tr>;
         })}</tbody>
       </table></div> : <EmptyState icon={RefreshCw} title="No CRM deliveries yet" description="Use Sync now or qualify the lead to evaluate CRM routing rules." />}
