@@ -9,10 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from northstar_api.database import Base
 from northstar_api.lead_crm.models import CRMConnection, CRMDelivery, IntegrationDeadLetter
-from northstar_api.models import Agent, Lead, Tenant, Workspace
+from northstar_api.models import Agent, Lead, Role, Tenant, Workspace, WorkspaceRole
 from northstar_api.routers.crm_dead_letters import list_crm_dead_letters
 from northstar_api.security import Principal
-from northstar_api.models import Role, WorkspaceRole
 
 
 @pytest.fixture
