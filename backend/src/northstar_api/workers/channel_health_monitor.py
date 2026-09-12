@@ -19,6 +19,7 @@ from northstar_api.lead_crm.credentials import CredentialStoreError, credential_
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.logging import configure_logging
+from northstar_api.notifications import Notification
 from northstar_api.services.notifications import notify_workspace_admins
 
 settings = get_settings()
@@ -28,7 +29,10 @@ logger = structlog.get_logger(__name__)
 HEALTH_INTERVAL_SECONDS = 300
 HEALTH_BATCH_SIZE = 50
 STALE_WEBHOOK_BATCH_SIZE = 100
+STALE_WEBHOOK_RECOVERY_SCAN_SIZE = 500
 _STALE_WEBHOOK_AFTER = timedelta(minutes=5)
+_STALE_WEBHOOK_INCIDENT_PREFIX = "channel-webhook-stale:"
+_STALE_WEBHOOK_RECOVERY_STATUSES = frozenset({"processed", "ignored", "rejected"})
 _ELIGIBLE_STATUSES = frozenset(
     {
         "configured",
@@ -272,7 +276,7 @@ async def _notify_stale_webhook_event(
                 f"{connection_name} ({provider_label}) has an inbound webhook event "
                 "that has remained pending for more than 5 minutes."
             ),
-            dedupe_key=f"channel-webhook-stale:{raw.id}",
+            dedupe_key=f"{_STALE_WEBHOOK_INCIDENT_PREFIX}{raw.id}",
             category="channel",
             severity="warning",
             action_url="/integrations",
@@ -306,6 +310,119 @@ async def _notify_stale_webhook_events(
                 raw_event_id=str(raw_event_id),
                 tenant_id=str(tenant_id),
                 connection_id=str(connection_id),
+                error=type(exc).__name__,
+            )
+
+
+async def _stale_webhook_recovery_candidates(
+    session: AsyncSession,
+) -> list[tuple[UUID, UUID, UUID]]:
+    rows = list(
+        await session.execute(
+            select(
+                Notification.tenant_id,
+                Notification.workspace_id,
+                Notification.dedupe_key,
+            )
+            .where(
+                Notification.category == "channel",
+                Notification.workspace_id.is_not(None),
+                Notification.dedupe_key.like(f"{_STALE_WEBHOOK_INCIDENT_PREFIX}%"),
+            )
+            .order_by(Notification.created_at.desc(), Notification.id.desc())
+            .limit(STALE_WEBHOOK_RECOVERY_SCAN_SIZE)
+        )
+    )
+    values: list[tuple[UUID, UUID, UUID]] = []
+    seen: set[tuple[UUID, UUID, UUID]] = set()
+    for tenant_id, workspace_id, dedupe_key in rows:
+        if workspace_id is None or not dedupe_key.startswith(_STALE_WEBHOOK_INCIDENT_PREFIX):
+            continue
+        try:
+            raw_event_id = UUID(dedupe_key.removeprefix(_STALE_WEBHOOK_INCIDENT_PREFIX))
+        except ValueError:
+            continue
+        candidate = (tenant_id, workspace_id, raw_event_id)
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        values.append(candidate)
+    return values
+
+
+async def _notify_stale_webhook_recovery(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    raw_event_id: UUID,
+) -> int:
+    async with factory() as session:
+        await set_tenant_context(session, tenant_id)
+        raw = await session.scalar(
+            select(RawWebhookEvent).where(
+                RawWebhookEvent.id == raw_event_id,
+                RawWebhookEvent.tenant_id == tenant_id,
+                RawWebhookEvent.processing_status.in_(_STALE_WEBHOOK_RECOVERY_STATUSES),
+            )
+        )
+        if raw is None:
+            return 0
+
+        try:
+            connection_id = UUID(str(raw.connection_key))
+        except (TypeError, ValueError):
+            return 0
+
+        provider = str(raw.provider or "channel")[:60]
+        final_status = str(raw.processing_status)[:40]
+        provider_label = provider.replace("_", " ").title()
+        recipients = await notify_workspace_admins(
+            session,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            title="Channel webhook processing recovered",
+            body=(
+                f"A previously delayed {provider_label} webhook event completed "
+                f"with status {final_status}."
+            ),
+            dedupe_key=f"channel-webhook-stale-recovery:{raw.id}",
+            category="channel",
+            severity="info",
+            action_url="/integrations",
+            action_label="Review webhook activity",
+            metadata={
+                "rawEventId": str(raw.id),
+                "connectionId": str(connection_id),
+                "provider": provider,
+                "finalStatus": final_status,
+                "transition": "recovery",
+            },
+        )
+        await session.commit()
+        return recipients
+
+
+async def _notify_stale_webhook_recoveries(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with factory() as session:
+        candidates = await _stale_webhook_recovery_candidates(session)
+
+    for tenant_id, workspace_id, raw_event_id in candidates:
+        try:
+            await _notify_stale_webhook_recovery(
+                factory,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                raw_event_id=raw_event_id,
+            )
+        except Exception as exc:
+            logger.exception(
+                "channel_stale_webhook_recovery_notification_failed",
+                tenant_id=str(tenant_id),
+                workspace_id=str(workspace_id),
+                raw_event_id=str(raw_event_id),
                 error=type(exc).__name__,
             )
 
@@ -465,6 +582,14 @@ async def run_once(factory: async_sessionmaker[AsyncSession]) -> dict[str, int]:
         # Their failure must not alter the existing health-monitor contract.
         logger.exception(
             "channel_stale_webhook_scan_failed",
+            error=type(exc).__name__,
+        )
+
+    try:
+        await _notify_stale_webhook_recoveries(factory)
+    except Exception as exc:
+        logger.exception(
+            "channel_stale_webhook_recovery_scan_failed",
             error=type(exc).__name__,
         )
 
