@@ -163,19 +163,16 @@ async def test_monitor_notifies_workspace_admin_only_on_incident_and_recovery(
     ) is True
 
     async with factory() as session:
-        notifications = list(
-            await session.scalars(
-                select(Notification).order_by(Notification.created_at, Notification.id)
-            )
-        )
+        notifications = list(await session.scalars(select(Notification)))
         assert len(notifications) == 2
-        incident, recovery = notifications
+        by_title = {value.title: value for value in notifications}
+        incident = by_title["CRM connection needs attention"]
+        recovery = by_title["CRM connection recovered"]
 
         assert incident.workspace_id == workspace_id
         assert incident.recipient_user_id == admin_id
         assert incident.category == "crm"
         assert incident.severity == "warning"
-        assert incident.title == "CRM connection needs attention"
         assert incident.action_url == "/integrations"
         assert incident.action_label == "Review CRM health"
         assert incident.metadata_json == {
@@ -192,7 +189,6 @@ async def test_monitor_notifies_workspace_admin_only_on_incident_and_recovery(
         assert recovery.recipient_user_id == admin_id
         assert recovery.category == "crm"
         assert recovery.severity == "info"
-        assert recovery.title == "CRM connection recovered"
         assert recovery.metadata_json["previousStatus"] == "auth_required"
         assert recovery.metadata_json["currentStatus"] == "healthy"
         assert recovery.metadata_json["transition"] == "recovery"
