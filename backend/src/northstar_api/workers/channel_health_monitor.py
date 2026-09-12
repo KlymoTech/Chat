@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import structlog
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
@@ -30,9 +30,12 @@ logger = structlog.get_logger(__name__)
 HEALTH_INTERVAL_SECONDS = 300
 HEALTH_BATCH_SIZE = 50
 STALE_WEBHOOK_BATCH_SIZE = 100
+STALE_WEBHOOK_SCAN_PAGE_SIZE = 250
 STALE_WEBHOOK_RECOVERY_SCAN_SIZE = 500
+STALE_WEBHOOK_RECOVERY_PAGE_SIZE = 250
 _STALE_WEBHOOK_AFTER = timedelta(minutes=5)
 _STALE_WEBHOOK_INCIDENT_PREFIX = "channel-webhook-stale:"
+_STALE_WEBHOOK_RECOVERY_PREFIX = "channel-webhook-stale-recovery:"
 _STALE_WEBHOOK_RECOVERY_STATUSES = frozenset({"processed", "ignored", "rejected"})
 _ELIGIBLE_STATUSES = frozenset(
     {
@@ -190,29 +193,81 @@ async def _stale_webhook_events(
     *,
     now: datetime,
 ) -> list[tuple[UUID, UUID, UUID]]:
+    """Return unalerted bound stale events without letting old work starve the batch."""
+
     cutoff = now - _STALE_WEBHOOK_AFTER
-    rows = list(
-        await session.execute(
-            select(
-                RawWebhookEvent.id,
-                RawWebhookEvent.tenant_id,
-                RawWebhookEvent.connection_key,
-            )
-            .where(
-                RawWebhookEvent.processing_status == "received",
-                RawWebhookEvent.received_at <= cutoff,
-            )
-            .order_by(RawWebhookEvent.received_at, RawWebhookEvent.id)
-            .limit(STALE_WEBHOOK_BATCH_SIZE)
-        )
+    bound_connection_ids = list(
+        await session.scalars(select(WorkspaceChannelConnection.connection_id).distinct())
+    )
+    if not bound_connection_ids:
+        return []
+
+    alerted_event_ids = select(Notification.source_event_id).where(
+        Notification.category == "channel",
+        Notification.source_event_id.is_not(None),
+        Notification.dedupe_key.like(f"{_STALE_WEBHOOK_INCIDENT_PREFIX}%"),
     )
     values: list[tuple[UUID, UUID, UUID]] = []
-    for raw_event_id, tenant_id, connection_key in rows:
-        try:
-            connection_id = UUID(str(connection_key))
-        except (TypeError, ValueError):
-            continue
-        values.append((raw_event_id, tenant_id, connection_id))
+    cursor_received_at: datetime | None = None
+    cursor_id: UUID | None = None
+
+    while len(values) < STALE_WEBHOOK_BATCH_SIZE:
+        query = select(
+            RawWebhookEvent.id,
+            RawWebhookEvent.tenant_id,
+            RawWebhookEvent.connection_key,
+            RawWebhookEvent.received_at,
+        ).where(
+            RawWebhookEvent.processing_status == "received",
+            RawWebhookEvent.received_at <= cutoff,
+            RawWebhookEvent.connection_key.in_([str(value) for value in bound_connection_ids]),
+            ~RawWebhookEvent.id.in_(alerted_event_ids),
+        )
+        if cursor_received_at is not None and cursor_id is not None:
+            query = query.where(
+                or_(
+                    RawWebhookEvent.received_at > cursor_received_at,
+                    and_(
+                        RawWebhookEvent.received_at == cursor_received_at,
+                        RawWebhookEvent.id > cursor_id,
+                    ),
+                )
+            )
+        rows = list(
+            await session.execute(
+                query.order_by(RawWebhookEvent.received_at, RawWebhookEvent.id).limit(
+                    STALE_WEBHOOK_SCAN_PAGE_SIZE
+                )
+            )
+        )
+        if not rows:
+            break
+
+        incident_keys = [f"{_STALE_WEBHOOK_INCIDENT_PREFIX}{raw_event_id}" for raw_event_id, *_ in rows]
+        existing_keys = set(
+            await session.scalars(
+                select(Notification.dedupe_key).where(
+                    Notification.category == "channel",
+                    Notification.dedupe_key.in_(incident_keys),
+                )
+            )
+        )
+        for raw_event_id, tenant_id, connection_key, _received_at in rows:
+            if f"{_STALE_WEBHOOK_INCIDENT_PREFIX}{raw_event_id}" in existing_keys:
+                continue
+            try:
+                connection_id = UUID(str(connection_key))
+            except (TypeError, ValueError):
+                continue
+            values.append((raw_event_id, tenant_id, connection_id))
+            if len(values) >= STALE_WEBHOOK_BATCH_SIZE:
+                break
+
+        cursor_received_at = rows[-1][3]
+        cursor_id = rows[-1][0]
+        if len(rows) < STALE_WEBHOOK_SCAN_PAGE_SIZE:
+            break
+
     return values
 
 
@@ -282,6 +337,7 @@ async def _notify_stale_webhook_event(
             severity="warning",
             action_url="/integrations",
             action_label="Review webhook activity",
+            source_event_id=raw.id,
             metadata=metadata,
         )
         await session.commit()
@@ -318,36 +374,106 @@ async def _notify_stale_webhook_events(
 async def _stale_webhook_recovery_candidates(
     session: AsyncSession,
 ) -> list[tuple[UUID, UUID, UUID]]:
-    rows = list(
-        await session.execute(
-            select(
-                Notification.tenant_id,
-                Notification.workspace_id,
-                Notification.dedupe_key,
-            )
-            .where(
-                Notification.category == "channel",
-                Notification.workspace_id.is_not(None),
-                Notification.dedupe_key.like(f"{_STALE_WEBHOOK_INCIDENT_PREFIX}%"),
-            )
-            .order_by(Notification.created_at.desc(), Notification.id.desc())
-            .limit(STALE_WEBHOOK_RECOVERY_SCAN_SIZE)
-        )
-    )
+    """Return unrecovered completed stale incidents without bounded-scan starvation."""
+
     values: list[tuple[UUID, UUID, UUID]] = []
     seen: set[tuple[UUID, UUID, UUID]] = set()
-    for tenant_id, workspace_id, dedupe_key in rows:
-        if workspace_id is None or not dedupe_key.startswith(_STALE_WEBHOOK_INCIDENT_PREFIX):
-            continue
-        try:
-            raw_event_id = UUID(dedupe_key.removeprefix(_STALE_WEBHOOK_INCIDENT_PREFIX))
-        except ValueError:
-            continue
-        candidate = (tenant_id, workspace_id, raw_event_id)
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        values.append(candidate)
+    cursor_created_at: datetime | None = None
+    cursor_id: UUID | None = None
+
+    while len(values) < STALE_WEBHOOK_RECOVERY_SCAN_SIZE:
+        query = select(
+            Notification.tenant_id,
+            Notification.workspace_id,
+            Notification.dedupe_key,
+            Notification.source_event_id,
+            Notification.created_at,
+            Notification.id,
+        ).where(
+            Notification.category == "channel",
+            Notification.workspace_id.is_not(None),
+            Notification.dedupe_key.like(f"{_STALE_WEBHOOK_INCIDENT_PREFIX}%"),
+            ~Notification.dedupe_key.like(f"{_STALE_WEBHOOK_RECOVERY_PREFIX}%"),
+        )
+        if cursor_created_at is not None and cursor_id is not None:
+            query = query.where(
+                or_(
+                    Notification.created_at < cursor_created_at,
+                    and_(
+                        Notification.created_at == cursor_created_at,
+                        Notification.id < cursor_id,
+                    ),
+                )
+            )
+        rows = list(
+            await session.execute(
+                query.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(
+                    STALE_WEBHOOK_RECOVERY_PAGE_SIZE
+                )
+            )
+        )
+        if not rows:
+            break
+
+        parsed_rows: list[tuple[UUID, UUID, UUID]] = []
+        for tenant_id, workspace_id, dedupe_key, source_event_id, _created_at, _notification_id in rows:
+            if workspace_id is None:
+                continue
+            try:
+                raw_event_id = UUID(dedupe_key.removeprefix(_STALE_WEBHOOK_INCIDENT_PREFIX))
+            except ValueError:
+                continue
+            if source_event_id is not None and source_event_id != raw_event_id:
+                continue
+            parsed_rows.append((tenant_id, workspace_id, raw_event_id))
+
+        raw_ids = list({raw_event_id for _, _, raw_event_id in parsed_rows})
+        recovery_keys = [f"{_STALE_WEBHOOK_RECOVERY_PREFIX}{raw_event_id}" for raw_event_id in raw_ids]
+        recovered_keys = (
+            set(
+                await session.scalars(
+                    select(Notification.dedupe_key).where(
+                        Notification.category == "channel",
+                        Notification.dedupe_key.in_(recovery_keys),
+                    )
+                )
+            )
+            if recovery_keys
+            else set()
+        )
+        raw_states = {
+            raw_event_id: (tenant_id, processing_status)
+            for raw_event_id, tenant_id, processing_status in await session.execute(
+                select(
+                    RawWebhookEvent.id,
+                    RawWebhookEvent.tenant_id,
+                    RawWebhookEvent.processing_status,
+                ).where(RawWebhookEvent.id.in_(raw_ids))
+            )
+        } if raw_ids else {}
+
+        for tenant_id, workspace_id, raw_event_id in parsed_rows:
+            candidate = (tenant_id, workspace_id, raw_event_id)
+            if candidate in seen:
+                continue
+            if f"{_STALE_WEBHOOK_RECOVERY_PREFIX}{raw_event_id}" in recovered_keys:
+                seen.add(candidate)
+                continue
+            raw_state = raw_states.get(raw_event_id)
+            if raw_state is None or raw_state[0] != tenant_id:
+                continue
+            if raw_state[1] not in _STALE_WEBHOOK_RECOVERY_STATUSES:
+                continue
+            seen.add(candidate)
+            values.append(candidate)
+            if len(values) >= STALE_WEBHOOK_RECOVERY_SCAN_SIZE:
+                break
+
+        cursor_created_at = rows[-1][4]
+        cursor_id = rows[-1][5]
+        if len(rows) < STALE_WEBHOOK_RECOVERY_PAGE_SIZE:
+            break
+
     return values
 
 
@@ -387,11 +513,12 @@ async def _notify_stale_webhook_recovery(
                 f"A previously delayed {provider_label} webhook event completed "
                 f"with status {final_status}."
             ),
-            dedupe_key=f"channel-webhook-stale-recovery:{raw.id}",
+            dedupe_key=f"{_STALE_WEBHOOK_RECOVERY_PREFIX}{raw.id}",
             category="channel",
             severity="info",
             action_url="/integrations",
             action_label="Review webhook activity",
+            source_event_id=raw.id,
             metadata={
                 "rawEventId": str(raw.id),
                 "connectionId": str(connection_id),
