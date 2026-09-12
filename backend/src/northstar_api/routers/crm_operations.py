@@ -31,6 +31,14 @@ _ATTENTION_CONNECTION_STATUSES = frozenset(
 )
 
 
+def _connection_needs_attention(row: CRMOperationalConnectionHealthOut) -> bool:
+    return (
+        row.status in _ATTENTION_CONNECTION_STATUSES
+        or row.failed_deliveries > 0
+        or row.open_dead_letters > 0
+    )
+
+
 @router.get("/health", response_model=CRMOperationalHealthOut)
 async def crm_operational_health(
     principal: CRMViewPrincipal,
@@ -113,24 +121,23 @@ async def crm_operational_health(
             )
         )
 
-    healthy_connections = sum(1 for row in rows if row.status == "healthy")
-    attention_connections = sum(
-        1
-        for row in rows
-        if row.status in _ATTENTION_CONNECTION_STATUSES
-        or row.failed_deliveries > 0
-        or row.open_dead_letters > 0
+    attention_connections = sum(1 for row in rows if _connection_needs_attention(row))
+    healthy_connections = sum(
+        1 for row in rows if row.status == "healthy" and not _connection_needs_attention(row)
     )
     pending_total = sum(row.pending_deliveries for row in rows)
     retrying_total = sum(row.retrying_deliveries for row in rows)
     failed_total = sum(row.failed_deliveries for row in rows)
     dead_letter_total = sum(row.open_dead_letters for row in rows)
+    has_nonhealthy_nonattention_connection = any(
+        row.status != "healthy" and not _connection_needs_attention(row) for row in rows
+    )
 
     if not rows:
         overall_status = "empty"
     elif attention_connections:
         overall_status = "attention"
-    elif retrying_total or pending_total:
+    elif retrying_total or pending_total or has_nonhealthy_nonattention_connection:
         overall_status = "active"
     else:
         overall_status = "healthy"
