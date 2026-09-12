@@ -82,17 +82,29 @@ def test_lms_import_requires_identity_pair() -> None:
         )
 
 
-def test_lms_import_reuses_existing_enrollment_group_validation() -> None:
-    payload = LMSStudentImportPayload(
-        source="Blackboard",
-        rows=[
-            LMSStudentImportRow(
-                external_student_id="B-1",
-                name="Dorothy Vaughan",
-                course_code="CPA",
-            )
-        ],
-    )
-
+def test_lms_import_reuses_existing_enrollment_group_validation_at_payload_boundary() -> None:
     with pytest.raises(ValidationError, match="Course, Batch, and Agent"):
-        to_student_import_rows(payload)
+        LMSStudentImportPayload(
+            source="Blackboard",
+            rows=[
+                LMSStudentImportRow(
+                    external_student_id="B-1",
+                    name="Dorothy Vaughan",
+                    course_code="CPA",
+                )
+            ],
+        )
+
+
+def test_lms_import_reuses_existing_custom_field_validation_at_payload_boundary() -> None:
+    with pytest.raises(ValidationError, match="custom field values must be scalar values"):
+        LMSStudentImportPayload(
+            source="Moodle",
+            rows=[
+                LMSStudentImportRow(
+                    external_student_id="M-3",
+                    name="Mary Jackson",
+                    custom_fields={"nested": {"unsafe": "value"}},
+                )
+            ],
+        )
