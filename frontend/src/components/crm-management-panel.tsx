@@ -1,5 +1,5 @@
 import { CheckCircle2, GitBranch, RefreshCw, Save, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card } from '@/components/ui';
 import {
@@ -17,6 +17,8 @@ interface CRMManagementPanelProps {
   onConnectionsChanged: () => void;
 }
 
+const EMPTY_LEAD_MAPPING = '{\n  "fields": {}\n}';
+
 function parseObject(value: string, label: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
@@ -27,12 +29,13 @@ function parseObject(value: string, label: string): Record<string, unknown> {
 
 export function CRMManagementPanel({ connections, canManage, onConnectionsChanged }: CRMManagementPanelProps) {
   const { pushToast } = useToast();
+  const loadRequestRef = useRef(0);
   const [selectedId, setSelectedId] = useState('');
   const [schema, setSchema] = useState<CRMFieldSchemaView | null>(null);
   const [mappings, setMappings] = useState<CRMMappingView[]>([]);
   const [routes, setRoutes] = useState<CRMRouteView[]>([]);
   const [workspaceSettings, setWorkspaceSettings] = useState<CRMWorkspaceSettings | null>(null);
-  const [mappingText, setMappingText] = useState('{\n  "fields": {}\n}');
+  const [mappingText, setMappingText] = useState(EMPTY_LEAD_MAPPING);
   const [routeName, setRouteName] = useState('Qualified leads');
   const [routePriority, setRoutePriority] = useState('100');
   const [conditionsText, setConditionsText] = useState('{\n  "qualificationStatus": "qualified"\n}');
@@ -41,7 +44,6 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   useEffect(() => {
     if (!connections.length) {
       setSelectedId('');
-      setWorkspaceSettings(null);
       return;
     }
     if (!connections.some((connection) => connection.id === selectedId)) {
@@ -54,25 +56,40 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
     [connections, selectedId],
   );
 
+  const clearConnectionState = useCallback(() => {
+    setSchema(null);
+    setMappings([]);
+    setWorkspaceSettings(null);
+    setMappingText(EMPTY_LEAD_MAPPING);
+  }, []);
+
   const load = useCallback(async () => {
-    if (!selectedId) return;
+    const connectionId = selectedId;
+    const requestId = ++loadRequestRef.current;
+    clearConnectionState();
+    if (!connectionId) {
+      setRoutes([]);
+      return;
+    }
     try {
       const [nextSchema, nextMappings, nextRoutes, nextWorkspaceSettings] = await Promise.all([
-        leadCrmApi.schema(selectedId),
-        leadCrmApi.mappings(selectedId),
+        leadCrmApi.schema(connectionId),
+        leadCrmApi.mappings(connectionId),
         leadCrmApi.routes(),
-        leadCrmApi.workspaceSettings(selectedId),
+        leadCrmApi.workspaceSettings(connectionId),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setSchema(nextSchema);
       setMappings(nextMappings);
       setRoutes(nextRoutes);
       setWorkspaceSettings(nextWorkspaceSettings);
       const leadMapping = nextMappings.find((item) => item.object_name === 'Leads');
-      if (leadMapping) setMappingText(JSON.stringify(leadMapping.mapping, null, 2));
+      setMappingText(leadMapping ? JSON.stringify(leadMapping.mapping, null, 2) : EMPTY_LEAD_MAPPING);
     } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
       pushToast(error instanceof Error ? error.message : 'Could not load CRM management data', 'error');
     }
-  }, [pushToast, selectedId]);
+  }, [clearConnectionState, pushToast, selectedId]);
 
   useEffect(() => {
     void load();
@@ -178,7 +195,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
       await leadCrmApi.disableConnection(selectedId);
       pushToast('CRM connection disabled and credentials removed');
       setSelectedId('');
-      setWorkspaceSettings(null);
+      clearConnectionState();
       onConnectionsChanged();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Could not disable CRM connection', 'error');
@@ -200,7 +217,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
     <div className="integration-toolbar">
       <label>
         CRM connection
-        <select aria-label="CRM management connection" value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+        <select aria-label="CRM management connection" value={selectedId} disabled={busy} onChange={(event) => setSelectedId(event.target.value)}>
           {connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name} · {connection.provider}</option>)}
         </select>
       </label>
