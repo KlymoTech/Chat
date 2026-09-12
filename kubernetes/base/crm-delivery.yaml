@@ -15,6 +15,20 @@ spec:
           envFrom: [{configMapRef: {name: northstar-config}}, {secretRef: {name: northstar-secrets}}]
           env: [{name: DATABASE_URL, valueFrom: {secretKeyRef: {name: northstar-secrets, key: WORKER_DATABASE_URL}}}]
           resources: {requests: {cpu: 150m, memory: 256Mi}, limits: {cpu: "2", memory: 1Gi}}
+          readinessProbe:
+            exec:
+              command: [python, -m, northstar_api.workers.worker_process_probe, --expect, northstar_api.workers.crm_delivery_worker]
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: [python, -m, northstar_api.workers.worker_process_probe, --expect, northstar_api.workers.crm_delivery_worker]
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
           volumeMounts: [{name: tmp, mountPath: /tmp}]
       volumes: [{name: tmp, emptyDir: {sizeLimit: 128Mi}}]

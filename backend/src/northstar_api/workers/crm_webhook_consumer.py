@@ -24,6 +24,7 @@ from northstar_api.lead_crm.models import (
 )
 from northstar_api.logging import configure_logging
 from northstar_api.models import Lead, ProcessedEvent
+from northstar_api.services.outbox import enqueue_event
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
 
 settings = get_settings()
@@ -79,32 +80,76 @@ def _parse_modified(value: object) -> datetime | None:
     return None
 
 
+def _conflict_ignore_reason(
+    policy: str,
+    platform_updated_at: datetime | None,
+    crm_modified_at: datetime | None,
+) -> str | None:
+    normalized = policy.upper()
+    if normalized == "PLATFORM_WINS":
+        return "platform_wins"
+    if (
+        normalized == "LATEST_WINS"
+        and platform_updated_at is not None
+        and crm_modified_at is not None
+        and platform_updated_at > crm_modified_at
+    ):
+        return "platform_newer"
+    return None
+
+
 def _apply_field(lead: Lead, profile: LeadProfile, field: str, value: Any) -> bool:
     if field == "status" and isinstance(value, str):
-        lead.status = value[:40]
-        profile.lifecycle_status = value[:40]
+        normalized = value[:40]
+        if lead.status == normalized and profile.lifecycle_status == normalized:
+            return False
+        lead.status = normalized
+        profile.lifecycle_status = normalized
         return True
     if field == "name" and (value is None or isinstance(value, str)):
+        if lead.name == value:
+            return False
         lead.name = value
         return True
     if field == "email" and (value is None or isinstance(value, str)):
+        if lead.email == value:
+            return False
         lead.email = value
         return True
     if field == "phone" and (value is None or isinstance(value, str)):
+        if lead.phone == value:
+            return False
         lead.phone = value
         return True
     if field == "company" and (value is None or isinstance(value, str)):
+        if profile.company == value:
+            return False
         profile.company = value
         return True
     if field == "jobTitle" and (value is None or isinstance(value, str)):
+        if profile.job_title == value:
+            return False
         profile.job_title = value
         return True
     if field.startswith("custom."):
         custom = dict(profile.custom_fields_json or {})
-        custom[field.removeprefix("custom.")] = value
+        key = field.removeprefix("custom.")
+        if custom.get(key) == value:
+            return False
+        custom[key] = value
         profile.custom_fields_json = custom
         return True
     return False
+
+
+def _fanout_payload(lead_id: UUID, origin_connection_id: UUID, changed: dict[str, Any]) -> dict[str, str] | None:
+    if not changed:
+        return None
+    return {
+        "leadId": str(lead_id),
+        "reason": "crm_inbound",
+        "originConnectionId": str(origin_connection_id),
+    }
 
 
 async def _process(session: AsyncSession, event: EventEnvelope) -> None:
@@ -172,13 +217,30 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
         _extract(webhook.payload_json, str(inbound.get("modifiedAtPath") or "$.modifiedAt"))
     )
     policy = str(config.get("conflictPolicy") or "CRM_WINS").upper()
-    if policy in {"PLATFORM_WINS", "LATEST_WINS"} and profile.updated_at and modified_at:
-        if profile.updated_at > modified_at:
-            webhook.processing_status = "ignored"
-            webhook.last_error = "platform_newer"
-            webhook.processed_at = datetime.now(UTC)
-            await session.commit()
-            return
+    conflict_reason = _conflict_ignore_reason(policy, profile.updated_at, modified_at)
+    if conflict_reason is not None:
+        webhook.processing_status = "ignored"
+        webhook.last_error = conflict_reason
+        webhook.processed_at = datetime.now(UTC)
+        session.add(
+            LeadActivityEvent(
+                tenant_id=event.tenant_id,
+                lead_id=lead.id,
+                event_type="lead.crm.inbound.ignored.v1",
+                correlation_id=webhook.correlation_id,
+                details_json={
+                    "provider": connection.provider,
+                    "connectionId": str(connection.id),
+                    "externalRecordId": str(record_id),
+                    "conflictPolicy": policy,
+                    "reason": conflict_reason,
+                    "platformUpdatedAt": profile.updated_at.isoformat() if profile.updated_at else None,
+                    "crmModifiedAt": modified_at.isoformat() if modified_at else None,
+                },
+            )
+        )
+        await session.commit()
+        return
     mapping = _as_dict(inbound.get("fieldMapping"))
     changed: dict[str, Any] = {}
     for target, path in mapping.items():
@@ -189,6 +251,17 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
             continue
         if _apply_field(lead, profile, target, value):
             changed[target] = value
+
+    if not changed:
+        if modified_at is not None and (
+            reference.external_modified_at is None or modified_at > reference.external_modified_at
+        ):
+            reference.external_modified_at = modified_at
+        webhook.processing_status = "ignored"
+        webhook.last_error = "no_effective_changes"
+        webhook.processed_at = datetime.now(UTC)
+        await session.commit()
+        return
 
     reference.external_modified_at = modified_at
     reference.sync_version += 1
@@ -208,6 +281,16 @@ async def _process(session: AsyncSession, event: EventEnvelope) -> None:
             },
         )
     )
+    fanout_payload = _fanout_payload(lead.id, connection.id, changed)
+    if fanout_payload is not None:
+        enqueue_event(
+            session,
+            tenant_id=event.tenant_id,
+            aggregate_type="lead",
+            aggregate_id=lead.id,
+            event_type="lead.crm.sync.requested.v1",
+            payload=fanout_payload,
+        )
     webhook.processing_status = "processed"
     webhook.processed_at = datetime.now(UTC)
     webhook.last_error = None

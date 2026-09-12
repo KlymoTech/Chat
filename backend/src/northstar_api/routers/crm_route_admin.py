@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.api_schemas import CRMRouteOut
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.models import CRMConnection, CRMRoute
 from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection, WorkspaceCRMRoute
 from northstar_api.security import Principal
@@ -45,6 +46,21 @@ def _route_out(value: CRMRoute) -> CRMRouteOut:
         created_at=value.created_at,
         updated_at=value.updated_at,
     )
+
+
+def _route_snapshot(value: CRMRoute) -> dict[str, Any]:
+    actions = dict(value.actions_json or {})
+    raw_connection_ids = actions.get("connectionIds")
+    return {
+        "name": value.name,
+        "enabled": value.enabled,
+        "priority": value.priority,
+        "version": value.version,
+        "conditions": dict(value.conditions_json or {}),
+        "connectionIds": [str(item) for item in raw_connection_ids]
+        if isinstance(raw_connection_ids, list)
+        else [],
+    }
 
 
 async def _assert_connections_owned(
@@ -106,6 +122,7 @@ async def patch_crm_route(
     )
     if value is None:
         raise HTTPException(status_code=404, detail="CRM route not found in this workspace")
+    before = _route_snapshot(value)
     if payload.connection_ids is not None:
         await _assert_connections_owned(
             session,
@@ -123,6 +140,18 @@ async def patch_crm_route(
     if payload.conditions is not None:
         value.conditions_json = payload.conditions
     value.version += 1
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.route.updated",
+        entity_type="crm_route",
+        entity_id=str(value.id),
+        category="crm",
+        before=before,
+        after=_route_snapshot(value),
+    )
     await session.commit()
     await session.refresh(value)
     return _route_out(value)
@@ -142,5 +171,19 @@ async def delete_crm_route(
     )
     if value is None:
         raise HTTPException(status_code=404, detail="CRM route not found in this workspace")
+    before = _route_snapshot(value)
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="crm.route.deleted",
+        entity_type="crm_route",
+        entity_id=str(value.id),
+        category="crm",
+        severity="warning",
+        before=before,
+        after={"deleted": True},
+    )
     await session.delete(value)
     await session.commit()
