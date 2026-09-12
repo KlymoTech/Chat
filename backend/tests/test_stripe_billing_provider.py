@@ -237,10 +237,28 @@ async def test_checkout_waits_for_signed_webhook_before_granting_paid_plan(
                 ]
             },
         }
+
+        async def retrieve_subscription(subscription_id: str) -> dict[str, Any]:
+            assert subscription_id == "sub_northstar_123"
+            return subscription_payload
+
+        monkeypatch.setattr(
+            billing_router.stripe_billing_client,
+            "retrieve_subscription",
+            retrieve_subscription,
+        )
+        # The delivered event is intentionally stale. The router must use only
+        # its tenant/id routing data and refresh the current provider state.
         event = {
             "id": "evt_northstar_123",
             "type": "customer.subscription.updated",
-            "data": {"object": subscription_payload},
+            "data": {
+                "object": {
+                    "id": "sub_northstar_123",
+                    "status": "past_due",
+                    "metadata": {"tenant_id": str(tenant_id)},
+                }
+            },
         }
         body = json.dumps(event, separators=(",", ":")).encode()
         timestamp = 1_789_000_100
