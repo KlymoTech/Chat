@@ -20,6 +20,13 @@ export interface ConversationFilters {
   pageSize?: number;
 }
 
+export interface EducationUpsellResolution {
+  conversationId: string;
+  state: ConversationState;
+  leadId: string;
+  leadCreated: boolean;
+}
+
 function authHeaders(): HeadersInit {
   const session = readStorage<Session | null>(SESSION_KEY, null);
   const workspaceId = activeWorkspaceId();
@@ -89,5 +96,24 @@ export const conversationApi = {
     });
     if (!response.ok) throw new ApiError(`Conversation resolve failed (${response.status})`, response.status);
     return response.json() as Promise<Conversation>;
+  },
+
+  async resolveEducationSalesIntent(conversationId: string): Promise<EducationUpsellResolution> {
+    const response = await fetch(
+      `${API_URL}/education/conversations/${conversationId}/resolve-sales-intent`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: authHeaders(),
+      },
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+      throw new ApiError(
+        payload?.error?.message ?? `Education sales-intent resolve failed (${response.status})`,
+        response.status,
+      );
+    }
+    return response.json() as Promise<EducationUpsellResolution>;
   },
 };

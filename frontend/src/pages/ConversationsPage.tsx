@@ -1,4 +1,4 @@
-import { Archive, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, Inbox, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
+import { Archive, BadgeDollarSign, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, Inbox, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast, useWorkspace } from '@/components/providers';
@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { conversationApi } from '@/lib/conversation-api';
 import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/education-api';
 import { educationEnrollmentApi, type EducationEnrollment } from '@/lib/education-enrollment-api';
+import { educationSalesSettingsApi } from '@/lib/education-sales-settings-api';
 import { educationStudentApi, type EducationStudent } from '@/lib/education-student-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
@@ -29,6 +30,7 @@ export function ConversationsPage() {
   const [channel, setChannel] = useState<ChannelFilter>('all');
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
+  const [routingUpsell, setRoutingUpsell] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -36,6 +38,10 @@ export function ConversationsPage() {
   }, [search]);
 
   const agents = useApi(() => api.agents.list(), [activeWorkspace?.id]);
+  const educationSales = useApi(
+    () => educationSalesSettingsApi.get().catch(() => ({ createUpsellLeads: false })),
+    [activeWorkspace?.id],
+  );
   const filterAgent = agentId === 'all' ? null : agents.data?.find((item) => item.id === agentId) ?? null;
   const isEducationAgent = filterAgent?.purpose === 'education';
 
@@ -110,6 +116,8 @@ export function ConversationsPage() {
   const selectedId = params.get('selected') ?? conversations[0]?.id;
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const selectedAgent = selected ? agents.data?.find((item) => item.id === selected.agentId) : null;
+  const canRouteEducationUpsell = selectedAgent?.purpose === 'education'
+    && educationSales.data?.createUpsellLeads === true;
 
   useEffect(() => {
     const selectedParam = params.get('selected');
@@ -149,6 +157,22 @@ export function ConversationsPage() {
     result.reload();
   };
 
+  const resolveEducationSalesIntent = async () => {
+    if (!selected || routingUpsell) return;
+    setRoutingUpsell(true);
+    try {
+      const routed = await conversationApi.resolveEducationSalesIntent(selected.id);
+      pushToast(routed.leadCreated
+        ? 'Education conversation resolved and sales Lead created'
+        : 'Education sales Lead is already linked to this conversation');
+      await result.reload();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Education sales Lead could not be created', 'error');
+    } finally {
+      setRoutingUpsell(false);
+    }
+  };
+
   const submitReply = async (event: FormEvent) => {
     event.preventDefault();
     if (!selected || !reply.trim() || sending) return;
@@ -184,13 +208,13 @@ export function ConversationsPage() {
       <div className="conversation-items">{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar">{conversation.visitorName.charAt(0)}</span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge><em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
       {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description={isEducationAgent ? 'Try another Course, Batch, Student, channel, status, or search.' : 'Try another workspace, agent, channel, status, or search.'} /> : null}
     </section>
-    {selected ? <ConversationDetail conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} onBack={() => setParams({})} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
+    {selected ? <ConversationDetail conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} canRouteEducationUpsell={canRouteEducationUpsell} resolveEducationSalesIntent={resolveEducationSalesIntent} routingUpsell={routingUpsell} onBack={() => setParams({})} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
   </div>;
 }
 
-function ConversationDetail({ conversation, agentName, workspaceName, reply, setReply, submitReply, setState, onBack, sending }: { conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState) => Promise<void>; onBack: () => void; sending: boolean }) {
+function ConversationDetail({ conversation, agentName, workspaceName, reply, setReply, submitReply, setState, canRouteEducationUpsell, resolveEducationSalesIntent, routingUpsell, onBack, sending }: { conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState) => Promise<void>; canRouteEducationUpsell: boolean; resolveEducationSalesIntent: () => Promise<void>; routingUpsell: boolean; onBack: () => void; sending: boolean }) {
   return <section className="conversation-detail">
-    <header className="conversation-detail__header"><button className="mobile-back" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions"><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{conversation.state !== 'resolved' ? <Button size="sm" icon={CheckCircle2} onClick={() => void setState('resolved')}>Resolve</Button> : <Button variant="secondary" size="sm" onClick={() => void setState('open')}>Reopen</Button>}</div></header>
+    <header className="conversation-detail__header"><button className="mobile-back" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions"><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{canRouteEducationUpsell ? <Button variant="secondary" size="sm" icon={BadgeDollarSign} disabled={routingUpsell} onClick={() => void resolveEducationSalesIntent()}>{routingUpsell ? 'Routing…' : conversation.state === 'resolved' ? 'Create sales lead' : 'Resolve + sales lead'}</Button> : null}{conversation.state !== 'resolved' ? <Button size="sm" icon={CheckCircle2} onClick={() => void setState('resolved')}>Resolve</Button> : <Button variant="secondary" size="sm" onClick={() => void setState('open')}>Reopen</Button>}</div></header>
     <div className="conversation-layout"><div className="conversation-thread"><div className="thread-notice"><Sparkles /> <span><strong>{conversation.state === 'escalated' ? 'Human attention requested' : 'Northstar handled this conversation'}</strong><small>The complete AI context is available below.</small></span></div><div className="message-day"><span>{new Date(conversation.startedAt).toLocaleDateString('en', { month: 'long', day: 'numeric' })}</span></div>
       {conversation.messages.map((message) => <div className={`inbox-message inbox-message--${message.role}`} key={message.id}>{message.role === 'user' ? <span className="message-avatar message-avatar--visitor">{conversation.visitorName.charAt(0)}</span> : <span className="message-avatar"><>{message.role === 'agent' ? <UserRound /> : <Sparkles />}</></span>}<div><span className="message-author">{message.role === 'user' ? conversation.visitorName : message.role === 'agent' ? 'You' : 'Northstar AI'} <time>{new Date(message.createdAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</time></span><div className="message-bubble">{message.content}</div>{message.citations?.map((citation) => <button className="citation-chip" key={citation.title}><ExternalLink />{citation.title}</button>)}</div></div>)}
     </div><form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form></div>
