@@ -22,8 +22,8 @@ const batches = [
 ] as const;
 
 const agents = [
-  { id: 'agent-1', publicId: 'agent-cpa', name: 'CPA Mentor', purpose: 'education' },
-  { id: 'agent-2', publicId: 'agent-cma', name: 'CMA Mentor', purpose: 'education' },
+  { id: 'agent-1', publicId: 'agent-cpa', name: 'CPA Mentor' },
+  { id: 'agent-2', publicId: 'agent-cma', name: 'CMA Mentor' },
 ] as const;
 
 const enrollments = [
@@ -42,7 +42,7 @@ describe('education enrollment admin helpers', () => {
       students,
       courses,
       batches,
-      agents as never,
+      agents,
       { status: 'active', courseId: 'course-1', batchId: 'batch-1', agentId: 'agent-1', search: 'asha@example.com' },
     ).map((item) => item.id)).toEqual(['enrollment-1']);
 
@@ -51,7 +51,7 @@ describe('education enrollment admin helpers', () => {
       students,
       courses,
       batches,
-      agents as never,
+      agents,
       { status: 'all', courseId: 'course-1', batchId: 'all', agentId: 'all', search: 'ravi' },
     )).toEqual([]);
   });
