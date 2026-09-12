@@ -83,7 +83,7 @@ def test_lms_import_requires_identity_pair() -> None:
 
 
 def test_lms_import_reuses_existing_enrollment_group_validation_at_payload_boundary() -> None:
-    with pytest.raises(ValidationError, match="Course, Batch, and Agent"):
+    with pytest.raises(ValidationError, match="course code, batch code, and Agent ID"):
         LMSStudentImportPayload(
             source="Blackboard",
             rows=[
