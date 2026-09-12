@@ -12,7 +12,6 @@ from northstar_api.dependencies import CurrentPrincipal
 from northstar_api.lead_crm.delivery_attempt_schemas import CRMDeliveryAttemptOut
 from northstar_api.lead_crm.models import CRMDelivery, CRMDeliveryAttempt
 from northstar_api.models import Lead
-from northstar_api.security import Principal
 
 router = APIRouter(prefix="/crm/deliveries", tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
