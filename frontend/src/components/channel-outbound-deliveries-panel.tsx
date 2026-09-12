@@ -1,5 +1,6 @@
 import { Activity, CircleAlert, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import { ChannelDeliveryAttemptsPanel } from '@/components/channel-delivery-attempts-panel';
 import { useAuth } from '@/components/providers';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { channelDeliveriesApi } from '@/lib/channel-deliveries-api';
@@ -31,6 +32,7 @@ export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundD
   const [actionId, setActionId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [attemptDeliveryId, setAttemptDeliveryId] = useState<string | null>(null);
   const deliveries = useApi(
     () => channelDeliveriesApi.list({
       connectionId: connectionId || undefined,
@@ -111,13 +113,25 @@ export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundD
         <td>{delivery.next_dispatch_at ? <><strong>{new Date(delivery.next_dispatch_at).toLocaleString()}</strong><small>{relativeTime(delivery.next_dispatch_at)}</small></> : '—'}</td>
         <td>{delivery.error_code ? <code>{delivery.error_code}</code> : '—'}</td>
         <td><code>{delivery.message_id}</code></td>
-        <td>{canManage && delivery.status === 'dispatch_failed' ? <Button
-          variant="secondary"
-          size="sm"
-          disabled={actionId === delivery.id}
-          onClick={() => void requeue(delivery.id)}
-        >{actionId === delivery.id ? 'Requeueing…' : 'Requeue dispatch'}</Button> : '—'}</td>
+        <td><div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setAttemptDeliveryId(delivery.id)}
+          >{attemptDeliveryId === delivery.id ? 'Viewing attempts' : 'View attempts'}</Button>
+          {canManage && delivery.status === 'dispatch_failed' ? <>{' '}<Button
+            variant="secondary"
+            size="sm"
+            disabled={actionId === delivery.id}
+            onClick={() => void requeue(delivery.id)}
+          >{actionId === delivery.id ? 'Requeueing…' : 'Requeue dispatch'}</Button></> : null}
+        </div></td>
       </tr>)}</tbody>
     </table></div>}
+
+    {attemptDeliveryId ? <ChannelDeliveryAttemptsPanel
+      deliveryId={attemptDeliveryId}
+      onClose={() => setAttemptDeliveryId(null)}
+    /> : null}
   </Card>;
 }

@@ -55,6 +55,43 @@ describe('channel delivery visibility API client', () => {
     );
   });
 
+  it('loads safe attempt history for one encoded delivery id', async () => {
+    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
+    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    const attempts = [{
+      id: 'attempt-1',
+      delivery_id: 'delivery/1',
+      phase: 'provider',
+      attempt_number: 2,
+      outcome: 'failed',
+      error_code: 'provider_retryable',
+      created_at: '2026-09-12T18:31:00Z',
+    }];
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(attempts), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await channelDeliveriesApi.attempts('delivery/1', 25);
+
+    expect(result).toEqual(attempts);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/channels/deliveries/delivery%2F1/attempts?limit=25',
+      expect.objectContaining({
+        method: 'GET',
+        credentials: 'include',
+        headers: expect.objectContaining({
+          Accept: 'application/json',
+          Authorization: 'Bearer access-token',
+          'X-Workspace-ID': 'workspace-1',
+        }),
+      }),
+    );
+  });
+
   it('requeues one dispatch-failed delivery through the managed endpoint', async () => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
     localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));

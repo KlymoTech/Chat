@@ -21,6 +21,16 @@ export interface ChannelOutboundDeliveryView {
   updated_at: string;
 }
 
+export interface ChannelDeliveryAttemptView {
+  id: string;
+  delivery_id: string;
+  phase: string;
+  attempt_number: number;
+  outcome: string;
+  error_code?: string | null;
+  created_at: string;
+}
+
 export interface ChannelDeliveryFilters {
   connectionId?: string;
   status?: string;
@@ -63,6 +73,10 @@ export const channelDeliveriesApi = {
     params.set('limit', String(limit));
     return call<ChannelOutboundDeliveryView[]>(`/channels/deliveries?${params.toString()}`);
   },
+  attempts: (deliveryId: string, limit = 100) =>
+    call<ChannelDeliveryAttemptView[]>(
+      `/channels/deliveries/${encodeURIComponent(deliveryId)}/attempts?limit=${limit}`,
+    ),
   requeue: (deliveryId: string) =>
     call<ChannelOutboundDeliveryView>(`/channels/deliveries/${encodeURIComponent(deliveryId)}/requeue`, 'POST'),
 };
