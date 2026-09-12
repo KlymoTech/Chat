@@ -8,10 +8,10 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from northstar_api.lead_crm import safe_http
-from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMError, crm_registry
-from northstar_api.lead_crm.domain import CRMProvider, NormalizedCRMErrorCode
 from northstar_api.lead_crm import providers as provider_registry
+from northstar_api.lead_crm import safe_http
+from northstar_api.lead_crm.connectors import CRMConnectionContext, CRMConnector, CRMError, crm_registry
+from northstar_api.lead_crm.domain import CRMProvider, NormalizedCRMErrorCode
 from northstar_api.lead_crm.providers import secure_native
 from northstar_api.lead_crm.providers.secure_native import (
     SecureDynamics365Connector,
@@ -51,7 +51,7 @@ def _context(
     ],
 )
 def test_hardened_native_connectors_remain_concrete_and_provider_compatible(
-    connector_type: type[SecureSalesforceConnector],
+    connector_type: type[CRMConnector],
     provider: CRMProvider,
 ) -> None:
     assert connector_type().provider is provider
