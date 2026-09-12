@@ -1,5 +1,6 @@
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useAuth } from '@/components/providers';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { channelWebhookEventsApi } from '@/lib/channel-webhook-events-api';
 import { relativeTime } from '@/lib/format';
@@ -23,9 +24,14 @@ function statusTone(status: string): 'success' | 'warning' | 'brand' | 'neutral'
 }
 
 export function ChannelWebhookEventsPanel({ connections }: ChannelWebhookEventsPanelProps) {
+  const { session } = useAuth();
+  const canManage = session?.user.role === 'owner' || session?.user.role === 'admin';
   const [connectionId, setConnectionId] = useState('');
   const [processingStatus, setProcessingStatus] = useState('');
   const [provider, setProvider] = useState('');
+  const [actionId, setActionId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const events = useApi(
     () => channelWebhookEventsApi.list({
       connectionId: connectionId || undefined,
@@ -44,6 +50,21 @@ export function ChannelWebhookEventsPanel({ connections }: ChannelWebhookEventsP
     [connections],
   );
   const rows = events.data ?? [];
+
+  const requeue = async (eventId: string) => {
+    setActionId(eventId);
+    setActionMessage(null);
+    setActionError(null);
+    try {
+      await channelWebhookEventsApi.requeue(eventId);
+      setActionMessage('Failed webhook requeued through the existing channel event pipeline.');
+      events.reload();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not requeue channel webhook');
+    } finally {
+      setActionId(null);
+    }
+  };
 
   return <Card>
     <div className="page-heading page-heading--split">
@@ -85,6 +106,9 @@ export function ChannelWebhookEventsPanel({ connections }: ChannelWebhookEventsP
       <Button variant="secondary" size="sm" icon={RefreshCw} disabled={events.loading} onClick={events.reload}>Refresh</Button>
     </div>
 
+    {actionMessage ? <p role="status">{actionMessage}</p> : null}
+    {actionError ? <p role="alert">{actionError}</p> : null}
+
     {events.loading && !events.data ? <p>Loading channel webhook activity…</p> : events.error ? (
       <EmptyState
         icon={CircleAlert}
@@ -93,7 +117,7 @@ export function ChannelWebhookEventsPanel({ connections }: ChannelWebhookEventsP
         action={<Button variant="secondary" onClick={events.reload}>Try again</Button>}
       />
     ) : rows.length ? <div className="leads-table-wrap"><table className="leads-table">
-      <thead><tr><th>Status</th><th>Channel</th><th>Event</th><th>Verification</th><th>Attempts</th><th>Received</th><th>Processing evidence</th></tr></thead>
+      <thead><tr><th>Status</th><th>Channel</th><th>Event</th><th>Verification</th><th>Attempts</th><th>Received</th><th>Processing evidence</th><th>Action</th></tr></thead>
       <tbody>{rows.map((item) => <tr key={item.id}>
         <td><Badge tone={statusTone(item.processing_status)}>{item.processing_status}</Badge></td>
         <td>{connectionNames.get(item.connection_id) ?? item.connection_id}<small>{item.provider}</small></td>
@@ -102,6 +126,12 @@ export function ChannelWebhookEventsPanel({ connections }: ChannelWebhookEventsP
         <td>{item.attempt_count}</td>
         <td><time dateTime={item.received_at}>{relativeTime(item.received_at)}</time></td>
         <td>{item.processed_at ? <small>Processed {relativeTime(item.processed_at)}</small> : <small>Awaiting processing</small>}{item.error_code ? <small><code>{item.error_code}</code></small> : null}</td>
+        <td>{canManage && item.can_requeue ? <Button
+          variant="secondary"
+          size="sm"
+          disabled={actionId === item.id}
+          onClick={() => void requeue(item.id)}
+        >{actionId === item.id ? 'Requeueing…' : 'Requeue event'}</Button> : '—'}</td>
       </tr>)}</tbody>
     </table></div> : <EmptyState
       icon={CircleAlert}
