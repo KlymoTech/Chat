@@ -11,6 +11,7 @@ from northstar_api.routers import (
     crm,
     crm_dead_letters,
     crm_delivery_attempts,
+    crm_health_history,
     crm_oauth,
     crm_operations,
     crm_route_admin,
@@ -84,6 +85,7 @@ api_router.include_router(crm_workspace_settings.router)
 api_router.include_router(crm_delivery_attempts.router)
 api_router.include_router(crm_dead_letters.router)
 api_router.include_router(crm_operations.router)
+api_router.include_router(crm_health_history.router)
 api_router.include_router(crm_webhook_events.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
