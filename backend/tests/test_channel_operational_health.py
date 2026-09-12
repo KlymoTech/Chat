@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from northstar_api.database import Base
 from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
+from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.models import (
     Agent,
     Channel,
@@ -173,6 +176,91 @@ async def channel_operations_case() -> AsyncIterator[tuple[AsyncSession, Princip
                 status="dispatch_failed",
             )
         )
+
+        now = datetime(2026, 9, 12, 13, 0, tzinfo=UTC)
+        session.add_all(
+            [
+                RawWebhookEvent(
+                    tenant_id=tenant.id,
+                    connection_key=str(primary_connection.id),
+                    provider="telegram",
+                    external_event_id="primary-received",
+                    event_type="message.received",
+                    payload_json={"text": "private pending message", "token": "secret-token"},
+                    headers_json={"authorization": "Bearer private"},
+                    payload_hash="a" * 64,
+                    verification_status="verified",
+                    processing_status="received",
+                    attempt_count=0,
+                    received_at=now,
+                    correlation_id="corr-primary-received",
+                ),
+                RawWebhookEvent(
+                    tenant_id=tenant.id,
+                    connection_key=str(primary_connection.id),
+                    provider="telegram",
+                    external_event_id="primary-failed",
+                    event_type="message.received",
+                    payload_json={"text": "private failed message"},
+                    headers_json={"x-secret": "private-header"},
+                    payload_hash="b" * 64,
+                    verification_status="verified",
+                    processing_status="failed",
+                    attempt_count=2,
+                    received_at=now,
+                    last_error="raw provider failure must not leak",
+                    correlation_id="corr-primary-failed",
+                ),
+                RawWebhookEvent(
+                    tenant_id=tenant.id,
+                    connection_key=str(primary_connection.id),
+                    provider="telegram",
+                    external_event_id="primary-rejected",
+                    event_type="message.received",
+                    payload_json={"private": "rejected content"},
+                    headers_json={},
+                    payload_hash="c" * 64,
+                    verification_status="verified",
+                    processing_status="rejected",
+                    attempt_count=1,
+                    received_at=now,
+                    last_error="plan entitlement: channel_not_allowed",
+                    correlation_id="corr-primary-rejected",
+                ),
+                RawWebhookEvent(
+                    tenant_id=tenant.id,
+                    connection_key=str(primary_connection.id),
+                    provider="telegram",
+                    external_event_id="primary-processed",
+                    event_type="message.received",
+                    payload_json={"private": "processed content"},
+                    headers_json={},
+                    payload_hash="d" * 64,
+                    verification_status="verified",
+                    processing_status="processed",
+                    attempt_count=1,
+                    received_at=now,
+                    processed_at=now,
+                    correlation_id="corr-primary-processed",
+                ),
+                RawWebhookEvent(
+                    tenant_id=tenant.id,
+                    connection_key=str(other_connection.id),
+                    provider="slack",
+                    external_event_id="other-failed",
+                    event_type="message.received",
+                    payload_json={"private": "other workspace"},
+                    headers_json={"authorization": "other-secret"},
+                    payload_hash="e" * 64,
+                    verification_status="verified",
+                    processing_status="failed",
+                    attempt_count=9,
+                    received_at=now,
+                    last_error="Other workspace webhook failure must not leak",
+                    correlation_id="corr-other-failed",
+                ),
+            ]
+        )
         await session.commit()
 
         principal = Principal(
@@ -203,6 +291,9 @@ async def test_channel_operational_health_aggregates_only_active_workspace(
     assert result.pending_deliveries == 2
     assert result.retrying_deliveries == 1
     assert result.failed_deliveries == 1
+    assert result.pending_webhook_events == 1
+    assert result.failed_webhook_events == 1
+    assert result.rejected_webhook_events == 1
     assert len(result.connections) == 1
 
     connection = result.connections[0]
@@ -211,7 +302,54 @@ async def test_channel_operational_health_aggregates_only_active_workspace(
     assert connection.pending_deliveries == 2
     assert connection.retrying_deliveries == 1
     assert connection.failed_deliveries == 1
-    assert "Other workspace" not in (connection.last_error or "")
+    assert connection.pending_webhook_events == 1
+    assert connection.failed_webhook_events == 1
+    assert connection.rejected_webhook_events == 1
+    rendered = str(result.model_dump(mode="json"))
+    for forbidden in (
+        "secret-token",
+        "private-header",
+        "private pending message",
+        "private failed message",
+        "raw provider failure",
+        "channel_not_allowed",
+        "other workspace",
+        "Other workspace",
+    ):
+        assert forbidden not in rendered
+
+
+async def test_rejected_webhooks_are_visible_without_becoming_health_failures(
+    channel_operations_case,
+) -> None:
+    session, principal = channel_operations_case
+
+    terminal_delivery = await session.scalar(
+        select(ChannelOutboundDelivery).where(
+            ChannelOutboundDelivery.tenant_id == principal.tenant_id,
+            ChannelOutboundDelivery.workspace_id == principal.workspace_id,
+            ChannelOutboundDelivery.status == "rejected",
+        )
+    )
+    failed_event = await session.scalar(
+        select(RawWebhookEvent).where(
+            RawWebhookEvent.tenant_id == principal.tenant_id,
+            RawWebhookEvent.correlation_id == "corr-primary-failed",
+        )
+    )
+    assert terminal_delivery is not None
+    assert failed_event is not None
+    terminal_delivery.status = "sent"
+    failed_event.processing_status = "processed"
+    await session.commit()
+
+    result = await channel_operational_health(principal, session)
+
+    assert result.failed_deliveries == 0
+    assert result.failed_webhook_events == 0
+    assert result.rejected_webhook_events == 1
+    assert result.attention_connections == 0
+    assert result.overall_status == "active"
 
 
 async def test_channel_operational_health_empty_workspace_is_explicit(
@@ -239,6 +377,9 @@ async def test_channel_operational_health_empty_workspace_is_explicit(
 
     assert result.overall_status == "empty"
     assert result.connection_count == 0
+    assert result.pending_webhook_events == 0
+    assert result.failed_webhook_events == 0
+    assert result.rejected_webhook_events == 0
     assert result.connections == []
 
 
