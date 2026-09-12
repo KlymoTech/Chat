@@ -40,12 +40,6 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "delivery_id",
-            "phase",
-            "attempt_number",
-            name="uq_channel_delivery_attempt_number",
-        ),
     )
     op.create_index(
         "ix_channel_delivery_attempts_tenant_id",
