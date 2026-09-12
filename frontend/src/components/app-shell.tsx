@@ -1,5 +1,5 @@
 import {
-  BarChart3, Building2, Check, ChevronDown, CircleHelp, Code2, Command, ContactRound, FileSpreadsheet, GraduationCap, History, Inbox,
+  BarChart3, Building2, Check, ChevronDown, CircleHelp, ClipboardList, Code2, Command, ContactRound, FileSpreadsheet, GraduationCap, History, Inbox,
   LayoutDashboard, LogOut, PanelLeftClose, PanelLeftOpen, PlugZap, Plus, Search, Settings2, ShieldCheck, Sparkles, UsersRound, X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
@@ -15,6 +15,7 @@ const navigation = [
   { to: '/education/courses', label: 'Courses', icon: GraduationCap },
   { to: '/education/batches', label: 'Batches', icon: GraduationCap },
   { to: '/education/students', label: 'Students', icon: UsersRound, end: true },
+  { to: '/education/enrollments', label: 'Enrollments', icon: ClipboardList },
   { to: '/education/students/import', label: 'Imports', icon: FileSpreadsheet },
   { to: '/education/access-requests', label: 'Access Requests', icon: ShieldCheck },
   { to: '/education/activity', label: 'Activity', icon: History },
@@ -60,7 +61,8 @@ export function AppShell() {
   );
   const visibleNavigation = navigation.filter((item) => item.to !== '/audit' || canViewAudit);
   const mobileNavigation = visibleNavigation.filter((item) => (
-    item.to !== '/education/students/import'
+    item.to !== '/education/enrollments'
+    && item.to !== '/education/students/import'
     && item.to !== '/education/access-requests'
     && item.to !== '/education/activity'
   )).slice(0, 6);
