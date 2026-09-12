@@ -444,20 +444,16 @@ async def _stale_webhook_recovery_candidates(
             if recovery_keys
             else set()
         )
-        raw_states = (
-            {
-                raw_event_id: (tenant_id, processing_status)
-                for raw_event_id, tenant_id, processing_status in await session.execute(
-                    select(
-                        RawWebhookEvent.id,
-                        RawWebhookEvent.tenant_id,
-                        RawWebhookEvent.processing_status,
-                    ).where(RawWebhookEvent.id.in_(raw_ids))
-                )
-            }
-            if raw_ids
-            else {}
-        )
+        raw_states = {
+            raw_event_id: (tenant_id, processing_status)
+            for raw_event_id, tenant_id, processing_status in await session.execute(
+                select(
+                    RawWebhookEvent.id,
+                    RawWebhookEvent.tenant_id,
+                    RawWebhookEvent.processing_status,
+                ).where(RawWebhookEvent.id.in_(raw_ids))
+            )
+        } if raw_ids else {}
 
         for tenant_id, workspace_id, raw_event_id in parsed_rows:
             candidate = (tenant_id, workspace_id, raw_event_id)
@@ -671,6 +667,8 @@ async def monitor_connection(
                 checked_at=checked_at,
             )
         except Exception as exc:
+            # Health persistence is primary. A notification failure cannot undo
+            # the completed provider check or its durable connection status.
             logger.exception(
                 "channel_health_monitor_notification_failed",
                 tenant_id=str(tenant_id),
@@ -711,6 +709,8 @@ async def run_once(factory: async_sessionmaker[AsyncSession]) -> dict[str, int]:
     try:
         await _notify_stale_webhook_events(factory, now=now)
     except Exception as exc:
+        # Stale-event notifications are a secondary operational projection.
+        # Their failure must not alter the existing health-monitor contract.
         logger.exception(
             "channel_stale_webhook_scan_failed",
             error=type(exc).__name__,
