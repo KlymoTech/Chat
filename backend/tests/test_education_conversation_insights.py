@@ -16,7 +16,7 @@ def test_education_conversation_insights_are_redacted_bounded_recent_and_dedupli
             "How does financial reporting consolidation work?",
             "My password is super-secret-value, can you help me log in?",
             "What are the audit evidence requirements?",
-            "Explain revenue recognition for a contract with multiple obligations.",
+            "Explain revenue recognition for a contract with multiple performance obligations and variable consideration across reporting periods.",
         ],
         max_topics=5,
         max_chars=80,
