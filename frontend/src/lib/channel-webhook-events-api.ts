@@ -64,7 +64,7 @@ export const channelWebhookEventsApi = {
     return call<ChannelWebhookEventView[]>(`/channels/webhook-events?${params.toString()}`);
   },
   requeue: (eventId: string) => call<ChannelWebhookEventView>(
-    `/channels/webhook-events/${eventId}/requeue`,
+    `/channels/webhook-events/${encodeURIComponent(eventId)}/requeue`,
     'POST',
   ),
 };
