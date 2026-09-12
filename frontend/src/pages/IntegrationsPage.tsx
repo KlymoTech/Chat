@@ -1,5 +1,6 @@
 import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, RefreshCw, Search, Terminal, Users, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ChannelHealthHistoryPanel } from '@/components/channel-health-history-panel';
 import { CRMDeadLetterPanel } from '@/components/crm-dead-letter-panel';
 import { CRMHealthHistoryPanel } from '@/components/crm-health-history-panel';
 import { CRMManagementPanel } from '@/components/crm-management-panel';
@@ -42,6 +43,7 @@ export function IntegrationsPage() {
   const [category, setCategory] = useState<'all' | Integration['category']>('all');
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
+  const [showChannelHealthHistory, setShowChannelHealthHistory] = useState(false);
   const [showHealthHistory, setShowHealthHistory] = useState(false);
   const [showWebhookEvents, setShowWebhookEvents] = useState(false);
   const [crmProvider, setCrmProvider] = useState<CRMProviderId>('zoho');
@@ -181,6 +183,13 @@ export function IntegrationsPage() {
       {canManage && channelProvider === 'facebook_messenger' ? <p className="integration-helper">Facebook Messenger outbound replies require a Page access token with pages_messaging permission, the Facebook Page ID, Meta app secret, and a private webhook verify token. Secrets are encrypted server-side and never returned by the connection API.</p> : null}
       {canManage && channelProvider === 'slack' ? <p className="integration-helper">Slack requires a Bot token with chat:write and the app Signing Secret. Copy the Slack Events API Request URL shown on the connection card after creation, then subscribe to message/app mention events. Secrets are encrypted server-side and never returned by the connection API.</p> : null}
     </Card>
+
+    {showChannelHealthHistory ? <ChannelHealthHistoryPanel connections={channelConnections.data ?? []} /> : <Card>
+      <div className="page-heading page-heading--split">
+        <div><h3>Channel health history</h3><p>Review safe scheduled status history for each Workspace messaging connection without exposing provider payloads or credentials.</p></div>
+        <Button variant="secondary" onClick={() => setShowChannelHealthHistory(true)}>View channel health history</Button>
+      </div>
+    </Card>}
 
     <Card>
       <div className="page-heading page-heading--split"><div><h3>CRM destinations</h3><p>Each connection has independent auth, schema, mapping, routing, health, retry, ACK and verification state.</p></div><Badge tone="purple">Any-CRM egress</Badge></div>
