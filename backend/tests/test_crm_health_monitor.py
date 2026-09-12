@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -235,3 +236,14 @@ async def test_due_selection_excludes_recent_draft_and_disabled_connections(
         selected = await crm_health_monitor._due_connections(session, now=now)
 
     assert selected == [(crm.id, tenant_id)]
+
+
+def test_health_monitor_is_wired_into_compose_and_kubernetes() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    compose = (repo_root / "compose.yaml").read_text(encoding="utf-8")
+    kustomization = (repo_root / "kubernetes" / "base" / "kustomization.yaml").read_text(encoding="utf-8")
+
+    assert "  crm-health-monitor:\n" in compose
+    assert 'command: ["python", "-m", "northstar_api.workers.crm_health_monitor"]' in compose
+    assert "OTEL_SERVICE_NAME: northstar-crm-health-monitor" in compose
+    assert "- crm-health-monitor.yaml" in kustomization
