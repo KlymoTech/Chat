@@ -31,9 +31,15 @@ function activityTitle(event: StudentDetailActivity): string {
   return event.eventType.replace(/^education\./, '').replace(/\.v\d+$/, '').replace(/[._]/g, ' ');
 }
 
+function activityTopics(details: Record<string, unknown>): string[] {
+  const value = details.topicsAsked;
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 5);
+}
+
 function detailEntries(details: Record<string, unknown>): Array<[string, string]> {
   return Object.entries(details)
-    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .filter(([key, value]) => key !== 'topicsAsked' && value !== null && value !== undefined && value !== '')
     .slice(0, 8)
     .map(([key, value]) => [
       key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[._]/g, ' '),
@@ -114,6 +120,7 @@ export function EducationStudentDetailPage() {
           <div className="student-detail-section-heading"><div><History /><span><h3>Activity history</h3><p>Latest append-only Education history events. Total recorded: {summary.activityCount}.</p></span></div></div>
           {activity.length ? <ol className="student-detail-timeline">{activity.map((event) => {
             const entries = detailEntries(event.details);
+            const topics = activityTopics(event.details);
             return <li key={event.id}>
               <span className="student-detail-timeline-dot" />
               <div className="student-detail-activity-card">
@@ -122,6 +129,7 @@ export function EducationStudentDetailPage() {
                   <time dateTime={event.createdAt}>{relativeTime(event.createdAt)}</time>
                 </div>
                 <p>Conversation <code>{event.conversationPublicId}</code>{event.resolution ? ` · ${event.resolution}` : ''}</p>
+                {topics.length ? <div className="student-detail-activity-topics"><strong>Topics asked</strong><ul>{topics.map((topic) => <li key={topic}>{topic}</li>)}</ul></div> : null}
                 {entries.length ? <dl>{entries.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl> : null}
               </div>
             </li>;
