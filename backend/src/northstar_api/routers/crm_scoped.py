@@ -86,6 +86,8 @@ async def create_crm_connection(
     if duplicate:
         raise HTTPException(status_code=409, detail="A CRM connection with that name already exists in this workspace")
 
+    # The legacy table still has a tenant-wide unique name. Preserve compatibility
+    # while allowing the same display name in different workspaces.
     stored_name = payload.name
     tenant_name_conflict = await session.scalar(
         select(CRMConnection.id).where(
@@ -141,6 +143,8 @@ async def create_crm_connection(
         )
     )
 
+    # Default all-leads route implements the product default: a connected CRM
+    # receives every new Lead in its workspace unless the user later changes it.
     default_route = CRMRoute(
         tenant_id=principal.tenant_id,
         name=f"Auto sync {stored_name}",
