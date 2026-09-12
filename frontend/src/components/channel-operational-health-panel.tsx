@@ -37,7 +37,7 @@ export function ChannelOperationalHealthPanel() {
       <div className="page-heading page-heading--split">
         <div>
           <h3>Channel operational health</h3>
-          <p>Current Workspace view of provider-neutral channel health, outbound backlog, automatic retries, and terminal delivery failures.</p>
+          <p>Current Workspace view of provider-neutral channel health, inbound webhook processing, outbound backlog, automatic retries, and terminal failures.</p>
         </div>
         <div>
           {data ? <Badge tone={overallTone(data.overall_status)}>{data.overall_status}</Badge> : null}{' '}
@@ -60,16 +60,22 @@ export function ChannelOperationalHealthPanel() {
           <Card><span><Send /></span><div><strong>{data.pending_deliveries}</strong><small>Pending deliveries</small></div></Card>
           <Card><span><RefreshCw /></span><div><strong>{data.retrying_deliveries}</strong><small>Retrying</small></div></Card>
           <Card><span><CircleAlert /></span><div><strong>{data.failed_deliveries}</strong><small>Terminal failures</small></div></Card>
+          <Card><span><Activity /></span><div><strong>{data.pending_webhook_events}</strong><small>Inbound pending</small></div></Card>
+          <Card><span><CircleAlert /></span><div><strong>{data.failed_webhook_events}</strong><small>Inbound failed</small></div></Card>
+          <Card><span><Activity /></span><div><strong>{data.rejected_webhook_events}</strong><small>Inbound rejected</small></div></Card>
         </div>
 
         <div className="leads-table-wrap"><table className="leads-table">
-          <thead><tr><th>Channel</th><th>Status</th><th>Pending</th><th>Retrying</th><th>Failed</th><th>Last activity</th></tr></thead>
+          <thead><tr><th>Channel</th><th>Status</th><th>Pending</th><th>Retrying</th><th>Failed</th><th>Inbound pending</th><th>Inbound failed</th><th>Inbound rejected</th><th>Last activity</th></tr></thead>
           <tbody>{data.connections.map((connection) => <tr key={connection.connection_id}>
             <td><strong>{connection.name}</strong><small>{connection.provider}</small></td>
-            <td><Badge tone={connectionTone(connection.status, connection.failed_deliveries)}>{connection.status}</Badge>{connection.last_error ? <small>{connection.last_error}</small> : null}</td>
+            <td><Badge tone={connectionTone(connection.status, connection.failed_deliveries + connection.failed_webhook_events)}>{connection.status}</Badge>{connection.last_error ? <small>{connection.last_error}</small> : null}</td>
             <td>{connection.pending_deliveries}</td>
             <td>{connection.retrying_deliveries}</td>
             <td>{connection.failed_deliveries}</td>
+            <td>{connection.pending_webhook_events}</td>
+            <td>{connection.failed_webhook_events}</td>
+            <td>{connection.rejected_webhook_events}</td>
             <td>
               {connection.last_event_at ? <small>Event {relativeTime(connection.last_event_at)}</small> : null}
               {connection.last_failure_at ? <small>Failure {relativeTime(connection.last_failure_at)}</small> : null}
@@ -78,7 +84,7 @@ export function ChannelOperationalHealthPanel() {
             </td>
           </tr>)}</tbody>
         </table></div>
-        {data.failed_deliveries > 0 ? <p role="status"><strong>Attention required:</strong> {data.failed_deliveries} terminal outbound delivery failure state(s) are visible in this Workspace.</p> : null}
+        {data.failed_deliveries > 0 || data.failed_webhook_events > 0 ? <p role="status"><strong>Attention required:</strong> {data.failed_deliveries} terminal outbound delivery failure state(s) and {data.failed_webhook_events} failed inbound webhook event(s) are visible in this Workspace.</p> : null}
         {!showDeliveries ? <div className="page-heading page-heading--split">
           <div><h4>Outbound delivery evidence</h4><p>Open the safe delivery view for individual retry and terminal-failure evidence.</p></div>
           <Button variant="secondary" onClick={() => setShowDeliveries(true)}>View delivery evidence</Button>
