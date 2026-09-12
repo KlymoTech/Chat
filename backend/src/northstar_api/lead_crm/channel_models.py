@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, event, func, inspect
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    event,
+    func,
+    inspect,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -205,6 +216,7 @@ def _capture_channel_delivery_attempt(
                 attempt_number=delivery.dispatch_attempts,
                 outcome="publish_failed" if publish_failed else "published",
                 error_code="broker_publish_failed" if publish_failed else None,
+                created_at=datetime.now(UTC),
             )
         )
 
@@ -224,5 +236,6 @@ def _capture_channel_delivery_attempt(
                 attempt_number=delivery.attempt_count,
                 outcome=delivery.status[:40],
                 error_code=_PROVIDER_ATTEMPT_ERROR_CODES.get(delivery.status),
+                created_at=datetime.now(UTC),
             )
         )
