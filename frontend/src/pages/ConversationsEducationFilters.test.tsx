@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   agentList: vi.fn(),
   conversationList: vi.fn(),
   resolve: vi.fn(),
+  resolveEducationSalesIntent: vi.fn(),
+  educationSalesSettings: vi.fn(),
   updateState: vi.fn(),
   reply: vi.fn(),
   courseList: vi.fn(),
@@ -32,7 +34,15 @@ vi.mock('@/lib/api', () => ({
 }));
 
 vi.mock('@/lib/conversation-api', () => ({
-  conversationApi: { list: mocks.conversationList, resolve: mocks.resolve },
+  conversationApi: {
+    list: mocks.conversationList,
+    resolve: mocks.resolve,
+    resolveEducationSalesIntent: mocks.resolveEducationSalesIntent,
+  },
+}));
+
+vi.mock('@/lib/education-sales-settings-api', () => ({
+  educationSalesSettingsApi: { get: mocks.educationSalesSettings },
 }));
 
 vi.mock('@/lib/education-api', () => ({
@@ -58,6 +68,7 @@ function agent(id: string, name: string, purpose: Agent['purpose']): Agent {
 
 describe('ConversationsPage Education filters', () => {
   beforeEach(() => {
+    mocks.educationSalesSettings.mockResolvedValue({ createUpsellLeads: false });
     mocks.agentList.mockResolvedValue([
       agent('education-agent', 'CPA Mentor', 'education'),
       agent('support-agent', 'Support Agent', 'support'),
