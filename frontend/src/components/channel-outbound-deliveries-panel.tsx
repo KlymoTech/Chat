@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Badge, Button, Card, EmptyState } from '@/components/ui';
 import { channelDeliveriesApi } from '@/lib/channel-deliveries-api';
 import { relativeTime } from '@/lib/format';
-import type { ChannelConnectionView } from '@/lib/lead-crm-api';
 import { useApi } from '@/lib/use-api';
 
 function statusTone(status: string): 'success' | 'warning' | 'brand' | 'neutral' {
@@ -13,8 +12,14 @@ function statusTone(status: string): 'success' | 'warning' | 'brand' | 'neutral'
   return 'neutral';
 }
 
+export interface ChannelDeliveryConnectionOption {
+  id: string;
+  name: string;
+  provider: string;
+}
+
 interface ChannelOutboundDeliveriesPanelProps {
-  connections: ChannelConnectionView[];
+  connections: ChannelDeliveryConnectionOption[];
 }
 
 export function ChannelOutboundDeliveriesPanel({ connections }: ChannelOutboundDeliveriesPanelProps) {
