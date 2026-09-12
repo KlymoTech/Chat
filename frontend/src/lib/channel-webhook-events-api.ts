@@ -13,6 +13,7 @@ export interface ChannelWebhookEventView {
   processing_status: string;
   attempt_count: number;
   error_code?: string | null;
+  can_requeue: boolean;
   correlation_id: string;
   received_at: string;
   processed_at?: string | null;
@@ -34,10 +35,11 @@ function currentSession(): Session | null {
   }
 }
 
-async function call<T>(path: string): Promise<T> {
+async function call<T>(path: string, method = 'GET'): Promise<T> {
   const active = currentSession();
   const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
+    method,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
@@ -61,4 +63,8 @@ export const channelWebhookEventsApi = {
     params.set('limit', String(limit));
     return call<ChannelWebhookEventView[]>(`/channels/webhook-events?${params.toString()}`);
   },
+  requeue: (eventId: string) => call<ChannelWebhookEventView>(
+    `/channels/webhook-events/${encodeURIComponent(eventId)}/requeue`,
+    'POST',
+  ),
 };

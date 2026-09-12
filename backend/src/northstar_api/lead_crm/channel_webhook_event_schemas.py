@@ -19,6 +19,7 @@ class ChannelWebhookEventOut(BaseModel):
     processing_status: str
     attempt_count: int
     error_code: str | None
+    can_requeue: bool
     correlation_id: str
     received_at: datetime
     processed_at: datetime | None
