@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from northstar_api.security import Principal
 router = APIRouter(prefix="/channels/deliveries", tags=["channels"])
 DB = Annotated[AsyncSession, Depends(get_session)]
 ChannelsViewPrincipal = Annotated[Principal, Depends(require_permissions("integrations.view"))]
+ChannelsManagePrincipal = Annotated[Principal, Depends(require_permissions("integrations.manage"))]
 
 
 def _error_code(status: str) -> str | None:
@@ -112,3 +114,64 @@ async def list_channel_deliveries(
         )
     ).all()
     return [_out(delivery, connection_name) for delivery, connection_name in rows]
+
+
+@router.post("/{delivery_id}/requeue", response_model=ChannelOutboundDeliveryOut)
+async def requeue_channel_dispatch_failure(
+    delivery_id: UUID,
+    principal: ChannelsManagePrincipal,
+    session: DB,
+) -> ChannelOutboundDeliveryOut:
+    """Reset only an exhausted broker-dispatch failure for the existing dispatcher."""
+
+    if principal.workspace_id is None:
+        raise HTTPException(status_code=403, detail="Workspace access is unavailable")
+
+    row = (
+        await session.execute(
+            select(ChannelOutboundDelivery, ChannelConnection)
+            .join(ChannelConnection, ChannelConnection.id == ChannelOutboundDelivery.connection_id)
+            .join(
+                WorkspaceChannelConnection,
+                WorkspaceChannelConnection.connection_id == ChannelConnection.id,
+            )
+            .where(
+                ChannelOutboundDelivery.id == delivery_id,
+                ChannelOutboundDelivery.tenant_id == principal.tenant_id,
+                ChannelOutboundDelivery.workspace_id == principal.workspace_id,
+                ChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.tenant_id == principal.tenant_id,
+                WorkspaceChannelConnection.workspace_id == principal.workspace_id,
+            )
+            .with_for_update()
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Channel delivery not found in this workspace")
+
+    delivery, connection = row
+    if delivery.status != "dispatch_failed":
+        raise HTTPException(
+            status_code=409,
+            detail="Only dispatch_failed channel deliveries can be manually requeued",
+        )
+    if connection.status in {
+        "disabled",
+        "reconnect_required",
+        "auth_required",
+        "configuration_error",
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Channel connection must be operational before requeue",
+        )
+
+    now = datetime.now(UTC)
+    delivery.status = "queued"
+    delivery.dispatch_attempts = 0
+    delivery.dispatched_at = None
+    delivery.next_dispatch_at = now
+    delivery.last_error = None
+    await session.commit()
+    await session.refresh(delivery)
+    return _out(delivery, connection.name)
