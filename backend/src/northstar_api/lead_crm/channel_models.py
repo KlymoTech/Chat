@@ -127,16 +127,14 @@ class ChannelOutboundDelivery(Base):
 
 
 class ChannelDeliveryAttempt(Base):
-    """Append-only, safe operational evidence for one outbound delivery attempt."""
+    """Append-only, safe operational evidence for one outbound delivery attempt.
+
+    ``attempt_number`` reflects the existing per-cycle delivery counter. Dispatch
+    recovery may reset that counter, so it is evidence rather than a global key.
+    """
 
     __tablename__ = "channel_delivery_attempts"
     __table_args__ = (
-        UniqueConstraint(
-            "delivery_id",
-            "phase",
-            "attempt_number",
-            name="uq_channel_delivery_attempt_number",
-        ),
         Index(
             "ix_channel_delivery_attempt_scope",
             "tenant_id",
