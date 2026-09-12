@@ -20,6 +20,14 @@ export interface CRMDeadLetterView {
   resolved_at?: string | null;
 }
 
+export interface CRMDeadLetterReplayView {
+  dead_letter_id: string;
+  delivery_id: string;
+  dead_letter_status: string;
+  delivery_status: string;
+  replayed_at: string;
+}
+
 function currentSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -29,15 +37,18 @@ function currentSession(): Session | null {
   }
 }
 
-async function call<T>(path: string): Promise<T> {
+async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const active = currentSession();
   const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
+    ...init,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}),
       ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
+      ...init.headers,
     },
   });
   if (!response.ok) {
@@ -55,4 +66,8 @@ export const crmDeadLetterApi = {
     const query = params.toString();
     return call<CRMDeadLetterView[]>(`/crm/dead-letters${query ? `?${query}` : ''}`);
   },
+  replay: (deadLetterId: string) => call<CRMDeadLetterReplayView>(
+    `/crm/dead-letters/${deadLetterId}/replay`,
+    { method: 'POST' },
+  ),
 };
