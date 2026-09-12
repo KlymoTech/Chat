@@ -119,10 +119,7 @@ async def channel_operational_health(
             if connection_id is None:
                 continue
             webhook_counts.setdefault(connection_id, Counter())[processing_status] += 1
-            if (
-                processing_status == "received"
-                and _aware(effective_pending_since) <= stale_cutoff
-            ):
+            if processing_status == "received" and _aware(effective_pending_since) <= stale_cutoff:
                 stale_webhook_counts[connection_id] += 1
 
     connection_rows: list[ChannelOperationalConnectionHealthOut] = []
