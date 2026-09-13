@@ -6,12 +6,21 @@ from uuid import UUID
 
 from northstar_api.lead_crm.connectors import CRMConnectionContext
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
-from northstar_api.lead_crm.domain import CRMProvider
+from northstar_api.lead_crm.domain import CRMConnectionStatus, CRMProvider
 from northstar_api.lead_crm.models import CRMConnection
 
 
 class ZohoOneClickError(RuntimeError):
     """A safe, operator-facing one-click Zoho bootstrap failure."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        connection_status: str = CRMConnectionStatus.DEGRADED.value,
+    ) -> None:
+        super().__init__(message)
+        self.connection_status = connection_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +39,10 @@ def decrypt_zoho_credentials(connection: CRMConnection) -> dict[str, Any]:
     try:
         return credential_store.decrypt(connection.credentials_encrypted)
     except CredentialStoreError as exc:
-        raise ZohoOneClickError("Stored Zoho credentials cannot be decrypted") from exc
+        raise ZohoOneClickError(
+            "Stored Zoho credentials cannot be decrypted",
+            connection_status=CRMConnectionStatus.AUTH_REQUIRED.value,
+        ) from exc
 
 
 def zoho_connection_context(
