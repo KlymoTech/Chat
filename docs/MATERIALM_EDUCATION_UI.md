@@ -1,7 +1,8 @@
 # MaterialM frontend and unified Education workspace
 
 Branch: `feature/materialm-education-hub`
-Base: `c9227ed9de2e3c9fee9d0557a9916e8f6feb466b` (existing main)
+Original base: `c9227ed9de2e3c9fee9d0557a9916e8f6feb466b`.
+Updated main incorporated: `609858a386f170065a65f7f5aeee37251c58ada3`.
 Scope: frontend layout/navigation adaptation. No main merge, backend changes, database migrations or dependency/lockfile replacement.
 
 ## Implementation
@@ -30,7 +31,7 @@ Education opens `/education`, with Overview, Students, Courses, Batches, Enrollm
 
 The supplied updated flow is the design authority: Lead Generation and General/Support use CRM; Education has no Lead/CRM link or optional upsell exception. This delivery separates the navigation and introduces no Education-to-CRM actions. It does not claim that grouping pages enforces server-side data isolation. Existing backend purpose enforcement, old upsell settings, queued-job lineage and Support-to-CRM behavior have not been changed or certified by this frontend-only patch. They need their own backend regression evidence for the revised policy.
 
-The earlier one-click CRM ZIP is not silently applied or merged by this branch. Existing CRM screens, workers and APIs from the base commit are retained unchanged. No live provider test or new CRM write is performed by the hub.
+The newer main branch added the Zoho one-click integration and `IntegrationsHubPage`; those changes are incorporated and preserved here, including the deployment migration-head fixes. This frontend change does not separately apply the earlier CRM ZIP. No live provider test or new CRM write is performed by the Education hub.
 
 ## Pull into an isolated worktree
 
