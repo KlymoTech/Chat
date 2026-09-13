@@ -18,6 +18,7 @@ from northstar_api.services.zoho_one_click_certification import certify_live_zoh
 from northstar_api.zoho_platform import (
     ZohoPlatformConfigurationError,
     load_zoho_platform_configuration,
+    resolve_zoho_data_center,
 )
 
 
@@ -40,17 +41,22 @@ def test_platform_configuration_redacts_secret_and_builds_provider_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     test_secret = "unit-test-" + "credential-" + "value"
+    regional_secret = "regional-" + "credential-" + "value"
     monkeypatch.setenv("ZOHO_CLIENT_ID", "client-id")
     monkeypatch.setenv("ZOHO_CLIENT_SECRET", test_secret)
-    monkeypatch.setenv("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.in")
-    monkeypatch.setenv("ZOHO_API_DOMAIN", "https://www.zohoapis.in")
+    monkeypatch.setenv("ZOHO_CLIENT_SECRET_IN", regional_secret)
+    monkeypatch.setenv("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.com")
+    monkeypatch.setenv("ZOHO_API_DOMAIN", "https://www.zohoapis.com")
     monkeypatch.setenv("ZOHO_OAUTH_FRONTEND_URL", "https://app.example.com/integrations")
     configuration = load_zoho_platform_configuration(required=True)
     assert configuration is not None
     assert test_secret not in repr(configuration)
+    assert regional_secret not in repr(configuration)
+    assert configuration.client_secret_for("in") == regional_secret
+    assert configuration.client_secret_for("eu") == test_secret
     assert configuration.provider_configuration() == {
-        "accountsUrl": "https://accounts.zoho.in",
-        "apiDomain": "https://www.zohoapis.in",
+        "accountsUrl": "https://accounts.zoho.com",
+        "apiDomain": "https://www.zohoapis.com",
         "apiVersion": "v8",
         "oauthScopes": [
             "ZohoCRM.modules.ALL",
@@ -60,7 +66,35 @@ def test_platform_configuration_redacts_secret_and_builds_provider_config(
         "duplicateCheckFields": ["Email"],
         "trigger": ["workflow"],
         "managedBy": "zoho-one-click",
+        "multiDc": True,
     }
+
+
+def test_zoho_data_center_uses_trusted_callback_location() -> None:
+    assert resolve_zoho_data_center(
+        location="in",
+        accounts_server="https://accounts.zoho.in",
+        default_accounts_url="https://accounts.zoho.com",
+        default_api_domain="https://www.zohoapis.com",
+    ) == (
+        "https://accounts.zoho.in",
+        "https://www.zohoapis.in",
+        "in",
+    )
+    with pytest.raises(ZohoPlatformConfigurationError, match="untrusted accounts server"):
+        resolve_zoho_data_center(
+            location="in",
+            accounts_server="https://attacker.example/zoho",
+            default_accounts_url="https://accounts.zoho.com",
+            default_api_domain="https://www.zohoapis.com",
+        )
+    with pytest.raises(ZohoPlatformConfigurationError, match="inconsistent"):
+        resolve_zoho_data_center(
+            location="eu",
+            accounts_server="https://accounts.zoho.in",
+            default_accounts_url="https://accounts.zoho.com",
+            default_api_domain="https://www.zohoapis.com",
+        )
 
 
 def test_default_mapping_covers_standard_leads_and_required_custom_fields() -> None:
