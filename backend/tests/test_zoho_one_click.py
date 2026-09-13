@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from typing import Any
+from uuid import uuid4
+
 import pytest
 
-from northstar_api.lead_crm.connectors import CRMFieldDefinition
+from northstar_api.lead_crm.connectors import (
+    CRMConnectionContext,
+    CRMDeliveryResult,
+    CRMFieldDefinition,
+    crm_registry,
+)
+from northstar_api.lead_crm.domain import CRMOperation, CRMProvider
+from northstar_api.lead_crm.models import CRMConnection
 from northstar_api.services.zoho_one_click import build_default_zoho_mapping
+from northstar_api.services.zoho_one_click_certification import certify_live_zoho
 from northstar_api.zoho_platform import (
     ZohoPlatformConfigurationError,
     load_zoho_platform_configuration,
@@ -28,14 +39,15 @@ def test_platform_configuration_requires_client_pair(monkeypatch: pytest.MonkeyP
 def test_platform_configuration_redacts_secret_and_builds_provider_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    test_secret = "unit-test-" + "credential-" + "value"
     monkeypatch.setenv("ZOHO_CLIENT_ID", "client-id")
-    monkeypatch.setenv("ZOHO_CLIENT_SECRET", "super-secret-value")
+    monkeypatch.setenv("ZOHO_CLIENT_SECRET", test_secret)
     monkeypatch.setenv("ZOHO_ACCOUNTS_URL", "https://accounts.zoho.in")
     monkeypatch.setenv("ZOHO_API_DOMAIN", "https://www.zohoapis.in")
     monkeypatch.setenv("ZOHO_OAUTH_FRONTEND_URL", "https://app.example.com/integrations")
     configuration = load_zoho_platform_configuration(required=True)
     assert configuration is not None
-    assert "super-secret-value" not in repr(configuration)
+    assert test_secret not in repr(configuration)
     assert configuration.provider_configuration() == {
         "accountsUrl": "https://accounts.zoho.in",
         "apiDomain": "https://www.zohoapis.in",
@@ -91,3 +103,74 @@ def test_default_mapping_covers_standard_leads_and_required_custom_fields() -> N
     }
     assert definition["constants"] == {"Territory_Type": "Domestic"}
     assert unsupported == ["External_Lookup"]
+
+
+@pytest.mark.asyncio
+async def test_live_certification_upserts_and_reads_back_without_workflow_triggers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeZohoConnector:
+        async def upsert_lead(
+            self,
+            context: CRMConnectionContext,
+            payload: dict[str, Any],
+            *,
+            idempotency_key: str,
+        ) -> CRMDeliveryResult:
+            captured["context"] = context
+            captured["payload"] = payload
+            captured["idempotencyKey"] = idempotency_key
+            return CRMDeliveryResult(
+                accepted=True,
+                operation=CRMOperation.UPSERT,
+                external_record_id="zoho-lead-9001",
+                http_status=200,
+                provider_code="SUCCESS",
+                provider_request_id="zoho-request-1",
+                metadata={"action": "insert"},
+            )
+
+        async def get_lead(
+            self,
+            context: CRMConnectionContext,
+            external_id: str,
+        ) -> dict[str, Any]:
+            assert external_id == "zoho-lead-9001"
+            assert context.configuration["trigger"] == []
+            return {
+                "id": external_id,
+                "Email": captured["payload"]["Email"],
+                "Last_Name": captured["payload"]["Last_Name"],
+                "Company": captured["payload"]["Company"],
+            }
+
+    connector = FakeZohoConnector()
+    monkeypatch.setattr(crm_registry, "get", lambda provider: connector)
+    connection = CRMConnection(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        provider=CRMProvider.ZOHO.value,
+        name="Zoho one-click test",
+        configuration_json={"trigger": ["workflow"]},
+    )
+    result = await certify_live_zoho(
+        connection,
+        credentials={"access_token": "test-token"},
+        definition={"constants": {"Territory_Type": "Domestic"}},
+    )
+
+    assert captured["context"].configuration["trigger"] == []
+    assert captured["payload"]["Territory_Type"] == "Domestic"
+    assert captured["idempotencyKey"] == f"zoho-certification:{connection.id}"
+    assert result == {
+        "status": "verified",
+        "externalRecordId": "zoho-lead-9001",
+        "providerRequestId": "zoho-request-1",
+        "providerCode": "SUCCESS",
+        "action": "insert",
+        "verifiedFields": ["Email", "Last_Name", "Company"],
+        "verifiedAt": result["verifiedAt"],
+        "certificationEmail": f"northstar.crm.cert.{connection.id.hex[:12]}@example.com",
+    }
