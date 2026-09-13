@@ -178,9 +178,7 @@ async def start_one_click_crm(
         metadata={"resourceUrlConfigured": bool(payload.resource_url)},
     )
     await session.commit()
-    oauth = await _start_oauth(
-        connection.id, request, principal, session, response_mode="popup"
-    )
+    oauth = await _start_oauth(connection.id, request, principal, session, response_mode="popup")
     return {**oauth, "oneClick": True}
 
 
@@ -202,13 +200,11 @@ async def activate_direct_crm(
     if provider_enum == CRMProvider.FRESHSALES:
         if not payload.api_key:
             raise HTTPException(status_code=422, detail="Freshsales API key is required")
-        configuration = {"baseUrl": payload.base_url}
+        configuration: dict[str, Any] = {"baseUrl": payload.base_url}
         credentials = {"api_key": payload.api_key}
     else:
         if not payload.upsert_path or not payload.get_path:
-            raise HTTPException(
-                status_code=422, detail="Generic REST upsert_path and get_path are required"
-            )
+            raise HTTPException(status_code=422, detail="Generic REST upsert_path and get_path are required")
         if payload.auth_type == "BEARER" and not payload.token:
             raise HTTPException(status_code=422, detail="Bearer token is required")
         if payload.auth_type == "API_KEY_HEADER" and not payload.api_key:
@@ -224,11 +220,7 @@ async def activate_direct_crm(
             "readBackIdPath": payload.read_back_id_path,
             "auth": {
                 "type": payload.auth_type,
-                **(
-                    {"name": payload.api_key_header}
-                    if payload.auth_type == "API_KEY_HEADER"
-                    else {}
-                ),
+                **({"name": payload.api_key_header} if payload.auth_type == "API_KEY_HEADER" else {}),
             },
         }
         credentials = {}

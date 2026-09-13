@@ -28,7 +28,15 @@ export function MaterialmAppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [platformAdmin, setPlatformAdmin] = useState(false);
+  const [platformAccess, setPlatformAccess] = useState<{ token?: string; email?: string; allowed: boolean }>({ allowed: false });
+  const platformAdmin = platformAccess.token === session?.accessToken && platformAccess.email === session?.user.email && platformAccess.allowed;
+  const contextKey = `${location.key}:${activeWorkspace?.id ?? ''}`;
+  const [previousContext, setPreviousContext] = useState(contextKey);
+  if (previousContext !== contextKey) {
+    setPreviousContext(contextKey);
+    setMobileOpen(false);
+    setAccountOpen(false);
+  }
   const drawer = useRef<HTMLDialogElement>(null);
   const account = useRef<HTMLDivElement>(null);
   const accountTrigger = useRef<HTMLButtonElement>(null);
@@ -43,10 +51,11 @@ export function MaterialmAppShell() {
 
   useEffect(() => {
     let active = true;
-    setPlatformAdmin(false);
     if (session?.accessToken) {
-      void platformAdminApi.canAccess().then((allowed) => { if (active) setPlatformAdmin(allowed); })
-        .catch(() => { if (active) setPlatformAdmin(false); });
+      const token = session.accessToken;
+      const email = session.user.email;
+      void platformAdminApi.canAccess().then((allowed) => { if (active) setPlatformAccess({ token, email, allowed }); })
+        .catch(() => { if (active) setPlatformAccess({ token, email, allowed: false }); });
     }
     return () => { active = false; };
   }, [session?.accessToken, session?.user.email]);
@@ -64,10 +73,6 @@ export function MaterialmAppShell() {
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
   }, []);
-
-  useEffect(() => {
-    setMobileOpen(false); setAccountOpen(false);
-  }, [location.key, activeWorkspace?.id]);
 
   useEffect(() => {
     const element = drawer.current;

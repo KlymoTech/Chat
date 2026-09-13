@@ -61,9 +61,7 @@ class WorkspaceCRMRouteService:
         origin_connection_id: UUID | None = None,
         target_connection_id: UUID | None = None,
     ) -> list[CRMDelivery]:
-        lead = await session.scalar(
-            select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id)
-        )
+        lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id))
         if not lead:
             raise ValueError("Lead does not exist in tenant scope")
 
@@ -158,9 +156,7 @@ class WorkspaceCRMRouteService:
             payload_basis.pop("updatedAt", None)
             payload_basis["mappingVersion"] = mapping.version if mapping else 0
             digest = _payload_hash(payload_basis)
-            idempotency_key = (
-                f"{tenant_id}:{lead.workspace_id}:{lead_id}:{connection.id}:upsert:{digest}"
-            )
+            idempotency_key = f"{tenant_id}:{lead.workspace_id}:{lead_id}:{connection.id}:upsert:{digest}"
             delivery = await session.scalar(
                 select(CRMDelivery).where(
                     CRMDelivery.tenant_id == tenant_id,

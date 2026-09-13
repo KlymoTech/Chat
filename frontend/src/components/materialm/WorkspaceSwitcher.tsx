@@ -44,7 +44,7 @@ export function MaterialmWorkspaceSwitcher() {
   }
 
   return <div className="workspace-switcher" ref={root}>
-    <button ref={trigger} className="workspace-switcher__button" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="mm-workspace-popover">
+    <button ref={trigger} className="workspace-switcher__button" type="button" onClick={() => setOpen(!open)} aria-label={`Workspace ${loading ? 'Loading' : activeWorkspace?.name ?? 'Select workspace'}`} aria-expanded={open} aria-controls="mm-workspace-popover">
       <span className="workspace-switcher__mark"><Building2 aria-hidden="true" /></span>
       <span><small>Workspace</small><strong>{loading ? 'Loading…' : activeWorkspace?.name ?? 'Select workspace'}</strong></span><ChevronDown aria-hidden="true" />
     </button>

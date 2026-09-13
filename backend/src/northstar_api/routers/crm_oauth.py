@@ -48,10 +48,7 @@ def _redirect_uri(request: Request, connection: CRMConnection) -> str:
     settings = get_settings()
     public_base = str(settings.crm_oauth_public_base_url or "").strip().rstrip("/")
     if public_base:
-        return (
-            f"{public_base}{settings.app_api_prefix}/crm/oauth/"
-            f"{connection.provider}/callback"
-        )
+        return f"{public_base}{settings.app_api_prefix}/crm/oauth/{connection.provider}/callback"
     return str(request.url_for("crm_oauth_callback", provider=connection.provider))
 
 
@@ -92,9 +89,7 @@ def _popup_response(
         "success": success,
         **payload,
     }
-    serialized_payload = json.dumps(result, separators=(",", ":"), default=str).replace(
-        "<", "\\u003c"
-    )
+    serialized_payload = json.dumps(result, separators=(",", ":"), default=str).replace("<", "\\u003c")
     serialized_origin = json.dumps(origin)
     nonce = secrets.token_urlsafe(18)
     return_url = html.escape(f"{origin}/integrations", quote=True)
@@ -357,9 +352,7 @@ async def crm_oauth_callback(
             code=code,
             redirect_uri=saved.redirect_uri,
             code_verifier=(
-                saved.code_verifier
-                if bool(connection.configuration_json.get("pkce", False))
-                else None
+                saved.code_verifier if bool(connection.configuration_json.get("pkce", False)) else None
             ),
         )
         connection.credentials_encrypted = credential_store.encrypt(updated)

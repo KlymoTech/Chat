@@ -130,8 +130,18 @@ export function CRMOneClickPanel({
   }, [managedConnections]);
 
   useEffect(() => {
-    void refreshReadiness();
-  }, [refreshReadiness]);
+    let active = true;
+    void Promise.allSettled(managedConnections.map((connection) => crmOneClickApi.readiness(connection.id)))
+      .then((values) => {
+        if (!active) return;
+        const next: Record<string, CRMReadiness> = {};
+        values.forEach((value, index) => {
+          if (value.status === 'fulfilled') next[managedConnections[index]!.id] = value.value;
+        });
+        setReadiness(next);
+      });
+    return () => { active = false; };
+  }, [managedConnections]);
 
   useEffect(() => () => {
     pollGeneration.current += 1;

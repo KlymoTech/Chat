@@ -31,7 +31,6 @@ from northstar_api.lead_crm.models import (
 from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection, WorkspaceCRMRoute
 from northstar_api.models import Agent, AgentStatus, Conversation, ConversationState, Lead
 
-
 _IN_FLIGHT_STATUSES = {
     CRMDeliveryStatus.CREATED.value,
     CRMDeliveryStatus.ROUTED.value,
@@ -189,10 +188,15 @@ def _journey_state(
         )
     if status in _ATTENTION_STATUSES:
         action = "Reconnect CRM" if status == CRMDeliveryStatus.AUTH_REQUIRED.value else "Review recovery"
-        path = "/integrations" if status in {
-            CRMDeliveryStatus.AUTH_REQUIRED.value,
-            CRMDeliveryStatus.MAPPING_ERROR.value,
-        } else "/leads"
+        path = (
+            "/integrations"
+            if status
+            in {
+                CRMDeliveryStatus.AUTH_REQUIRED.value,
+                CRMDeliveryStatus.MAPPING_ERROR.value,
+            }
+            else "/leads"
+        )
         return (
             "attention_required",
             "Attention required",
@@ -304,9 +308,7 @@ class CRMWorkflowService:
             mapping = mapping_by_connection.get(connection.id)
             mapping_configured = bool(mapping and mapping.mapping_json)
             enabled_route_count = route_count_by_connection.get(connection.id, 0)
-            credentials_configured = bool(
-                connection.credentials_encrypted or connection.credentials_ref
-            )
+            credentials_configured = bool(connection.credentials_encrypted or connection.credentials_ref)
             ready = (
                 connection.status == "healthy"
                 and credentials_configured
@@ -368,9 +370,7 @@ class CRMWorkflowService:
             _readiness_stage(
                 stage_id="crm_connection",
                 label="Workspace CRM connection",
-                description=(
-                    "Credentials and provider configuration are scoped to the active workspace."
-                ),
+                description=("Credentials and provider configuration are scoped to the active workspace."),
                 ready=has_usable_connection,
                 warning=has_connections,
                 ready_detail="A workspace CRM connection is available for delivery.",
@@ -384,9 +384,7 @@ class CRMWorkflowService:
             _readiness_stage(
                 stage_id="field_mapping",
                 label="Lead field mapping",
-                description=(
-                    "Canonical Lead fields are transformed into the provider's Leads object."
-                ),
+                description=("Canonical Lead fields are transformed into the provider's Leads object."),
                 ready=has_mapping,
                 warning=False,
                 ready_detail="A Leads mapping is configured.",
@@ -398,9 +396,7 @@ class CRMWorkflowService:
             _readiness_stage(
                 stage_id="routing",
                 label="Workspace routing",
-                description=(
-                    "An enabled route must select an assigned CRM connection for matching Leads."
-                ),
+                description=("An enabled route must select an assigned CRM connection for matching Leads."),
                 ready=has_route,
                 warning=False,
                 ready_detail="At least one enabled workspace route targets a CRM connection.",
@@ -412,15 +408,11 @@ class CRMWorkflowService:
             _readiness_stage(
                 stage_id="auto_sync",
                 label="Automatic new-Lead sync",
-                description=(
-                    "New Leads can enter the durable CRM router automatically after resolution."
-                ),
+                description=("New Leads can enter the durable CRM router automatically after resolution."),
                 ready=auto_sync_enabled,
                 warning=has_connections,
                 ready_detail="Automatic synchronization is enabled for new Leads.",
-                warning_detail=(
-                    "CRM is configured, but automatic new-Lead synchronization is disabled."
-                ),
+                warning_detail=("CRM is configured, but automatic new-Lead synchronization is disabled."),
                 blocked_detail="Automatic synchronization cannot run without a CRM connection.",
                 action_label="Open CRM settings",
                 action_path="/integrations",
@@ -470,8 +462,7 @@ class CRMWorkflowService:
             or 0
         )
         local_leads = int(
-            await session.scalar(select(func.count()).select_from(Lead).where(*lead_conditions))
-            or 0
+            await session.scalar(select(func.count()).select_from(Lead).where(*lead_conditions)) or 0
         )
         leads_without_delivery = int(
             await session.scalar(
@@ -527,8 +518,7 @@ class CRMWorkflowService:
                 .join(Agent, Agent.id == Lead.agent_id)
                 .outerjoin(
                     LeadProfile,
-                    (LeadProfile.lead_id == Lead.id)
-                    & (LeadProfile.tenant_id == Lead.tenant_id),
+                    (LeadProfile.lead_id == Lead.id) & (LeadProfile.tenant_id == Lead.tenant_id),
                 )
                 .outerjoin(Conversation, Conversation.id == Lead.conversation_id)
                 .where(*lead_conditions)
@@ -555,9 +545,7 @@ class CRMWorkflowService:
             for delivery, connection in delivery_rows:
                 latest_delivery_by_lead.setdefault(delivery.lead_id, (delivery, connection))
 
-            latest_delivery_ids = [
-                delivery.id for delivery, _ in latest_delivery_by_lead.values()
-            ]
+            latest_delivery_ids = [delivery.id for delivery, _ in latest_delivery_by_lead.values()]
             if latest_delivery_ids:
                 open_dead_letter_delivery_ids = {
                     delivery_id
@@ -576,9 +564,7 @@ class CRMWorkflowService:
             delivery_pair = latest_delivery_by_lead.get(lead.id)
             delivery = delivery_pair[0] if delivery_pair else None
             connection = delivery_pair[1] if delivery_pair else None
-            dead_letter_open = bool(
-                delivery and delivery.id in open_dead_letter_delivery_ids
-            )
+            dead_letter_open = bool(delivery and delivery.id in open_dead_letter_delivery_ids)
             stage, stage_label, stage_detail, action_label, action_path = _journey_state(
                 delivery,
                 has_connections=has_connections,
@@ -618,9 +604,7 @@ class CRMWorkflowService:
                 CRMWorkflowJourneyOut(
                     lead_id=lead.id,
                     conversation_id=lead.conversation_id,
-                    conversation_public_id=(
-                        conversation.public_id if conversation is not None else None
-                    ),
+                    conversation_public_id=(conversation.public_id if conversation is not None else None),
                     agent_id=lead.agent_id,
                     agent_name=agent.name,
                     customer_name=lead.name,
@@ -629,21 +613,11 @@ class CRMWorkflowService:
                     source_channel=(
                         profile.source_channel
                         if profile is not None
-                        else (
-                            conversation.channel.value
-                            if conversation is not None
-                            else None
-                        )
+                        else (conversation.channel.value if conversation is not None else None)
                     ),
-                    lifecycle_status=(
-                        profile.lifecycle_status if profile is not None else lead.status
-                    ),
-                    qualification_status=(
-                        profile.qualification_status if profile is not None else None
-                    ),
-                    qualification_score=(
-                        profile.qualification_score if profile is not None else None
-                    ),
+                    lifecycle_status=(profile.lifecycle_status if profile is not None else lead.status),
+                    qualification_status=(profile.qualification_status if profile is not None else None),
+                    qualification_score=(profile.qualification_score if profile is not None else None),
                     stage=stage,
                     stage_label=stage_label,
                     stage_detail=stage_detail,

@@ -47,14 +47,21 @@ def _optional_uuid(payload: dict[str, object], key: str, *, label: str) -> UUID 
         raise ValueError(f"CRM event has invalid {label}") from exc
 
 
+def _origin_connection_id(payload: dict[str, object]) -> UUID | None:
+    return _optional_uuid(payload, "originConnectionId", label="originConnectionId")
+
+
 def _sync_reason(payload: dict[str, object]) -> str | None:
     value = payload.get("reason")
     return str(value) if value is not None else None
 
 
 def _batch_size(payload: dict[str, object]) -> int:
+    raw = payload.get("batchSize") or 100
+    if not isinstance(raw, (str, int, float)):
+        raise ValueError("CRM backfill event has an invalid batchSize")
     try:
-        value = int(payload.get("batchSize") or 100)
+        value = int(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError("CRM backfill event has an invalid batchSize") from exc
     return max(1, min(value, 500))
@@ -121,10 +128,7 @@ async def _route_backfill_event(
         )
     candidates = list(
         await session.scalars(
-            select(Lead)
-            .where(*conditions)
-            .order_by(Lead.created_at, Lead.id)
-            .limit(batch_size + 1)
+            select(Lead).where(*conditions).order_by(Lead.created_at, Lead.id).limit(batch_size + 1)
         )
     )
     batch = candidates[:batch_size]

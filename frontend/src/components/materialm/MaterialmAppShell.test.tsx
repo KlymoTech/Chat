@@ -54,7 +54,11 @@ describe('MaterialM application shell', () => {
     expect(localStorage.getItem('northstar.materialm.sidebar-collapsed')).toBe('false');
   });
   it('makes all primary links available in the mobile drawer and closes on navigation', async () => {
-    mount(); await userEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    mount();
+    // jsdom does not apply the mobile media query, so expose its navigation trigger.
+    const trigger = screen.getByLabelText('Open navigation');
+    trigger.style.display = 'inline-flex';
+    await userEvent.click(trigger);
     const drawer = await screen.findByRole('dialog', { name: 'Main navigation' });
     for (const label of ['Education', 'Conversations', 'Leads', 'Integrations', 'Deploy']) {
       expect(within(drawer).getByRole('link', { name: label })).toBeInTheDocument();

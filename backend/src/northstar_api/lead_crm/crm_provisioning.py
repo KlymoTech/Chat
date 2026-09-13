@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Iterable
+from typing import Any
 from uuid import UUID
 
 from pydantic import SecretStr
@@ -600,9 +601,7 @@ async def ensure_direct_connection(
         workspace_id=workspace_id,
         connection_id=connection.id,
     )
-    await _ensure_route(
-        session, tenant_id=tenant_id, workspace_id=workspace_id, connection=connection
-    )
+    await _ensure_route(session, tenant_id=tenant_id, workspace_id=workspace_id, connection=connection)
     await session.flush()
     return connection
 
@@ -781,8 +780,7 @@ async def connection_readiness(
             item
             for item in routes
             if item.enabled
-            and str(connection.id)
-            in {str(raw) for raw in (item.actions_json or {}).get("connectionIds", [])}
+            and str(connection.id) in {str(raw) for raw in (item.actions_json or {}).get("connectionIds", [])}
         ),
         None,
     )
@@ -807,10 +805,14 @@ async def connection_readiness(
         blockers.append("credentials_missing")
     if connection.status != CRMConnectionStatus.HEALTHY.value:
         blockers.append("connection_not_healthy")
-    if connection.provider not in {
-        CRMProvider.GENERIC_REST.value,
-        CRMProvider.GENERIC_WEBHOOK.value,
-    } and schema is None:
+    if (
+        connection.provider
+        not in {
+            CRMProvider.GENERIC_REST.value,
+            CRMProvider.GENERIC_WEBHOOK.value,
+        }
+        and schema is None
+    ):
         blockers.append("schema_not_discovered")
     if mapping is None or mapping.status != "active":
         blockers.append("mapping_not_active")

@@ -155,8 +155,15 @@ export function CRMWorkflowPage() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    void crmWorkflowApi.get(50)
+      .then((value) => { if (active) setWorkflow(value); })
+      .catch((reason) => {
+        if (active) setError(reason instanceof Error ? reason.message : 'The CRM workflow could not be loaded.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   const visibleStatuses = useMemo(
     () => Object.entries(workflow?.counts.byStatus ?? {}).filter(([, count]) => count > 0),
