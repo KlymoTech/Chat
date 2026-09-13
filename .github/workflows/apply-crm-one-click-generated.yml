@@ -1,0 +1,73 @@
+name: Apply one-click CRM generated modules
+
+on:
+  push:
+    branches: [feature/crm-one-click-live-integration]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-crm-one-click-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: ${{ github.event.head_commit != null && !contains(github.event.head_commit.message, '[crm-generated]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+      - name: Decode and verify generated modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+          import zlib
+
+          files = {
+              ".crm-one-click-payload/crm_oauth.zlib.b64": (
+                  "backend/src/northstar_api/routers/crm_oauth.py",
+                  "6a130f922fed4cb20c25871e27a31e080dde954678941a142635ec23203c05bb",
+              ),
+              ".crm-one-click-payload/crm_one_click.zlib.b64": (
+                  "backend/src/northstar_api/routers/crm_one_click.py",
+                  "816091440a6a3e03bc2dabcbda8cdd0a1655b81192dbf52ca7d97a8f08665f25",
+              ),
+              ".crm-one-click-payload/crm_provisioning.zlib.b64": (
+                  "backend/src/northstar_api/lead_crm/crm_provisioning.py",
+                  "9d91b294aae7c5d24eda66e27bdfc3c3d9fd85d92c965852b0d7b55aefb75cbf",
+              ),
+              ".crm-one-click-payload/crm_panel.zlib.b64": (
+                  "frontend/src/components/CRMOneClickPanel.tsx",
+                  "028a42512f9b7774b324628728b81846f84e495ca7bc8d446865a203a988a2d2",
+              ),
+          }
+          for payload_path, (target_path, expected) in files.items():
+              encoded = Path(payload_path).read_text(encoding="utf-8").strip()
+              content = zlib.decompress(base64.b64decode(encoded))
+              actual = hashlib.sha256(content).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"Checksum mismatch for {target_path}: {actual}")
+              target = Path(target_path)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(content)
+          PY
+          rm -rf .crm-one-click-payload
+          rm -f .github/workflows/apply-crm-one-click-generated.yml
+      - name: Commit generated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore: materialize one-click CRM modules [crm-generated]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

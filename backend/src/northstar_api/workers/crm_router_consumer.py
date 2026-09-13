@@ -2,34 +2,49 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from datetime import datetime
 from uuid import UUID
 
 import structlog
 from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
 from aiokafka.structs import TopicPartition  # type: ignore[import-untyped]
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
 from northstar_api.lead_crm.workspace_routing import workspace_crm_route_service
 from northstar_api.logging import configure_logging
-from northstar_api.models import ProcessedEvent
+from northstar_api.models import Lead, ProcessedEvent
 from northstar_api.services.entitlements import EntitlementError, require_feature
-from northstar_api.workers.event_utils import parse_envelope, quarantine_event
+from northstar_api.services.outbox import enqueue_event
+from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
 
 settings = get_settings()
 configure_logging(settings)
 logger = structlog.get_logger(__name__)
 CONSUMER_NAME = "crm-router-v1"
-TOPICS = ["lead.crm.sync.requested.v1"]
+LEAD_SYNC_TOPIC = "lead.crm.sync.requested.v1"
+BACKFILL_TOPIC = "crm.connection.backfill.requested.v1"
+TOPICS = [LEAD_SYNC_TOPIC, BACKFILL_TOPIC]
 
 
-def _lead_id(payload: dict[str, object]) -> UUID:
+def _uuid_value(payload: dict[str, object], key: str, *, label: str) -> UUID:
     try:
-        return UUID(str(payload["leadId"]))
+        return UUID(str(payload[key]))
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("CRM sync event has no valid leadId") from exc
+        raise ValueError(f"CRM event has no valid {label}") from exc
+
+
+def _optional_uuid(payload: dict[str, object], key: str, *, label: str) -> UUID | None:
+    value = payload.get(key)
+    if value in (None, ""):
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"CRM event has invalid {label}") from exc
 
 
 def _sync_reason(payload: dict[str, object]) -> str | None:
@@ -37,14 +52,127 @@ def _sync_reason(payload: dict[str, object]) -> str | None:
     return str(value) if value is not None else None
 
 
-def _origin_connection_id(payload: dict[str, object]) -> UUID | None:
-    value = payload.get("originConnectionId")
-    if value in (None, ""):
-        return None
+def _batch_size(payload: dict[str, object]) -> int:
     try:
-        return UUID(str(value))
+        value = int(payload.get("batchSize") or 100)
     except (TypeError, ValueError) as exc:
-        raise ValueError("CRM sync event has invalid originConnectionId") from exc
+        raise ValueError("CRM backfill event has an invalid batchSize") from exc
+    return max(1, min(value, 500))
+
+
+def _cursor(payload: dict[str, object]) -> tuple[datetime, UUID] | None:
+    created_at = payload.get("afterCreatedAt")
+    lead_id = payload.get("afterLeadId")
+    if created_at in (None, "") and lead_id in (None, ""):
+        return None
+    if created_at in (None, "") or lead_id in (None, ""):
+        raise ValueError("CRM backfill cursor is incomplete")
+    try:
+        return datetime.fromisoformat(str(created_at)), UUID(str(lead_id))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("CRM backfill cursor is invalid") from exc
+
+
+async def _route_lead_event(session: AsyncSession, event: EventEnvelope) -> dict[str, object]:
+    lead_id = _uuid_value(event.payload, "leadId", label="leadId")
+    sync_reason = _sync_reason(event.payload)
+    origin_connection_id = _optional_uuid(
+        event.payload,
+        "originConnectionId",
+        label="originConnectionId",
+    )
+    deliveries = await workspace_crm_route_service.create_deliveries(
+        session,
+        tenant_id=event.tenant_id,
+        lead_id=lead_id,
+        correlation_id=str(event.event_id),
+        sync_reason=sync_reason,
+        origin_connection_id=origin_connection_id,
+    )
+    return {
+        "mode": "lead",
+        "lead_id": lead_id,
+        "sync_reason": sync_reason,
+        "origin_connection_id": origin_connection_id,
+        "delivery_count": len(deliveries),
+    }
+
+
+async def _route_backfill_event(
+    session: AsyncSession,
+    event: EventEnvelope,
+) -> dict[str, object]:
+    workspace_id = _uuid_value(event.payload, "workspaceId", label="workspaceId")
+    connection_id = _uuid_value(event.payload, "connectionId", label="connectionId")
+    batch_size = _batch_size(event.payload)
+    cursor = _cursor(event.payload)
+    conditions = [
+        Lead.tenant_id == event.tenant_id,
+        Lead.workspace_id == workspace_id,
+        Lead.status.notin_(("archived", "lost")),
+    ]
+    if cursor is not None:
+        created_at, lead_id = cursor
+        conditions.append(
+            or_(
+                Lead.created_at > created_at,
+                and_(Lead.created_at == created_at, Lead.id > lead_id),
+            )
+        )
+    candidates = list(
+        await session.scalars(
+            select(Lead)
+            .where(*conditions)
+            .order_by(Lead.created_at, Lead.id)
+            .limit(batch_size + 1)
+        )
+    )
+    batch = candidates[:batch_size]
+    delivery_count = 0
+    for lead in batch:
+        deliveries = await workspace_crm_route_service.create_deliveries(
+            session,
+            tenant_id=event.tenant_id,
+            lead_id=lead.id,
+            correlation_id=str(event.event_id),
+            sync_reason="manual",
+            target_connection_id=connection_id,
+        )
+        delivery_count += len(deliveries)
+
+    has_more = len(candidates) > batch_size
+    if has_more and batch:
+        last = batch[-1]
+        enqueue_event(
+            session,
+            tenant_id=event.tenant_id,
+            aggregate_type="crm_connection",
+            aggregate_id=connection_id,
+            event_type=BACKFILL_TOPIC,
+            payload={
+                "workspaceId": str(workspace_id),
+                "connectionId": str(connection_id),
+                "batchSize": batch_size,
+                "afterCreatedAt": last.created_at.isoformat(),
+                "afterLeadId": str(last.id),
+            },
+        )
+    return {
+        "mode": "backfill",
+        "workspace_id": workspace_id,
+        "connection_id": connection_id,
+        "lead_count": len(batch),
+        "delivery_count": delivery_count,
+        "has_more": has_more,
+    }
+
+
+async def _route_event(session: AsyncSession, event: EventEnvelope) -> dict[str, object]:
+    if event.event_type == LEAD_SYNC_TOPIC:
+        return await _route_lead_event(session, event)
+    if event.event_type == BACKFILL_TOPIC:
+        return await _route_backfill_event(session, event)
+    raise ValueError("unsupported CRM router event type")
 
 
 async def consume_forever() -> None:
@@ -66,7 +194,7 @@ async def consume_forever() -> None:
             loop.add_signal_handler(signal_name, stop.set)
         except NotImplementedError:
             pass
-    logger.info("crm_router_consumer_started")
+    logger.info("crm_router_consumer_started", topics=TOPICS)
     try:
         while not stop.is_set():
             batch = await consumer.getmany(timeout_ms=1000, max_records=10)
@@ -76,11 +204,20 @@ async def consume_forever() -> None:
                     raw = message.value if isinstance(message.value, bytes) else b""
                     try:
                         event = parse_envelope(raw)
-                        if event.event_type != message.topic:
-                            raise ValueError("event type does not match Kafka topic")
-                        lead_id = _lead_id(event.payload)
-                        sync_reason = _sync_reason(event.payload)
-                        origin_connection_id = _origin_connection_id(event.payload)
+                        if event.event_type != message.topic or event.event_type not in TOPICS:
+                            raise ValueError("event type does not match a CRM router topic")
+                        if event.event_type == LEAD_SYNC_TOPIC:
+                            _uuid_value(event.payload, "leadId", label="leadId")
+                            _optional_uuid(
+                                event.payload,
+                                "originConnectionId",
+                                label="originConnectionId",
+                            )
+                        else:
+                            _uuid_value(event.payload, "workspaceId", label="workspaceId")
+                            _uuid_value(event.payload, "connectionId", label="connectionId")
+                            _batch_size(event.payload)
+                            _cursor(event.payload)
                     except ValueError as exc:
                         async with factory() as session:
                             await quarantine_event(
@@ -112,37 +249,23 @@ async def consume_forever() -> None:
                                         feature="crm",
                                     )
                                 except EntitlementError as exc:
-                                    # The event is durably acknowledged as processed so a
-                                    # tenant that downgraded or suspended billing does not
-                                    # create a permanent retry loop. Existing Lead data is
-                                    # preserved; only new CRM deliveries are skipped.
                                     await session.commit()
                                     logger.info(
                                         "crm_route_entitlement_skipped",
                                         event_id=str(event.event_id),
-                                        lead_id=str(lead_id),
                                         tenant_id=str(event.tenant_id),
+                                        topic=event.event_type,
                                         code=exc.code,
                                     )
                                 else:
-                                    deliveries = await workspace_crm_route_service.create_deliveries(
-                                        session,
-                                        tenant_id=event.tenant_id,
-                                        lead_id=lead_id,
-                                        correlation_id=str(event.event_id),
-                                        sync_reason=sync_reason,
-                                        origin_connection_id=origin_connection_id,
-                                    )
+                                    result = await _route_event(session, event)
                                     await session.commit()
                                     logger.info(
                                         "crm_routes_evaluated",
                                         event_id=str(event.event_id),
-                                        lead_id=str(lead_id),
-                                        sync_reason=sync_reason,
-                                        origin_connection_id=(
-                                            str(origin_connection_id) if origin_connection_id else None
-                                        ),
-                                        delivery_count=len(deliveries),
+                                        tenant_id=str(event.tenant_id),
+                                        topic=event.event_type,
+                                        **result,
                                     )
                             else:
                                 await session.commit()
@@ -151,6 +274,7 @@ async def consume_forever() -> None:
                         logger.warning(
                             "crm_router_retry",
                             event_id=str(event.event_id),
+                            topic=event.event_type,
                             error=type(exc).__name__,
                         )
                         consumer.seek(topic_partition, message.offset)
@@ -158,7 +282,7 @@ async def consume_forever() -> None:
                             await asyncio.wait_for(stop.wait(), timeout=1.0)
                         except TimeoutError:
                             pass
-                        break  # Do not advance past a failed partition offset.
+                        break
     finally:
         await consumer.stop()
         await engine.dispose()

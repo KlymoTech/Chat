@@ -17,6 +17,7 @@ from northstar_api.routers import (
     crm_delivery_attempts,
     crm_health_history,
     crm_oauth,
+    crm_one_click,
     crm_operations,
     crm_route_admin,
     crm_schema,
@@ -91,9 +92,10 @@ api_router.include_router(crm_dead_letters.router)
 api_router.include_router(crm_operations.router)
 api_router.include_router(crm_health_history.router)
 api_router.include_router(crm_webhook_events.router)
+api_router.include_router(crm_oauth.router)
+api_router.include_router(crm_one_click.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
-api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
 # Slack's URL-verification path must precede the provider-parameterized route.
