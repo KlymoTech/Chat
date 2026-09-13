@@ -9,6 +9,7 @@ import { AuditPage } from '@/pages/AuditPage';
 import { BatchesPage } from '@/pages/BatchesPage';
 import { ConversationsPage } from '@/pages/ConversationsPage';
 import { CoursesPage } from '@/pages/CoursesPage';
+import { CRMWorkflowPage } from '@/pages/CRMWorkflowPage';
 import { DeployPage } from '@/pages/DeployPage';
 import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage';
 import { EducationAccessRequestsPage } from '@/pages/EducationAccessRequestsPage';
@@ -77,6 +78,7 @@ export function App() {
       </Route>
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
+      <Route path="crm-workflow" element={<CRMWorkflowPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
       <Route path="audit" element={<AuditPage />} />
       <Route path="integrations" element={<IntegrationsHubPage />} />

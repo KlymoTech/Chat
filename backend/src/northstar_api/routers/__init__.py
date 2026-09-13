@@ -24,6 +24,7 @@ from northstar_api.routers import (
     crm_scoped,
     crm_webhook_events,
     crm_webhooks,
+    crm_workflow,
     crm_workspace_settings,
     crm_zoho_one_click,
     education,
@@ -96,6 +97,7 @@ api_router.include_router(crm_webhook_events.router)
 api_router.include_router(crm_zoho_one_click.router)
 api_router.include_router(crm_oauth.router)
 api_router.include_router(crm_one_click.router)
+api_router.include_router(crm_workflow.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_schema.router)

@@ -22,6 +22,7 @@ const navigation = [
   { to: '/education/activity', label: 'Activity', icon: History },
   { to: '/conversations', label: 'Conversations', icon: Inbox },
   { to: '/leads', label: 'Leads', icon: ContactRound },
+  { to: '/crm-workflow', label: 'CRM Workflow', icon: PlugZap },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/audit', label: 'Audit', icon: ShieldCheck },
   { to: '/integrations', label: 'Integrations', icon: PlugZap },

@@ -19,6 +19,7 @@ export const primaryNavigation: NavigationItem[] = [
   { to: '/agents', label: 'Agents', icon: 'agents', section: 'Workspace', permission: 'agents.view' },
   { to: '/conversations', label: 'Conversations', icon: 'inbox', section: 'Engagement', permission: 'conversations.view' },
   { to: '/leads', label: 'Leads', icon: 'leads', section: 'Engagement', permission: 'leads.view' },
+  { to: '/crm-workflow', label: 'CRM Workflow', icon: 'integrations', section: 'Engagement', permission: 'crm.view' },
   { to: '/integrations', label: 'Integrations', icon: 'integrations', section: 'Engagement', permission: 'integrations.view' },
   { to: '/education', label: 'Education', icon: 'education', section: 'Learning', permission: 'education.view' },
   { to: '/analytics', label: 'Analytics', icon: 'analytics', section: 'Operations', permission: 'analytics.view' },
