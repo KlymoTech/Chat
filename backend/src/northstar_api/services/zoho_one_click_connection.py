@@ -22,7 +22,7 @@ async def workspace_zoho_connection(
     tenant_id: UUID,
     workspace_id: UUID,
 ) -> tuple[CRMConnection, WorkspaceCRMConnection] | None:
-    row = (
+    rows = (
         await session.execute(
             select(CRMConnection, WorkspaceCRMConnection)
             .join(
@@ -37,10 +37,11 @@ async def workspace_zoho_connection(
             )
             .order_by(CRMConnection.created_at.desc())
         )
-    ).first()
-    if row is None:
-        return None
-    return row[0], row[1]
+    ).all()
+    for connection, scope in rows:
+        if (connection.configuration_json or {}).get("managedBy") == "zoho-one-click":
+            return connection, scope
+    return None
 
 
 async def ensure_zoho_route(
