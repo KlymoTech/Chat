@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { AppShell } from '@/components/app-shell';
+import { MaterialmAppShell } from '@/components/materialm/MaterialmAppShell';
+import { EducationLayout } from '@/components/materialm/EducationLayout';
 import { useAuth } from '@/components/providers';
 import { AgentBuilderPage } from '@/pages/AgentBuilderPage';
 import { AgentsPage } from '@/pages/AgentsPage';
@@ -13,6 +14,7 @@ import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage
 import { EducationAccessRequestsPage } from '@/pages/EducationAccessRequestsPage';
 import { EducationActivityPage } from '@/pages/EducationActivityPage';
 import { EducationEnrollmentsPage } from '@/pages/EducationEnrollmentsPage';
+import { EducationHubPage } from '@/pages/EducationHubPage';
 import { EducationStudentDetailPage } from '@/pages/EducationStudentDetailPage';
 import { EducationStudentImportPage } from '@/pages/EducationStudentImportPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
@@ -43,7 +45,7 @@ function ProtectedLayout() {
   const { session } = useAuth(); const location = useLocation();
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (session.user.emailVerified === false) return <Navigate to="/verify-email" replace />;
-  return <AppShell />;
+  return <MaterialmAppShell />;
 }
 
 export function App() {
@@ -62,14 +64,17 @@ export function App() {
       <Route index element={<OverviewPage />} />
       <Route path="agents" element={<AgentsPage />} />
       <Route path="agents/:agentId/:tab?" element={<AgentBuilderPage />} />
-      <Route path="education/courses" element={<CoursesPage />} />
-      <Route path="education/batches" element={<BatchesPage />} />
-      <Route path="education/students" element={<StudentsPage />} />
-      <Route path="education/enrollments" element={<EducationEnrollmentsPage />} />
-      <Route path="education/students/import" element={<EducationStudentImportPage />} />
-      <Route path="education/students/:studentId" element={<EducationStudentDetailPage />} />
-      <Route path="education/access-requests" element={<EducationAccessRequestsPage />} />
-      <Route path="education/activity" element={<EducationActivityPage />} />
+      <Route path="education" element={<EducationLayout />}>
+        <Route index element={<EducationHubPage />} />
+        <Route path="courses" element={<CoursesPage />} />
+        <Route path="batches" element={<BatchesPage />} />
+        <Route path="students" element={<StudentsPage />} />
+        <Route path="enrollments" element={<EducationEnrollmentsPage />} />
+        <Route path="students/import" element={<EducationStudentImportPage />} />
+        <Route path="students/:studentId" element={<EducationStudentDetailPage />} />
+        <Route path="access-requests" element={<EducationAccessRequestsPage />} />
+        <Route path="activity" element={<EducationActivityPage />} />
+      </Route>
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
