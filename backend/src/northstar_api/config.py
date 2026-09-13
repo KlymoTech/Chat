@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import EmailStr, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -90,6 +91,21 @@ class Settings(BaseSettings):
     meta_signup_session_ttl_seconds: int = Field(default=600, ge=60, le=3600)
     whatsapp_dispatch_max_attempts: int = Field(default=8, ge=1, le=100)
 
+    # Platform-managed CRM OAuth. Customers authorize their CRM account in one
+    # provider-consent step; these application credentials remain server-side.
+    crm_oauth_public_base_url: str | None = None
+    crm_oauth_frontend_origin: str | None = None
+    crm_zoho_client_id: str | None = None
+    crm_zoho_client_secret: SecretStr | None = None
+    crm_salesforce_client_id: str | None = None
+    crm_salesforce_client_secret: SecretStr | None = None
+    crm_hubspot_client_id: str | None = None
+    crm_hubspot_client_secret: SecretStr | None = None
+    crm_dynamics365_client_id: str | None = None
+    crm_dynamics365_client_secret: SecretStr | None = None
+    crm_pipedrive_client_id: str | None = None
+    crm_pipedrive_client_secret: SecretStr | None = None
+
     rate_limit_fail_open: bool = True
     login_rate_limit_per_minute: int = Field(default=8, ge=1, le=10_000)
     login_global_rate_limit_per_minute: int = Field(default=120, ge=1, le=100_000)
@@ -127,10 +143,22 @@ class Settings(BaseSettings):
         "meta_whatsapp_webhook_verify_token",
         "meta_whatsapp_token_encryption_key",
         "mfa_encryption_key",
+        "crm_oauth_public_base_url",
+        "crm_oauth_frontend_origin",
+        "crm_zoho_client_id",
+        "crm_zoho_client_secret",
+        "crm_salesforce_client_id",
+        "crm_salesforce_client_secret",
+        "crm_hubspot_client_id",
+        "crm_hubspot_client_secret",
+        "crm_dynamics365_client_id",
+        "crm_dynamics365_client_secret",
+        "crm_pipedrive_client_id",
+        "crm_pipedrive_client_secret",
         mode="before",
     )
     @classmethod
-    def normalize_optional_meta_configuration(cls, value: object) -> object | None:
+    def normalize_optional_configuration(cls, value: object) -> object | None:
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return value
@@ -139,6 +167,19 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_prefix(cls, value: str) -> str:
         return "/" + value.strip("/")
+
+    @field_validator("crm_oauth_public_base_url", "crm_oauth_frontend_origin")
+    @classmethod
+    def validate_crm_oauth_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("CRM OAuth URLs must be absolute HTTP(S) URLs")
+        if parsed.query or parsed.fragment:
+            raise ValueError("CRM OAuth URLs cannot contain a query string or fragment")
+        return normalized
 
     @field_validator("nvidia_temperature")
     @classmethod
@@ -159,6 +200,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production(self) -> Settings:
+        oauth_pairs = (
+            ("ZOHO", self.crm_zoho_client_id, self.crm_zoho_client_secret),
+            ("SALESFORCE", self.crm_salesforce_client_id, self.crm_salesforce_client_secret),
+            ("HUBSPOT", self.crm_hubspot_client_id, self.crm_hubspot_client_secret),
+            ("DYNAMICS365", self.crm_dynamics365_client_id, self.crm_dynamics365_client_secret),
+            ("PIPEDRIVE", self.crm_pipedrive_client_id, self.crm_pipedrive_client_secret),
+        )
+        for name, client_id, client_secret in oauth_pairs:
+            if bool(client_id) != bool(client_secret):
+                raise ValueError(
+                    f"CRM_{name}_CLIENT_ID and CRM_{name}_CLIENT_SECRET must be provided together"
+                )
+        oauth_configured = any(client_id and client_secret for _, client_id, client_secret in oauth_pairs)
+
         if self.app_env == "production":
             if self.app_auto_create_schema:
                 raise ValueError("APP_AUTO_CREATE_SCHEMA must be false in production")
@@ -193,6 +248,16 @@ class Settings(BaseSettings):
             )
             if any("replace-" in value or "change-me" in value for value in unsafe_connections):
                 raise ValueError("Production connection credentials still contain placeholders")
+            if oauth_configured:
+                if not self.crm_oauth_public_base_url or not self.crm_oauth_frontend_origin:
+                    raise ValueError(
+                        "Managed CRM OAuth requires CRM_OAUTH_PUBLIC_BASE_URL and "
+                        "CRM_OAUTH_FRONTEND_ORIGIN in production"
+                    )
+                if not self.crm_oauth_public_base_url.startswith("https://"):
+                    raise ValueError("CRM_OAUTH_PUBLIC_BASE_URL must use HTTPS in production")
+                if not self.crm_oauth_frontend_origin.startswith("https://"):
+                    raise ValueError("CRM_OAUTH_FRONTEND_ORIGIN must use HTTPS in production")
             if self.seed_admin_password:
                 if not self.allow_production_seed:
                     raise ValueError(

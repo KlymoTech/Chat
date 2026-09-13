@@ -59,6 +59,7 @@ class WorkspaceCRMRouteService:
         correlation_id: str | None = None,
         sync_reason: str | None = None,
         origin_connection_id: UUID | None = None,
+        target_connection_id: UUID | None = None,
     ) -> list[CRMDelivery]:
         lead = await session.scalar(
             select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id)
@@ -97,6 +98,8 @@ class WorkspaceCRMRouteService:
                 try:
                     connection_id = UUID(str(raw))
                 except ValueError:
+                    continue
+                if target_connection_id is not None and connection_id != target_connection_id:
                     continue
                 if connection_id not in connection_ids:
                     connection_ids.append(connection_id)
