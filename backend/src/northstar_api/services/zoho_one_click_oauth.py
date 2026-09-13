@@ -21,7 +21,11 @@ from northstar_api.services.zoho_one_click import (
     normalized_failure_status,
 )
 from northstar_api.services.zoho_one_click_common import decrypt_zoho_credentials
-from northstar_api.zoho_platform import ZohoPlatformConfiguration
+from northstar_api.zoho_platform import (
+    ZohoPlatformConfiguration,
+    ZohoPlatformConfigurationError,
+    resolve_zoho_data_center,
+)
 
 
 def redirect_target(base_url: str, **params: str | None) -> str:
@@ -36,12 +40,14 @@ async def process_zoho_one_click_callback(
     state: str,
     code: str | None,
     error: str | None,
+    location: str | None,
+    accounts_server: str | None,
     platform: ZohoPlatformConfiguration | None,
 ) -> RedirectResponse:
     frontend_url = (
         platform.frontend_return_url
         if platform is not None
-        else "http://localhost:5173/integrations"
+        else "http://localhost:3100/integrations"
     )
     try:
         saved = await oauth_state_store.consume(state)
@@ -146,13 +152,33 @@ async def process_zoho_one_click_callback(
         )
 
     try:
+        accounts_url, api_domain, resolved_location = resolve_zoho_data_center(
+            location=location,
+            accounts_server=accounts_server,
+            default_accounts_url=platform.accounts_url,
+            default_api_domain=platform.api_domain,
+        )
         connector = crm_registry.get(CRMProvider.ZOHO)
         existing = decrypt_zoho_credentials(connection)
+        existing.update(
+            {
+                "client_id": platform.client_id,
+                "client_secret": platform.client_secret_for(resolved_location),
+                "accounts_url": accounts_url,
+            }
+        )
+        regional_configuration = {
+            **dict(connection.configuration_json or {}),
+            "accountsUrl": accounts_url,
+            "apiDomain": api_domain,
+            "dataCenter": resolved_location,
+        }
+        connection.configuration_json = regional_configuration
         context = CRMConnectionContext(
             tenant_id=saved.tenant_id,
             connection_id=connection.id,
             provider=CRMProvider.ZOHO,
-            configuration=dict(connection.configuration_json or {}),
+            configuration=regional_configuration,
             credentials=existing,
         )
         updated = await connector.exchange_authorization_code(
@@ -161,6 +187,12 @@ async def process_zoho_one_click_callback(
             redirect_uri=saved.redirect_uri,
             code_verifier=None,
         )
+        updated["accounts_url"] = accounts_url
+        resolved_api_domain = str(updated.get("api_domain") or api_domain).rstrip("/")
+        connection.configuration_json = {
+            **regional_configuration,
+            "apiDomain": resolved_api_domain,
+        }
         connection.credentials_encrypted = credential_store.encrypt(updated)
         connection.last_authenticated_at = datetime.now(UTC)
         connection.status = CRMConnectionStatus.CONNECTING.value
@@ -196,7 +228,13 @@ async def process_zoho_one_click_callback(
             ),
             status_code=303,
         )
-    except (CRMError, CredentialStoreError, ZohoOneClickError, ValueError) as exc:
+    except (
+        CRMError,
+        CredentialStoreError,
+        ZohoOneClickError,
+        ZohoPlatformConfigurationError,
+        ValueError,
+    ) as exc:
         await session.rollback()
         await set_tenant_context(session, saved.tenant_id)
         failed = await session.scalar(
