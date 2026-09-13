@@ -24,7 +24,7 @@ class ZohoPlatformConfiguration:
     api_domain: str = "https://www.zohoapis.com"
     api_version: str = "v8"
     scopes: tuple[str, ...] = _DEFAULT_SCOPES
-    frontend_return_url: str = "http://localhost:5173/integrations"
+    frontend_return_url: str = "http://localhost:3100/integrations"
     callback_url: str | None = None
     live_certification_enabled: bool = True
 
@@ -105,7 +105,7 @@ def load_zoho_platform_configuration(
     )
     frontend_return_url = _url(
         "ZOHO_OAUTH_FRONTEND_URL",
-        _optional("ZOHO_OAUTH_FRONTEND_URL") or "http://localhost:5173/integrations",
+        _optional("ZOHO_OAUTH_FRONTEND_URL") or "http://localhost:3100/integrations",
         https_only=False,
     )
     callback_value = _optional("ZOHO_OAUTH_REDIRECT_URI")
