@@ -19,6 +19,9 @@ services:
       SMTP_SSL: ${SMTP_SSL:-false}
       SMTP_TIMEOUT_SECONDS: ${SMTP_TIMEOUT_SECONDS:-10}
 
+  migrate:
+    command: ["alembic", "upgrade", "heads"]
+
   notification-consumer:
     extends:
       file: compose.yaml
