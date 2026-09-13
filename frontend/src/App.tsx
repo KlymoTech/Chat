@@ -16,7 +16,7 @@ import { EducationEnrollmentsPage } from '@/pages/EducationEnrollmentsPage';
 import { EducationStudentDetailPage } from '@/pages/EducationStudentDetailPage';
 import { EducationStudentImportPage } from '@/pages/EducationStudentImportPage';
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
-import { IntegrationsPage } from '@/pages/IntegrationsPage';
+import { IntegrationsHubPage } from '@/pages/IntegrationsHubPage';
 import { HelpArticlePage } from '@/pages/HelpArticlePage';
 import { HelpAskPage } from '@/pages/HelpAskPage';
 import { HelpCategoryPage } from '@/pages/HelpCategoryPage';
@@ -74,7 +74,7 @@ export function App() {
       <Route path="leads" element={<LeadsPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
       <Route path="audit" element={<AuditPage />} />
-      <Route path="integrations" element={<IntegrationsPage />} />
+      <Route path="integrations" element={<IntegrationsHubPage />} />
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
