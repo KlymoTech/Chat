@@ -105,12 +105,20 @@ async def zoho_one_click_callback(
     state: str = Query(min_length=20, max_length=512),
     code: str | None = Query(default=None, min_length=1, max_length=4096),
     error: str | None = Query(default=None, max_length=512),
+    location: str | None = Query(default=None, max_length=20),
+    accounts_server: str | None = Query(
+        default=None,
+        alias="accounts-server",
+        max_length=256,
+    ),
 ) -> RedirectResponse:
     return await process_zoho_one_click_callback(
         session,
         state=state,
         code=code,
         error=error,
+        location=location,
+        accounts_server=accounts_server,
         platform=_platform(required=False),
     )
 
