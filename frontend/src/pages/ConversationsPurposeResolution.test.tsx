@@ -112,14 +112,6 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
     vi.clearAllMocks();
   });
 
-  it('confirms a saved lead for Education resolution', async () => {
-    await renderAndResolve('education');
-    expect(mocks.pushToast).toHaveBeenCalledWith(
-      'Conversation resolved and lead saved in Leads',
-    );
-    expect(mocks.resolveEducationSalesIntent).not.toHaveBeenCalled();
-  });
-
   it('preserves the Lead Generation finalized-lead confirmation', async () => {
     await renderAndResolve('lead_generation');
     expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved and lead saved in Leads');
@@ -130,32 +122,17 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
     expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved and lead saved in Leads');
   });
 
-  it('shows a separate opt-in Education sales action and routes it without normal Resolve', async () => {
+  it.each(['open', 'resolved'] as const)('keeps %s Education chats outside the lead workflow even with legacy upsell enabled', async (state) => {
     mocks.educationSalesSettings.mockResolvedValue({ createUpsellLeads: true });
     mocks.agentList.mockResolvedValue([agentForPurpose('education')]);
-    mocks.conversationList.mockResolvedValue({
-      items: [baseConversation],
-      total: 1,
-      page: 1,
-      pageSize: 50,
-    });
-
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <ConversationsPage />
-      </MemoryRouter>,
-    );
-
-    await user.click(await screen.findByRole('button', { name: 'Resolve + sales lead' }));
-
-    await waitFor(() => {
-      expect(mocks.resolveEducationSalesIntent).toHaveBeenCalledWith(baseConversation.id);
-    });
+    mocks.conversationList.mockResolvedValue({ items: [{ ...baseConversation, purpose: 'education', state }], total: 1, page: 1, pageSize: 50 });
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+    expect(await screen.findByText('Education chat', { exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Resolve|Reopen|Save status|sales lead/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Lead status' })).not.toBeInTheDocument();
+    expect(screen.getByRole('log')).toHaveTextContent('Student learning conversation');
     expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.pushToast).toHaveBeenCalledWith(
-      'Education conversation resolved and sales Lead created',
-    );
+    expect(mocks.resolveEducationSalesIntent).not.toHaveBeenCalled();
   });
 
   it('sends Qualified with Resolve in a single request and reports queued sync', async () => {

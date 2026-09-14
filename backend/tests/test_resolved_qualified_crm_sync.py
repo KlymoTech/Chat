@@ -213,7 +213,7 @@ async def test_resolved_qualified_lead_respects_disabled_auto_sync_and_manual_ov
         assert len(manual) == 1
 
 
-@pytest.mark.parametrize("purpose", ["support", "education", "lead_generation"])
+@pytest.mark.parametrize("purpose", ["support", "lead_generation"])
 async def test_resolve_with_status_saves_and_routes_once(client, auth_headers, purpose):
     tenant_id, _, conversation_id, connection_id, headers = await seed_flow(client, auth_headers, purpose)
     url = f"/api/v1/conversations/{conversation_id}/resolve"

@@ -27,6 +27,7 @@ from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection, Works
 from northstar_api.models import Lead
 from northstar_api.routers import crm as legacy_crm
 from northstar_api.security import Principal
+from northstar_api.services.education_conversation_policy import education_source
 
 router = APIRouter(tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -432,6 +433,7 @@ async def list_crm_deliveries(
                 CRMDelivery.tenant_id == principal.tenant_id,
                 Lead.tenant_id == principal.tenant_id,
                 Lead.workspace_id == principal.workspace_id,
+                ~education_source(Lead),
             )
             .order_by(CRMDelivery.created_at.desc())
             .limit(500)

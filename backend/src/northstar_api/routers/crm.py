@@ -35,6 +35,7 @@ from northstar_api.lead_crm.models import (
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import request_id_ctx
 from northstar_api.models import Lead
+from northstar_api.services.education_conversation_policy import education_source
 
 router = APIRouter(tags=["crm"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -547,6 +548,7 @@ async def qualify_lead(
             Lead.id == lead_id,
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
+            ~education_source(Lead),
         )
     )
     if not lead:
@@ -581,6 +583,7 @@ async def sync_lead(
             Lead.id == lead_id,
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
+            ~education_source(Lead),
         )
     )
     if not lead:
@@ -603,6 +606,7 @@ async def lead_deliveries(lead_id: UUID, principal: CurrentPrincipal, session: D
             Lead.id == lead_id,
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
+            ~education_source(Lead),
         )
     )
     if not exists:
@@ -624,6 +628,7 @@ async def lead_activity(lead_id: UUID, principal: CurrentPrincipal, session: DB)
             Lead.id == lead_id,
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
+            ~education_source(Lead),
         )
     )
     if not exists:

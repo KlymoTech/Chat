@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load, selectinload
 
+from northstar_api.agent_purpose import AgentPurpose, AgentPurposeSetting
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
@@ -41,6 +42,11 @@ from northstar_api.schemas import (
 from northstar_api.security import Principal
 from northstar_api.services.conversation_lead_status import attach_lead_status
 from northstar_api.services.conversation_resolution import conversation_resolution_service
+from northstar_api.services.education_conversation_policy import (
+    EDUCATION_WORKFLOW_MESSAGE,
+    conversation_purpose,
+    education_source,
+)
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.slack import decode_slack_target
 from northstar_api.services.whatsapp import (
@@ -399,6 +405,7 @@ async def list_conversations(
     agent_id: UUID | None = Query(default=None),
     channel: Channel | None = Query(default=None),
     state: str | None = Query(default=None, max_length=40),
+    purpose: AgentPurpose | None = Query(default=None),
     search: str | None = Query(default=None, max_length=320),
 ) -> PageResult[ConversationOut]:
     conditions = [
@@ -407,6 +414,16 @@ async def list_conversations(
     ]
     if principal.agent_ids is not None:
         conditions.append(Conversation.agent_id.in_(principal.agent_ids))
+    if purpose is AgentPurpose.EDUCATION:
+        conditions.append(education_source(Conversation))
+    elif purpose is not None:
+        conditions.append(~education_source(Conversation))
+        lead_agents = select(AgentPurposeSetting.agent_id).where(
+            AgentPurposeSetting.tenant_id == principal.tenant_id,
+            AgentPurposeSetting.workspace_id == principal.workspace_id,
+            AgentPurposeSetting.purpose == AgentPurpose.LEAD_GENERATION.value,
+        )
+        conditions.append(Conversation.agent_id.in_(lead_agents) if purpose is AgentPurpose.LEAD_GENERATION else Conversation.agent_id.not_in(lead_agents))
     if agent_id:
         conditions.append(Conversation.agent_id == agent_id)
     if channel:
@@ -471,6 +488,8 @@ async def resolve_conversation(
     conversation = await locked_conversation(session, principal, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    if await conversation_purpose(session, conversation) is AgentPurpose.EDUCATION:
+        raise HTTPException(status_code=409, detail=EDUCATION_WORKFLOW_MESSAGE)
     resolution = await conversation_resolution_service.resolve(
         session,
         conversation=conversation,
@@ -501,6 +520,8 @@ async def update_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if payload.state == ConversationState.RESOLVED and await conversation_purpose(session, conversation) is AgentPurpose.EDUCATION:
+        raise HTTPException(status_code=409, detail=EDUCATION_WORKFLOW_MESSAGE)
     previous_state = conversation.state
     patch = payload.model_dump(exclude_unset=True)
     requested_state = payload.state

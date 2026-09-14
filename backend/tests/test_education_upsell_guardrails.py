@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -9,7 +10,8 @@ from northstar_api.database import SessionFactory
 from northstar_api.models import Agent, Channel, Conversation, ConversationState, Lead
 
 
-async def test_sales_intent_requires_authorized_education_context(
+@pytest.mark.usefixtures("crm_test_plan")
+async def test_sales_intent_rejected_even_without_education_context(
     client: AsyncClient,
     auth_headers: dict[str, str],
 ) -> None:
@@ -24,7 +26,7 @@ async def test_sales_intent_requires_authorized_education_context(
         headers=headers,
         json={"createUpsellLeads": True},
     )
-    assert enabled.status_code == 200, enabled.text
+    assert enabled.status_code == 409, enabled.text
 
     created_agent = await client.post(
         "/api/v1/agents",
@@ -62,7 +64,7 @@ async def test_sales_intent_requires_authorized_education_context(
         headers=headers,
     )
     assert response.status_code == 409, response.text
-    assert "authorized Student enrollment context" in response.json()["error"]["message"]
+    assert "Education chats stay in Conversations" in response.json()["error"]["message"]
 
     async with SessionFactory() as session:
         persisted = await session.get(Conversation, conversation_id)

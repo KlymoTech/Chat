@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from northstar_api.database import SessionFactory
 from northstar_api.education_conversation_context import EducationConversationContext
-from northstar_api.education_student_activity import EducationStudentActivityEvent
-from northstar_api.models import Agent, Channel, Conversation, ConversationState, Lead, OutboxEvent
+from northstar_api.models import Agent, Channel, Conversation, ConversationState, Lead
+
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 
 async def _create_education_scope(
@@ -124,122 +126,36 @@ async def _create_authorized_conversation(
         return conversation_id
 
 
-async def test_education_upsell_is_explicit_opt_in_and_idempotent(
-    client: AsyncClient,
-    auth_headers: dict[str, str],
-) -> None:
+async def test_authorized_education_chats_reject_legacy_upsell_and_stay_separate(client, auth_headers):
     workspace = await client.get("/api/v1/workspace", headers=auth_headers)
-    assert workspace.status_code == 200, workspace.text
     workspace_id = workspace.json()["id"]
     headers = {**auth_headers, "X-Workspace-ID": workspace_id}
-    seed = uuid.uuid4().hex[:8].upper()
-
-    settings = await client.get(
-        "/api/v1/education/settings/sales-routing",
-        headers=headers,
-    )
-    assert settings.status_code == 200, settings.text
-    assert settings.json() == {"createUpsellLeads": False}
-
-    agent_id, scope = await _create_education_scope(client, headers, seed=seed)
-    blocked_conversation_id = await _create_authorized_conversation(
-        workspace_id=workspace_id,
-        agent_id=agent_id,
-        scope=scope,
-        seed=f"{seed}-BLOCKED",
-    )
-
-    blocked = await client.post(
-        f"/api/v1/education/conversations/{blocked_conversation_id}/resolve-sales-intent",
-        headers=headers,
-    )
-    assert blocked.status_code == 409, blocked.text
-    assert "disabled" in blocked.json()["error"]["message"].lower()
-
-    async with SessionFactory() as session:
-        blocked_conversation = await session.get(Conversation, uuid.UUID(blocked_conversation_id))
-        assert blocked_conversation is not None
-        assert blocked_conversation.state == ConversationState.OPEN
-        blocked_leads = list(
-            await session.scalars(
-                select(Lead).where(Lead.conversation_id == uuid.UUID(blocked_conversation_id))
-            )
-        )
-        assert blocked_leads == []
-
-    enabled = await client.patch(
-        "/api/v1/education/settings/sales-routing",
-        headers=headers,
-        json={"createUpsellLeads": True},
-    )
-    assert enabled.status_code == 200, enabled.text
-    assert enabled.json() == {"createUpsellLeads": True}
-
+    agent_id, scope = await _create_education_scope(client, headers, seed=uuid.uuid4().hex[:8].upper())
     conversation_id = await _create_authorized_conversation(
-        workspace_id=workspace_id,
-        agent_id=agent_id,
-        scope=scope,
-        seed=f"{seed}-NORMAL",
+        workspace_id=workspace_id, agent_id=agent_id, scope=scope, seed=uuid.uuid4().hex[:8],
     )
-
-    normal_resolution = await client.post(
-        f"/api/v1/conversations/{conversation_id}/resolve",
-        headers=headers,
-    )
-    assert normal_resolution.status_code == 200, normal_resolution.text
-    assert normal_resolution.json()["state"] == "resolved"
-
+    enabled = await client.patch("/api/v1/education/settings/sales-routing", headers=headers, json={"createUpsellLeads": True})
+    assert enabled.status_code == 409
+    for endpoint in [f"/api/v1/education/conversations/{conversation_id}/resolve-sales-intent", f"/api/v1/conversations/{conversation_id}/resolve"]:
+        blocked = await client.post(endpoint, headers=headers)
+        assert blocked.status_code == 409, blocked.text
     async with SessionFactory() as session:
-        leads_before_intent = list(
-            await session.scalars(select(Lead).where(Lead.conversation_id == uuid.UUID(conversation_id)))
-        )
-        assert leads_before_intent == []
-
-    first_sales_resolution = await client.post(
-        f"/api/v1/education/conversations/{conversation_id}/resolve-sales-intent",
-        headers=headers,
-    )
-    assert first_sales_resolution.status_code == 200, first_sales_resolution.text
-    first_payload = first_sales_resolution.json()
-    assert first_payload["state"] == "resolved"
-    assert first_payload["leadCreated"] is True
-
-    second_sales_resolution = await client.post(
-        f"/api/v1/education/conversations/{conversation_id}/resolve-sales-intent",
-        headers=headers,
-    )
-    assert second_sales_resolution.status_code == 200, second_sales_resolution.text
-    assert second_sales_resolution.json()["leadCreated"] is False
-    assert second_sales_resolution.json()["leadId"] == first_payload["leadId"]
-
-    async with SessionFactory() as session:
-        leads = list(
-            await session.scalars(select(Lead).where(Lead.conversation_id == uuid.UUID(conversation_id)))
-        )
-        assert len(leads) == 1
-        assert str(leads[0].id) == first_payload["leadId"]
-        assert leads[0].fields_json["educationUpsell"] is True
-        assert leads[0].fields_json["leadReason"] == "education_upsell"
-
-        activities = list(
-            await session.scalars(
-                select(EducationStudentActivityEvent).where(
-                    EducationStudentActivityEvent.conversation_id == uuid.UUID(conversation_id),
-                    EducationStudentActivityEvent.event_type == "conversation.resolved",
-                )
-            )
-        )
-        assert len(activities) == 1
-
-        crm_events = list(
-            await session.scalars(
-                select(OutboxEvent).where(
-                    OutboxEvent.aggregate_id == first_payload["leadId"],
-                    OutboxEvent.event_type == "lead.crm.sync.requested.v1",
-                )
-            )
-        )
-        assert len(crm_events) == 1
+        conversation = await session.get(Conversation, uuid.UUID(conversation_id))
+        assert conversation.state == ConversationState.OPEN
+        assert list(await session.scalars(select(Lead).where(Lead.conversation_id == conversation.id))) == []
+        # The immutable Education context still protects a historical conversation
+        # even if its agent later switches purpose.
+        from northstar_api.agent_purpose import AgentPurposeSetting
+        setting = await session.get(AgentPurposeSetting, uuid.UUID(agent_id))
+        setting.purpose = "support"
+        await session.commit()
+    blocked = await client.post(f"/api/v1/conversations/{conversation_id}/resolve", headers=headers)
+    assert blocked.status_code == 409
+    listing = await client.get("/api/v1/education/conversations", headers=headers)
+    item = next(item for item in listing.json()["items"] if item["id"] == conversation_id)
+    assert item["purpose"] == "education" and item["leadId"] is None
+    generic = await client.get("/api/v1/conversations", headers=headers, params={"purpose": "education"})
+    assert any(item["id"] == conversation_id for item in generic.json()["items"])
 
 
 async def test_sales_intent_endpoint_rejects_non_education_agents(

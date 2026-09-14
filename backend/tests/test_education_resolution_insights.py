@@ -149,18 +149,16 @@ async def test_education_resolution_persists_redacted_student_topics_across_admi
         await session.commit()
         conversation_id = str(conversation.id)
 
-    first_resolution = await client.post(
-        f"/api/v1/conversations/{conversation_id}/resolve",
-        headers=headers,
-    )
-    assert first_resolution.status_code == 200, first_resolution.text
-    assert first_resolution.json()["state"] == "resolved"
-
-    second_resolution = await client.post(
-        f"/api/v1/conversations/{conversation_id}/resolve",
-        headers=headers,
-    )
-    assert second_resolution.status_code == 200, second_resolution.text
+    blocked = await client.post(f"/api/v1/conversations/{conversation_id}/resolve", headers=headers)
+    assert blocked.status_code == 409
+    # Internal education activity recording remains supported without sales leads.
+    from northstar_api.services.conversation_resolution import conversation_resolution_service
+    for _ in range(2):
+        async with SessionFactory() as session:
+            conversation = await session.get(Conversation, UUID(conversation_id))
+            result = await conversation_resolution_service.resolve(session, conversation=conversation)
+            assert result.lead is None
+            await session.commit()
 
     async with SessionFactory() as session:
         lead_count = int(
@@ -178,7 +176,7 @@ async def test_education_resolution_persists_redacted_student_topics_across_admi
             )
         ).all()
 
-    assert lead_count == 1
+    assert lead_count == 0
     assert len(activities) == 1
     details = activities[0].details_json
     assert details["studentMessageCount"] == 3

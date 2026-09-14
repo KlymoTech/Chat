@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.domain import CRMDeliveryStatus, LeadLifecycleStatus
@@ -16,6 +17,7 @@ from northstar_api.logging import request_id_ctx
 from northstar_api.models import Agent, Conversation, Lead
 from northstar_api.schemas import LeadCreate, LeadOut, LeadPatch, PageResult
 from northstar_api.security import Principal
+from northstar_api.services.education_conversation_policy import education_source
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -74,6 +76,7 @@ async def list_leads(
     conditions = [
         Lead.tenant_id == principal.tenant_id,
         Lead.workspace_id == principal.workspace_id,
+        ~education_source(Lead),
     ]
     if principal.agent_ids is not None:
         conditions.append(Lead.agent_id.in_(principal.agent_ids))
@@ -141,6 +144,8 @@ async def create_lead(payload: LeadCreate, principal: LeadsUpdatePrincipal, sess
     )
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
+    if await get_agent_purpose(session, tenant_id=principal.tenant_id, workspace_id=principal.workspace_id, agent_id=agent.id) is AgentPurpose.EDUCATION:
+        raise HTTPException(status_code=409, detail="Education agents do not create leads")
     conversation: Conversation | None = None
     if payload.conversation_id:
         conversation = await session.scalar(
@@ -149,6 +154,7 @@ async def create_lead(payload: LeadCreate, principal: LeadsUpdatePrincipal, sess
                 Conversation.tenant_id == principal.tenant_id,
                 Conversation.workspace_id == principal.workspace_id,
                 Conversation.agent_id == payload.agent_id,
+                ~education_source(Conversation),
             )
         )
         if not conversation:
@@ -217,6 +223,7 @@ async def update_lead(
             Lead.id == lead_id,
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
+            ~education_source(Lead),
             *((Lead.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
         ).with_for_update()
     )

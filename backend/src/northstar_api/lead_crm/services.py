@@ -30,6 +30,7 @@ from northstar_api.lead_crm.models import (
 )
 from northstar_api.lead_crm.normalization import normalize_identity
 from northstar_api.models import Lead
+from northstar_api.services.education_conversation_policy import is_education_lead
 from northstar_api.services.outbox import enqueue_event
 
 
@@ -440,6 +441,8 @@ class CRMRouteService:
         lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id))
         if not lead:
             raise ValueError("Lead does not exist in tenant scope")
+        if await is_education_lead(session, lead.id):
+            return []
         profile = await session.scalar(
             select(LeadProfile).where(LeadProfile.tenant_id == tenant_id, LeadProfile.lead_id == lead_id)
         )

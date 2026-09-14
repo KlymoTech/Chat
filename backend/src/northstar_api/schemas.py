@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator, model_validator
 
+from northstar_api.agent_purpose import AgentPurpose
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.models import (
     AgentStatus,
@@ -338,6 +339,7 @@ class VisitorDetails(APIModel):
 
 
 class ConversationOut(APIModel):
+    purpose: AgentPurpose = AgentPurpose.SUPPORT
     lead_id: UUID | None = None
     lead_status: str | None = None
     can_update_lead_status: bool = False

@@ -105,6 +105,11 @@
 .inbox-update-status { padding: 6px 14px; color: var(--muted); background: #f8fafc; font-size: 10px; }
 .inbox-update-status--error { color: #92400e; background: #fffbeb; }
 .inbox-update-status button { padding: 0 0 0 8px; border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; }
+.inbox-page .inbox-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.inbox-page .inbox-tools .search-box { grid-column: 1 / -1; }
+.inbox-page .inbox-tools .filter-select { min-width: 0; width: 100%; }
+.education-conversation-label { display: inline-flex; align-items: center; gap: 7px; padding: 9px 13px; border-radius: 999px; color: #6544d5; background: #f5f2ff; font-size: 12px; }
+.education-conversation-label svg { width: 17px; height: 17px; }
 
 .inbox-page .conversation-detail { grid-template-rows: max-content minmax(0, 1fr); }
 .inbox-page .conversation-detail__header { flex-wrap: wrap; min-height: 78px; padding-top: 12px; padding-bottom: 12px; }

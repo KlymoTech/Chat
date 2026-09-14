@@ -21,6 +21,7 @@ from northstar_api.lead_crm.models import (
 from northstar_api.lead_crm.services import _payload_hash, canonical_lead, lead_domain_service
 from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection, WorkspaceCRMRoute
 from northstar_api.models import Conversation, ConversationState, Lead
+from northstar_api.services.education_conversation_policy import is_education_lead
 from northstar_api.services.outbox import enqueue_event
 
 
@@ -65,6 +66,8 @@ class WorkspaceCRMRouteService:
         lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id))
         if not lead:
             raise ValueError("Lead does not exist in tenant scope")
+        if await is_education_lead(session, lead.id):
+            return []
 
         profile = await session.scalar(
             select(LeadProfile).where(

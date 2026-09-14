@@ -1,5 +1,5 @@
 import { VisitorDetailsEditor } from '@/components/visitor-details-editor';
-import { Archive, BadgeDollarSign, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, Inbox, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
+import { Archive, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, GraduationCap, Inbox, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast, useWorkspace } from '@/components/providers';
@@ -8,7 +8,6 @@ import { api } from '@/lib/api';
 import { conversationApi } from '@/lib/conversation-api';
 import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/education-api';
 import { educationEnrollmentApi, type EducationEnrollment } from '@/lib/education-enrollment-api';
-import { educationSalesSettingsApi } from '@/lib/education-sales-settings-api';
 import { educationStudentApi, type EducationStudent } from '@/lib/education-student-api';
 import { leadStatuses } from '@/lib/lead-status';
 import { relativeTime } from '@/lib/format';
@@ -34,7 +33,7 @@ export function ConversationsPage() {
   const [channel, setChannel] = useState<ChannelFilter>('all');
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
-  const [routingUpsell, setRoutingUpsell] = useState(false);
+  const [purposeFilter, setPurposeFilter] = useState<'all' | NonNullable<Conversation['purpose']>>('all');
   const [savingState, setSavingState] = useState(false);
 
   useEffect(() => {
@@ -43,10 +42,6 @@ export function ConversationsPage() {
   }, [search]);
 
   const agents = useApi(() => api.agents.list(), [activeWorkspace?.id]);
-  const educationSales = useApi(
-    () => educationSalesSettingsApi.get().catch(() => ({ createUpsellLeads: false })),
-    [activeWorkspace?.id],
-  );
   const filterAgent = agentId === 'all' ? null : agents.data?.find((item) => item.id === agentId) ?? null;
   const isEducationAgent = filterAgent?.purpose === 'education';
 
@@ -103,6 +98,7 @@ export function ConversationsPage() {
 
   const result = usePollingApi(
     (signal) => conversationApi.list({
+      purpose: purposeFilter === 'all' ? undefined : purposeFilter,
       agentId: agentId === 'all' ? undefined : agentId,
       educationScope: isEducationAgent,
       courseId: isEducationAgent && courseId !== 'all' ? courseId : undefined,
@@ -114,7 +110,7 @@ export function ConversationsPage() {
       page: 1,
       pageSize: 50,
     }, signal),
-    [activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch],
+    [activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch, purposeFilter],
   );
 
   const conversations = useMemo(() => result.data?.items ?? [], [result.data]);
@@ -122,9 +118,6 @@ export function ConversationsPage() {
   const selectedId = showingList ? undefined : params.get('selected') ?? conversations[0]?.id;
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const selectedAgent = selected ? agents.data?.find((item) => item.id === selected.agentId) : null;
-  const canRouteEducationUpsell = selectedAgent?.purpose === 'education'
-    && educationSales.data?.createUpsellLeads === true;
-
   useEffect(() => {
     if (showingList) return;
     const selectedParam = params.get('selected');
@@ -172,22 +165,6 @@ export function ConversationsPage() {
     }
   };
 
-  const resolveEducationSalesIntent = async () => {
-    if (!selected || routingUpsell) return;
-    setRoutingUpsell(true);
-    try {
-      const routed = await conversationApi.resolveEducationSalesIntent(selected.id);
-      pushToast(routed.leadCreated
-        ? 'Education conversation resolved and sales Lead created'
-        : 'Education sales Lead is already linked to this conversation');
-      await result.reload();
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Education sales Lead could not be created', 'error');
-    } finally {
-      setRoutingUpsell(false);
-    }
-  };
-
   const submitReply = async (event: FormEvent) => {
     event.preventDefault();
     if (!selected || !reply.trim() || sending) return;
@@ -213,6 +190,7 @@ export function ConversationsPage() {
         <div className="search-box"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" /></div>
         <div className="filter-select"><Filter /><select value={agentId} onChange={(event) => changeAgent(event.target.value)} aria-label="Filter by agent"><option value="all">All agents</option>{agents.data?.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown /></div>
         <div className="filter-select"><Filter /><select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)} aria-label="Filter by channel"><option value="all">All channels</option><option value="widget">Website</option><option value="whatsapp">WhatsApp</option><option value="slack">Slack</option><option value="api">API</option></select><ChevronDown /></div>
+        <div className="filter-select"><GraduationCap /><select value={purposeFilter} onChange={(event) => setPurposeFilter(event.target.value as typeof purposeFilter)} aria-label="Filter by purpose"><option value="all">All purposes</option><option value="education">Education</option><option value="lead_generation">Lead generation</option><option value="support">Support</option></select><ChevronDown /></div>
         <div className="filter-select"><Filter /><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)} aria-label="Filter conversations"><option value="all">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="resolved">Resolved</option></select><ChevronDown /></div>
       </div>
       {isEducationAgent ? <div className="education-inbox-filters" aria-label="Education conversation filters">
@@ -221,17 +199,18 @@ export function ConversationsPage() {
         <div className="filter-select"><Filter /><select value={batchId} disabled={courseId === 'all'} onChange={(event) => changeBatch(event.target.value)} aria-label="Filter by batch"><option value="all">All batches</option>{batches.data?.map((batch) => <option key={batch.id} value={batch.id}>{batch.code} · {batch.name}</option>)}</select><ChevronDown /></div>
         <div className="filter-select"><Filter /><select value={studentId} disabled={batchId === 'all'} onChange={(event) => setStudentId(event.target.value)} aria-label="Filter by student"><option value="all">All students</option>{eligibleStudents.map((student) => <option key={student.id} value={student.id}>{student.studentNumber} · {student.name}</option>)}</select><ChevronDown /></div>
       </div> : null}
-      <div className="conversation-items" role="region" aria-label="Conversation list" tabIndex={0}>{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar">{conversation.visitorName.charAt(0)}</span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge><em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
+      <div className="conversation-items" role="region" aria-label="Conversation list" tabIndex={0}>{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar">{conversation.visitorName.charAt(0)}</span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge>{conversation.purpose === 'education' || agents.data?.find((agent) => agent.id === conversation.agentId)?.purpose === 'education' ? <Badge tone="purple">Education</Badge> : null}<em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
       {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description={isEducationAgent ? 'Try another Course, Batch, Student, channel, status, or search.' : 'Try another workspace, agent, channel, status, or search.'} /> : null}
     </section>
-    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={result.reload} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} canRouteEducationUpsell={canRouteEducationUpsell} resolveEducationSalesIntent={resolveEducationSalesIntent} routingUpsell={routingUpsell} onBack={() => setParams({ view: 'list' })} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
+    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={result.reload} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} purpose={selected.purpose ?? selectedAgent?.purpose} onBack={() => setParams({ view: 'list' })} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
   </div>;
 }
 
-function ConversationDetail({ savingState, onVisitorSaved, conversation, agentName, workspaceName, reply, setReply, submitReply, setState, canRouteEducationUpsell, resolveEducationSalesIntent, routingUpsell, onBack, sending }: { savingState: boolean; onVisitorSaved: () => void; conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState, leadStatus?: string) => Promise<void>; canRouteEducationUpsell: boolean; resolveEducationSalesIntent: () => Promise<void>; routingUpsell: boolean; onBack: () => void; sending: boolean }) {
+function ConversationDetail({ savingState, onVisitorSaved, conversation, agentName, workspaceName, reply, setReply, submitReply, setState, purpose, onBack, sending }: { savingState: boolean; onVisitorSaved: () => void; conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState, leadStatus?: string) => Promise<void>; purpose: Conversation['purpose']; onBack: () => void; sending: boolean }) {
   const [leadStatus, setLeadStatus] = useState(conversation.leadStatus ?? 'new');
   useEffect(() => { setLeadStatus(conversation.leadStatus ?? 'new'); }, [conversation.id, conversation.leadStatus]);
-  const canEditLeadStatus = conversation.canUpdateLeadStatus === true;
+  const isEducation = purpose === 'education';
+  const canEditLeadStatus = !isEducation && conversation.canUpdateLeadStatus === true;
   const statuses = leadStatuses.includes(leadStatus) ? leadStatuses : [leadStatus, ...leadStatuses];
   const statusChanged = leadStatus !== (conversation.leadStatus ?? 'new');
   const resolve = () => void setState('resolved', canEditLeadStatus ? leadStatus : undefined);
@@ -258,12 +237,12 @@ function ConversationDetail({ savingState, onVisitorSaved, conversation, agentNa
     return () => observer.disconnect();
   }, []);
   return <section className="conversation-detail">
-    <header className="conversation-detail__header"><button className="mobile-back" aria-label="Back to conversation list" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions"><label className="conversation-lead-status"><span>Lead status</span><span className="conversation-lead-status__field"><select aria-label="Lead status" value={leadStatus} disabled={!canEditLeadStatus || savingState || routingUpsell} onChange={(event) => setLeadStatus(event.target.value)} title={canEditLeadStatus ? "Saved when you resolve or save status. Qualified leads sync automatically to your connected CRM." : "You do not have permission to update lead status"}>{statuses.map((status) => <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>)}</select><ChevronDown aria-hidden="true" /></span></label><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{canRouteEducationUpsell ? <Button variant="secondary" size="sm" icon={BadgeDollarSign} disabled={routingUpsell || savingState} onClick={() => void resolveEducationSalesIntent()}>{routingUpsell ? 'Routing…' : conversation.state === 'resolved' ? 'Create sales lead' : 'Resolve + sales lead'}</Button> : null}{conversation.state !== 'resolved' || statusChanged ? <Button size="sm" icon={CheckCircle2} disabled={savingState || routingUpsell} onClick={resolve}>{savingState ? 'Saving...' : conversation.state === 'resolved' ? 'Save status' : 'Resolve'}</Button> : <Button variant="secondary" size="sm" disabled={savingState || routingUpsell} onClick={() => void setState('open')}>Reopen</Button>}</div></header>
+    <header className="conversation-detail__header"><button className="mobile-back" aria-label="Back to conversation list" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions">{isEducation ? <span className="education-conversation-label"><GraduationCap aria-hidden="true" /> Education chat</span> : <><label className="conversation-lead-status"><span>Lead status</span><span className="conversation-lead-status__field"><select aria-label="Lead status" value={leadStatus} disabled={!canEditLeadStatus || savingState} onChange={(event) => setLeadStatus(event.target.value)} title={canEditLeadStatus ? "Saved when you resolve or save status. Qualified leads sync automatically to your connected CRM." : "You do not have permission to update lead status"}>{statuses.map((status) => <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>)}</select><ChevronDown aria-hidden="true" /></span></label><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{conversation.state !== 'resolved' || statusChanged ? <Button size="sm" icon={CheckCircle2} disabled={savingState} onClick={resolve}>{savingState ? 'Saving...' : conversation.state === 'resolved' ? 'Save status' : 'Resolve'}</Button> : <Button variant="secondary" size="sm" disabled={savingState} onClick={() => void setState('open')}>Reopen</Button>}</>}</div></header>
     <div className="conversation-layout"><div className="conversation-thread" ref={threadRef} role="log" aria-label="Conversation messages" aria-live="polite" aria-relevant="additions text" tabIndex={0} onScroll={(event) => {
       const thread = event.currentTarget;
       followLatest.current = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
       if (followLatest.current) setHasNewMessages(false);
-    }}><div className="thread-notice"><Sparkles /> <span><strong>{conversation.state === 'escalated' ? 'Human attention requested' : 'Northstar handled this conversation'}</strong><small>The complete AI context is available below.</small></span></div><div className="message-day"><span>{new Date(conversation.startedAt).toLocaleDateString('en', { month: 'long', day: 'numeric' })}</span></div>
+    }}><div className="thread-notice"><Sparkles /> <span><strong>{isEducation ? 'Student learning conversation' : conversation.state === 'escalated' ? 'Human attention requested' : 'Northstar handled this conversation'}</strong><small>{isEducation ? 'Kept in Education. This chat does not create a lead or sync to a sales CRM.' : 'The complete AI context is available below.'}</small></span></div><div className="message-day"><span>{new Date(conversation.startedAt).toLocaleDateString('en', { month: 'long', day: 'numeric' })}</span></div>
       {conversation.messages.map((message) => <div className={`inbox-message inbox-message--${message.role}`} key={message.id}>{message.role === 'user' ? <span className="message-avatar message-avatar--visitor">{conversation.visitorName.charAt(0)}</span> : <span className="message-avatar"><>{message.role === 'agent' ? <UserRound /> : <Sparkles />}</></span>}<div><span className="message-author">{message.role === 'user' ? conversation.visitorName : message.role === 'agent' ? 'You' : 'Northstar AI'} <time>{new Date(message.createdAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</time></span><div className="message-bubble">{message.content}</div>{message.citations?.map((citation) => <button className="citation-chip" key={citation.title}><ExternalLink />{citation.title}</button>)}</div></div>)}
     </div>{hasNewMessages ? <button type="button" className="conversation-new-messages" onClick={jumpToLatest}>New messages <ChevronDown aria-hidden="true" /></button> : null}{conversation.channel === 'whatsapp' ? <div className="conversation-reply-tools"><WhatsAppTemplateComposer key={conversation.id} agentId={conversation.agentId} conversationId={conversation.id} /></div> : null}<form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form></div>
     <aside className="visitor-panel"><div className="visitor-profile"><span className="mini-avatar mini-avatar--xl">{conversation.visitorName.charAt(0)}</span><h3>{conversation.visitorName}</h3><Badge tone={conversation.sentiment === 'positive' ? 'success' : conversation.sentiment === 'negative' ? 'danger' : 'neutral'}>{conversation.sentiment} sentiment</Badge></div><dl><div><dt><Mail /> Email</dt><dd>{conversation.visitorEmail ?? 'Not provided'}</dd></div><div><dt><Bot /> Workspace</dt><dd>{workspaceName}</dd></div><div><dt><Bot /> Agent</dt><dd>{agentName}</dd></div><div><dt><MessageCircle /> Channel</dt><dd className="capitalize">{conversation.channel}</dd></div><div><dt><Clock3 /> Started</dt><dd>{relativeTime(conversation.startedAt)}</dd></div><div><dt><CircleAlert /> Status</dt><dd className="capitalize">{conversation.state}</dd></div></dl><VisitorDetailsEditor key={conversation.id} conversation={conversation} onSaved={onVisitorSaved} /><div className="conversation-summary"><strong><Sparkles /> AI summary</strong><p>{conversation.preview} The visitor may benefit from a short, direct follow-up.</p></div></aside>

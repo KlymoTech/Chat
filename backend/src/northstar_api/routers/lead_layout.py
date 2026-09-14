@@ -28,6 +28,7 @@ from northstar_api.routers.leads import (
     lead_response,
 )
 from northstar_api.schemas import APIModel, LeadOut
+from northstar_api.services.education_conversation_policy import education_source
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/leads", tags=["lead-layout"])
@@ -90,7 +91,7 @@ async def export_leads(
     status: str = Query(default="", max_length=40),
 ):
     layout = stored_layout(await workspace_for(session, principal))
-    conditions = [Lead.tenant_id == principal.tenant_id, Lead.workspace_id == principal.workspace_id]
+    conditions = [Lead.tenant_id == principal.tenant_id, Lead.workspace_id == principal.workspace_id, ~education_source(Lead)]
     if principal.agent_ids is not None:
         conditions.append(Lead.agent_id.in_(principal.agent_ids))
     if status and status != "all":
@@ -145,6 +146,7 @@ async def edit_details(
             Lead.id == lead_id,
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
+            ~education_source(Lead),
             *((Lead.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
         )
         .with_for_update()

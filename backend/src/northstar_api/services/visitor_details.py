@@ -62,9 +62,11 @@ async def update_linked_lead(session, conversation, changed_fields):
 
     from northstar_api.lead_crm.services import lead_domain_service
     from northstar_api.models import Lead
+    from northstar_api.services.education_conversation_policy import education_source
     from northstar_api.services.outbox import enqueue_event
     lead = await session.scalar(select(Lead).where(
         Lead.conversation_id == conversation.id,
+        ~education_source(Lead),
         Lead.tenant_id == conversation.tenant_id,
         Lead.workspace_id == conversation.workspace_id,
     ).with_for_update())

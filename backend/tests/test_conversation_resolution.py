@@ -10,7 +10,7 @@ from northstar_api.database import SessionFactory
 from northstar_api.models import Agent, Channel, Conversation, Lead, Message, MessageRole, OutboxEvent
 
 
-@pytest.mark.parametrize("purpose", ["lead_generation", "support", "education"])
+@pytest.mark.parametrize("purpose", ["lead_generation", "support"])
 @pytest.mark.usefixtures("crm_test_plan")
 async def test_resolve_creates_one_lead_and_preserves_conversation(
     purpose: str,

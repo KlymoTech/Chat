@@ -8,6 +8,7 @@ const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) !== 'fa
 const SESSION_KEY = 'northstar.session';
 
 export interface ConversationFilters {
+  purpose?: Conversation['purpose'];
   agentId?: string;
   educationScope?: boolean;
   courseId?: string;
@@ -40,7 +41,8 @@ function authHeaders(): HeadersInit {
 function matchesFallback(item: Conversation, filters: ConversationFilters): boolean {
   const query = filters.search?.trim().toLowerCase();
   return (
-    (!filters.agentId || item.agentId === filters.agentId)
+    (!filters.purpose || item.purpose === filters.purpose)
+    && (!filters.agentId || item.agentId === filters.agentId)
     && (!filters.channel || item.channel === filters.channel)
     && (!filters.state || item.state === filters.state)
     && (!query || `${item.visitorName} ${item.visitorEmail ?? ''} ${item.preview}`.toLowerCase().includes(query))
@@ -62,6 +64,7 @@ export const conversationApi = {
   },
   async list(filters: ConversationFilters = {}, signal?: AbortSignal): Promise<PageResult<Conversation>> {
     const params = new URLSearchParams();
+    if (filters.purpose) params.set('purpose', filters.purpose);
     if (filters.agentId) params.set('agent_id', filters.agentId);
     if (filters.courseId) params.set('course_id', filters.courseId);
     if (filters.batchId) params.set('batch_id', filters.batchId);

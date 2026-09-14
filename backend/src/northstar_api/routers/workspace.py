@@ -173,7 +173,7 @@ def _workspace_response(
         white_label=WhiteLabelSettings.model_validate(
             {"companyName": tenant.name, **(workspace.branding_json or {})}
         ),
-        education_create_upsell_leads=bool(settings.get("educationCreateUpsellLeads", False)),
+        education_create_upsell_leads=False,
     )
 
 
@@ -310,6 +310,8 @@ async def update_workspace(
         workspace.date_format = payload.preferences.date_format
     if payload.white_label is not None:
         workspace.branding_json = payload.white_label.model_dump(by_alias=True, mode="json")
+    if payload.education_create_upsell_leads:
+        raise HTTPException(status_code=409, detail="Education chats stay separate from leads")
     if payload.education_create_upsell_leads is not None:
         settings["educationCreateUpsellLeads"] = payload.education_create_upsell_leads
     workspace.settings_json = settings

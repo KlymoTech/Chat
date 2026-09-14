@@ -124,6 +124,7 @@ export interface ChatMessage {
 }
 
 export interface Conversation {
+  purpose?: 'education' | 'support' | 'lead_generation';
   leadId?: string | null;
   leadStatus?: string | null;
   canUpdateLeadStatus?: boolean;
