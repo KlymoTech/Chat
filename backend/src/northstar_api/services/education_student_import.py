@@ -190,9 +190,11 @@ async def validate_student_import(
             agent = agents.get(row.agent_public_id or "")
             if agent is None:
                 errors.append("Agent ID was not found in this workspace")
-            elif agent.status != AgentStatus.ACTIVE:
-                errors.append("Agent is not active")
+            elif agent.status not in (AgentStatus.ACTIVE, AgentStatus.DRAFT):
+                errors.append("Finish training the Agent before importing enrollments")
             else:
+                if agent.status == AgentStatus.DRAFT:
+                    warnings.append("Agent is in draft; activate it after enrollment to enable replies")
                 purpose = purpose_cache.get(agent.id)
                 if purpose is None:
                     purpose = await get_agent_purpose(

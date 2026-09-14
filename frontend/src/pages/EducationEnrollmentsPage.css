@@ -109,6 +109,7 @@
 }
 
 .education-enrollment-table-wrap {
+  position: relative;
   width: 100%;
   overflow-x: auto;
 }

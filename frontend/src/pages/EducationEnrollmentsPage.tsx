@@ -1,9 +1,10 @@
+import { BotEnrollmentPanel } from '@/components/bot-enrollment-panel';
 import { ClipboardList, Filter, GraduationCap, Plus, Search, UserRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { StudentEnrollmentsModal } from '@/components/student-enrollments-modal';
 import { useWorkspace } from '@/components/providers';
-import { Badge, Button, Card, EmptyState, Modal, PageLoader } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader } from '@/components/ui';
 import { api } from '@/lib/api';
 import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/education-api';
 import {
@@ -60,7 +61,9 @@ export function EducationEnrollmentsPage() {
   const [status, setStatus] = useState<EnrollmentStatusFilter>('all');
   const [courseId, setCourseId] = useState('all');
   const [batchId, setBatchId] = useState('all');
-  const [agentId, setAgentId] = useState('all');
+  const [params, setParams] = useSearchParams();
+  const agentId = params.get('agentId') || 'all';
+  const setAgentId = (id: string) => setParams(id === 'all' ? {} : { agentId: id });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerStudentId, setPickerStudentId] = useState('');
   const [pickerSearch, setPickerSearch] = useState('');
@@ -159,11 +162,13 @@ export function EducationEnrollmentsPage() {
     <div className="page-heading page-heading--split">
       <div>
         <h2>Enrollments</h2>
-        <p>Review and manage workspace-scoped Student → Course → Batch → Education Agent access without changing the existing authorization runtime.</p>
+        <p>Choose a bot to manage its students, course access, bulk enrollment and CRM/LMS automation.</p>
       </div>
       <Button icon={Plus} onClick={openPicker}>Add enrollment</Button>
     </div>
 
+    <Card className="bot-enrollment-panel"><Field label="Enrollment bot" htmlFor="enrollment-bot-picker"><select id="enrollment-bot-picker" value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="all">All education bots</option>{educationAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} - {agent.whatsappNumber || 'No WhatsApp number'} - {agent.status}</option>)}</select></Field></Card>
+    {educationAgents.filter((agent) => agent.id === agentId).map((agent) => <BotEnrollmentPanel key={agent.id} agent={agent} courses={courses.data ?? []} batches={batches.data ?? []} onSaved={reloadAll} />)}
     <div className="education-enrollment-stats" aria-label="Enrollment summary">
       <Card><ClipboardList /><div><strong>{summary.total}</strong><small>Total enrollments</small></div></Card>
       <Card><GraduationCap /><div><strong>{summary.active}</strong><small>Active access</small></div></Card>
@@ -229,7 +234,7 @@ export function EducationEnrollmentsPage() {
           return <tr key={enrollment.id}>
             <td>{student ? <><Link to={`/education/students/${student.id}`}>{student.name}</Link><small>{student.studentNumber}{student.email ? ` · ${student.email}` : ''}</small></> : <code>{enrollment.studentId}</code>}</td>
             <td><strong>{course?.name ?? enrollment.courseId}</strong><small>{course?.code ?? 'Course'} · {batch ? `${batch.code} · ${batch.name}` : enrollment.batchId}</small></td>
-            <td><strong>{agent?.name ?? enrollment.agentId}</strong><small>{agent?.publicId ?? 'Education Agent'}</small></td>
+            <td><strong>{agent?.name ?? enrollment.agentId}</strong><small>{agent?.whatsappNumber || agent?.publicId || 'Education Agent'}</small></td>
             <td><span>{dateLabel(enrollment.startsOn)} → {dateLabel(enrollment.endsOn)}</span></td>
             <td><Badge tone={statusTone(enrollment.status)}>{statusLabels[enrollment.status]}</Badge></td>
             <td><time dateTime={enrollment.updatedAt}>{relativeTime(enrollment.updatedAt)}</time></td>
@@ -278,6 +283,7 @@ export function EducationEnrollmentsPage() {
     </Modal>
 
     <StudentEnrollmentsModal
+      defaultAgentId={agentId === 'all' ? undefined : agentId}
       student={managedStudent}
       open={Boolean(managedStudent)}
       onClose={closeManager}

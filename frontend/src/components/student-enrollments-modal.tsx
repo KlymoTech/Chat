@@ -26,6 +26,7 @@ import type { Agent } from '@/types';
 import './student-enrollments-modal.css';
 
 interface StudentEnrollmentsModalProps {
+  defaultAgentId?: string;
   student: EducationStudent | null;
   open: boolean;
   onClose: () => void;
@@ -71,7 +72,7 @@ function dateLabel(value: string | null): string {
   return new Date(`${value}T00:00:00`).toLocaleDateString();
 }
 
-export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrollmentsModalProps) {
+export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId }: StudentEnrollmentsModalProps) {
   const { pushToast } = useToast();
   const [enrollments, setEnrollments] = useState<EducationEnrollment[]>([]);
   const [courses, setCourses] = useState<EducationCourse[]>([]);
@@ -80,11 +81,17 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState<'all' | EnrollmentStatus>('all');
-  const [form, setForm] = useState<EnrollmentFormState>(emptyForm);
+  const [form, setForm] = useState<EnrollmentFormState>({ ...emptyForm, agentId: defaultAgentId ?? '' });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [actingId, setActingId] = useState<string>();
   const [editing, setEditing] = useState<EducationEnrollment | null>(null);
+  useEffect(() => {
+    if (open) {
+      setForm({ ...emptyForm, agentId: defaultAgentId ?? '' });
+      setEditing(null);
+    }
+  }, [open, student?.id, defaultAgentId]);
 
   const educationAgents = useMemo(
     () => agents.filter((agent) => agent.purpose === 'education'),
@@ -157,7 +164,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
 
   const resetForm = () => {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, agentId: defaultAgentId ?? '' });
     setFormError('');
   };
 

@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   courseList: vi.fn(),
   batchList: vi.fn(),
 }));
+vi.mock('@/lib/education-enrollment-events-api', () => ({ enrollmentReadiness: vi.fn().mockResolvedValue({ whatsappConnected: true, verifiedStudentNumbers: 1, pendingStudentNumbers: 0, knowledgeSources: 1, aiProviderConfigured: true }) }));
 
 vi.mock('@/components/providers', () => ({
+  useToast: () => ({ pushToast: vi.fn() }),
   useWorkspace: () => ({ activeWorkspace: { id: 'workspace-1', name: 'NorthStar Academy' } }),
 }));
 

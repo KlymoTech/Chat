@@ -522,6 +522,16 @@ async def update_agent(
         agent_id=agent.id,
     )
     requested_purpose = payload.purpose or current_purpose
+    if payload.status == AgentStatus.ACTIVE and (agent.appearance or {}).get("deploymentChannel") == "whatsapp":
+        from northstar_api.services.whatsapp import token_expiry_is_current
+
+        connection = await session.scalar(select(WhatsAppConnection).where(
+            WhatsAppConnection.tenant_id == agent.tenant_id,
+            WhatsAppConnection.workspace_id == agent.workspace_id,
+            WhatsAppConnection.agent_id == agent.id,
+        ))
+        if not connection or connection.status != "connected" or not token_expiry_is_current(connection.token_expires_at):
+            raise HTTPException(409, "Connect a WhatsApp number and activate its webhook in Integrations before activating this bot.")
     if payload.status == AgentStatus.ACTIVE and requested_purpose == AgentPurpose.EDUCATION:
         configured = await has_active_agent_enrollment_configuration(
             session,
