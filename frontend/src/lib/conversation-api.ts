@@ -96,13 +96,20 @@ export const conversationApi = {
     }
   },
 
-  async resolve(conversationId: string): Promise<Conversation> {
+  async resolve(conversationId: string, leadStatus?: string): Promise<Conversation> {
     const response = await fetch(`${API_URL}/conversations/${conversationId}/resolve`, {
       method: 'POST',
       credentials: 'include',
-      headers: authHeaders(),
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(leadStatus ? { leadStatus } : {}),
     });
-    if (!response.ok) throw new ApiError(`Conversation resolve failed (${response.status})`, response.status);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: { message?: string }; detail?: string } | null;
+      throw new ApiError(
+        payload?.error?.message ?? (typeof payload?.detail === 'string' ? payload.detail : `Conversation resolve failed (${response.status})`),
+        response.status,
+      );
+    }
     return response.json() as Promise<Conversation>;
   },
 

@@ -14,6 +14,7 @@ from northstar_api.education_conversation_context import EducationConversationCo
 from northstar_api.models import Channel, Conversation, ConversationState, Message
 from northstar_api.schemas import CitationOut, ConversationOut, MessageOut, PageResult
 from northstar_api.security import Principal
+from northstar_api.services.conversation_lead_status import attach_lead_status
 
 router = APIRouter(prefix="/education/conversations", tags=["education"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -140,8 +141,10 @@ async def list_education_conversations(
             .limit(page_size)
         )
     ).all()
+    items = [_conversation_response(item) for item in rows]
+    await attach_lead_status(session, principal, items)
     return PageResult(
-        items=[_conversation_response(item) for item in rows],
+        items=items,
         total=total,
         page=page,
         page_size=page_size,

@@ -124,6 +124,9 @@ export interface ChatMessage {
 }
 
 export interface Conversation {
+  leadId?: string | null;
+  leadStatus?: string | null;
+  canUpdateLeadStatus?: boolean;
   pageUrl?: string | null;
   visitorDetails?: Record<string, string | null>;
   id: string;

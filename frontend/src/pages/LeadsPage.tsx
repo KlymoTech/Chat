@@ -14,7 +14,7 @@ import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import type { Lead, PageResult } from '@/types';
 
-const commonStatuses = ['new', 'identified', 'engaged', 'contacted', 'qualified', 'unqualified', 'converted', 'lost', 'archived'];
+import { leadStatuses as commonStatuses } from '@/lib/lead-status';
 
 interface LeadFilters {
   page: number;

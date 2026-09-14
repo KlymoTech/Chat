@@ -11,14 +11,14 @@ from northstar_api.models import Agent, Channel, Conversation, Lead, OutboxEvent
 pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 
-async def seed_flow(client, auth_headers):
+async def seed_flow(client, auth_headers, purpose="support"):
     suffix = uuid4().hex[:8]
     response = await client.post(
         "/api/v1/agents",
         headers=auth_headers,
         json={
             "name": f"Qualified sync {suffix}",
-            "purpose": "support",
+            "purpose": purpose,
         },
     )
     assert response.status_code == 201, response.text
@@ -211,3 +211,91 @@ async def test_resolved_qualified_lead_respects_disabled_auto_sync_and_manual_ov
             target_connection_id=connection_id,
         )
         assert len(manual) == 1
+
+
+@pytest.mark.parametrize("purpose", ["support", "education", "lead_generation"])
+async def test_resolve_with_status_saves_and_routes_once(client, auth_headers, purpose):
+    tenant_id, _, conversation_id, connection_id, headers = await seed_flow(client, auth_headers, purpose)
+    url = f"/api/v1/conversations/{conversation_id}/resolve"
+    response = await client.post(url, headers=headers, json={"leadStatus": "qualified"})
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved["state"] == "resolved"
+    assert saved["leadStatus"] == "qualified"
+    assert saved["canUpdateLeadStatus"] is True
+    lead_id = UUID(saved["leadId"])
+    deliveries = await route_latest(tenant_id, lead_id, connection_id)
+    assert len(deliveries) == 1
+    async with SessionFactory() as session:
+        profile = await session.scalar(select(LeadProfile).where(LeadProfile.lead_id == lead_id))
+        assert profile.lifecycle_status == profile.qualification_status == "qualified"
+        qualified_at = profile.qualified_at
+        event_count = await session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.aggregate_id == str(lead_id)))
+    for body in ({"leadStatus": "qualified"}, None):
+        repeated = await client.post(url, headers=headers, json=body)
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["leadId"] == str(lead_id)
+        assert repeated.json()["leadStatus"] == "qualified"
+    assert await route_latest(tenant_id, lead_id, connection_id) == deliveries
+    async with SessionFactory() as session:
+        assert await session.scalar(select(func.count()).select_from(Lead).where(
+            Lead.conversation_id == conversation_id)) == 1
+        profile = await session.scalar(select(LeadProfile).where(LeadProfile.lead_id == lead_id))
+        assert profile.qualified_at == qualified_at
+        assert await session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.aggregate_id == str(lead_id))) == event_count
+    detail = await client.get(f"/api/v1/conversations/{conversation_id}", headers=headers)
+    assert detail.json()["leadStatus"] == "qualified"
+    listing = await client.get("/api/v1/conversations", headers=headers)
+    listed = next(item for item in listing.json()["items"] if item["id"] == str(conversation_id))
+    assert listed["leadId"] == str(lead_id) and listed["leadStatus"] == "qualified"
+
+
+async def test_resolve_status_validation_permission_and_rollback(client, auth_headers, monkeypatch):
+    from fastapi import HTTPException
+
+    from northstar_api.lead_crm.services import lead_domain_service
+    from northstar_api.security import Principal
+
+    _, _, conversation_id, _, headers = await seed_flow(client, auth_headers)
+    url = f"/api/v1/conversations/{conversation_id}/resolve"
+    invalid = await client.post(url, headers=headers, json={"leadStatus": "made_up"})
+    assert invalid.status_code == 422
+    original_can = Principal.can
+    with monkeypatch.context() as patch:
+        patch.setattr(Principal, "can", lambda self, permission: permission != "leads.update" and original_can(self, permission))
+        denied = await client.post(url, headers=headers, json={"leadStatus": "qualified"})
+        assert denied.status_code == 403
+    async def fail_status(*args, **kwargs):
+        raise HTTPException(status_code=503, detail="Temporary failure")
+    with monkeypatch.context() as patch:
+        patch.setattr(lead_domain_service, "update_status", fail_status)
+        failed = await client.post(url, headers=headers, json={"leadStatus": "qualified"})
+        assert failed.status_code == 503
+    async with SessionFactory() as session:
+        conversation = await session.get(Conversation, conversation_id)
+        assert conversation.state.value == "open" and conversation.ended_at is None
+        assert await session.scalar(select(func.count()).select_from(Lead).where(
+            Lead.conversation_id == conversation_id)) == 0
+    # A resolver without lead-edit permission can still use the legacy action.
+    with monkeypatch.context() as patch:
+        patch.setattr(Principal, "can", lambda self, permission: permission != "leads.update" and original_can(self, permission))
+        legacy = await client.post(url, headers=headers)
+        assert legacy.status_code == 200, legacy.text
+        assert legacy.json()["leadStatus"] == "new"
+        assert legacy.json()["canUpdateLeadStatus"] is False
+
+
+async def test_nonqualified_resolution_waits_until_qualified_in_same_header(client, auth_headers):
+    tenant_id, _, conversation_id, connection_id, headers = await seed_flow(client, auth_headers)
+    url = f"/api/v1/conversations/{conversation_id}/resolve"
+    response = await client.post(url, headers=headers, json={"leadStatus": "contacted"})
+    assert response.status_code == 200, response.text
+    lead_id = UUID(response.json()["leadId"])
+    assert response.json()["leadStatus"] == "contacted"
+    assert await route_latest(tenant_id, lead_id, connection_id, "conversation_resolved") == []
+    response = await client.post(url, headers=headers, json={"leadStatus": "qualified"})
+    assert response.status_code == 200, response.text
+    assert response.json()["leadId"] == str(lead_id)
+    assert len(await route_latest(tenant_id, lead_id, connection_id)) == 1

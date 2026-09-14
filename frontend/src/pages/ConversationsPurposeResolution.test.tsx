@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   pushToast: vi.fn(),
   agentList: vi.fn<() => Promise<Agent[]>>(),
   conversationList: vi.fn<() => Promise<PageResult<Conversation>>>(),
-  resolve: vi.fn<(conversationId: string) => Promise<Conversation>>(),
+  resolve: vi.fn<(conversationId: string, leadStatus?: string) => Promise<Conversation>>(),
   resolveEducationSalesIntent: vi.fn(),
   educationSalesSettings: vi.fn(),
   updateState: vi.fn(),
@@ -49,6 +49,7 @@ vi.mock('@/lib/education-sales-settings-api', () => ({
 }));
 
 const baseConversation: Conversation = {
+  canUpdateLeadStatus: true,
   id: 'conversation-1',
   workspaceId: 'workspace-1',
   agentId: 'agent-1',
@@ -90,7 +91,7 @@ async function renderAndResolve(purpose: Agent['purpose']): Promise<void> {
     </MemoryRouter>,
   );
   await user.click(await screen.findByRole('button', { name: 'Resolve' }));
-  await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith(baseConversation.id));
+  await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith(baseConversation.id, 'new'));
 }
 
 describe('ConversationsPage purpose-aware resolution feedback', () => {
@@ -156,4 +157,58 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
       'Education conversation resolved and sales Lead created',
     );
   });
+
+  it('sends Qualified with Resolve in a single request and reports queued sync', async () => {
+    mocks.agentList.mockResolvedValue([agentForPurpose('support')]);
+    mocks.conversationList.mockResolvedValue({ items: [baseConversation], total: 1, page: 1, pageSize: 50 });
+    mocks.resolve.mockResolvedValue({ ...baseConversation, state: 'resolved', leadId: 'lead-1', leadStatus: 'qualified' });
+    const user = userEvent.setup();
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Lead status' }), 'qualified');
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Resolve' }));
+    await waitFor(() => expect(mocks.resolve).toHaveBeenCalledExactlyOnceWith(baseConversation.id, 'qualified'));
+    expect(mocks.pushToast).toHaveBeenCalledWith(expect.stringContaining('Automatic CRM sync requested'));
+    expect(mocks.updateState).not.toHaveBeenCalled();
+  });
+
+  it('loads existing lead status and saves changes on an already resolved conversation', async () => {
+    const conversation = { ...baseConversation, state: 'resolved' as const, leadId: 'lead-1', leadStatus: 'contacted' };
+    mocks.agentList.mockResolvedValue([agentForPurpose('support')]);
+    mocks.conversationList.mockResolvedValue({ items: [conversation], total: 1, page: 1, pageSize: 50 });
+    mocks.resolve.mockResolvedValue({ ...conversation, leadStatus: 'qualified' });
+    const user = userEvent.setup();
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+    const status = await screen.findByRole('combobox', { name: 'Lead status' });
+    expect(status).toHaveValue('contacted');
+    await user.selectOptions(status, 'qualified');
+    await user.click(screen.getByRole('button', { name: 'Save status' }));
+    await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith(baseConversation.id, 'qualified'));
+    expect(mocks.updateState).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selected status for retry and reports save errors', async () => {
+    mocks.agentList.mockResolvedValue([agentForPurpose('support')]);
+    mocks.conversationList.mockResolvedValue({ items: [baseConversation], total: 1, page: 1, pageSize: 50 });
+    mocks.resolve.mockRejectedValueOnce(new Error('Connection interrupted'));
+    const user = userEvent.setup();
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Lead status' }), 'qualified');
+    await user.click(screen.getByRole('button', { name: 'Resolve' }));
+    await waitFor(() => expect(mocks.pushToast).toHaveBeenCalledWith('Connection interrupted', 'error'));
+    expect(screen.getByRole('combobox', { name: 'Lead status' })).toHaveValue('qualified');
+    expect(screen.getByRole('button', { name: 'Resolve' })).toBeEnabled();
+  });
+
+  it('disables the status selector when the user cannot edit leads', async () => {
+    mocks.agentList.mockResolvedValue([agentForPurpose('support')]);
+    mocks.conversationList.mockResolvedValue({ items: [{ ...baseConversation, canUpdateLeadStatus: false }], total: 1, page: 1, pageSize: 50 });
+    mocks.resolve.mockResolvedValue({ ...baseConversation, state: 'resolved' });
+    const user = userEvent.setup();
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+    expect(await screen.findByRole('combobox', { name: 'Lead status' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Resolve' }));
+    await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith(baseConversation.id, undefined));
+  });
+
 });

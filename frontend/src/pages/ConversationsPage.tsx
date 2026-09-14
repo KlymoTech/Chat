@@ -10,6 +10,7 @@ import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/e
 import { educationEnrollmentApi, type EducationEnrollment } from '@/lib/education-enrollment-api';
 import { educationSalesSettingsApi } from '@/lib/education-sales-settings-api';
 import { educationStudentApi, type EducationStudent } from '@/lib/education-student-api';
+import { leadStatuses } from '@/lib/lead-status';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import type { Conversation, ConversationState } from '@/types';
@@ -33,6 +34,7 @@ export function ConversationsPage() {
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
   const [routingUpsell, setRoutingUpsell] = useState(false);
+  const [savingState, setSavingState] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -153,13 +155,25 @@ export function ConversationsPage() {
     setStudentId('all');
   };
 
-  const setState = async (state: ConversationState) => {
-    if (!selected) return;
-    if (state === 'resolved') await conversationApi.resolve(selected.id);
-    else await api.conversations.updateState(selected.id, state);
-    const resolvedMessage = 'Conversation resolved and lead saved in Leads';
-    pushToast(state === 'resolved' ? resolvedMessage : `Conversation marked ${state}`);
-    result.reload();
+  const setState = async (state: ConversationState, leadStatus?: string) => {
+    if (!selected || savingState) return;
+    setSavingState(true);
+    try {
+      if (state === 'resolved') {
+        const saved = await conversationApi.resolve(selected.id, leadStatus);
+        pushToast(saved.leadStatus === 'qualified'
+          ? 'Conversation resolved and lead qualified. Automatic CRM sync requested; check View sync in Leads for delivery.'
+          : 'Conversation resolved and lead saved in Leads');
+      } else {
+        await api.conversations.updateState(selected.id, state);
+        pushToast(`Conversation marked ${state}`);
+      }
+      result.reload();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Conversation could not be updated', 'error');
+    } finally {
+      setSavingState(false);
+    }
   };
 
   const resolveEducationSalesIntent = async () => {
@@ -213,13 +227,19 @@ export function ConversationsPage() {
       <div className="conversation-items">{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar">{conversation.visitorName.charAt(0)}</span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge><em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
       {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description={isEducationAgent ? 'Try another Course, Batch, Student, channel, status, or search.' : 'Try another workspace, agent, channel, status, or search.'} /> : null}
     </section>
-    {selected ? <ConversationDetail onVisitorSaved={result.reload} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} canRouteEducationUpsell={canRouteEducationUpsell} resolveEducationSalesIntent={resolveEducationSalesIntent} routingUpsell={routingUpsell} onBack={() => setParams({})} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
+    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={result.reload} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} canRouteEducationUpsell={canRouteEducationUpsell} resolveEducationSalesIntent={resolveEducationSalesIntent} routingUpsell={routingUpsell} onBack={() => setParams({})} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
   </div>;
 }
 
-function ConversationDetail({ onVisitorSaved, conversation, agentName, workspaceName, reply, setReply, submitReply, setState, canRouteEducationUpsell, resolveEducationSalesIntent, routingUpsell, onBack, sending }: { onVisitorSaved: () => void; conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState) => Promise<void>; canRouteEducationUpsell: boolean; resolveEducationSalesIntent: () => Promise<void>; routingUpsell: boolean; onBack: () => void; sending: boolean }) {
+function ConversationDetail({ savingState, onVisitorSaved, conversation, agentName, workspaceName, reply, setReply, submitReply, setState, canRouteEducationUpsell, resolveEducationSalesIntent, routingUpsell, onBack, sending }: { savingState: boolean; onVisitorSaved: () => void; conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState, leadStatus?: string) => Promise<void>; canRouteEducationUpsell: boolean; resolveEducationSalesIntent: () => Promise<void>; routingUpsell: boolean; onBack: () => void; sending: boolean }) {
+  const [leadStatus, setLeadStatus] = useState(conversation.leadStatus ?? 'new');
+  useEffect(() => { setLeadStatus(conversation.leadStatus ?? 'new'); }, [conversation.id, conversation.leadStatus]);
+  const canEditLeadStatus = conversation.canUpdateLeadStatus === true;
+  const statuses = leadStatuses.includes(leadStatus) ? leadStatuses : [leadStatus, ...leadStatuses];
+  const statusChanged = leadStatus !== (conversation.leadStatus ?? 'new');
+  const resolve = () => void setState('resolved', canEditLeadStatus ? leadStatus : undefined);
   return <section className="conversation-detail">
-    <header className="conversation-detail__header"><button className="mobile-back" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions"><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{canRouteEducationUpsell ? <Button variant="secondary" size="sm" icon={BadgeDollarSign} disabled={routingUpsell} onClick={() => void resolveEducationSalesIntent()}>{routingUpsell ? 'Routing…' : conversation.state === 'resolved' ? 'Create sales lead' : 'Resolve + sales lead'}</Button> : null}{conversation.state !== 'resolved' ? <Button size="sm" icon={CheckCircle2} onClick={() => void setState('resolved')}>Resolve</Button> : <Button variant="secondary" size="sm" onClick={() => void setState('open')}>Reopen</Button>}</div></header>
+    <header className="conversation-detail__header"><button className="mobile-back" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions"><label className="conversation-lead-status"><span>Lead status</span><span className="conversation-lead-status__field"><select aria-label="Lead status" value={leadStatus} disabled={!canEditLeadStatus || savingState || routingUpsell} onChange={(event) => setLeadStatus(event.target.value)} title={canEditLeadStatus ? "Saved when you resolve or save status. Qualified leads sync automatically to your connected CRM." : "You do not have permission to update lead status"}>{statuses.map((status) => <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>)}</select><ChevronDown aria-hidden="true" /></span></label><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{canRouteEducationUpsell ? <Button variant="secondary" size="sm" icon={BadgeDollarSign} disabled={routingUpsell || savingState} onClick={() => void resolveEducationSalesIntent()}>{routingUpsell ? 'Routing…' : conversation.state === 'resolved' ? 'Create sales lead' : 'Resolve + sales lead'}</Button> : null}{conversation.state !== 'resolved' || statusChanged ? <Button size="sm" icon={CheckCircle2} disabled={savingState || routingUpsell} onClick={resolve}>{savingState ? 'Saving...' : conversation.state === 'resolved' ? 'Save status' : 'Resolve'}</Button> : <Button variant="secondary" size="sm" disabled={savingState || routingUpsell} onClick={() => void setState('open')}>Reopen</Button>}</div></header>
     <div className="conversation-layout"><div className="conversation-thread"><div className="thread-notice"><Sparkles /> <span><strong>{conversation.state === 'escalated' ? 'Human attention requested' : 'Northstar handled this conversation'}</strong><small>The complete AI context is available below.</small></span></div><div className="message-day"><span>{new Date(conversation.startedAt).toLocaleDateString('en', { month: 'long', day: 'numeric' })}</span></div>
       {conversation.messages.map((message) => <div className={`inbox-message inbox-message--${message.role}`} key={message.id}>{message.role === 'user' ? <span className="message-avatar message-avatar--visitor">{conversation.visitorName.charAt(0)}</span> : <span className="message-avatar"><>{message.role === 'agent' ? <UserRound /> : <Sparkles />}</></span>}<div><span className="message-author">{message.role === 'user' ? conversation.visitorName : message.role === 'agent' ? 'You' : 'Northstar AI'} <time>{new Date(message.createdAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</time></span><div className="message-bubble">{message.content}</div>{message.citations?.map((citation) => <button className="citation-chip" key={citation.title}><ExternalLink />{citation.title}</button>)}</div></div>)}
     </div>{conversation.channel === 'whatsapp' ? <WhatsAppTemplateComposer key={conversation.id} agentId={conversation.agentId} conversationId={conversation.id} /> : null}<form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form></div>

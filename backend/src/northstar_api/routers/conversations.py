@@ -17,6 +17,8 @@ from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutb
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider
+from northstar_api.lead_crm.services import lead_domain_service
+from northstar_api.logging import request_id_ctx
 from northstar_api.models import (
     Channel,
     Conversation,
@@ -32,10 +34,12 @@ from northstar_api.schemas import (
     ConversationOut,
     ConversationPatch,
     ConversationReplyCreate,
+    ConversationResolve,
     MessageOut,
     PageResult,
 )
 from northstar_api.security import Principal
+from northstar_api.services.conversation_lead_status import attach_lead_status
 from northstar_api.services.conversation_resolution import conversation_resolution_service
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.slack import decode_slack_target
@@ -429,9 +433,9 @@ async def list_conversations(
             .limit(page_size)
         )
     ).all()
-    return PageResult(
-        items=[conversation_response(item) for item in rows], total=total, page=page, page_size=page_size
-    )
+    items = [conversation_response(item) for item in rows]
+    await attach_lead_status(session, principal, items)
+    return PageResult(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{conversation_id}", response_model=ConversationOut)
@@ -445,7 +449,9 @@ async def get_conversation(
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return conversation_response(conversation)
+    response = conversation_response(conversation)
+    await attach_lead_status(session, principal, [response])
+    return response
 
 
 @router.post("/{conversation_id}/resolve", response_model=ConversationOut)
@@ -453,24 +459,35 @@ async def resolve_conversation(
     conversation_id: UUID,
     principal: ConversationsResolvePrincipal,
     session: DB,
+    payload: ConversationResolve | None = None,
 ) -> ConversationOut:
     """Resolve a conversation and atomically create/finalize its linked Lead.
 
     The conversation and every message remain stored. Repeating this request is
     idempotent: it reconciles the existing Lead rather than creating another.
     """
+    if payload and payload.lead_status is not None and not principal.can("leads.update"):
+        raise HTTPException(status_code=403, detail="You do not have permission to update lead status")
     conversation = await locked_conversation(session, principal, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    await conversation_resolution_service.resolve(
+    resolution = await conversation_resolution_service.resolve(
         session,
         conversation=conversation,
         actor_user_id=principal.user_id,
         create_lead=True,
     )
+    if payload and payload.lead_status is not None and resolution.lead is not None:
+        await lead_domain_service.update_status(
+            session, lead=resolution.lead, status=payload.lead_status,
+            actor_id=str(principal.user_id), correlation_id=request_id_ctx.get(),
+            qualification_reason="Marked Qualified in Conversations", skip_unchanged=True,
+        )
     await session.commit()
     await session.refresh(conversation)
-    return conversation_response(conversation)
+    response = conversation_response(conversation)
+    await attach_lead_status(session, principal, [response])
+    return response
 
 
 @router.patch("/{conversation_id}", response_model=ConversationOut)
@@ -536,7 +553,9 @@ async def update_conversation(
 
     await session.commit()
     await session.refresh(conversation)
-    return conversation_response(conversation)
+    response = conversation_response(conversation)
+    await attach_lead_status(session, principal, [response])
+    return response
 
 
 @router.post("/{conversation_id}/messages", response_model=MessageOut, status_code=201)

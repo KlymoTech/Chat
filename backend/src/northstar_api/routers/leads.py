@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
-from northstar_api.lead_crm.domain import CRMDeliveryStatus, LeadLifecycleStatus, QualificationStatus
-from northstar_api.lead_crm.models import CRMDelivery, LeadActivityEvent, LeadProfile
+from northstar_api.lead_crm.domain import CRMDeliveryStatus, LeadLifecycleStatus
+from northstar_api.lead_crm.models import CRMDelivery, LeadProfile
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import request_id_ctx
 from northstar_api.models import Agent, Conversation, Lead
@@ -222,53 +222,9 @@ async def update_lead(
     )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    previous = lead.status
-    lead.status = payload.status
-    profile = await lead_domain_service.ensure_profile(session, lead=lead)
-    profile.lifecycle_status = payload.status
-    qualification_requested = payload.status == LeadLifecycleStatus.QUALIFIED.value
-    if qualification_requested and (
-        previous != payload.status or profile.qualification_status != QualificationStatus.QUALIFIED.value
-    ):
-        await lead_domain_service.qualify(
-            session,
-            lead=lead,
-            score=profile.qualification_score,
-            reason="Marked Qualified in Leads",
-            actor_id=str(principal.user_id),
-            correlation_id=request_id_ctx.get(),
-        )
-    else:
-        if payload.status in {LeadLifecycleStatus.UNQUALIFIED.value, LeadLifecycleStatus.LOST.value}:
-            profile.qualification_status = QualificationStatus.UNQUALIFIED.value
-            profile.qualified_at = None
-        elif payload.status not in {LeadLifecycleStatus.QUALIFIED.value, LeadLifecycleStatus.CONVERTED.value}:
-            profile.qualification_status = QualificationStatus.PENDING.value
-            profile.qualified_at = None
-        enqueue_crm_sync(session, lead, reason="qualification" if qualification_requested else "lead_updated")
-    session.add(
-        LeadActivityEvent(
-            tenant_id=principal.tenant_id,
-            lead_id=lead.id,
-            event_type="lead.status.changed.v1",
-            actor_type="user",
-            actor_id=str(principal.user_id),
-            correlation_id=request_id_ctx.get(),
-            details_json={"previousStatus": previous, "status": payload.status},
-        )
-    )
-    enqueue_event(
-        session,
-        tenant_id=principal.tenant_id,
-        aggregate_type="lead",
-        aggregate_id=lead.id,
-        event_type="lead.updated.v1",
-        payload={
-            "leadId": str(lead.id),
-            "workspaceId": str(lead.workspace_id),
-            "previousStatus": previous,
-            "status": payload.status,
-        },
+    await lead_domain_service.update_status(
+        session, lead=lead, status=LeadLifecycleStatus(payload.status),
+        actor_id=str(principal.user_id), correlation_id=request_id_ctx.get(),
     )
     await session.flush()
     await session.refresh(lead)
