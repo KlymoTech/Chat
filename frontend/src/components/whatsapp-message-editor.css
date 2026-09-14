@@ -1,4 +1,6 @@
 .wa-message-editor .deploy-panel__body{display:flex;flex-direction:column;gap:18px}
+.deploy-controls{border:0;padding:0;margin:12px 0 0;min-width:0}
+.wa-editor-validation{padding:12px;border-radius:10px;background:#fff0f0;color:#b42318;font-size:13px;margin:10px 0}
 .wa-message-editor .field{min-width:0;margin:0!important}
 .wa-message-editor textarea{min-height:190px;resize:vertical;line-height:1.65}
 .wa-format-toolbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}

@@ -212,7 +212,7 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOutWithPur
         )
     )
     return AgentOutWithPurpose(
-        whatsapp_number=(whatsapp.display_phone_number or whatsapp.phone_number_id) if whatsapp else None,
+        whatsapp_number=(whatsapp.display_phone_number or None) if whatsapp else None,
         id=agent.id,
         workspace_id=agent.workspace_id,
         public_id=agent.public_id,
@@ -319,7 +319,11 @@ async def _create_agent(payload, principal, session, connection=None) -> AgentOu
     # Education Agents cannot be made live before the enrollment authorization
     # layer exists. Creating them in draft prevents private knowledge from being
     # exposed through the existing generic runtime while Education is provisioned.
-    initial_status = AgentStatus.DRAFT if purpose == AgentPurpose.EDUCATION else AgentStatus.ACTIVE
+    initial_status = (
+        AgentStatus.DRAFT
+        if purpose == AgentPurpose.EDUCATION or payload.deployment_channel == "whatsapp"
+        else AgentStatus.ACTIVE
+    )
     agent = Agent(
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
@@ -522,7 +526,12 @@ async def update_agent(
         agent_id=agent.id,
     )
     requested_purpose = payload.purpose or current_purpose
-    if payload.status == AgentStatus.ACTIVE and (agent.appearance or {}).get("deploymentChannel") == "whatsapp":
+    current_channel = (agent.appearance or {}).get("deploymentChannel")
+    requested_channel = payload.appearance.deployment_channel if payload.appearance else current_channel
+    activating = payload.status == AgentStatus.ACTIVE or (
+        payload.status is None and agent.status == AgentStatus.ACTIVE and requested_channel != current_channel
+    )
+    if activating and requested_channel == "whatsapp":
         from northstar_api.services.whatsapp import token_expiry_is_current
 
         connection = await session.scalar(select(WhatsAppConnection).where(
@@ -564,7 +573,7 @@ async def update_agent(
             )
         await set_agent_purpose(session, agent=agent, purpose=payload.purpose)
         patch.pop("purpose")
-        if payload.purpose == AgentPurpose.EDUCATION and agent.status == AgentStatus.ACTIVE:
+        if payload.purpose != current_purpose and payload.purpose == AgentPurpose.EDUCATION and agent.status == AgentStatus.ACTIVE:
             agent.status = AgentStatus.DRAFT
         if payload.purpose != current_purpose:
             enqueue_event(

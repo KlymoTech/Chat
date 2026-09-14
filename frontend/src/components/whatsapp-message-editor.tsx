@@ -1,7 +1,7 @@
 import { Bold, Code2, Italic, List, ListOrdered, Quote, Strikethrough } from 'lucide-react';
-import { Fragment, useRef, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type ReactNode } from 'react';
 import { Card, Field, Switch } from '@/components/ui';
-import { formatWhatsAppReply, whatsappMessageSettings, whatsappTemplateError } from '@/lib/whatsapp-messages';
+import { applyWhatsAppFormatting, formatWhatsAppReply, whatsappMessageSettings, whatsappTemplateError } from '@/lib/whatsapp-messages';
 import type { Agent, AgentAppearance } from '@/types';
 import './whatsapp-message-editor.css';
 
@@ -41,24 +41,23 @@ function FormattedTextField({ id, label, value, maxLength, onChange, error }: {
   id: string; label: string; value: string; maxLength: number; onChange: (value: string) => void; error?: string;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const [formatError, setFormatError] = useState('');
   const format = (marker: string, kind: 'wrap' | 'line' = 'wrap') => {
     const node = input.current;
     if (!node) return;
-    const start = kind === 'line' ? value.lastIndexOf('\n', node.selectionStart - 1) + 1 : node.selectionStart;
-    const end = node.selectionEnd;
-    const selected = value.slice(start, end) || 'text';
-    const formatted = kind === 'wrap' ? `${marker}${selected}${marker}` : selected.split('\n').map((line, index) => `${marker === '1. ' ? `${index + 1}. ` : marker}${line}`).join('\n');
-    const next = value.slice(0, start) + formatted + value.slice(end);
-    if (next.length > maxLength) return;
-    onChange(next);
-    requestAnimationFrame(() => { node.focus(); node.setSelectionRange(start, start + formatted.length); });
+    const next = applyWhatsAppFormatting(value, node.selectionStart, node.selectionEnd, marker, kind);
+    if (next.value.length > maxLength) { setFormatError('Shorten the message before adding more formatting.'); return; }
+    setFormatError('');
+    onChange(next.value);
+    requestAnimationFrame(() => { node.focus(); node.setSelectionRange(next.start, next.end); });
   };
   return <Field label={label} htmlFor={id} error={error} hint={`${value.length.toLocaleString()} / ${maxLength.toLocaleString()} characters`}>
     <div className="wa-format-toolbar" role="toolbar" aria-label={`${label} formatting`}>
       {([{ label: 'Bold', icon: Bold, marker: '*' }, { label: 'Italic', icon: Italic, marker: '_' }, { label: 'Strikethrough', icon: Strikethrough, marker: '~' }, { label: 'Monospace', icon: Code2, marker: '```' }] as const).map(({ label: title, icon: Icon, marker }) => <button key={title} type="button" aria-label={title} title={title} onMouseDown={(event) => event.preventDefault()} onClick={() => format(marker)}><Icon /></button>)}
       {([{ label: 'Bulleted list', icon: List, marker: '- ' }, { label: 'Numbered list', icon: ListOrdered, marker: '1. ' }, { label: 'Quote', icon: Quote, marker: '> ' }] as const).map(({ label: title, icon: Icon, marker }) => <button key={title} type="button" aria-label={title} title={title} onMouseDown={(event) => event.preventDefault()} onClick={() => format(marker, 'line')}><Icon /></button>)}
     </div>
-    <textarea ref={input} id={id} rows={8} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} spellCheck />
+    <textarea ref={input} id={id} rows={8} value={value} maxLength={maxLength} aria-invalid={Boolean(error || formatError)} onChange={(event) => { setFormatError(''); onChange(event.target.value); }} spellCheck />
+    {formatError ? <small className="field__error" role="alert">{formatError}</small> : null}
   </Field>;
 }
 
@@ -90,6 +89,6 @@ export function WhatsAppMessagePreview({ agent, device, showReply = false }: { a
       {settings.welcomeEnabled && <><div className="wa-preview-bubble wa-preview-bubble--out">Hi</div><div className="wa-preview-bubble"><WhatsAppText text={settings.welcomeMessage ?? ''} /></div></>}
       {(!settings.welcomeEnabled || showReply) && <><div className="wa-preview-bubble wa-preview-bubble--out">Can you help me?</div><div className="wa-preview-bubble"><WhatsAppText text={formatWhatsAppReply(agent, 'Here is an example answer.\n\n- First useful detail\n- Next step')} /></div></>}
     </div>
-    <footer>{agent.status === 'active' ? 'Active bot' : 'Draft · activate this bot to enable replies'}</footer>
+    <footer>{agent.status === 'active' ? agent.whatsappNumber ? 'Active bot' : 'Assign a WhatsApp number to enable replies' : agent.status === 'draft' ? 'Draft · activate this bot to enable replies' : `Bot status: ${agent.status}`}</footer>
   </section>;
 }

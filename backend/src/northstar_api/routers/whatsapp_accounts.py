@@ -363,8 +363,8 @@ async def assign_number(
                     Agent.deleted_at.is_(None),
                 )
             )
-            if not agent or agent.status != AgentStatus.ACTIVE:
-                raise HTTPException(409, "Select a published bot in this workspace")
+            if not agent or agent.status not in {AgentStatus.ACTIVE, AgentStatus.DRAFT}:
+                raise HTTPException(409, "Select an active or draft bot in this workspace")
             if connection.status != "connected" or not token_expiry_is_current(connection.token_expires_at):
                 raise HTTPException(409, "Activate this account's webhook before deploying its number")
             current = await session.scalar(

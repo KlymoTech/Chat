@@ -30,7 +30,7 @@ vi.mock('@/components/chat-widget', () => ({
 }));
 
 vi.mock('@/components/whatsapp-number-deployment', () => ({
-  WhatsAppNumberDeployment: () => <div>WhatsApp number for this bot</div>,
+  WhatsAppNumberDeployment: ({ onNumberChanged }: { onNumberChanged: (number: string | null, previousAgentId?: string | null) => void }) => <div>WhatsApp number for this bot<button onClick={() => onNumberChanged('+15550199999', 'previous-bot')}>Simulate number move</button></div>,
 }));
 
 function renderPage() {
@@ -61,6 +61,52 @@ describe('DeployPage', () => {
   });
 
   afterEach(cleanup);
+
+  it('shows a retry after a loading failure and an empty state when there are no bots', async () => {
+    const user = userEvent.setup();
+    apiMocks.list.mockRejectedValueOnce(new Error('Network unavailable'));
+    renderPage();
+    expect(await screen.findByText('Could not load deployment settings')).toBeInTheDocument();
+    apiMocks.list.mockResolvedValue([]);
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Create a bot to get started')).toBeInTheDocument();
+  });
+
+  it('locks editing during save, keeps failed drafts, and keeps Apply visible on sharing pages', async () => {
+    original.appearance.deploymentChannel = 'whatsapp';
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Welcome message' }));
+    const welcome = screen.getByLabelText('Welcome message text');
+    fireEvent.change(welcome, { target: { value: 'Preserve this welcome' } });
+    let rejectSave!: (reason: Error) => void;
+    apiMocks.update.mockImplementationOnce(() => new Promise((_, reject) => { rejectSave = reject; }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(welcome).toBeDisabled();
+    expect(screen.getByLabelText('Select deploy agent')).toBeDisabled();
+    rejectSave(Object.assign(new Error('Request failed (409)'), { detail: { error: { message: 'Save temporarily unavailable' } } }));
+    await screen.findByText('Save temporarily unavailable');
+    expect(welcome).toHaveValue('Preserve this welcome');
+    expect(welcome).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Get link' }));
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+    expect(screen.getByText(/You have unapplied changes/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reset changes' }));
+    expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+  });
+
+  it('clears the old bot’s chat link after its number is reassigned', async () => {
+    original.appearance.deploymentChannel = 'whatsapp';
+    const old = { ...structuredClone(original), id: 'previous-bot', name: 'Previous bot', whatsappNumber: '+15550199999' };
+    apiMocks.list.mockResolvedValue([original, old]);
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Simulate number move' }));
+    await user.selectOptions(screen.getByLabelText('Select deploy agent'), 'previous-bot');
+    await user.click(screen.getByRole('button', { name: 'Get link' }));
+    expect(screen.queryByRole('link', { name: 'Open WhatsApp' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose WhatsApp number' })).toBeInTheDocument();
+  });
 
   it('publishes appearance changes through the agent API and resets to the saved result', async () => {
     const user = userEvent.setup();

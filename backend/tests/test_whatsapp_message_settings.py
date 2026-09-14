@@ -49,6 +49,19 @@ def test_welcome_is_exact_and_can_be_disabled():
     assert whatsapp_welcome(agent, "Hi!") is None
 
 
+def test_code_examples_and_chunk_indentation_remain_literal():
+    agent = SimpleNamespace(name="CMA", appearance={})
+    code = "```python\n# comment\nvalue = 2 ** 4\n    print(value)\n```"
+    assert format_whatsapp_reply(agent, "**Example**\n" + code) == "*Example*\n" + code.replace(
+        "```python", "```"
+    )
+    assert format_whatsapp_reply(agent, "`**literal**`") == "`**literal**`"
+    long_code = "```" + "\n    indented_line = 1" * 700 + "\n```"
+    chunks = split_whatsapp_text(long_code)
+    assert all(len(chunk) <= 4096 for chunk in chunks)
+    assert "".join(chunk[3:-3] for chunk in chunks) == long_code[3:-3]
+
+
 def test_reply_structure_uses_whatsapp_markers_without_replacing_answer_tokens():
     agent = SimpleNamespace(
         name="CMA", appearance={"whatsapp": {"replyTemplate": "*{bot_name}*\n\n{message}\n\n_Thank you_"}}

@@ -905,7 +905,7 @@ async def _disconnect_whatsapp_locked(
                 WhatsAppConnection.status == "connected",
             )
         )
-        integration.connected = remaining_connection is not None
+        integration.connected = (retain and retained_status == "connected") or remaining_connection is not None
         integration.config_encrypted = None
     enqueue_event(
         session,

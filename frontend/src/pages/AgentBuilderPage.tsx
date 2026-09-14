@@ -9,11 +9,13 @@ import { EducationKnowledgeScopeManager } from '@/components/education-knowledge
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
+import { apiErrorMessage } from '@/lib/api-error-message';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import { localizeAgentAppearance, supportedWidgetLanguages } from '@/lib/widget-localization';
 import { AgentDeploymentPreview } from '@/pages/DeployPage';
 import { WhatsAppMessageEditor } from '@/components/whatsapp-message-editor';
+import { validWhatsAppSettings } from '@/lib/whatsapp-messages';
 import type { Agent, AgentPatch, AgentPurpose, KnowledgeKind, KnowledgeSource } from '@/types';
 
 const tabs = [
@@ -57,7 +59,7 @@ function AgentBuilderWorkspace({ initialAgent, allAgents, activeTab, reloadAgent
   const navigate = useNavigate(); const { pushToast } = useToast();
   const [agent, setAgent] = useState<Agent>(() => structuredClone(initialAgent)); const [dirty, setDirty] = useState(false); const [saving, setSaving] = useState(false); const [deleteOpen, setDeleteOpen] = useState(false);
   const update = (patch: AgentPatch) => { setAgent((current) => ({ ...current, ...patch })); setDirty(true); };
-  const save = async () => { setSaving(true); try { const saved = await api.agents.update(agent.id, editableAgentFields(agent, initialAgent)); setAgent(saved); setDirty(false); reloadAgents(); pushToast('Agent changes saved'); } catch (reason) { pushToast(reason instanceof Error ? reason.message : 'Could not save changes', 'error'); } finally { setSaving(false); } };
+  const save = async () => { if (saving) return; if (!validWhatsAppSettings(agent.appearance.whatsapp)) { pushToast('Check the WhatsApp welcome message and reply structure before saving.', 'error'); return; } setSaving(true); try { const saved = await api.agents.update(agent.id, editableAgentFields(agent, initialAgent)); setAgent(saved); setDirty(false); reloadAgents(); pushToast('Agent changes saved'); } catch (reason) { pushToast(apiErrorMessage(reason, 'Could not save changes'), 'error'); } finally { setSaving(false); } };
   const remove = async () => { await api.agents.remove(agent.id); pushToast('Agent deleted'); navigate('/agents'); };
   const purpose = currentPurpose(agent);
 
@@ -68,7 +70,7 @@ function AgentBuilderWorkspace({ initialAgent, allAgents, activeTab, reloadAgent
       <section className="builder-editor">
         {activeTab === 'instructions' ? <InstructionsPanel agent={agent} update={update} onSave={() => void save()} saving={saving} dirty={dirty} /> : null}
         {activeTab === 'knowledge' ? <KnowledgePanel agent={agent} onChanged={reloadAgents} /> : null}
-        {activeTab === 'settings' ? <SettingsPanel agent={agent} update={update} onSave={() => void save()} saving={saving} dirty={dirty} /> : null}
+        {activeTab === 'settings' ? <fieldset className="deploy-controls" disabled={saving}><SettingsPanel agent={agent} update={update} onSave={() => void save()} saving={saving} dirty={dirty} /></fieldset> : null}
         {activeTab === 'embeddings' ? <EmbeddingsPanel agent={agent} /> : null}
       </section>
       <BuilderAgentPreview agent={agent} />

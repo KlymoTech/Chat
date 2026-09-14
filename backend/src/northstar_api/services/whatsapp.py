@@ -432,10 +432,10 @@ def split_whatsapp_text(value: str) -> list[str]:
         # A pathological run of backticks must still make progress.
         if boundary == 0:
             boundary = limit
-        chunk = remaining[:boundary].rstrip()
+        chunk = remaining[:boundary]
         continuation = "```" if chunk.count("```") % 2 else ""
-        chunks.append(chunk + continuation)
-        remaining = continuation + remaining[boundary:].lstrip()
+        chunks.append(chunk + continuation if continuation else chunk.rstrip())
+        remaining = continuation + remaining[boundary:] if continuation else remaining[boundary:].lstrip()
     if remaining:
         chunks.append(remaining)
     return chunks
