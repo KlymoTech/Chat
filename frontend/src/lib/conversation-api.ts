@@ -52,6 +52,14 @@ function usesEducationScope(filters: ConversationFilters): boolean {
 }
 
 export const conversationApi = {
+  async updateVisitor(conversationId: string, details: { visitorName: string; visitorEmail: string | null; pageUrl: string | null; visitorDetails: Record<string, string | null> }): Promise<Conversation> {
+    const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(details),
+    });
+    if (!response.ok) throw new ApiError('Could not save visitor details. Check the fields and try again.', response.status);
+    return response.json();
+  },
   async list(filters: ConversationFilters = {}): Promise<PageResult<Conversation>> {
     const params = new URLSearchParams();
     if (filters.agentId) params.set('agent_id', filters.agentId);

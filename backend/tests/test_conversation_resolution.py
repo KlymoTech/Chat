@@ -125,3 +125,19 @@ async def test_resolve_creates_one_lead_and_preserves_conversation(
             OutboxEvent.event_type == "lead.crm.sync.requested.v1",
         ))).all()
         assert len(sync_events) == 1
+
+    edited = await client.patch(f"/api/v1/conversations/{conversation_id}", headers=headers, json={
+        "visitorName": "Updated Visitor", "visitorEmail": "updated@example.com",
+        "pageUrl": "https://example.com/courses",
+        "visitorDetails": {"phone": "+919876543210", "utmSource": "newsletter", "location": "Mumbai"},
+    })
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["visitorDetails"]["utmSource"] == "newsletter"
+    async with SessionFactory() as session:
+        lead = await session.get(Lead, UUID(lead_id))
+        assert lead.name == "Updated Visitor"
+        assert lead.email == "updated@example.com"
+        assert lead.phone == "+919876543210"
+        assert lead.fields_json["utm_source"] == "newsletter"
+    invalid = await client.patch(f"/api/v1/conversations/{conversation_id}", headers=headers, json={"visitorEmail": "invalid"})
+    assert invalid.status_code == 422

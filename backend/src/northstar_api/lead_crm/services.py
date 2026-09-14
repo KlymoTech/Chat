@@ -226,6 +226,11 @@ class LeadDomainService:
             source_provider=source_provider,
             source_connection_id=source_connection_id,
             source_external_id=source_external_id,
+            utm_source=(lead.fields_json or {}).get("utm_source"),
+            utm_medium=(lead.fields_json or {}).get("utm_medium"),
+            utm_campaign=(lead.fields_json or {}).get("utm_campaign"),
+            utm_term=(lead.fields_json or {}).get("utm_term"),
+            utm_content=(lead.fields_json or {}).get("utm_content"),
             first_touch_at=lead.created_at,
             last_touch_at=lead.updated_at,
         )

@@ -124,6 +124,8 @@ export interface ChatMessage {
 }
 
 export interface Conversation {
+  pageUrl?: string | null;
+  visitorDetails?: Record<string, string | null>;
   id: string;
   workspaceId?: string;
   agentId: string;

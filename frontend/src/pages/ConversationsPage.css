@@ -50,3 +50,12 @@
     grid-column: 1;
   }
 }
+
+.visitor-details-editor { display: flex; flex-direction: column; gap: 14px; padding: 20px 0; min-width: 0; }
+.visitor-details-editor form, .visitor-details-editor label { display: flex; flex-direction: column; gap: 8px; }
+.visitor-details-editor form { gap: 14px; }
+.visitor-details-editor label { font-size: 12px; color: var(--ink); }
+.visitor-details-editor input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); }
+.visitor-details-editor input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.visitor-details-editor dd { overflow-wrap: anywhere; }
+.visitor-details-editor [role="alert"] { color: #b42318; }

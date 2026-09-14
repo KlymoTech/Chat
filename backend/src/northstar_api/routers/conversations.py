@@ -77,6 +77,8 @@ def conversation_response(conversation: Conversation) -> ConversationOut:
         agent_id=conversation.agent_id,
         visitor_name=conversation.visitor_name,
         visitor_email=conversation.visitor_email,
+        page_url=conversation.page_url,
+        visitor_details=conversation.visitor_details or {},
         channel=conversation.channel,
         state=conversation.state,
         sentiment=conversation.sentiment,
@@ -486,6 +488,11 @@ async def update_conversation(
     patch = payload.model_dump(exclude_unset=True)
     requested_state = payload.state
     patch.pop("state", None)
+    if "visitor_name" in patch and not (patch["visitor_name"] or "").strip():
+        raise HTTPException(status_code=422, detail="Visitor name cannot be empty")
+    details = patch.pop("visitor_details", None)
+    if details is not None:
+        conversation.visitor_details = {**(conversation.visitor_details or {}), **details}
     for name, value in patch.items():
         setattr(conversation, "unread_count" if name == "unread" else name, value)
 
@@ -522,6 +529,10 @@ async def update_conversation(
                 event_type="conversation.reopened.v1",
                 payload=event_payload,
             )
+
+    if payload.model_fields_set & {"visitor_name", "visitor_email", "page_url", "visitor_details"}:
+        from northstar_api.services.visitor_details import update_linked_lead
+        await update_linked_lead(session, conversation, payload.model_fields_set)
 
     await session.commit()
     await session.refresh(conversation)

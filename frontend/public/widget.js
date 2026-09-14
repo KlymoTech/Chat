@@ -84,7 +84,12 @@
     if (sessionUrl.origin !== platformOrigin) throw new Error('Widget session endpoint was invalid.');
     const createSession = async () => {
       const pageUrl = new URL(window.location.href);
-      pageUrl.search = '';
+      const attribution = new URLSearchParams();
+      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach((key) => {
+        const value = pageUrl.searchParams.get(key);
+        if (value) attribution.set(key, value.slice(0, 500));
+      });
+      pageUrl.search = attribution.toString();
       pageUrl.hash = '';
       const session = await fetch(sessionUrl.toString(), {
         method: 'POST',
@@ -92,7 +97,12 @@
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         mode: 'cors',
         referrerPolicy: 'strict-origin-when-cross-origin',
-        body: JSON.stringify({ pageUrl: pageUrl.toString() }),
+        body: JSON.stringify({ visitorName: script.dataset.visitorName || undefined, visitorEmail: script.dataset.visitorEmail || undefined, pageUrl: pageUrl.toString(), visitorDetails: {
+          phone: script.dataset.visitorPhone || null,
+          referrer: document.referrer ? document.referrer.split('?')[0].split('#')[0].slice(0, 2048) : null,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          language: navigator.language,
+        } }),
       }).then((response) => checkedJson(response, 'Widget session'));
       if (!session || typeof session.conversationId !== 'string' || typeof session.sessionToken !== 'string') {
         throw new Error('Widget session was invalid.');

@@ -68,3 +68,24 @@ Migration `0039_whatsapp_delivery_receipts` adds tenant-isolated provider receip
 5. Messages from the verified student number are checked against the bot, enrollment, course, batch, and access dates before education retrieval. Unknown or ineligible numbers receive an access-help reply without private course content.
 
 CRM connections are configured separately in Integrations. A successful local test does not establish provider authorization: connect an actual CRM account, activate mapping/routing, and verify provider health before relying on live sync. Student enrollment alone does not automatically export the student as a sales lead.
+
+
+## Website visitor details
+
+Conversations > visitor panel > Edit visitor details saves contact details, page URL/slug,
+referrer, IP, approximate location, time zone, language and UTM attribution. If a linked
+lead exists, saving updates its contact and attribution fields and requests CRM sync.
+Existing conversations cannot recover IP/UTM data that was never collected.
+
+The website widget captures only the five standard UTM query parameters, removing other
+query parameters and fragments. Websites may explicitly identify a known visitor through
+`data-visitor-name`, `data-visitor-email`, and `data-visitor-phone` on the widget script.
+An IP address does not identify a visitor's name, email, or phone.
+
+Set `VISITOR_TRUSTED_PROXY_CIDRS` to the actual reverse-proxy network CIDRs. Only those
+peers' forwarded chains are used, reading from right to left; never trust arbitrary
+public clients. The API's authentication proxy behavior is unchanged. Update this setting
+if Docker networks change. `VISITOR_GEOIP_ENABLED=true` enables a best-effort HTTPS
+lookup at ipwho.is for public IPs only, with a two-second timeout. This sends the public
+IP to that provider. Private IPs, provider limits, and lookup failures leave location
+unavailable and do not prevent chat. Location is approximate and can be corrected manually.

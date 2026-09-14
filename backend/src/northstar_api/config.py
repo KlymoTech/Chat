@@ -16,6 +16,9 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    visitor_geoip_enabled: bool = False
+    visitor_trusted_proxy_cidrs: str = ""
+
     app_name: str = "Northstar API"
     app_env: Literal["development", "test", "staging", "production"] = "development"
     app_host: str = "0.0.0.0"

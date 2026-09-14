@@ -321,7 +321,24 @@ class MessageOut(APIModel):
     citations: list[CitationOut] = Field(default_factory=list)
 
 
+class VisitorDetails(APIModel):
+    phone: str | None = Field(default=None, max_length=80)
+    ip_address: str | None = Field(default=None, max_length=45)
+    location: str | None = Field(default=None, max_length=500)
+    timezone: str | None = Field(default=None, max_length=500)
+    language: str | None = Field(default=None, max_length=500)
+    page_slug: str | None = Field(default=None, max_length=500)
+    utm_source: str | None = Field(default=None, max_length=240)
+    utm_medium: str | None = Field(default=None, max_length=240)
+    utm_campaign: str | None = Field(default=None, max_length=240)
+    utm_term: str | None = Field(default=None, max_length=240)
+    utm_content: str | None = Field(default=None, max_length=500)
+    referrer: str | None = Field(default=None, max_length=2048)
+
+
 class ConversationOut(APIModel):
+    page_url: str | None = None
+    visitor_details: VisitorDetails = Field(default_factory=VisitorDetails)
     id: UUID
     workspace_id: UUID
     agent_id: UUID
@@ -338,6 +355,9 @@ class ConversationOut(APIModel):
 
 
 class ConversationPatch(APIModel):
+    visitor_email: EmailStr | None = None
+    page_url: str | None = Field(default=None, max_length=2048)
+    visitor_details: VisitorDetails | None = None
     state: ConversationState | None = None
     unread: int | None = Field(default=None, ge=0)
     visitor_name: str | None = Field(default=None, max_length=160)
@@ -504,6 +524,7 @@ class WidgetBootstrap(APIModel):
 
 
 class WidgetSessionCreate(APIModel):
+    visitor_details: VisitorDetails = Field(default_factory=VisitorDetails)
     visitor_id: str | None = Field(default=None, max_length=128)
     visitor_name: str | None = Field(default=None, max_length=160)
     visitor_email: EmailStr | None = None

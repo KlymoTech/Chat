@@ -241,6 +241,8 @@ class ConversationResolutionService:
         lead_created = lead is None
 
         source_fields = {
+            **(conversation.visitor_details or {}),
+            "page_url": conversation.page_url,
             "sourceChannel": conversation.channel.value,
             "conversationPublicId": conversation.public_id,
             "conversationResolution": conversation.resolution,
@@ -261,7 +263,7 @@ class ConversationResolutionService:
                 conversation_id=conversation.id,
                 name=preferred_name,
                 email=preferred_email,
-                phone=(conversation.visitor_id if conversation.channel == Channel.WHATSAPP else None),
+                phone=(conversation.visitor_details or {}).get("phone") or (conversation.visitor_id if conversation.channel == Channel.WHATSAPP else None),
                 status=LeadLifecycleStatus.NEW.value,
                 consent=False,
                 fields_json=source_fields,
