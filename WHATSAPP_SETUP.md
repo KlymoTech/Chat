@@ -57,3 +57,14 @@ Use the value of `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` for verification and subsc
 Backend tests: `backend/tests/test_whatsapp.py` and `backend/tests/test_whatsapp_templates.py`.
 Frontend tests cover the Meta SDK, template consent/parameters/error handling, and WhatsApp workspace preview.
 Migration `0039_whatsapp_delivery_receipts` adds tenant-isolated provider receipts and durable template payloads.
+
+
+## Education enrollment through WhatsApp
+
+1. In Education > Students, add or edit the student and enter **Student WhatsApp number** with the country code. This is the student's personal number, not the business number assigned to the bot.
+2. Staff must confirm ownership before selecting the verification checkbox. Unconfirmed numbers remain pending and cannot access private course content. Changing the primary number revokes its previous primary identity and requires confirmation again.
+3. Create an active course and batch with valid dates. Open the student's **Enrollments** and select the course, batch, and education bot; the selector shows the bot's assigned WhatsApp number. Activate the enrollment with appropriate access dates.
+4. Publish the education bot after enrollment configuration and add course-scoped knowledge. Configure NVIDIA_API_KEY in .env.launch for model-backed answers.
+5. Messages from the verified student number are checked against the bot, enrollment, course, batch, and access dates before education retrieval. Unknown or ineligible numbers receive an access-help reply without private course content.
+
+CRM connections are configured separately in Integrations. A successful local test does not establish provider authorization: connect an actual CRM account, activate mapping/routing, and verify provider health before relying on live sync. Student enrollment alone does not automatically export the student as a sales lead.

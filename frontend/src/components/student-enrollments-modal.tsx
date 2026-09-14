@@ -282,7 +282,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
     open={open}
     onClose={close}
     title={student ? `${student.name} · Enrollments` : 'Student enrollments'}
-    description="Assign Course, Batch, Education Agent, validity, and access status. Runtime identity and RAG authorization are enforced separately."
+    description={`Assign Course, Batch, Education Agent, validity, and access status. Student WhatsApp: ${student?.whatsappNumber || 'not added - edit the student profile'}${student?.whatsappNumber ? student.whatsappVerified ? ' (verified)' : ' (verification needed)' : ''}.`}
     size="lg"
     closeDisabled={saving || Boolean(actingId)}
     footer={<Button variant="secondary" onClick={close} disabled={saving || Boolean(actingId)}>Close</Button>}
@@ -322,7 +322,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
           <Field label="Education Agent" htmlFor="enrollment-agent" hint="Only Agents with Education purpose are eligible.">
             <select id="enrollment-agent" value={form.agentId} onChange={(event) => setForm((current) => ({ ...current, agentId: event.target.value }))}>
               <option value="">Select Education Agent</option>
-              {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name} · {agent.status}</option>)}
+              {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name} · {agent.status}{agent.whatsappNumber ? ` - WhatsApp ${agent.whatsappNumber}` : ''}</option>)}
             </select>
           </Field>
           {!editing ? <Field label="Initial status" htmlFor="enrollment-status">

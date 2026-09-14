@@ -49,6 +49,21 @@ class StudentCreate(APIModel):
     student_number: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=2, max_length=160)
     email: EmailStr | None = None
+    whatsapp_number: str | None = Field(default=None, max_length=40)
+    whatsapp_verified: bool = False
+
+    @field_validator("whatsapp_number")
+    @classmethod
+    def valid_whatsapp(cls, value: str | None) -> str | None:
+        from northstar_api.education_student_identities import StudentIdentityType
+        from northstar_api.services.student_identity import normalize_student_identity
+
+        return (
+            normalize_student_identity(StudentIdentityType.WHATSAPP, value)
+            if value and value.strip()
+            else None
+        )
+
     custom_fields: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("student_number")
@@ -73,6 +88,10 @@ class StudentCreate(APIModel):
 
 
 class StudentPatch(APIModel):
+    whatsapp_number: str | None = Field(default=None, max_length=40)
+    whatsapp_verified: bool = False
+    valid_whatsapp = field_validator("whatsapp_number")(StudentCreate.valid_whatsapp.__func__)
+
     student_number: str | None = Field(default=None, min_length=1, max_length=80)
     name: str | None = Field(default=None, min_length=2, max_length=160)
     email: EmailStr | None = None
@@ -101,6 +120,8 @@ class StudentPatch(APIModel):
 
 
 class StudentOut(APIModel):
+    whatsapp_number: str | None = None
+    whatsapp_verified: bool = False
     id: UUID
     tenant_id: UUID
     workspace_id: UUID

@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -28,6 +29,7 @@ from northstar_api.models import (
     WorkspaceRole,
 )
 
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 async def _isolated_workspace() -> tuple[uuid.UUID, uuid.UUID]:
     suffix = uuid.uuid4().hex[:10]

@@ -76,6 +76,21 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Connection check failed. Please try again.'); }
     finally { setBusy(false); onChanged(); }
   };
+  const resumeAuthorization = async () => {
+    if (!canManage || busy || waiting || !connectionId) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      popup.current = window.open('about:blank', `northstar-connect-${item.id}`, 'popup,width=720,height=760');
+      if (!popup.current) throw new Error('Allow pop-ups, then select Authorize account again.');
+      const result = await leadCrmApi.startOAuth(connectionId);
+      expectedConnection.current = connectionId;
+      if (!popup.current || popup.current.closed) throw new Error('Authorization window closed. Please try again.');
+      popup.current.location.replace(result.authorizationUrl); setWaiting(true);
+    } catch (reason) {
+      popup.current?.close(); popup.current = null; setWaiting(false);
+      setError(reason instanceof Error ? reason.message : 'Could not start authorization. Update the app credentials and retry.');
+    } finally { setBusy(false); }
+  };
   const disconnect = async () => {
     setBusy(true); setError('');
     try { if (isChannel) await leadCrmApi.disableChannelConnection(connectionId); else await leadCrmApi.disableConnection(connectionId); onChanged(); onClose(); }
@@ -149,7 +164,7 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
         <div className="connection-details"><span>Account</span><strong>{connection?.name ?? values.name}</strong><span>Status</span><strong>{connection?.status.replaceAll('_', ' ') ?? 'Saved'}</strong></div>
         {isChannel && webhookUrl && <div className="connection-app-fields"><h3>Finish message setup</h3><p>{item.id === 'slack' ? 'Enable Events in your Slack app, enter this Request URL and subscribe to the message events your agent should answer.' : item.id === 'telegram' ? 'Register this URL with Telegram setWebhook, using the webhook secret you provided as secret_token.' : 'Enter this callback URL in your Meta app webhook settings, use the verify token you provided, and subscribe your account to messaging events.'}</p><Field label="Webhook URL" htmlFor="connect-webhook"><input id="connect-webhook" value={webhookUrl} readOnly onFocus={event => event.target.select()} /></Field>{localWebhook && <p className="catalog-notice">Your app is running locally. Configure a public HTTPS address before the platform can deliver customer messages to this endpoint.</p>}<p>Send a message from the platform, then refresh the connection status to confirm messages are arriving.</p></div>}
         {!isChannel && <Link className="button button--secondary button--md" to={`/integrations/advanced?connection=${connectionId}`} onClick={onClose}>Review field mapping and routing</Link>}
-        <div className="connection-actions"><Button icon={RefreshCw} variant="secondary" onClick={() => void check()} disabled={busy || !canManage}>Check connection</Button><Button variant="ghost" disabled={busy || !canManage} onClick={() => { setEditing(true); setMessage(''); setError(''); update('name', connection?.name ?? values.name ?? item.name); if (connection && 'agent_id' in connection) update('agentId', connection.agent_id ?? ''); }}>Update credentials</Button></div>
+        <div className="connection-actions">{oauth && <Button icon={ExternalLink} disabled={busy || waiting || !canManage} onClick={() => void resumeAuthorization()}>{waiting ? 'Waiting for authorization...' : 'Authorize account'}</Button>}<Button icon={RefreshCw} variant="secondary" onClick={() => void check()} disabled={busy || !canManage}>Check connection</Button><Button variant="ghost" disabled={busy || !canManage} onClick={() => { setEditing(true); setMessage(''); setError(''); update('name', connection?.name ?? values.name ?? item.name); if (connection && 'agent_id' in connection) update('agentId', connection.agent_id ?? ''); }}>Update credentials</Button></div>
         {disconnecting ? <div className="catalog-notice"><p>Disconnect {item.name}? This stops this connection and removes its saved credentials.</p><Button variant="danger" disabled={busy} onClick={() => void disconnect()}>Confirm disconnect</Button><Button variant="ghost" disabled={busy} onClick={() => setDisconnecting(false)}>Cancel</Button></div> : <Button variant="ghost" disabled={busy || !canManage} onClick={() => setDisconnecting(true)}>Disconnect account</Button>}
       </div>}
     </div>

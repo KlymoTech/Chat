@@ -66,8 +66,76 @@ async def _ensure_student_has_no_live_enrollments(
         )
 
 
-def _student_out(student: EducationStudent) -> StudentOut:
-    return StudentOut.model_validate(student)
+async def _student_out(student: EducationStudent, session: AsyncSession) -> StudentOut:
+    from northstar_api.education_student_identities import EducationStudentIdentity
+
+    identity = await session.scalar(
+        select(EducationStudentIdentity)
+        .where(
+            EducationStudentIdentity.student_id == student.id,
+            EducationStudentIdentity.workspace_id == student.workspace_id,
+            EducationStudentIdentity.identity_type == "whatsapp",
+            EducationStudentIdentity.status != "revoked",
+        )
+        .order_by(EducationStudentIdentity.is_primary.desc(), EducationStudentIdentity.created_at)
+        .limit(1)
+    )
+    result = StudentOut.model_validate(student)
+    result.whatsapp_number = identity.normalized_identifier if identity else None
+    result.whatsapp_verified = bool(identity and identity.status == "verified")
+    return result
+
+
+async def _save_whatsapp(session, student, number, verified):
+    from datetime import UTC, datetime
+
+    from northstar_api.education_student_identities import EducationStudentIdentity
+
+    identities = (
+        await session.scalars(
+            select(EducationStudentIdentity)
+            .where(
+                EducationStudentIdentity.student_id == student.id,
+                EducationStudentIdentity.workspace_id == student.workspace_id,
+                EducationStudentIdentity.identity_type == "whatsapp",
+            )
+            .with_for_update()
+        )
+    ).all()
+    target = next((item for item in identities if item.normalized_identifier == number), None)
+    for item in identities:
+        if item.is_primary and item is not target:
+            item.is_primary = False
+            item.status = "revoked"
+    if number:
+        if target is None:
+            target = EducationStudentIdentity(
+                tenant_id=student.tenant_id,
+                workspace_id=student.workspace_id,
+                student_id=student.id,
+                identity_type="whatsapp",
+                identifier=number,
+                normalized_identifier=number,
+            )
+            session.add(target)
+        target.is_primary = True
+        target.status = "verified" if verified else "pending"
+        target.verified_at = datetime.now(UTC) if verified else None
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            409, "This WhatsApp number is already linked to another student in this workspace"
+        ) from None
+    enqueue_event(
+        session,
+        tenant_id=student.tenant_id,
+        aggregate_type="education_student",
+        aggregate_id=student.id,
+        event_type="education.student.whatsapp.updated.v1",
+        payload={"studentId": str(student.id), "verified": verified},
+    )
 
 
 @router.get("", response_model=list[StudentOut])
@@ -100,7 +168,7 @@ async def list_students(
             .order_by(EducationStudent.status, EducationStudent.name, EducationStudent.student_number)
         )
     ).all()
-    return [_student_out(student) for student in students]
+    return [await _student_out(student, session) for student in students]
 
 
 @router.post("", response_model=StudentOut, status_code=201)
@@ -128,6 +196,8 @@ async def create_student(
             status_code=409,
             detail="A student with this Student ID already exists in this workspace",
         ) from None
+    if payload.whatsapp_number:
+        await _save_whatsapp(session, student, payload.whatsapp_number, payload.whatsapp_verified)
     enqueue_event(
         session,
         tenant_id=principal.tenant_id,
@@ -143,7 +213,7 @@ async def create_student(
     )
     await session.commit()
     await session.refresh(student)
-    return _student_out(student)
+    return await _student_out(student, session)
 
 
 @router.get("/{student_id}", response_model=StudentOut)
@@ -152,13 +222,14 @@ async def get_student(
     principal: EducationViewPrincipal,
     session: DB,
 ) -> StudentOut:
-    return _student_out(
+    return await _student_out(
         await _scoped_student(
             session,
             tenant_id=principal.tenant_id,
             workspace_id=_workspace_id(principal),
             student_id=student_id,
-        )
+        ),
+        session,
     )
 
 
@@ -185,7 +256,12 @@ async def update_student(
         )
 
     changed_fields: list[str] = []
+    if "whatsapp_number" in payload.model_fields_set:
+        await _save_whatsapp(session, student, payload.whatsapp_number, payload.whatsapp_verified)
+        changed_fields.append("whatsapp_number")
     for field_name in payload.model_fields_set:
+        if field_name in {"whatsapp_number", "whatsapp_verified"}:
+            continue
         value = getattr(payload, field_name)
         if field_name != "email" and value is None:
             continue
@@ -199,7 +275,7 @@ async def update_student(
         changed_fields.append(field_name)
 
     if not changed_fields:
-        return _student_out(student)
+        return await _student_out(student, session)
 
     enqueue_event(
         session,
@@ -223,7 +299,7 @@ async def update_student(
             detail="A student with this Student ID already exists in this workspace",
         ) from None
     await session.refresh(student)
-    return _student_out(student)
+    return await _student_out(student, session)
 
 
 @router.delete("/{student_id}", status_code=204)

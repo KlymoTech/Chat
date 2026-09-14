@@ -24,6 +24,8 @@ interface CustomFieldRow {
 }
 
 interface StudentFormState {
+  whatsappNumber: string;
+  whatsappVerified: boolean;
   studentNumber: string;
   name: string;
   email: string;
@@ -31,6 +33,8 @@ interface StudentFormState {
 }
 
 const emptyForm: StudentFormState = {
+  whatsappNumber: '',
+  whatsappVerified: false,
   studentNumber: '',
   name: '',
   email: '',
@@ -77,7 +81,7 @@ export function StudentsPage() {
         .map(([key, value]) => `${key} ${String(value ?? '')}`)
         .join(' ');
       const matchesSearch = !query
-        || `${student.studentNumber} ${student.name} ${student.email ?? ''} ${custom}`.toLowerCase().includes(query);
+        || `${student.studentNumber} ${student.name} ${student.email ?? ''} ${student.whatsappNumber ?? ''} ${custom}`.toLowerCase().includes(query);
       return matchesStatus && matchesSearch;
     });
   }, [search, status, students.data]);
@@ -95,6 +99,8 @@ export function StudentsPage() {
   const openEdit = (student: EducationStudent) => {
     setEditing(student);
     setForm({
+      whatsappNumber: student.whatsappNumber ?? '',
+      whatsappVerified: student.whatsappVerified ?? false,
       studentNumber: student.studentNumber,
       name: student.name,
       email: student.email ?? '',
@@ -152,6 +158,8 @@ export function StudentsPage() {
           studentNumber,
           name,
           email: email || null,
+          whatsappNumber: form.whatsappNumber.trim() || null,
+          whatsappVerified: form.whatsappVerified,
           customFields,
         });
         pushToast(`${name} updated`);
@@ -160,6 +168,8 @@ export function StudentsPage() {
           studentNumber,
           name,
           email: email || null,
+          whatsappNumber: form.whatsappNumber.trim() || null,
+          whatsappVerified: form.whatsappVerified,
           customFields,
         });
         pushToast(`${name} created`);
@@ -284,7 +294,7 @@ export function StudentsPage() {
         <thead><tr><th>Student ID</th><th>Student</th><th>Custom fields</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{records.map((student) => <tr key={student.id}>
           <td><code>{student.studentNumber}</code></td>
-          <td><strong>{student.name}</strong><small>{student.email || 'No email'}</small></td>
+          <td><strong>{student.name}</strong><small>{student.email || 'No email'}</small><small>WhatsApp: {student.whatsappNumber || 'Not added'}{student.whatsappNumber ? student.whatsappVerified ? ' - Verified' : ' - Verification needed' : ''}</small></td>
           <td>{Object.keys(student.customFields).length
             ? <div className="student-custom-summary">{Object.entries(student.customFields).slice(0, 3).map(([key, value]) => <span key={key}><b>{key}</b>: {String(value ?? '')}</span>)}</div>
             : <span className="student-muted">None</span>}</td>
@@ -319,7 +329,7 @@ export function StudentsPage() {
     <StudentIdentitiesModal
       student={identityStudent}
       open={Boolean(identityStudent)}
-      onClose={() => setIdentityStudent(null)}
+      onClose={() => { setIdentityStudent(null); students.reload(); }}
     />
 
     <StudentEnrollmentsModal
@@ -362,6 +372,11 @@ export function StudentsPage() {
             />
           </Field>
         </div>
+        <Field label="Student WhatsApp number" htmlFor="student-whatsapp" hint="Include the country code, e.g. +919876543210. Use the student's number, not the bot's business number.">
+          <input id="student-whatsapp" type="tel" value={form.whatsappNumber} maxLength={40} placeholder="+919876543210" onChange={(event) => setForm((current) => ({ ...current, whatsappNumber: event.target.value, whatsappVerified: false }))} />
+        </Field>
+        {form.whatsappNumber.trim() ? <label><input type="checkbox" checked={form.whatsappVerified} onChange={(event) => setForm((current) => ({ ...current, whatsappVerified: event.target.checked }))} /> I have confirmed this WhatsApp number belongs to this student.</label> : null}
+        <p>A verified number and an active Course / Batch / Bot enrollment are required for WhatsApp course access.</p>
         <Field label="Email" htmlFor="student-email" hint="Optional profile contact. Login/channel identities are managed separately.">
           <input
             id="student-email"

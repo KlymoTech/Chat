@@ -141,3 +141,43 @@ async def test_student_lifecycle_is_workspace_scoped(
         headers=original_headers,
     )
     assert cross_workspace_get.status_code == 404, cross_workspace_get.text
+
+
+async def test_student_whatsapp_profile_creates_identity_atomically(client, auth_headers):
+    payload = {"studentNumber": "WA-PROFILE", "name": "WhatsApp Student", "whatsappNumber": "+91 98765 40123"}
+    created = await client.post("/api/v1/education/students", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    student = created.json()
+    assert student["whatsappNumber"] == "+919876540123"
+    assert student["whatsappVerified"] is False
+    updated = await client.patch(
+        f"/api/v1/education/students/{student['id']}",
+        headers=auth_headers,
+        json={"whatsappNumber": "+919876540123", "whatsappVerified": True},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["whatsappVerified"] is True
+    duplicate = await client.post(
+        "/api/v1/education/students", headers=auth_headers, json={**payload, "studentNumber": "WA-DUPLICATE"}
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    listed = (await client.get("/api/v1/education/students", headers=auth_headers)).json()
+    assert not any(item["studentNumber"] == "WA-DUPLICATE" for item in listed)
+    changed = await client.patch(
+        f"/api/v1/education/students/{student['id']}",
+        headers=auth_headers,
+        json={"whatsappNumber": "+919876540124"},
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["whatsappVerified"] is False
+    identities = (
+        await client.get(f"/api/v1/education/students/{student['id']}/identities", headers=auth_headers)
+    ).json()
+    assert (
+        next(item for item in identities if item["normalizedIdentifier"] == "+919876540123")["status"]
+        == "revoked"
+    )
+    invalid = await client.patch(
+        f"/api/v1/education/students/{student['id']}", headers=auth_headers, json={"whatsappNumber": "98765"}
+    )
+    assert invalid.status_code == 422

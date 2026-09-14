@@ -1371,3 +1371,90 @@ async def test_create_agent_with_whatsapp_number_is_atomic(client, auth_headers)
     listed = (await client.get("/api/v1/agents", headers=auth_headers)).json()
     assert not any(agent["name"] in {"Must not be created", "Missing number bot"} for agent in listed)
     await _clear_whatsapp_state()
+
+
+async def test_whatsapp_worker_authorizes_education_student(client, auth_headers, monkeypatch):
+    from test_education_channel_runtime import _seed_authorized_student
+
+    from northstar_api.education_conversation_context import EducationConversationContext
+    from northstar_api.services.education_chat import education_chat_coordinator
+
+    await _clear_whatsapp_state()
+    seeded, headers = await _seed_authorized_student(client, auth_headers)
+    agent_id = UUID(seeded["agentId"])
+    async with SessionFactory() as session:
+        agent = await session.get(Agent, agent_id)
+        connection = WhatsAppConnection(
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
+            waba_id="education",
+            phone_number_id="education-phone",
+            access_token_encrypted=b"test",
+            status="connected",
+        )
+        session.add(connection)
+        await session.flush()
+        receipt = WhatsAppInboundMessage(
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            connection_id=connection.id,
+            phone_number_id=connection.phone_number_id,
+            provider_message_id="wa-education-allowed",
+            sender_wa_id=seeded["phone"].lstrip("+"),
+            message_type="text",
+            message_text="Explain my course",
+            provider_timestamp=datetime.now(UTC),
+            status="queued",
+        )
+        session.add(receipt)
+        await session.commit()
+        receipt_id = receipt.id
+        connection_id = connection.id
+
+    async def prepare(session, **kwargs):
+        context = await session.scalar(
+            select(EducationConversationContext).where(
+                EducationConversationContext.conversation_id == kwargs["request"].conversation_id
+            )
+        )
+        assert str(context.student_id) == seeded["studentId"]
+        assert str(context.enrollment_id) == seeded["enrollmentId"]
+        return PreparedChat(context.conversation_id, uuid4(), "Authorized course reply", [])
+
+    education_prepare = AsyncMock(side_effect=prepare)
+    generic_prepare = AsyncMock(side_effect=AssertionError("Education must not use generic chat"))
+    sender = AsyncMock(return_value="wa-education-reply")
+    monkeypatch.setattr(education_chat_coordinator, "prepare", education_prepare)
+    monkeypatch.setattr(chat_coordinator, "prepare", generic_prepare)
+    monkeypatch.setattr(shared_token_cipher, "decrypt", lambda _: "test-token")
+    monkeypatch.setattr(shared_whatsapp_client, "send_text", sender)
+    await _process_whatsapp_inbound_async(receipt_id)
+    assert education_prepare.await_count == 1
+    assert generic_prepare.await_count == 0
+    async with SessionFactory() as session:
+        saved = await session.get(WhatsAppInboundMessage, receipt_id)
+        assert saved.status == "processed", saved.last_error
+        denied = WhatsAppInboundMessage(
+            tenant_id=saved.tenant_id,
+            workspace_id=saved.workspace_id,
+            connection_id=connection_id,
+            phone_number_id="education-phone",
+            provider_message_id="wa-education-denied",
+            sender_wa_id="919000000001",
+            message_type="text",
+            message_text="Private course?",
+            provider_timestamp=datetime.now(UTC),
+            status="queued",
+        )
+        session.add(denied)
+        await session.commit()
+        denied_id = denied.id
+    await _process_whatsapp_inbound_async(denied_id)
+    assert education_prepare.await_count == 1
+    async with SessionFactory() as session:
+        denied = await session.get(WhatsAppInboundMessage, denied_id)
+        assert denied.status == "rejected"
+        assert "Education access" in denied.last_error
+    assert "contact your institute" in sender.call_args.kwargs["text"]
+    await _clear_whatsapp_state()
