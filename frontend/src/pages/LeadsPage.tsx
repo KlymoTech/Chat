@@ -1,4 +1,8 @@
-import { ChevronDown, Download, Filter, Mail, Phone, RefreshCw, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
+import { LeadLayoutEditor } from '@/components/lead-layout-editor';
+import { LeadDetailsEditor } from '@/components/lead-details-editor';
+import { defaultLayout, leadColumnValue, leadLayoutApi, type LeadLayout } from '@/lib/lead-layout-api';
+import './LeadsPage.css';
+import { ChevronDown, Download, Filter, RefreshCw, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CRMDeliveryAttempts } from '@/components/crm-delivery-attempts';
 import { useToast } from '@/components/providers';
@@ -57,29 +61,13 @@ function deliveryTone(status: string): 'brand' | 'warning' | 'success' | 'purple
   return 'neutral';
 }
 
-function csvCell(value: unknown): string {
-  const text = value == null ? '' : String(value);
-  const safe = /^[\s]*[=+@-]/.test(text) || /^[\t\r\n]/.test(text) ? `'${text}` : text;
-  return `"${safe.replace(/"/g, '""')}"`;
-}
-
-function downloadCsv(leads: Lead[]): void {
-  const rows = [
-    ['Name', 'Email', 'Phone', 'Status', 'Consent', 'Created'],
-    ...leads.map((lead) => [lead.name ?? '', lead.email ?? '', lead.phone ?? '', lead.status, lead.consent ? 'yes' : 'no', lead.createdAt]),
-  ];
-  const blob = new Blob([rows.map((row) => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `northstar-leads-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 export function LeadsPage() {
+  const layoutResult = useApi(() => leadLayoutApi.get());
+  const [savedLayout, setSavedLayout] = useState<LeadLayout | null>(null);
+  const layout = savedLayout ?? layoutResult.data ?? defaultLayout;
+  const [customizing, setCustomizing] = useState(false);
+  const [editing, setEditing] = useState<Lead | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [page, setPage] = useState(1);
@@ -159,9 +147,10 @@ export function LeadsPage() {
   return <div className="page leads-page">
     <div className="page-heading page-heading--split">
       <div><h2>Leads</h2><p>Track omnichannel leads from capture through CRM acknowledgement and verification.</p></div>
-      <Button variant="secondary" icon={Download} disabled={!records.length} onClick={() => downloadCsv(records)}>Export page</Button>
+      <div className="lead-export-actions"><Button variant="secondary" disabled={layoutResult.loading || Boolean(layoutResult.error)} onClick={() => setCustomizing(true)}>Customize columns</Button>{(['csv', 'xlsx'] as const).map((format) => <Button key={format} variant="secondary" icon={Download} disabled={exporting || !records.length || Boolean(layoutResult.error)} onClick={async () => { setExporting(true); try { await leadLayoutApi.export(format, search, status); pushToast('All matching leads exported'); } catch (e) { pushToast(e instanceof Error ? e.message : 'Export failed', 'error'); } finally { setExporting(false); } }}>Export {format === 'csv' ? 'CSV' : 'Excel'}</Button>)}</div>
     </div>
 
+    {layoutResult.error && <p role="alert">Could not load your saved layout. <Button variant="secondary" onClick={layoutResult.reload}>Retry layout</Button></p>}
     <div className="leads-stats">
       <Card><span><UsersRound /></span><div><strong>{leads.data?.total ?? 0}</strong><small>Total leads</small></div></Card>
       <Card><span><UserRound /></span><div><strong>{qualified}</strong><small>Qualified on page</small></div></Card>
@@ -179,23 +168,18 @@ export function LeadsPage() {
       </div>
 
       {records.length ? <div className="leads-table-wrap"><table className="leads-table">
-        <thead><tr><th>Lead</th><th>Contact</th><th>Agent</th><th>Status</th><th>Consent</th><th>Captured</th><th>CRM</th></tr></thead>
+        <thead><tr>{layout.columns.filter((c) => c.visible).map((c) => <th key={c.id}>{c.label}</th>)}<th>Actions</th></tr></thead>
         <tbody>{records.map((lead) => {
           const statuses = commonStatuses.includes(lead.status) ? commonStatuses : [lead.status, ...commonStatuses];
-          return <tr key={lead.id}>
-            <td><span className="lead-avatar">{(lead.name || lead.email || '?').slice(0, 1).toUpperCase()}</span><span><strong>{lead.name || 'Anonymous visitor'}</strong><small>{lead.conversationId ? 'From a conversation' : 'Direct capture'}</small></span></td>
-            <td><span className="lead-contact">{lead.email ? <a href={`mailto:${lead.email}`}><Mail />{lead.email}</a> : null}{lead.phone ? <a href={`tel:${lead.phone}`}><Phone />{lead.phone}</a> : null}{!lead.email && !lead.phone ? <small>No contact details</small> : null}</span></td>
-            <td>{agentNames.get(lead.agentId) ?? 'Unknown agent'}</td>
-            <td><label className={`lead-status lead-status--${statusTone(lead.status)}`}><span className="sr-only">Status for {lead.name || 'lead'}</span><select value={lead.status} disabled={updating === lead.id} onChange={(event) => void updateStatus(lead, event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{item}</option>)}</select><ChevronDown /></label></td>
-            <td>{lead.consent ? <Badge tone="success"><ShieldCheck /> Granted</Badge> : <Badge>Not recorded</Badge>}</td>
-            <td><time dateTime={lead.createdAt}>{relativeTime(lead.createdAt)}</time></td>
-            <td><Button variant="secondary" onClick={() => setSelected(lead)}>View sync</Button></td>
-          </tr>;
+          return <tr key={lead.id}>{layout.columns.filter((c) => c.visible).map((column) => <td key={column.id}>{column.source === 'status' ? <label className={`lead-status lead-status--${statusTone(lead.status)}`}><span className="sr-only">Status for {lead.name || 'lead'}</span><select value={lead.status} disabled={updating === lead.id} onChange={(event) => void updateStatus(lead, event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{item}</option>)}</select><ChevronDown /></label> : column.source === 'name' ? <strong>{leadColumnValue(lead, column) || 'Anonymous visitor'}</strong> : leadColumnValue(lead, column, agentNames.get(lead.agentId)) || 'Not provided'}</td>)}
+          <td><div className="lead-export-actions"><Button variant="secondary" disabled={Boolean(layoutResult.error)} onClick={() => setEditing(lead)}>Edit details</Button><Button variant="secondary" onClick={() => setSelected(lead)}>View sync</Button></div></td></tr>;
         })}</tbody>
       </table></div> : <EmptyState icon={UsersRound} title="No leads found" description={search || status !== 'all' ? 'Try another search or status filter.' : 'New contacts captured by your channels will appear here.'} />}
       <div className="page-heading page-heading--split"><small>Page {page} of {totalPages}</small><div><Button variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button> <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></div>
     </Card>
 
+    {customizing && <LeadLayoutEditor initial={layout} records={records} onClose={() => setCustomizing(false)} onSaved={setSavedLayout} />}
+    {editing && <LeadDetailsEditor lead={editing} layout={layout} onClose={() => setEditing(null)} onSaved={() => { leads.reload(); pushToast("Lead details saved"); }} />}
     {selected ? <Card>
       <div className="page-heading page-heading--split">
         <div><h3>{selected.name || selected.email || 'Lead'} · CRM delivery</h3><p>Provider ACK and read-back proof are separate. Identity verification proves the record ID; mapped-field verification additionally compares the configured fields. Verification retries never resend an acknowledged write.</p></div>

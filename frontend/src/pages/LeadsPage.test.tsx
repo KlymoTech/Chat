@@ -45,6 +45,11 @@ vi.mock('@/lib/lead-crm-api', () => ({
   },
 }));
 
+vi.mock('@/lib/lead-layout-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/lead-layout-api')>();
+  return { ...actual, leadLayoutApi: { ...actual.leadLayoutApi, get: vi.fn(async () => actual.defaultLayout) } };
+});
+
 describe('LeadsPage', () => {
   beforeEach(() => {
     const leads = structuredClone(demoLeads);

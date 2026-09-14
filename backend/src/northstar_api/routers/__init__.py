@@ -46,6 +46,7 @@ from northstar_api.routers import (
     integration_audit,
     integrations,
     knowledge,
+    lead_layout,
     leads,
     mfa,
     notifications,
@@ -84,6 +85,7 @@ api_router.include_router(education_sales_settings.router)
 api_router.include_router(education_upsell.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
+api_router.include_router(lead_layout.router)
 api_router.include_router(leads.router)
 api_router.include_router(qualification.router)
 # Workspace-aware CRM routes are registered before their legacy-compatible

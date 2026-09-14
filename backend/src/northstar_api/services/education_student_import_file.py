@@ -98,7 +98,7 @@ def _delimited_table(content: bytes, suffix: str) -> list[list[str]]:
     return [row for row in table if any(value.strip() for value in row)]
 
 
-def _xlsx_table(content: bytes) -> list[list[str]]:
+def _xlsx_table(content: bytes, *, header_only: bool = False) -> list[list[str]]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
@@ -119,7 +119,7 @@ def _xlsx_table(content: bytes) -> list[list[str]]:
         date_styles = _date_style_indexes(archive)
         uses_1904_dates = _uses_1904_date_system(workbook)
         sheet = _xml(archive.read(sheet_path), "Excel worksheet")
-        return _sheet_table(sheet, shared_strings, date_styles, uses_1904_dates)
+        return _sheet_table(sheet, shared_strings, date_styles, uses_1904_dates, header_only=header_only)
 
 
 def _xml(content: bytes, label: str) -> ElementTree.Element:
@@ -213,6 +213,8 @@ def _sheet_table(
     shared_strings: list[str],
     date_styles: set[int],
     uses_1904_dates: bool,
+    *,
+    header_only: bool = False,
 ) -> list[list[str]]:
     table: list[list[str]] = []
     for row_node in sheet.findall(f".//{{{_MAIN_NS}}}sheetData/{{{_MAIN_NS}}}row"):
@@ -231,6 +233,8 @@ def _sheet_table(
         row = [cells.get(index, "") for index in range(width)]
         if any(value.strip() for value in row):
             table.append(row)
+            if header_only:
+                break
             if len(table) > _MAX_ROWS + 1:
                 raise StudentImportFileError(f"Import supports at most {_MAX_ROWS} student rows")
     return table
