@@ -107,7 +107,7 @@ export function ConversationsPage() {
       state: filter === 'all' ? undefined : filter,
       search: debouncedSearch || undefined,
       page: 1,
-      pageSize: 50,
+      pageSize: 100,
     }),
     [activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch],
   );

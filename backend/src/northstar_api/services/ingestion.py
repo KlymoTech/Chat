@@ -38,32 +38,59 @@ logger = structlog.get_logger(__name__)
 
 
 def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35) -> list[str]:
-    normalized = re.sub(r"\r\n?", "\n", text).strip()
+    """Create chunks without crossing PDF page boundaries."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not normalized:
         return []
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", normalized) if part.strip()]
+
+    # PDF pages are separated by explicit markers inserted during extraction.
+    pages = re.split(r"\n\s*===PDF_PAGE:\d+===\s*\n", normalized)
+
     chunks: list[str] = []
-    buffer: list[str] = []
-    word_count = 0
-    for paragraph in paragraphs:
-        paragraph_words = paragraph.split()
-        if buffer and word_count + len(paragraph_words) > target_words:
-            combined = "\n\n".join(buffer)
-            chunks.append(combined)
-            overlap = combined.split()[-overlap_words:]
-            buffer = [" ".join(overlap)] if overlap else []
-            word_count = len(overlap)
-        if len(paragraph_words) > target_words * 2:
-            for start in range(0, len(paragraph_words), target_words - overlap_words):
-                part = paragraph_words[start : start + target_words]
-                if part:
-                    chunks.append(" ".join(part))
+
+    for page in pages:
+        page = page.strip()
+        if not page:
             continue
-        buffer.append(paragraph)
-        word_count += len(paragraph_words)
-    if buffer:
-        chunks.append("\n\n".join(buffer))
-    return chunks
+
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", page) if part.strip()]
+        if not paragraphs:
+            continue
+
+        current: list[str] = []
+        current_words = 0
+
+        for paragraph in paragraphs:
+            paragraph_words = paragraph.split()
+
+            # Very long paragraphs are split independently.
+            if len(paragraph_words) > target_words * 2:
+                if current:
+                    chunks.append(" ".join(current).strip())
+                    current = []
+                    current_words = 0
+
+                step = max(1, target_words - overlap_words)
+                for start in range(0, len(paragraph_words), step):
+                    part = paragraph_words[start:start + target_words]
+                    if part:
+                        chunks.append(" ".join(part).strip())
+                continue
+
+            if current and current_words + len(paragraph_words) > target_words:
+                chunks.append(" ".join(current).strip())
+
+                overlap = current[-overlap_words:] if overlap_words else []
+                current = overlap + paragraph_words
+                current_words = len(current)
+            else:
+                current.extend(paragraph_words)
+                current_words += len(paragraph_words)
+
+        if current:
+            chunks.append(" ".join(current).strip())
+
+    return [chunk for chunk in chunks if chunk]
 
 
 async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
@@ -261,7 +288,10 @@ async def _materialize_text(source: KnowledgeSource) -> str:
 
                 pdf.close()
 
-            return "\n\n".join(pages).strip()
+            return "\n\n".join(
+    f"===PDF_PAGE:{index}===\n{page}"
+    for index, page in enumerate(pages, start=1)
+).strip()
         if "wordprocessingml.document" in content_type or source.name.lower().endswith(".docx"):
             settings = get_settings()
 
