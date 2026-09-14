@@ -27,6 +27,7 @@ from northstar_api.education_student_identities import (
 from northstar_api.education_student_schemas import StudentOut
 from northstar_api.education_students import EducationStudent
 from northstar_api.models import Agent, Conversation
+from northstar_api.services.workspace_dates import workspace_today
 
 
 class StudentDetailNotFoundError(LookupError):
@@ -67,6 +68,7 @@ async def get_student_detail(
     )
     if student is None:
         raise StudentDetailNotFoundError("Student not found")
+    today = await workspace_today(session, tenant_id=tenant_id, workspace_id=workspace_id)
 
     identity_rows = (
         await session.scalars(
@@ -136,6 +138,7 @@ async def get_student_detail(
                 enrollment.status,
                 enrollment.starts_on,
                 enrollment.ends_on,
+                today=today,
             ),
             created_at=enrollment.created_at,
             updated_at=enrollment.updated_at,

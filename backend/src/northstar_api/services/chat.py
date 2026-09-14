@@ -24,6 +24,7 @@ from northstar_api.models import (
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
 from northstar_api.services.localization import (
+    localized_appearance,
     localized_no_evidence,
     localized_provider_fallback,
     localized_question_fallback,
@@ -32,6 +33,17 @@ from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.retrieval import Evidence, RetrievalService, retrieval_service
+
+
+def whatsapp_welcome(agent: Agent, message: str) -> str | None:
+    """Answer greeting-only messages from configured copy, after access checks."""
+    greeting = re.sub(r"[!?.,\s👋]+", " ", message.casefold()).strip()
+    if greeting not in {"hi", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste", "नमस्ते", "नमस्कार", "hola", "bonjour", "hallo", "مرحبا", "السلام عليكم"}:
+        return None
+    locale = localized_appearance(agent.language)
+    body = str((agent.appearance or {}).get("welcomeMessage") or locale["welcomeMessage"]).strip()
+    heading = f"Hi! Welcome to {agent.name}." if agent.language == "English" else f"{agent.name}\n{locale['welcomeTitle']}"
+    return f"{heading}\n\n{body}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,10 +132,20 @@ class ChatCoordinator:
             message_fingerprint=message_fingerprint,
             show_citations=show_citations,
         )
-        display_question = await self._display_question(agent, raw_message)
+        welcome = whatsapp_welcome(agent, raw_message) if channel == Channel.WHATSAPP else None
+        display_question = raw_message if welcome else await self._display_question(agent, raw_message)
         if isinstance(reservation, PreparedChat):
             return replace(reservation, display_question=display_question)
         try:
+            if welcome:
+                prepared = await self._complete_exchange(
+                    session, tenant_id=tenant_id, agent=agent, reservation=reservation,
+                    question=message, answer=welcome, evidence=[],
+                    latency_ms=round((time.perf_counter() - started) * 1000), show_citations=False,
+                )
+                CHAT_REQUESTS.labels("welcome").inc()
+                CHAT_DURATION.observe(time.perf_counter() - started)
+                return replace(prepared, display_question=display_question)
             conversation_history = await self._recent_history(session, reservation)
             retrieval_query = _retrieval_query(message, conversation_history)
             try:

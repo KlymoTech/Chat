@@ -311,7 +311,9 @@ async def _durably_receive(
 
 async def _mark_dispatched(session: AsyncSession, receipt_id: UUID, tenant_id: UUID) -> None:
     await set_tenant_context(session, tenant_id)
-    receipt = await session.get(WhatsAppInboundMessage, receipt_id)
+    receipt = await session.scalar(select(WhatsAppInboundMessage).where(
+        WhatsAppInboundMessage.id == receipt_id, WhatsAppInboundMessage.tenant_id == tenant_id,
+    ).with_for_update().execution_options(populate_existing=True))
     if not receipt or receipt.status not in {"queued", "failed"}:
         await session.rollback()
         return
@@ -325,8 +327,10 @@ async def _mark_dispatched(session: AsyncSession, receipt_id: UUID, tenant_id: U
 
 async def _mark_dispatch_failure(session: AsyncSession, receipt_id: UUID, tenant_id: UUID) -> None:
     await set_tenant_context(session, tenant_id)
-    receipt = await session.get(WhatsAppInboundMessage, receipt_id)
-    if not receipt:
+    receipt = await session.scalar(select(WhatsAppInboundMessage).where(
+        WhatsAppInboundMessage.id == receipt_id, WhatsAppInboundMessage.tenant_id == tenant_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    if not receipt or receipt.status not in {"queued", "failed"}:
         await session.rollback()
         return
     receipt.status = "failed"
