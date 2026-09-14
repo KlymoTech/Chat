@@ -7,10 +7,6 @@
 .bot-enrollment-setup { background: #f5f9ff; border: 1px solid #dce8fa; border-radius: 12px; padding: 16px; }
 .bot-enrollment-setup h4 { margin: 0 0 8px; }
 .bot-enrollment-setup ul { margin: 0; padding-left: 20px; line-height: 1.9; }
-.agent-status-control { margin: 14px 0; }
-.agent-status-control .switch-row { gap: 12px; }
-.agent-status-control > a { margin-top: 10px; }
-.agent-card .agent-status-control { border-top: 1px solid var(--border, #e5eaf2); padding-top: 14px; }
 .agent-cards--grid .agent-card { display: flex; flex-direction: column; }
 .agent-cards--grid .agent-card__footer { margin-top: auto; }
 .agent-cards--list .agent-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

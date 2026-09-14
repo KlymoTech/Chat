@@ -59,13 +59,15 @@ export function AgentsPage() {
 
 function AgentCard({ agent, onSaved, onDuplicate, onPurpose, onDelete }: { agent: Agent; onSaved: () => void; onDuplicate: () => void; onPurpose: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false); const ref = useRef<HTMLDivElement>(null);
+  const [statusError, setStatusError] = useState('');
   useEffect(() => { const close = (event: MouseEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); }; document.addEventListener('mousedown', close); return () => document.removeEventListener('mousedown', close); }, []);
   const purpose = agentPurpose(agent);
   return <Card className="agent-card">
-    <div className="agent-card__top"><span className="agent-avatar agent-avatar--lg" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><Badge tone={agent.status === 'active' ? 'success' : agent.status === 'training' ? 'purple' : 'warning'}><i className="status-dot" /> {agent.status}</Badge><Badge tone={purpose === 'lead_generation' ? 'brand' : purpose === 'education' ? 'purple' : 'neutral'}>{purposeLabels[purpose]}</Badge><div className="more-menu" ref={ref}><button className="icon-button" onClick={() => setOpen((value) => !value)} aria-label={`Actions for ${agent.name}`}><MoreHorizontal /></button>{open ? <div className="menu-popover"><button onClick={() => { setOpen(false); onPurpose(); }}><Sparkles />Change purpose</button><button onClick={() => { setOpen(false); onDuplicate(); }}><Copy />Duplicate</button><button className="danger" onClick={onDelete}><Trash2 />Delete</button></div> : null}</div></div>
+    <div className="agent-card__top"><span className="agent-avatar agent-avatar--lg" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><AgentStatusControl agent={agent} onSaved={onSaved} compact showEnrollmentLink={false} onError={setStatusError} /><Badge tone={purpose === 'lead_generation' ? 'brand' : purpose === 'education' ? 'purple' : 'neutral'}>{purposeLabels[purpose]}</Badge><div className="more-menu" ref={ref}><button className="icon-button" onClick={() => setOpen((value) => !value)} aria-label={`Actions for ${agent.name}`}><MoreHorizontal /></button>{open ? <div className="menu-popover"><button onClick={() => { setOpen(false); onPurpose(); }}><Sparkles />Change purpose</button><button onClick={() => { setOpen(false); onDuplicate(); }}><Copy />Duplicate</button><button className="danger" onClick={onDelete}><Trash2 />Delete</button></div> : null}</div></div>
+    {statusError ? <div className="form-error" role="alert">{statusError}</div> : null}
     <Link to={`/agents/${agent.id}/instructions`} className="agent-card__link"><h3>{agent.name}</h3><p>{agent.description}</p></Link>
     <p><strong>WhatsApp:</strong> {agent.whatsappNumber || 'No number assigned'}</p><div className="agent-card__stats"><span><strong>{formatCompact(agent.conversations)}</strong><small>Conversations</small></span><span><strong>{agent.resolutionRate}%</strong><small>Resolved</small></span><span><strong>{agent.knowledgeCount}</strong><small>Sources</small></span></div>
-    <AgentStatusControl agent={agent} onSaved={onSaved} />
+    {purpose === 'education' ? <Link className="button button--secondary button--sm agent-card__enrollments" to={`/education/enrollments?agentId=${agent.id}`}>Manage enrollments</Link> : null}
     <div className="agent-card__footer"><span>Updated {relativeTime(agent.lastUpdated)}</span><Link to={`/agents/${agent.id}/instructions`}>Open <Ellipsis /></Link></div>
   </Card>;
 }
