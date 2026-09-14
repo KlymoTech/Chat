@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
@@ -11,6 +12,7 @@ from northstar_api.education_conversation_context import EducationConversationCo
 from northstar_api.education_student_activity import EducationStudentActivityEvent
 from northstar_api.models import Agent, Channel, Conversation, Lead, Message, MessageRole
 
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 async def test_education_resolution_persists_redacted_student_topics_across_admin_surfaces(
     client: AsyncClient,
@@ -176,7 +178,7 @@ async def test_education_resolution_persists_redacted_student_topics_across_admi
             )
         ).all()
 
-    assert lead_count == 0
+    assert lead_count == 1
     assert len(activities) == 1
     details = activities[0].details_json
     assert details["studentMessageCount"] == 3
@@ -188,7 +190,7 @@ async def test_education_resolution_persists_redacted_student_topics_across_admi
     assert "learner@example.com" not in " ".join(details["topicsAsked"])
 
     student_detail = await client.get(
-        f"/api/v1/education/students/{student['id']}",
+        f"/api/v1/education/students/{student['id']}/detail",
         headers=headers,
     )
     assert student_detail.status_code == 200, student_detail.text

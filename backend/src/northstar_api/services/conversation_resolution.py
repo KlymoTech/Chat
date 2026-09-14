@@ -55,9 +55,8 @@ class ConversationResolutionService:
     to reusing the same Lead/CRM workflow for Education conversations that contain
     an explicitly detected sales/upsell intent.
 
-    An Education conversation can enter the existing Lead/CRM pipeline only when
-    the caller explicitly marks sales intent, the workspace has opted in, and the
-    conversation carries an authorized Education context.
+    Explicit inbox resolution uses create_lead to save a linked Lead for every
+    purpose. Automatic purpose-specific resolution retains its existing defaults.
 
     The Conversation and its messages always remain the source of truth.
     """
@@ -69,6 +68,7 @@ class ConversationResolutionService:
         conversation: Conversation,
         actor_user_id: UUID | None = None,
         sales_intent: bool = False,
+        create_lead: bool = False,
     ) -> ConversationResolutionResult:
         purpose = await get_agent_purpose(
             session,
@@ -87,7 +87,7 @@ class ConversationResolutionService:
         conversation.ended_at = conversation.ended_at or now
         conversation.unread_count = 0
 
-        if purpose is AgentPurpose.LEAD_GENERATION:
+        if purpose is AgentPurpose.LEAD_GENERATION or (create_lead and purpose is not AgentPurpose.EDUCATION):
             lead, lead_created = await self._finalize_lead(
                 session,
                 conversation=conversation,
@@ -153,6 +153,11 @@ class ConversationResolutionService:
                     email_override=student.email if student is not None else None,
                     sync_reason="education_upsell_conversation_resolved",
                 )
+
+        if create_lead and lead is None:
+            lead, lead_created = await self._finalize_lead(
+                session, conversation=conversation, actor_user_id=actor_user_id, now=now
+            )
 
         if not was_resolved or education_activity_created or lead_created:
             self._enqueue_conversation_events(

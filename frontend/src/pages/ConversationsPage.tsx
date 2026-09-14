@@ -156,11 +156,7 @@ export function ConversationsPage() {
     if (!selected) return;
     if (state === 'resolved') await conversationApi.resolve(selected.id);
     else await api.conversations.updateState(selected.id, state);
-    const resolvedMessage = selectedAgent?.purpose === 'lead_generation'
-      ? 'Conversation resolved and lead finalized'
-      : selectedAgent?.purpose === 'education'
-        ? 'Education conversation resolved and student history updated'
-        : 'Conversation resolved';
+    const resolvedMessage = 'Conversation resolved and lead saved in Leads';
     pushToast(state === 'resolved' ? resolvedMessage : `Conversation marked ${state}`);
     result.reload();
   };

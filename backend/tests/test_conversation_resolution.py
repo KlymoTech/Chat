@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from northstar_api.database import SessionFactory
-from northstar_api.models import Agent, Channel, Conversation, Lead, Message, MessageRole
+from northstar_api.models import Agent, Channel, Conversation, Lead, Message, MessageRole, OutboxEvent
 
 
+@pytest.mark.parametrize("purpose", ["lead_generation", "support", "education"])
+@pytest.mark.usefixtures("crm_test_plan")
 async def test_resolve_creates_one_lead_and_preserves_conversation(
+    purpose: str,
     client: AsyncClient,
     auth_headers: dict[str, str],
 ) -> None:
@@ -17,9 +21,9 @@ async def test_resolve_creates_one_lead_and_preserves_conversation(
         "/api/v1/agents",
         headers=auth_headers,
         json={
-            "name": "Resolution Lead Test Agent",
+            "name": f"Resolution {purpose} Test Agent",
             "description": "Validates resolved conversation lead finalization",
-            "purpose": "lead_generation",
+            "purpose": purpose,
         },
     )
     assert created_agent.status_code == 201, created_agent.text
@@ -115,3 +119,9 @@ async def test_resolve_creates_one_lead_and_preserves_conversation(
         ).all()
         assert len(persisted_leads) == 1
         assert str(persisted_leads[0].id) == lead_id
+
+        sync_events = (await session.scalars(select(OutboxEvent).where(
+            OutboxEvent.aggregate_id == lead_id,
+            OutboxEvent.event_type == "lead.crm.sync.requested.v1",
+        ))).all()
+        assert len(sync_events) == 1

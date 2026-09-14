@@ -111,22 +111,22 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
     vi.clearAllMocks();
   });
 
-  it('reports Education student-history resolution without claiming a Lead', async () => {
+  it('confirms a saved lead for Education resolution', async () => {
     await renderAndResolve('education');
     expect(mocks.pushToast).toHaveBeenCalledWith(
-      'Education conversation resolved and student history updated',
+      'Conversation resolved and lead saved in Leads',
     );
     expect(mocks.resolveEducationSalesIntent).not.toHaveBeenCalled();
   });
 
   it('preserves the Lead Generation finalized-lead confirmation', async () => {
     await renderAndResolve('lead_generation');
-    expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved and lead finalized');
+    expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved and lead saved in Leads');
   });
 
   it('uses a neutral confirmation for Support', async () => {
     await renderAndResolve('support');
-    expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved');
+    expect(mocks.pushToast).toHaveBeenCalledWith('Conversation resolved and lead saved in Leads');
   });
 
   it('shows a separate opt-in Education sales action and routes it without normal Resolve', async () => {

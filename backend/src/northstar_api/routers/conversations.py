@@ -464,6 +464,7 @@ async def resolve_conversation(
         session,
         conversation=conversation,
         actor_user_id=principal.user_id,
+        create_lead=True,
     )
     await session.commit()
     await session.refresh(conversation)

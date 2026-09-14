@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
@@ -11,6 +12,7 @@ from northstar_api.education_conversation_context import EducationConversationCo
 from northstar_api.education_student_activity import EducationStudentActivityEvent
 from northstar_api.models import Agent, Channel, Conversation, Lead, Message, MessageRole
 
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 async def _workspace_headers(
     client: AsyncClient,
@@ -116,7 +118,7 @@ async def test_support_resolution_keeps_conversation_without_creating_lead(
     assert resolved.json()["workspaceId"] == workspace_id
 
 
-async def test_education_resolution_records_student_history_and_no_lead(
+async def test_education_resolution_records_student_history_and_lead(
     client: AsyncClient,
     auth_headers: dict[str, str],
 ) -> None:
@@ -228,7 +230,7 @@ async def test_education_resolution_records_student_history_and_no_lead(
             )
         ).all()
 
-    assert lead_count == 0
+    assert lead_count == 1
     assert len(activities) == 1
     activity = activities[0]
     assert str(activity.student_id) == student["id"]
