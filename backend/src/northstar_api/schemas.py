@@ -343,7 +343,22 @@ class ConversationPatch(APIModel):
     visitor_name: str | None = Field(default=None, max_length=160)
 
 
+class WhatsAppTemplateSelection(APIModel):
+    name: str = Field(min_length=1, max_length=512, pattern=r"^[a-z0-9_]+$")
+    language: str = Field(min_length=2, max_length=20, pattern=r"^[A-Za-z_]+$")
+    parameters: list[str] = Field(default_factory=list, max_length=30)
+    consent_confirmed: Literal[True]
+
+    @field_validator("parameters")
+    @classmethod
+    def validate_parameters(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 1024 for value in values):
+            raise ValueError("Template parameters must contain 1 to 1024 characters")
+        return values
+
+
 class ConversationReplyCreate(APIModel):
+    whatsapp_template: WhatsAppTemplateSelection | None = None
     content: str = Field(min_length=1, max_length=12_000)
 
 
@@ -439,11 +454,13 @@ class IntegrationPatch(APIModel):
 
 
 class WhatsAppConnectionOut(APIModel):
+    id: UUID | None = None
+    business_account_id: UUID | None = None
     waba_id: str
     phone_number_id: str
     display_phone_number: str
     verified_name: str
-    agent_id: UUID
+    agent_id: UUID | None
     status: str
     token_expires_at: datetime | None = None
     connected_at: datetime
@@ -457,6 +474,8 @@ class WhatsAppStatusOut(APIModel):
 
 
 class WhatsAppBootstrapOut(WhatsAppStatusOut):
+    webhook_url: str = ""
+    missing_settings: list[str] = Field(default_factory=list)
     app_id: str | None = None
     configuration_id: str | None = None
     api_version: str

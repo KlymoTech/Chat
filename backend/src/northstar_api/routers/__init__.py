@@ -54,6 +54,7 @@ from northstar_api.routers import (
     qualification,
     slack_webhooks,
     whatsapp,
+    whatsapp_accounts,
     widget,
     workspace,
     workspace_api_keys,
@@ -125,4 +126,5 @@ api_router.include_router(workspace.collection_router)
 api_router.include_router(workspace_invitations.public_router)
 api_router.include_router(workspace_api_keys.router)
 api_router.include_router(billing.router)
+api_router.include_router(whatsapp_accounts.router)
 api_router.include_router(platform_admin.router)

@@ -52,10 +52,10 @@ function IntegrationCatalogPage() {
     {error && <div className="catalog-notice catalog-notice--error" role="alert">Connection information could not be loaded: {error} <Button variant="ghost" onClick={refresh}>Try again</Button></div>}
     {!canManage && <p className="catalog-notice">An owner or administrator can connect platforms for this workspace.</p>}
     {loading && <p role="status" className="catalog-loading">Refreshing connection status…</p>}
-    {(['CRM', 'Channels', 'Developer'] as const).map(group => {
-      const groupItems = items.filter(item => item.category === group);
+    {(['Connected', 'CRM', 'Channels', 'Developer'] as const).map(group => {
+      const groupItems = items.filter(item => group === 'Connected' ? statusFor(item) === 'healthy' : item.category === group && statusFor(item) !== 'healthy');
       if (!groupItems.length) return null;
-      return <section className="catalog-group" key={group} aria-label={`${group} integrations`}><div className="catalog-section-heading"><div><h2>{group === 'CRM' ? 'Customer relationship management' : group === 'Channels' ? 'Customer channels' : 'Developer tools'}</h2><p>{group === 'CRM' ? 'Start with your CRM. Connect an account, authorize access and review lead sync.' : group === 'Channels' ? 'Meet your customers where they already are.' : 'Build a connection for your own platform.'}</p></div><span>{groupItems.length} {groupItems.length === 1 ? 'integration' : 'integrations'}</span></div><div className="catalog-grid">{groupItems.map(item => {
+      return <section className="catalog-group" key={group} aria-label={`${group} integrations`}><div className="catalog-section-heading"><div><h2>{group === 'Connected' ? 'Connected apps' : group === 'CRM' ? 'Customer relationship management' : group === 'Channels' ? 'Customer channels' : 'Developer tools'}</h2><p>{group === 'Connected' ? 'Your connected platforms, ready to manage.' : group === 'CRM' ? 'Start with your CRM. Connect an account, authorize access and review lead sync.' : group === 'Channels' ? 'Meet your customers where they already are.' : 'Build a connection for your own platform.'}</p></div><span>{groupItems.length} {groupItems.length === 1 ? 'integration' : 'integrations'}</span></div><div className="catalog-grid">{groupItems.map(item => {
         const Icon = item.icon;
         const status = statusFor(item);
         const connected = status === 'healthy';

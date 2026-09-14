@@ -16,7 +16,8 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api', () => ({
-  api: { agents: apiMocks },
+  ApiError: class extends Error {},
+  api: { agents: apiMocks, integrations: { whatsapp: { status: vi.fn().mockResolvedValue({ connections: [{ id: 'available', phoneNumberId: '123', displayPhoneNumber: '+15550100', status: 'connected', agentId: null }] }) } } },
 }));
 
 describe('AgentsPage purpose and duplicate flows', () => {
@@ -94,6 +95,8 @@ describe('AgentsPage purpose and duplicate flows', () => {
     expect(screen.getByText('मैं आपकी कैसे मदद कर सकता हूँ?')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('radio', { name: /WhatsApp/ }));
+    await waitFor(() => expect(screen.getByLabelText('WhatsApp number for this bot')).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('WhatsApp number for this bot'), 'available');
     await user.click(screen.getAllByRole('button', { name: 'Create agent' }).at(-1)!);
 
     await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith(expect.objectContaining({

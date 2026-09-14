@@ -13,6 +13,7 @@ import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import type { Conversation, ConversationState } from '@/types';
 import './ConversationsPage.css';
+import { WhatsAppTemplateComposer } from '@/components/whatsapp-template-composer';
 
 type ChannelFilter = 'all' | 'widget' | 'api' | 'slack' | 'whatsapp';
 
@@ -112,7 +113,14 @@ export function ConversationsPage() {
     [activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch],
   );
 
-  const conversations = result.data?.items ?? [];
+  const conversations = useMemo(() => result.data?.items ?? [], [result.data]);
+  const reloadConversations = result.reload;
+  const hasWhatsApp = conversations.some((item) => item.channel === 'whatsapp');
+  useEffect(() => {
+    if (channel !== 'whatsapp' && !hasWhatsApp) return;
+    const timer = window.setInterval(() => { if (!document.hidden) reloadConversations(); }, 10000);
+    return () => window.clearInterval(timer);
+  }, [channel, hasWhatsApp, reloadConversations]);
   const selectedId = params.get('selected') ?? conversations[0]?.id;
   const selected = conversations.find((item) => item.id === selectedId) ?? null;
   const selectedAgent = selected ? agents.data?.find((item) => item.id === selected.agentId) : null;
@@ -217,7 +225,7 @@ function ConversationDetail({ conversation, agentName, workspaceName, reply, set
     <header className="conversation-detail__header"><button className="mobile-back" onClick={onBack}>←</button><span className="mini-avatar mini-avatar--lg">{conversation.visitorName.charAt(0)}</span><div><h3>{conversation.visitorName}</h3><p><i className="status-dot status-dot--success" /> {workspaceName} · {agentName} · {conversation.channel}</p></div><div className="conversation-actions"><Button variant="secondary" size="sm" icon={Archive}>Archive</Button>{canRouteEducationUpsell ? <Button variant="secondary" size="sm" icon={BadgeDollarSign} disabled={routingUpsell} onClick={() => void resolveEducationSalesIntent()}>{routingUpsell ? 'Routing…' : conversation.state === 'resolved' ? 'Create sales lead' : 'Resolve + sales lead'}</Button> : null}{conversation.state !== 'resolved' ? <Button size="sm" icon={CheckCircle2} onClick={() => void setState('resolved')}>Resolve</Button> : <Button variant="secondary" size="sm" onClick={() => void setState('open')}>Reopen</Button>}</div></header>
     <div className="conversation-layout"><div className="conversation-thread"><div className="thread-notice"><Sparkles /> <span><strong>{conversation.state === 'escalated' ? 'Human attention requested' : 'Northstar handled this conversation'}</strong><small>The complete AI context is available below.</small></span></div><div className="message-day"><span>{new Date(conversation.startedAt).toLocaleDateString('en', { month: 'long', day: 'numeric' })}</span></div>
       {conversation.messages.map((message) => <div className={`inbox-message inbox-message--${message.role}`} key={message.id}>{message.role === 'user' ? <span className="message-avatar message-avatar--visitor">{conversation.visitorName.charAt(0)}</span> : <span className="message-avatar"><>{message.role === 'agent' ? <UserRound /> : <Sparkles />}</></span>}<div><span className="message-author">{message.role === 'user' ? conversation.visitorName : message.role === 'agent' ? 'You' : 'Northstar AI'} <time>{new Date(message.createdAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</time></span><div className="message-bubble">{message.content}</div>{message.citations?.map((citation) => <button className="citation-chip" key={citation.title}><ExternalLink />{citation.title}</button>)}</div></div>)}
-    </div><form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form></div>
+    </div>{conversation.channel === 'whatsapp' ? <WhatsAppTemplateComposer key={conversation.id} agentId={conversation.agentId} conversationId={conversation.id} /> : null}<form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form></div>
     <aside className="visitor-panel"><div className="visitor-profile"><span className="mini-avatar mini-avatar--xl">{conversation.visitorName.charAt(0)}</span><h3>{conversation.visitorName}</h3><Badge tone={conversation.sentiment === 'positive' ? 'success' : conversation.sentiment === 'negative' ? 'danger' : 'neutral'}>{conversation.sentiment} sentiment</Badge></div><dl><div><dt><Mail /> Email</dt><dd>{conversation.visitorEmail ?? 'Not provided'}</dd></div><div><dt><Bot /> Workspace</dt><dd>{workspaceName}</dd></div><div><dt><Bot /> Agent</dt><dd>{agentName}</dd></div><div><dt><MessageCircle /> Channel</dt><dd className="capitalize">{conversation.channel}</dd></div><div><dt><Clock3 /> Started</dt><dd>{relativeTime(conversation.startedAt)}</dd></div><div><dt><CircleAlert /> Status</dt><dd className="capitalize">{conversation.state}</dd></div></dl><div className="conversation-summary"><strong><Sparkles /> AI summary</strong><p>{conversation.preview} The visitor may benefit from a short, direct follow-up.</p></div></aside>
   </section>;
 }

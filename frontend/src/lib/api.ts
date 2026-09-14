@@ -325,6 +325,17 @@ export const api = {
       const result = { ...items[index]!, connected }; items[index] = result; writeStorage(INTEGRATIONS_KEY, items); return result;
     }),
     whatsapp: {
+      accounts: () => request<import('@/types').WhatsAppAccount[]>('/integrations/whatsapp-accounts'),
+      updateAccount: (accountId: string, input: { name: string; appId: string; appSecret: string; accessToken: string; wabaId: string; verifyToken: string }) => request<import('@/types').WhatsAppAccount>(`/integrations/whatsapp-accounts/${accountId}`, { method: 'PUT', body: JSON.stringify(input) }),
+      addAccount: (input: { name: string; appId: string; appSecret: string; accessToken: string; wabaId: string; verifyToken: string }) => request<import('@/types').WhatsAppAccount>('/integrations/whatsapp-accounts', { method: 'POST', body: JSON.stringify(input) }),
+      accountNumbers: (accountId: string) => request<{ id: string; displayPhoneNumber: string; verifiedName: string }[]>(`/integrations/whatsapp-accounts/${accountId}/numbers`),
+      addNumber: (accountId: string, phoneNumberId: string, pin: string) => request<WhatsAppConnection>(`/integrations/whatsapp-accounts/${accountId}/numbers`, { method: 'POST', body: JSON.stringify({ phoneNumberId, pin }) }),
+      connectWebhook: (accountId: string) => request<import('@/types').WhatsAppAccount>(`/integrations/whatsapp-accounts/${accountId}/webhook`, { method: 'POST' }),
+      assignNumber: (connectionId: string, agentId: string | null) => request<WhatsAppConnection>(`/integrations/whatsapp-accounts/numbers/${connectionId}/assignment`, { method: 'PUT', body: JSON.stringify({ agentId }) }),
+      templates: (agentId: string) => request<{ name: string; language: string; fields: { component: string; name: string }[]; preview: string; unsupportedReason: string | null }[]>(`/integrations/whatsapp/${agentId}/templates`),
+      sendTemplate: (conversationId: string, template: { name: string; language: string; parameters: string[]; consentConfirmed: true }) => request<Conversation['messages'][number]>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content: template.name, whatsappTemplate: template }) }),
+      activity: (agentId: string) => request<{ lastError: string | null; outbound?: { id: string; status: string; at: string; error: string | null }[]; inbound: { id: string; status: string; messageType: string; receivedAt: string; conversationId: string | null; error: string | null }[]; deliveries: { id: string; status: string; at: string; errorCode: string | null }[] }>(`/integrations/whatsapp/${agentId}/activity`),
+      check: (agentId: string) => request<WhatsAppConnection>(`/integrations/whatsapp/${agentId}/check`, { method: 'POST' }),
       bootstrap: () => request<WhatsAppBootstrap>('/integrations/whatsapp/bootstrap'),
       status: () => request<WhatsAppStatus>('/integrations/whatsapp/status'),
       complete: (input: CompleteWhatsAppSignupInput) => request<WhatsAppConnection>('/integrations/whatsapp/complete', {
