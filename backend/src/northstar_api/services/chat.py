@@ -33,13 +33,19 @@ from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.retrieval import Evidence, RetrievalService, retrieval_service
+from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
 
 def whatsapp_welcome(agent: Agent, message: str) -> str | None:
     """Answer greeting-only messages from configured copy, after access checks."""
+    settings = (agent.appearance or {}).get("whatsapp") or {}
+    if settings.get("welcomeEnabled") is False:
+        return None
     greeting = re.sub(r"[!?.,\s👋]+", " ", message.casefold()).strip()
     if greeting not in {"hi", "hii", "hiii", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste", "नमस्ते", "नमस्कार", "hola", "bonjour", "hallo", "مرحبا", "السلام عليكم"}:
         return None
+    if settings.get("welcomeMessage"):
+        return str(settings["welcomeMessage"]).strip()
     locale = localized_appearance(agent.language)
     body = str((agent.appearance or {}).get("welcomeMessage") or locale["welcomeMessage"]).strip()
     heading = f"Hi! Welcome to {agent.name}." if agent.language == "English" else f"{agent.name}\n{locale['welcomeTitle']}"
@@ -196,6 +202,8 @@ class ChatCoordinator:
                     )
                     CHAT_REQUESTS.labels("grounded_fallback").inc()
 
+            if channel == Channel.WHATSAPP:
+                answer = format_whatsapp_reply(agent, answer)
             latency_ms = round((time.perf_counter() - started) * 1000)
             prepared = await self._complete_exchange(
                 session,

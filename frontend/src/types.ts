@@ -21,6 +21,12 @@ export interface Session {
   expiresAt: string;
 }
 
+export interface WhatsAppMessageSettings {
+  welcomeEnabled: boolean;
+  welcomeMessage: string | null;
+  replyTemplate: string;
+}
+
 export interface AgentAppearance {
   primaryColor: string;
   surfaceColor: string;
@@ -55,6 +61,7 @@ export interface AgentAppearance {
   zIndex?: number;
   customDomain?: string;
   deploymentChannel?: DeploymentChannel;
+  whatsapp?: WhatsAppMessageSettings | null;
 }
 
 export interface AgentModel {

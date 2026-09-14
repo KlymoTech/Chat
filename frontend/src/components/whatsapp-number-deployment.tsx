@@ -4,7 +4,7 @@ import { useWorkspace } from '@/components/providers';
 import { Button, Field, Badge } from '@/components/ui';
 import type { WhatsAppConnection } from '@/types';
 
-export function WhatsAppNumberDeployment({ agentId }: { agentId: string }) {
+export function WhatsAppNumberDeployment({ agentId, onNumberChanged }: { agentId: string; onNumberChanged?: (number: string | null) => void }) {
   const { activeWorkspace } = useWorkspace();
   const [numbers, setNumbers] = useState<WhatsAppConnection[]>([]);
   const [selected, setSelected] = useState('');
@@ -29,6 +29,7 @@ export function WhatsAppNumberDeployment({ agentId }: { agentId: string }) {
     setBusy(true); setError(''); setNotice('');
     try {
       await api.integrations.whatsapp.assignNumber(connectionId, selected ? agentId : null);
+      onNumberChanged?.(selected ? next?.displayPhoneNumber || null : null);
       setNotice(selected ? 'This number now routes new customer messages to this bot.' : 'Number released. You can deploy it to another bot.');
       setRevision((value) => value + 1);
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not update deployment'); }
