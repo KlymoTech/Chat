@@ -93,6 +93,7 @@ class ConversationResolutionService:
                 conversation=conversation,
                 actor_user_id=actor_user_id,
                 now=now,
+                sync_existing=not was_resolved,
             )
             if not was_resolved or lead_created:
                 self._enqueue_conversation_events(
@@ -152,11 +153,13 @@ class ConversationResolutionService:
                     name_override=student.name if student is not None else None,
                     email_override=student.email if student is not None else None,
                     sync_reason="education_upsell_conversation_resolved",
+                    sync_existing=not was_resolved,
                 )
 
         if create_lead and lead is None:
             lead, lead_created = await self._finalize_lead(
-                session, conversation=conversation, actor_user_id=actor_user_id, now=now
+                session, conversation=conversation, actor_user_id=actor_user_id, now=now,
+                sync_existing=not was_resolved,
             )
 
         if not was_resolved or education_activity_created or lead_created:
@@ -226,6 +229,7 @@ class ConversationResolutionService:
         name_override: str | None = None,
         email_override: str | None = None,
         sync_reason: str = "conversation_resolved",
+        sync_existing: bool = False,
     ) -> tuple[Lead, bool]:
         """Create/update the single Lead linked to a resolved Conversation."""
 
@@ -329,13 +333,20 @@ class ConversationResolutionService:
                 event_type="lead.created.v1",
                 payload=lead_payload,
             )
+
+        if lead_created or (sync_existing and lead.status == LeadLifecycleStatus.QUALIFIED.value):
             enqueue_event(
                 session,
                 tenant_id=conversation.tenant_id,
                 aggregate_type="lead",
                 aggregate_id=lead.id,
                 event_type="lead.crm.sync.requested.v1",
-                payload={**lead_payload, "reason": sync_reason},
+                payload={
+                    "leadId": str(lead.id), "workspaceId": str(lead.workspace_id),
+                    "agentId": str(lead.agent_id), "conversationId": str(conversation.id),
+                    "sourceChannel": conversation.channel.value, "reason": sync_reason,
+                    **({"educationUpsell": True} if extra_fields and extra_fields.get("educationUpsell") else {}),
+                },
             )
 
         return lead, lead_created

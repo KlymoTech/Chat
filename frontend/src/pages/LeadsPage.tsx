@@ -101,7 +101,10 @@ export function LeadsPage() {
     try {
       const saved = await api.leads.updateStatus(lead.id, nextStatus);
       setOverrides((current) => ({ ...current, [lead.id]: saved.status }));
-      pushToast(`${lead.name || 'Lead'} marked ${saved.status}`);
+      pushToast(saved.status === 'qualified'
+        ? `${lead.name || 'Lead'} marked Qualified. Resolved leads sync automatically using your CRM settings.`
+        : `${lead.name || 'Lead'} marked ${saved.status}`);
+      if (selected?.id === lead.id) { deliveries.reload(); activity.reload(); }
     } catch (error) {
       setOverrides((current) => ({ ...current, [lead.id]: previous }));
       pushToast(error instanceof Error ? error.message : 'Could not update this lead', 'error');
@@ -146,7 +149,7 @@ export function LeadsPage() {
 
   return <div className="page leads-page">
     <div className="page-heading page-heading--split">
-      <div><h2>Leads</h2><p>Track omnichannel leads from capture through CRM acknowledgement and verification.</p></div>
+      <div><h2>Leads</h2><p>Resolve the conversation and mark its lead Qualified to sync it automatically to your connected CRM.</p></div>
       <div className="lead-export-actions"><Button variant="secondary" disabled={layoutResult.loading || Boolean(layoutResult.error)} onClick={() => setCustomizing(true)}>Customize columns</Button>{(['csv', 'xlsx'] as const).map((format) => <Button key={format} variant="secondary" icon={Download} disabled={exporting || !records.length || Boolean(layoutResult.error)} onClick={async () => { setExporting(true); try { await leadLayoutApi.export(format, search, status); pushToast('All matching leads exported'); } catch (e) { pushToast(e instanceof Error ? e.message : 'Export failed', 'error'); } finally { setExporting(false); } }}>Export {format === 'csv' ? 'CSV' : 'Excel'}</Button>)}</div>
     </div>
 

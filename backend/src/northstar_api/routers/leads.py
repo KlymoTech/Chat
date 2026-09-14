@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
-from northstar_api.lead_crm.domain import CRMDeliveryStatus, LeadLifecycleStatus
+from northstar_api.lead_crm.domain import CRMDeliveryStatus, LeadLifecycleStatus, QualificationStatus
 from northstar_api.lead_crm.models import CRMDelivery, LeadActivityEvent, LeadProfile
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import request_id_ctx
@@ -218,7 +218,7 @@ async def update_lead(
             Lead.tenant_id == principal.tenant_id,
             Lead.workspace_id == principal.workspace_id,
             *((Lead.agent_id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
-        )
+        ).with_for_update()
     )
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -226,6 +226,26 @@ async def update_lead(
     lead.status = payload.status
     profile = await lead_domain_service.ensure_profile(session, lead=lead)
     profile.lifecycle_status = payload.status
+    qualification_requested = payload.status == LeadLifecycleStatus.QUALIFIED.value
+    if qualification_requested and (
+        previous != payload.status or profile.qualification_status != QualificationStatus.QUALIFIED.value
+    ):
+        await lead_domain_service.qualify(
+            session,
+            lead=lead,
+            score=profile.qualification_score,
+            reason="Marked Qualified in Leads",
+            actor_id=str(principal.user_id),
+            correlation_id=request_id_ctx.get(),
+        )
+    else:
+        if payload.status in {LeadLifecycleStatus.UNQUALIFIED.value, LeadLifecycleStatus.LOST.value}:
+            profile.qualification_status = QualificationStatus.UNQUALIFIED.value
+            profile.qualified_at = None
+        elif payload.status not in {LeadLifecycleStatus.QUALIFIED.value, LeadLifecycleStatus.CONVERTED.value}:
+            profile.qualification_status = QualificationStatus.PENDING.value
+            profile.qualified_at = None
+        enqueue_crm_sync(session, lead, reason="qualification" if qualification_requested else "lead_updated")
     session.add(
         LeadActivityEvent(
             tenant_id=principal.tenant_id,
@@ -250,6 +270,7 @@ async def update_lead(
             "status": payload.status,
         },
     )
-    enqueue_crm_sync(session, lead, reason="lead_updated")
+    await session.flush()
+    await session.refresh(lead)
     await session.commit()
     return lead_response(lead)
