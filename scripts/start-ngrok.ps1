@@ -72,9 +72,13 @@ try {
     } else {
         $ngrok = Get-Command ngrok -ErrorAction SilentlyContinue
         if (-not $ngrok) { throw 'Install ngrok first: winget install ngrok --source msstore' }
-        $config = Join-Path $env:LOCALAPPDATA 'ngrok/ngrok.yml'
-        if (-not $env:NGROK_AUTHTOKEN -and -not (Test-Path -LiteralPath $config)) {
-            throw 'Authenticate ngrok first: ngrok config add-authtoken YOUR_TOKEN (get the token at https://dashboard.ngrok.com/get-started/your-authtoken). Keep the token local.'
+        # Let ngrok locate its configuration: Microsoft Store installations can
+        # virtualize the path, making PowerShell Test-Path incorrectly fail.
+        if (-not $env:NGROK_AUTHTOKEN) {
+            $null = & $ngrok.Source config check 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Configure ngrok first: ngrok config add-authtoken YOUR_TOKEN (get the token at https://dashboard.ngrok.com/get-started/your-authtoken). Keep the token local.'
+            }
         }
         if ($Domain -and $Domain -notmatch '^(https://)?[a-zA-Z0-9.-]+$') { throw 'Domain must be an ngrok hostname or an HTTPS origin.' }
         $envLines = [IO.File]::ReadAllLines($EnvFile)
@@ -102,7 +106,16 @@ try {
             do {
                 Start-Sleep -Milliseconds 500
                 $processStarted.Refresh()
-                if ($processStarted.HasExited) { throw "ngrok could not connect. Check reports/ngrok/agent-error.log and your ngrok authtoken." }
+                if ($processStarted.HasExited) {
+                    # Report actionable error codes without printing logs that
+                    # could contain authentication material.
+                    $failureLog = Get-Content -LiteralPath (Join-Path $runtimeDirectory 'agent-error.log') -Raw -ErrorAction SilentlyContinue
+                    if ($failureLog -match 'ERR_NGROK_334') {
+                        throw 'ERR_NGROK_334: Your ngrok domain is already online on another endpoint/session. Authentication succeeded. Open https://dashboard.ngrok.com/endpoints, stop the endpoint using this domain, then run start-ngrok.bat again. If it is a Cloud Endpoint, remove that conflicting endpoint before starting this direct app tunnel.'
+                    }
+                    $failureCode = if ($failureLog -match 'ERR_NGROK_\d+') { $Matches[0] } else { 'unknown error' }
+                    throw "ngrok could not connect ($failureCode). See reports/ngrok/agent-error.log for details."
+                }
                 try {
                     $tunnel = (Invoke-RestMethod -Uri 'http://127.0.0.1:4040/api/tunnels' -TimeoutSec 2).tunnels | Where-Object { $_.proto -eq 'https' -and $_.config.addr -eq $upstream } | Select-Object -First 1
                 } catch { }
@@ -142,14 +155,16 @@ try {
         } else { Write-Host 'Reusing the existing ngrok endpoint and public URL settings.' }
         $headers = @{ 'ngrok-skip-browser-warning' = 'northstar-readiness-check' }
         $deadline = (Get-Date).AddSeconds(40)
+        $publicReady = $false
         do {
             try {
                 $response = Invoke-WebRequest -UseBasicParsing -Uri "$publicUrl/healthz" -Headers $headers -TimeoutSec 10
-                if ($response.StatusCode -eq 200 -and $response.Content.Trim() -eq 'ok') { break }
+                $body = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
+                if ($response.StatusCode -eq 200 -and $body.Trim() -eq 'ok') { $publicReady = $true; break }
             } catch { }
             Start-Sleep -Seconds 1
         } until ((Get-Date) -gt $deadline)
-        if (-not $response -or $response.StatusCode -ne 200 -or $response.Content.Trim() -ne 'ok') { throw 'The public endpoint is not ready. The ngrok session is saved; rerun this launcher to retry.' }
+        if (-not $publicReady) { throw 'The public endpoint is not ready. The ngrok session is saved; rerun this launcher to retry.' }
         Write-Host "`nPUBLIC APP: $publicUrl/integrations"
         Write-Host "ZOHO REDIRECT URL: $publicUrl/api/v1/crm/oauth/zoho/callback"
         Write-Host 'Keep this PC and Docker running. The ngrok agent runs in the background.'

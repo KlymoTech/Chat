@@ -33,6 +33,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ChatWidget } from '@/components/chat-widget';
 import { IntegrationChatPreview } from '@/components/integration-chat-preview';
+import { WhatsAppNumberDeployment } from '@/components/whatsapp-number-deployment';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, Field, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -329,6 +330,7 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
   const hostedUrl = `${window.location.origin}/demo/${agent.publicId}`;
   const embeddedUrl = `${window.location.origin}/widget/${agent.publicId}`;
 
+  if (section === 'channel' && integration?.id === 'whatsapp') return <WhatsAppNumberDeployment key={agent.id} agentId={agent.id} />;
   if (section === 'channel' && integration) return <IntegrationDeployPanel
     integration={integration}
     connected={integrationConnected}

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from redis.exceptions import RedisError
 from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +24,7 @@ from northstar_api.models import (
     IntegrationConnection,
     Message,
     WhatsAppConnection,
+    WhatsAppDeliveryReceipt,
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
@@ -45,6 +46,7 @@ from northstar_api.services.whatsapp import (
     token_expiry_is_current,
     whatsapp_client,
 )
+from northstar_api.services.whatsapp_accounts import connection_client
 from northstar_api.workers.tasks import whatsapp_thread_lock_key
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -257,6 +259,8 @@ def whatsapp_connection_response(
     connection: WhatsAppConnection, *, status_override: str | None = None
 ) -> WhatsAppConnectionOut:
     return WhatsAppConnectionOut(
+        id=connection.id,
+        business_account_id=connection.business_account_id,
         waba_id=connection.waba_id,
         phone_number_id=connection.phone_number_id,
         display_phone_number=connection.display_phone_number,
@@ -268,9 +272,7 @@ def whatsapp_connection_response(
     )
 
 
-async def whatsapp_status(
-    session: AsyncSession, tenant_id: UUID, workspace_id: UUID
-) -> WhatsAppStatusOut:
+async def whatsapp_status(session: AsyncSession, tenant_id: UUID, workspace_id: UUID) -> WhatsAppStatusOut:
     settings = get_settings()
     connections = list(
         await session.scalars(
@@ -303,7 +305,9 @@ async def whatsapp_status(
 
 
 @router.get("/whatsapp/bootstrap", response_model=WhatsAppBootstrapOut)
-async def whatsapp_bootstrap(principal: IntegrationsManagePrincipal, session: DB) -> WhatsAppBootstrapOut:
+async def whatsapp_bootstrap(
+    principal: IntegrationsManagePrincipal, session: DB, request: Request
+) -> WhatsAppBootstrapOut:
     settings = get_settings()
     assert principal.workspace_id is not None
     status = await whatsapp_status(session, principal.tenant_id, principal.workspace_id)
@@ -311,6 +315,18 @@ async def whatsapp_bootstrap(principal: IntegrationsManagePrincipal, session: DB
     if status.enabled:
         signup_session, _ = create_whatsapp_signup_token(principal.user_id, principal.tenant_id, settings)
     return WhatsAppBootstrapOut(
+        webhook_url=f"{(settings.crm_oauth_public_base_url or str(request.base_url)).rstrip('/')}/api/v1/webhooks/whatsapp",
+        missing_settings=[
+            key.upper()
+            for key in (
+                "meta_app_id",
+                "meta_app_secret",
+                "meta_whatsapp_configuration_id",
+                "meta_whatsapp_webhook_verify_token",
+                "meta_whatsapp_token_encryption_key",
+            )
+            if not getattr(settings, key)
+        ],
         enabled=status.enabled,
         connected=status.connected,
         connection=status.connection,
@@ -326,6 +342,152 @@ async def whatsapp_bootstrap(principal: IntegrationsManagePrincipal, session: DB
 async def get_whatsapp_status(principal: IntegrationsViewPrincipal, session: DB) -> WhatsAppStatusOut:
     assert principal.workspace_id is not None
     return await whatsapp_status(session, principal.tenant_id, principal.workspace_id)
+
+
+@router.get("/whatsapp/{agent_id}/templates")
+async def whatsapp_templates(
+    agent_id: UUID, principal: IntegrationsViewPrincipal, session: DB
+) -> list[dict[str, Any]]:
+    from northstar_api.services.whatsapp_templates import template_fields
+
+    connection = await session.scalar(
+        select(WhatsAppConnection).where(
+            WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
+            WhatsAppConnection.agent_id == agent_id,
+            WhatsAppConnection.status == "connected",
+        )
+    )
+    if connection is None:
+        raise HTTPException(status_code=404, detail="WhatsApp connection not found")
+    try:
+        provider_client, access_token = await connection_client(session, connection)
+        templates = await provider_client.list_templates(access_token, waba_id=connection.waba_id)
+    except (WhatsAppGraphError, WhatsAppConfigurationError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    result = []
+    for template in templates:
+        try:
+            fields = template_fields(template)
+            reason = None
+        except ValueError as exc:
+            fields, reason = [], str(exc)
+        result.append(
+            {
+                "name": template["name"],
+                "language": template["language"],
+                "fields": fields,
+                "preview": "\n".join(item.get("text", "") for item in template.get("components", [])),
+                "unsupportedReason": reason,
+            }
+        )
+    return result
+
+
+@router.get("/whatsapp/{agent_id}/activity")
+async def whatsapp_activity(
+    agent_id: UUID, principal: IntegrationsViewPrincipal, session: DB
+) -> dict[str, Any]:
+    connection = await session.scalar(
+        select(WhatsAppConnection).where(
+            WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
+            WhatsAppConnection.agent_id == agent_id,
+        )
+    )
+    if connection is None:
+        raise HTTPException(status_code=404, detail="WhatsApp connection not found")
+    inbound = list(
+        await session.scalars(
+            select(WhatsAppInboundMessage)
+            .where(
+                WhatsAppInboundMessage.tenant_id == principal.tenant_id,
+                WhatsAppInboundMessage.workspace_id == principal.workspace_id,
+                WhatsAppInboundMessage.connection_id == connection.id,
+            )
+            .order_by(WhatsAppInboundMessage.created_at.desc())
+            .limit(30)
+        )
+    )
+    outbound = list(
+        await session.scalars(
+            select(WhatsAppOutboundDelivery)
+            .where(
+                WhatsAppOutboundDelivery.tenant_id == principal.tenant_id,
+                WhatsAppOutboundDelivery.workspace_id == principal.workspace_id,
+                WhatsAppOutboundDelivery.connection_id == connection.id,
+            )
+            .order_by(WhatsAppOutboundDelivery.created_at.desc())
+            .limit(30)
+        )
+    )
+    receipts = list(
+        await session.scalars(
+            select(WhatsAppDeliveryReceipt)
+            .where(
+                WhatsAppDeliveryReceipt.tenant_id == principal.tenant_id,
+                WhatsAppDeliveryReceipt.workspace_id == principal.workspace_id,
+                WhatsAppDeliveryReceipt.connection_id == connection.id,
+            )
+            .order_by(WhatsAppDeliveryReceipt.provider_timestamp.desc())
+            .limit(50)
+        )
+    )
+    return {
+        "lastError": connection.last_error,
+        "outbound": [
+            {"id": str(item.id), "status": item.status, "at": item.created_at, "error": item.last_error}
+            for item in outbound
+        ],
+        "inbound": [
+            {
+                "id": str(item.id),
+                "status": item.status,
+                "messageType": item.message_type,
+                "receivedAt": item.created_at,
+                "conversationId": str(item.conversation_id) if item.conversation_id else None,
+                "error": item.last_error,
+            }
+            for item in inbound
+        ],
+        "deliveries": [
+            {
+                "id": item.provider_message_id,
+                "status": item.status,
+                "at": item.provider_timestamp,
+                "errorCode": item.error_code,
+            }
+            for item in receipts
+        ],
+    }
+
+
+@router.post("/whatsapp/{agent_id}/check", response_model=WhatsAppConnectionOut)
+async def check_whatsapp_connection(
+    agent_id: UUID, principal: IntegrationsManagePrincipal, session: DB
+) -> WhatsAppConnectionOut:
+    connection = await session.scalar(
+        select(WhatsAppConnection).where(
+            WhatsAppConnection.tenant_id == principal.tenant_id,
+            WhatsAppConnection.workspace_id == principal.workspace_id,
+            WhatsAppConnection.agent_id == agent_id,
+        )
+    )
+    if connection is None:
+        raise HTTPException(status_code=404, detail="WhatsApp connection not found")
+    try:
+        provider_client, token = await connection_client(session, connection)
+        expires_at = await provider_client.validate_token(token)
+        number, name = await provider_client.get_phone_for_waba(
+            token, waba_id=connection.waba_id, phone_number_id=connection.phone_number_id
+        )
+    except (WhatsAppGraphError, WhatsAppConfigurationError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    connection.token_expires_at = expires_at
+    connection.display_phone_number = number
+    connection.verified_name = name
+    await session.commit()
+    return whatsapp_connection_response(connection)
 
 
 @router.post("/whatsapp/complete", response_model=WhatsAppConnectionOut)
@@ -560,6 +722,8 @@ async def _disconnect_whatsapp_locked(
     principal: AdminPrincipal,
     session: AsyncSession,
     setup_lock_connection: AsyncConnection | None = None,
+    *,
+    retain: bool = False,
 ) -> None:
     # The tenant setup lock is already held, so this read is stable against
     # Embedded Signup. Acquire the phone setup lock second, matching /complete.
@@ -590,6 +754,7 @@ async def _disconnect_whatsapp_locked(
     )
     if not connection:
         return
+    retained_status = connection.status
     connection.status = "disconnecting"
     connection.last_error = None
     await session.commit()
@@ -719,7 +884,11 @@ async def _disconnect_whatsapp_locked(
     # unsubscribe the whole WABA: those resources may be shared by other phone
     # numbers. Deleting the locally encrypted credential is authoritative. The
     # nullable audit links preserve Meta message-id idempotency across reconnects.
-    await session.execute(delete(WhatsAppConnection).where(WhatsAppConnection.id == connection.id))
+    if retain:
+        connection.agent_id = None
+        connection.status = retained_status
+    else:
+        await session.execute(delete(WhatsAppConnection).where(WhatsAppConnection.id == connection.id))
     integration = await session.scalar(
         select(IntegrationConnection).where(
             IntegrationConnection.tenant_id == principal.tenant_id,

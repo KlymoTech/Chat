@@ -76,6 +76,7 @@ export interface AgentSecurity {
 }
 
 export interface Agent {
+  whatsappNumber?: string | null;
   id: string;
   workspaceId?: string;
   publicId: string;
@@ -189,18 +190,24 @@ export interface Integration {
   comingSoon?: boolean;
 }
 
+export interface WhatsAppAccount { id: string; name: string; appId: string; wabaId: string; status: string; webhookUrl: string }
+
 export interface WhatsAppConnection {
+  id?: string;
+  businessAccountId?: string | null;
   wabaId: string;
   phoneNumberId: string;
   displayPhoneNumber: string;
   verifiedName: string;
-  agentId: string;
+  agentId: string | null;
   status: string;
   tokenExpiresAt?: string | null;
   connectedAt: string;
 }
 
 export interface WhatsAppBootstrap {
+  webhookUrl?: string;
+  missingSettings?: string[];
   appId: string | null;
   configurationId: string | null;
   signupSession: string | null;
@@ -316,6 +323,7 @@ export type ChatStreamEvent =
   | { type: 'error'; message: string };
 
 export interface CreateAgentInput {
+  whatsappConnectionId?: string;
   name: string;
   description: string;
   template?: string;

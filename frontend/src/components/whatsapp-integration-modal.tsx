@@ -9,6 +9,7 @@ import { ApiError, api } from '@/lib/api';
 import { getFacebookLoginStatus, loadFacebookSdk, logoutFacebook, MetaSignupError, startWhatsAppEmbeddedSignup } from '@/lib/meta-whatsapp';
 import type { FacebookLoginStatus } from '@/lib/meta-whatsapp';
 import type { Agent, WhatsAppBootstrap, WhatsAppConnection } from '@/types';
+import { WhatsAppAccountManager } from './whatsapp-account-manager';
 
 interface WhatsAppIntegrationModalProps {
   open: boolean;
@@ -41,7 +42,13 @@ function metaConfiguration(value: WhatsAppBootstrap | null) {
   return { appId: value.appId, configurationId: value.configurationId, apiVersion: value.apiVersion };
 }
 
-export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }: WhatsAppIntegrationModalProps) {
+export function WhatsAppIntegrationModal(props: WhatsAppIntegrationModalProps) {
+  const [embedded, setEmbedded] = useState(false);
+  const close = () => { setEmbedded(false); props.onClose(); };
+  return embedded ? <WhatsAppEmbeddedSignupModal {...props} onClose={close} /> : <WhatsAppAccountManager {...props} onClose={close} onEmbedded={() => setEmbedded(true)} />;
+}
+
+export function WhatsAppEmbeddedSignupModal({ open, onClose, onConnectionChanged }: WhatsAppIntegrationModalProps) {
   const { pushToast } = useToast();
   const [configuration, setConfiguration] = useState<WhatsAppBootstrap | null>(null);
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
@@ -55,6 +62,8 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [activity, setActivity] = useState<Awaited<ReturnType<typeof api.integrations.whatsapp.activity>> | null>(null);
+  const [checking, setChecking] = useState(false);
   const signupAbort = useRef<AbortController | null>(null);
   const operationRef = useRef<Operation>('idle');
   const refreshError = useRef<string | null>(null);
@@ -66,6 +75,8 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
   useEffect(() => {
     if (!open) return;
     let active = true;
+    // A new modal session must clear credentials before its asynchronous bootstrap.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setSdkReady(false);
     setFacebookStatus('unknown');
@@ -119,11 +130,38 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
 
   const connection = useMemo(() => connections.find((item) => item.agentId === agentId) ?? null, [agentId, connections]);
   const selectedAgent = useMemo(() => agents.find((agent) => agent.id === agentId), [agentId, agents]);
-  const activeAgents = useMemo(() => agents.filter((agent) => agent.status === 'active'), [agents]);
+  const activeAgents = useMemo(() => agents.filter((agent) => agent.status === 'active' || connections.some((item) => item.agentId === agent.id)), [agents, connections]);
   const pinValid = /^\d{6}$/.test(pin);
   const busy = operation !== 'idle';
   const closeDisabled = operation === 'finalizing' || operation === 'disconnecting';
   const connectionHealthy = connection?.status.toLowerCase() === 'connected';
+
+  useEffect(() => {
+    // Never display the previous number's activity while fetching a new number.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActivity(null);
+    if (!open || !connection?.agentId) return;
+    const activityAgentId = connection.agentId;
+    let active = true;
+    const refresh = () => api.integrations.whatsapp.activity(activityAgentId).then((value) => {
+      if (active) setActivity(value);
+    }).catch((failure: unknown) => { if (active) setError(readableError(failure)); });
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 10000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [open, connection]);
+
+  const checkConnection = async () => {
+    if (!connection?.agentId || checking) return;
+    setChecking(true);
+    setError(null);
+    try {
+      const checked = await api.integrations.whatsapp.check(connection.agentId);
+      setConnections((items) => items.map((item) => item.agentId === checked.agentId ? checked : item));
+      pushToast('Meta verified the access token and phone number');
+    } catch (failure) { setError(readableError(failure)); }
+    finally { setChecking(false); }
+  };
 
   const close = useCallback(() => {
     if (operationRef.current === 'finalizing' || operationRef.current === 'disconnecting') return;
@@ -137,7 +175,7 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
   const connect = () => {
     const sdkConfiguration = metaConfiguration(configuration);
     const signupSession = configuration?.signupSession;
-    if (!configuration?.enabled || !signupSession || !sdkConfiguration || !sdkReady || !activeAgents.some((agent) => agent.id === agentId) || !pinValid || busy) return;
+    if (!configuration?.enabled || !signupSession || !sdkConfiguration || !sdkReady || !activeAgents.some((agent) => agent.id === agentId && agent.status === 'active') || !pinValid || busy) return;
     const controller = new AbortController();
     signupAbort.current?.abort();
     signupAbort.current = controller;
@@ -233,7 +271,7 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
     setRevision((value) => value + 1);
   };
   const metaSetupRequired = Boolean(configuration && (!configuration.enabled || !metaConfiguration(configuration)));
-  const canConnect = Boolean(configuration?.enabled && configuration.signupSession && metaConfiguration(configuration) && sdkReady && activeAgents.some((agent) => agent.id === agentId) && pinValid && !busy);
+  const canConnect = Boolean(configuration?.enabled && configuration.signupSession && metaConfiguration(configuration) && sdkReady && activeAgents.some((agent) => agent.id === agentId && agent.status === 'active') && pinValid && !busy);
 
   return <Modal
     open={open}
@@ -257,9 +295,11 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
 
       {loading ? <div className="whatsapp-loading"><LoaderCircle className="spin" /><strong>Checking your Meta connection…</strong><small>This only takes a moment.</small></div> : null}
 
+      {!loading && configuration?.webhookUrl ? <div className="whatsapp-form"><Field label="Meta webhook callback URL" htmlFor="whatsapp-webhook-url" hint="In Meta App Dashboard > WhatsApp > Configuration, register this public HTTPS URL and subscribe to messages. Use the verification token configured on the server."><input id="whatsapp-webhook-url" readOnly value={configuration.webhookUrl} onFocus={(event) => event.target.select()} /></Field>{!configuration.webhookUrl.startsWith('https://') ? <p role="alert">A public HTTPS address is required for Meta to reach this app. Start ngrok and reopen this screen.</p> : null}{configuration.missingSettings?.length ? <p>Missing server settings: {configuration.missingSettings.join(', ')}</p> : null}</div> : null}
+
       {!loading && error ? <div className="integration-error" role="alert"><AlertCircle /><span><strong>We couldn’t complete that step</strong><small>{error}</small></span>{!busy && !connection ? <Button variant="secondary" size="sm" icon={RefreshCw} onClick={retry}>Retry</Button> : null}</div> : null}
 
-      {!loading && metaSetupRequired ? <div className="integration-setup-required"><LockKeyhole /><div><h3>Set up Facebook Login for WhatsApp</h3><p>Create a Meta Business app with WhatsApp and Facebook Login for Business, then create an Embedded Signup configuration. Add the App ID, configuration ID, App Secret, webhook verification token, and encryption key to the server <code>.env</code> file and run <code>start.bat</code> again. Secrets must never be entered in this browser.</p><a className="button button--primary button--sm meta-setup-link" href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer">Open Meta App Dashboard <ExternalLink /></a></div></div> : null}
+      {!loading && metaSetupRequired ? <div className="integration-setup-required"><LockKeyhole /><div><h3>Set up Facebook Login for WhatsApp</h3><p>Create a Meta Business app with WhatsApp and Facebook Login for Business, then create an Embedded Signup configuration. Add the App ID, configuration ID, App Secret, webhook verification token, and encryption key to the server <code>.env.launch</code> file and run <code>start.bat</code> again. Secrets must never be entered in this browser.</p><a className="button button--primary button--sm meta-setup-link" href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer">Open Meta App Dashboard <ExternalLink /></a></div></div> : null}
 
       {!loading && configuration?.enabled && sdkReady ? <div className="facebook-session-card"><span className="meta-f" aria-hidden="true">f</span><div><strong>Facebook account</strong><small>{facebookStatus === 'connected' ? 'Signed in in this browser. You can reuse the session or choose another account in Meta.' : 'Not signed in in this browser. Meta will ask you to log in.'}</small></div><Badge tone={facebookStatus === 'connected' ? 'success' : 'neutral'}>{facebookStatus === 'connected' ? 'Signed in' : 'Signed out'}</Badge>{facebookStatus === 'connected' ? <Button variant="secondary" size="sm" icon={LogOut} onClick={() => void logOutOfFacebook()} disabled={busy}>{operation === 'logging-out' ? 'Logging out…' : 'Log out'}</Button> : null}</div> : null}
 
@@ -278,8 +318,10 @@ export function WhatsAppIntegrationModal({ open, onClose, onConnectionChanged }:
           <div><dt><CheckCircle2 /> Connected</dt><dd>{displayDate(connection.connectedAt)}</dd></div>
         </dl>
         {connectionHealthy
-          ? <div className="whatsapp-info-note"><ShieldCheck /><span><strong>Webhook delivery is active</strong><small>Inbound messages will be verified by Meta signature and routed to {selectedAgent?.name ?? 'the selected agent'}.</small></span></div>
+          ? <div className="whatsapp-info-note"><ShieldCheck /><span><strong>{activity?.inbound.length ? 'Inbound webhook received' : 'Waiting for your first WhatsApp message'}</strong><small>Send a message to this number from WhatsApp to verify incoming messages and replies from {selectedAgent?.name ?? 'the selected agent'}. Provider acceptance alone does not confirm delivery.</small></span></div>
           : <div className="whatsapp-reconnect-note" role="alert"><AlertCircle /><span><strong>This connection needs to be renewed</strong><small>Northstar cannot reply until you disconnect this stale authorization and complete Meta signup again.</small></span></div>}
+        <div className="whatsapp-manager__actions"><Button variant="secondary" icon={checking ? LoaderCircle : RefreshCw} disabled={checking || busy} onClick={() => void checkConnection()}>Check with Meta</Button><a className="button button--secondary" href="/conversations">Open conversations</a>{connection.displayPhoneNumber.replace(/\D/g, '') ? <a className="button button--secondary" href={`https://wa.me/${connection.displayPhoneNumber.replace(/\D/g, '')}`} target="_blank" rel="noreferrer">Open WhatsApp <ExternalLink /></a> : null}</div>
+        <section aria-label="WhatsApp activity"><h3>Message activity</h3><p>Updates every 10 seconds. Replies use the 24-hour customer service window.</p>{activity?.lastError ? <p role="alert">{activity.lastError}</p> : null}{activity ? <><h4>Incoming messages</h4>{activity.inbound.length ? <ul>{activity.inbound.slice(0, 10).map((item) => <li key={item.id}>{displayDate(item.receivedAt)} — {item.messageType}: <strong>{item.status}</strong>{item.error ? ` (${item.error})` : ''}</li>)}</ul> : <p>No incoming messages received yet.</p>}<h4>Queued replies and templates</h4>{activity.outbound?.length ? <ul>{activity.outbound.slice(0, 10).map((item) => <li key={item.id}>{displayDate(item.at)}: <strong>{item.status}</strong>{item.error ? ` (${item.error})` : ''}</li>)}</ul> : <p>No teammate replies or templates queued yet.</p>}<h4>Provider delivery receipts</h4>{activity.deliveries.length ? <ul>{activity.deliveries.slice(0, 10).map((item) => <li key={`${item.id}-${item.status}`}>{displayDate(item.at)} — <strong>{item.status}</strong>{item.errorCode ? ` (Meta error ${item.errorCode})` : ''}</li>)}</ul> : <p>No delivery confirmations received yet.</p>}</> : <p>Loading activity…</p>}</section>
         {confirmDisconnect ? <div className="disconnect-confirm" role="alert"><AlertCircle /><div><strong>{connectionHealthy ? 'Disconnect this number?' : 'Disconnect before reconnecting?'}</strong><p>Northstar will stop receiving and replying to new WhatsApp messages. Your Meta business assets and number will not be deleted.</p></div></div> : <div className="whatsapp-manager__actions"><Button variant="secondary" icon={Unplug} onClick={() => setConfirmDisconnect(true)}>{connectionHealthy ? 'Disconnect' : 'Disconnect to reconnect'}</Button></div>}
       </> : null}
 

@@ -39,7 +39,13 @@ from northstar_api.security import Principal
 from northstar_api.services.conversation_resolution import conversation_resolution_service
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.slack import decode_slack_target
-from northstar_api.services.whatsapp import token_expiry_is_current
+from northstar_api.services.whatsapp import (
+    WhatsAppConfigurationError,
+    WhatsAppGraphError,
+    token_expiry_is_current,
+)
+from northstar_api.services.whatsapp_accounts import connection_client
+from northstar_api.services.whatsapp_templates import build_template
 from northstar_api.workers.facebook_messenger_tasks import send_facebook_messenger_message
 from northstar_api.workers.instagram_tasks import send_instagram_message
 from northstar_api.workers.slack_tasks import send_slack_message
@@ -410,9 +416,7 @@ async def list_conversations(
                 Conversation.visitor_id.ilike(pattern),
             )
         )
-    total = int(
-        await session.scalar(select(func.count()).select_from(Conversation).where(*conditions)) or 0
-    )
+    total = int(await session.scalar(select(func.count()).select_from(Conversation).where(*conditions)) or 0)
     rows = (
         await session.scalars(
             select(Conversation)
@@ -531,13 +535,15 @@ async def reply_to_conversation(
     session: DB,
 ) -> MessageOut:
     conversation = await session.scalar(
-        select(Conversation)
-        .where(*conversation_scope(principal, conversation_id))
-        .with_for_update()
+        select(Conversation).where(*conversation_scope(principal, conversation_id)).with_for_update()
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     whatsapp_connection: WhatsAppConnection | None = None
+    template_payload = None
+    message_content = payload.content.strip()
+    if payload.whatsapp_template and conversation.channel != Channel.WHATSAPP:
+        raise HTTPException(status_code=422, detail="Templates are only available for WhatsApp conversations")
     telegram_target: tuple[ChannelConnection, str] | None = None
     instagram_target: tuple[ChannelConnection, str] | None = None
     messenger_target: tuple[ChannelConnection, str] | None = None
@@ -582,7 +588,7 @@ async def reply_to_conversation(
         if latest_customer_message is not None and latest_customer_message.tzinfo is None:
             latest_customer_message = latest_customer_message.replace(tzinfo=UTC)
         now = datetime.now(UTC)
-        if (
+        if not payload.whatsapp_template and (
             latest_customer_message is None
             or latest_customer_message < now - timedelta(hours=24)
             or latest_customer_message > now + timedelta(minutes=5)
@@ -594,6 +600,29 @@ async def reply_to_conversation(
                     "send an approved template instead"
                 ),
             )
+        if payload.whatsapp_template:
+            selection = payload.whatsapp_template
+            try:
+                provider_client, access_token = await connection_client(session, whatsapp_connection)
+                templates = await provider_client.list_templates(
+                    access_token,
+                    waba_id=whatsapp_connection.waba_id,
+                )
+                template = next(
+                    (
+                        item
+                        for item in templates
+                        if item.get("name") == selection.name and item.get("language") == selection.language
+                    ),
+                    None,
+                )
+                if template is None:
+                    raise ValueError("The selected template is no longer approved or available")
+                template_payload, message_content = build_template(template, selection.parameters)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
+            except (WhatsAppGraphError, WhatsAppConfigurationError) as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from None
     else:
         telegram_target = await _telegram_connection_for_conversation(
             session,
@@ -640,7 +669,7 @@ async def reply_to_conversation(
         conversation_id=conversation.id,
         sequence=sequence + 1,
         role=MessageRole.AGENT,
-        content=payload.content.strip(),
+        content=message_content,
         finish_reason="queued" if queued_external else "sent",
     )
     session.add(message)
@@ -659,6 +688,7 @@ async def reply_to_conversation(
             phone_number_id=whatsapp_connection.phone_number_id,
             message_id=message.id,
             recipient_wa_id=conversation.visitor_id or "",
+            template_payload=template_payload,
             status="queued",
         )
         session.add(delivery)

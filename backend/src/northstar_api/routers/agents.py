@@ -20,6 +20,7 @@ from northstar_api.models import (
     Conversation,
     ConversationState,
     KnowledgeSource,
+    WhatsAppConnection,
     default_appearance,
 )
 from northstar_api.schemas import (
@@ -90,6 +91,7 @@ class AgentCreateWithChannel(AgentCreate):
     # This endpoint intentionally widens the legacy AgentCreate channel contract with Telegram.
     deployment_channel: AgentChannelType = "website"  # type: ignore[assignment]
     purpose: AgentPurpose | None = None
+    whatsapp_connection_id: UUID | None = None
 
 
 class AgentDuplicateWithChannel(AgentDuplicate):
@@ -103,6 +105,7 @@ class AgentPatchWithPurpose(AgentPatch):
 
 class AgentOutWithPurpose(AgentOut):
     purpose: AgentPurpose
+    whatsapp_number: str | None = None
 
 
 class AgentChannelPatch(APIModel):
@@ -201,7 +204,15 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOutWithPur
         workspace_id=agent.workspace_id,
         agent_id=agent.id,
     )
+    whatsapp = await session.scalar(
+        select(WhatsAppConnection).where(
+            WhatsAppConnection.agent_id == agent.id,
+            WhatsAppConnection.tenant_id == agent.tenant_id,
+            WhatsAppConnection.workspace_id == agent.workspace_id,
+        )
+    )
     return AgentOutWithPurpose(
+        whatsapp_number=(whatsapp.display_phone_number or whatsapp.phone_number_id) if whatsapp else None,
         id=agent.id,
         workspace_id=agent.workspace_id,
         public_id=agent.public_id,
@@ -262,6 +273,40 @@ async def create_agent(
     principal: AgentsCreatePrincipal,
     session: DB,
 ) -> AgentOutWithPurpose:
+    if payload.whatsapp_connection_id is None:
+        return await _create_agent(payload, principal, session)
+    if payload.deployment_channel != "whatsapp":
+        raise HTTPException(422, "Select WhatsApp as the deployment channel to assign a number")
+    if not principal.can("integrations.manage"):
+        raise HTTPException(403, "You need integration management permission to assign a WhatsApp number")
+    from northstar_api.routers.whatsapp_accounts import setup_lock
+    from northstar_api.services.whatsapp import token_expiry_is_current
+
+    async with setup_lock(principal):
+        connection = await session.scalar(
+            select(WhatsAppConnection)
+            .where(
+                WhatsAppConnection.id == payload.whatsapp_connection_id,
+                WhatsAppConnection.tenant_id == principal.tenant_id,
+                WhatsAppConnection.workspace_id == principal.workspace_id,
+            )
+            .with_for_update()
+        )
+        if not connection:
+            raise HTTPException(404, "WhatsApp number not found in this workspace")
+        if connection.agent_id:
+            raise HTTPException(
+                409,
+                "This WhatsApp number is already assigned. Choose another number or release it in Deploy.",
+            )
+        if connection.status != "connected" or not token_expiry_is_current(connection.token_expires_at):
+            raise HTTPException(
+                409, "Activate the number's webhook and reconnect any expired token before selecting it"
+            )
+        return await _create_agent(payload, principal, session, connection)
+
+
+async def _create_agent(payload, principal, session, connection=None) -> AgentOutWithPurpose:
     purpose = _create_purpose(payload)
     appearance = default_appearance()
     appearance.update(localized_appearance(payload.language))
@@ -289,6 +334,8 @@ async def create_agent(
     session.add(agent)
     try:
         await session.flush()
+        if connection is not None:
+            connection.agent_id = agent.id
         await set_agent_purpose(session, agent=agent, purpose=purpose)
         session.add(
             AgentChannelBinding(

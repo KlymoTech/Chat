@@ -15,6 +15,8 @@ from northstar_api.config import get_settings
 from northstar_api.database import build_engine
 from northstar_api.metrics import INGESTION_TASKS
 from northstar_api.models import (
+    Agent,
+    AgentStatus,
     Channel,
     Conversation,
     ConversationState,
@@ -30,10 +32,9 @@ from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.whatsapp import (
     WhatsAppGraphError,
     split_whatsapp_text,
-    token_cipher,
     token_expiry_is_current,
-    whatsapp_client,
 )
+from northstar_api.services.whatsapp_accounts import connection_client
 from northstar_api.workers.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
@@ -138,6 +139,24 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 receipt.last_error = "connection removed"
                 await session.commit()
                 return
+            if connection.agent_id is None:
+                receipt.status = "ignored"
+                receipt.last_error = "No bot is deployed to this number"
+                await session.commit()
+                return
+            agent = await session.scalar(
+                select(Agent).where(
+                    Agent.id == connection.agent_id,
+                    Agent.tenant_id == connection.tenant_id,
+                    Agent.workspace_id == connection.workspace_id,
+                    Agent.deleted_at.is_(None),
+                )
+            )
+            if not agent or agent.status != AgentStatus.ACTIVE:
+                receipt.status = "ignored"
+                receipt.last_error = "The assigned bot is not published"
+                await session.commit()
+                return
             if not token_expiry_is_current(connection.token_expires_at):
                 connection.status = "reconnect_required"
                 receipt.status = "reconnect_required"
@@ -210,11 +229,11 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 receipt.conversation_id = prepared.conversation_id
                 await session.commit()
 
-            access_token = token_cipher.decrypt(connection.access_token_encrypted)
+            provider_client, access_token = await connection_client(session, connection)
             chunks = split_whatsapp_text(prepared.answer)
             sent_ids = list(receipt.outbound_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
-                provider_id = await whatsapp_client.send_text(
+                provider_id = await provider_client.send_text(
                     access_token,
                     phone_number_id=connection.phone_number_id,
                     to=receipt.sender_wa_id,
@@ -355,7 +374,7 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
             if latest_customer_message is not None and latest_customer_message.tzinfo is None:
                 latest_customer_message = latest_customer_message.replace(tzinfo=UTC)
             now = datetime.now(UTC)
-            if (
+            if not delivery.template_payload and (
                 latest_customer_message is None
                 or latest_customer_message < now - timedelta(hours=24)
                 or latest_customer_message > now + timedelta(minutes=5)
@@ -365,15 +384,24 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
                 message.finish_reason = "rejected"
                 await session.commit()
                 return
-            access_token = token_cipher.decrypt(connection.access_token_encrypted)
-            chunks = split_whatsapp_text(message.content)
+            provider_client, access_token = await connection_client(session, connection)
+            chunks = [message.content] if delivery.template_payload else split_whatsapp_text(message.content)
             sent_ids = list(delivery.provider_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
-                provider_id = await whatsapp_client.send_text(
-                    access_token,
-                    phone_number_id=connection.phone_number_id,
-                    to=delivery.recipient_wa_id,
-                    text=chunk,
+                provider_id = (
+                    await provider_client.send_template(
+                        access_token,
+                        phone_number_id=connection.phone_number_id,
+                        to=delivery.recipient_wa_id,
+                        template=delivery.template_payload,
+                    )
+                    if delivery.template_payload
+                    else await provider_client.send_text(
+                        access_token,
+                        phone_number_id=connection.phone_number_id,
+                        to=delivery.recipient_wa_id,
+                        text=chunk,
+                    )
                 )
                 sent_ids.append(provider_id)
                 delivery.provider_message_ids = list(sent_ids)

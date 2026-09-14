@@ -122,7 +122,7 @@ class WhatsAppCloudClient:
         self.transport = transport
 
     def _require_configuration(self) -> tuple[str, str]:
-        if not self.settings.whatsapp_configured or not self.settings.meta_app_secret:
+        if not self.settings.meta_app_id or not self.settings.meta_app_secret:
             raise WhatsAppConfigurationError("WhatsApp is not configured")
         return self.settings.meta_app_id or "", self.settings.meta_app_secret.get_secret_value()
 
@@ -320,6 +320,58 @@ class WhatsAppCloudClient:
             display_phone_number=display_phone_number,
             verified_name=verified_name,
         )
+
+    async def list_templates(self, access_token: str, *, waba_id: str) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        after: str | None = None
+        for _ in range(10):
+            params = {"fields": "name,language,status,components", "limit": "100"}
+            if after:
+                params["after"] = after
+            payload = await self._request(
+                "GET",
+                f"{waba_id}/message_templates",
+                operation="template lookup",
+                access_token=access_token,
+                params=params,
+            )
+            rows = payload.get("data")
+            if not isinstance(rows, list):
+                raise WhatsAppGraphError("template lookup")
+            for row in rows:
+                if isinstance(row, dict) and row.get("status") == "APPROVED":
+                    result.append(row)
+            paging = payload.get("paging", {})
+            cursor = paging.get("cursors", {}).get("after") if isinstance(paging, dict) else None
+            if (
+                not isinstance(paging, dict)
+                or not paging.get("next")
+                or not isinstance(cursor, str)
+                or cursor == after
+            ):
+                break
+            after = cursor
+        return result
+
+    async def send_template(
+        self, access_token: str, *, phone_number_id: str, to: str, template: dict[str, Any]
+    ) -> str:
+        payload = await self._request(
+            "POST",
+            f"{phone_number_id}/messages",
+            operation="template delivery",
+            access_token=access_token,
+            json={"messaging_product": "whatsapp", "to": to, "type": "template", "template": template},
+        )
+        messages = payload.get("messages")
+        message_id = (
+            messages[0].get("id")
+            if isinstance(messages, list) and messages and isinstance(messages[0], dict)
+            else None
+        )
+        if not isinstance(message_id, str) or not message_id:
+            raise WhatsAppGraphError("template delivery")
+        return message_id
 
     async def send_text(self, access_token: str, *, phone_number_id: str, to: str, text: str) -> str:
         if not text or len(text) > MAX_WHATSAPP_TEXT_LENGTH:

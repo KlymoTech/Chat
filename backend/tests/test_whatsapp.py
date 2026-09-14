@@ -26,8 +26,10 @@ from northstar_api.models import (
     Role,
     Tenant,
     WhatsAppConnection,
+    WhatsAppDeliveryReceipt,
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
+    Workspace,
 )
 from northstar_api.routers import integrations as integrations_router
 from northstar_api.routers import whatsapp as webhook_router
@@ -77,6 +79,35 @@ def whatsapp_settings(**overrides: Any) -> Settings:
     }
     values.update(overrides)
     return Settings(**values)
+
+
+@pytest.fixture(autouse=True)
+async def whatsapp_test_plan(client, auth_headers, monkeypatch):
+    from northstar_api.services.subscriptions import set_subscription_state
+    from northstar_api.subscriptions import SubscriptionStatus
+
+    claims = decode_token(auth_headers["Authorization"].removeprefix("Bearer "), "access")
+    tenant_id = UUID(claims["tid"])
+    async with SessionFactory() as session:
+        subscription = await set_subscription_state(session, tenant_id=tenant_id)
+        original = subscription.plan, subscription.status
+        await set_subscription_state(
+            session, tenant_id=tenant_id, plan="business", status=SubscriptionStatus.ACTIVE
+        )
+        await session.commit()
+    consumed = set()
+
+    async def one_use_set(key, *args, **kwargs):
+        if key in consumed:
+            return False
+        consumed.add(key)
+        return True
+
+    monkeypatch.setattr(shared_redis_services.client, "set", one_use_set)
+    yield
+    async with SessionFactory() as session:
+        await set_subscription_state(session, tenant_id=tenant_id, plan=original[0], status=original[1])
+        await session.commit()
 
 
 def test_token_cipher_round_trip_and_tamper_detection() -> None:
@@ -373,12 +404,17 @@ async def test_provider_message_duplicate_survives_phone_transfer_between_tenant
         await session.flush()
         old_tenant_id = old_tenant.id
         new_tenant_id = new_tenant.id
-        old_agent = Agent(tenant_id=old_tenant.id, name="Old agent")
-        new_agent = Agent(tenant_id=new_tenant.id, name="New agent")
+        old_workspace = Workspace(tenant_id=old_tenant.id, name="Old", slug="old")
+        new_workspace = Workspace(tenant_id=new_tenant.id, name="New", slug="new")
+        session.add_all((old_workspace, new_workspace))
+        await session.flush()
+        old_agent = Agent(tenant_id=old_tenant.id, workspace_id=old_workspace.id, name="Old agent")
+        new_agent = Agent(tenant_id=new_tenant.id, workspace_id=new_workspace.id, name="New agent")
         session.add_all((old_agent, new_agent))
         await session.flush()
         old_connection = WhatsAppConnection(
             tenant_id=old_tenant.id,
+            workspace_id=old_workspace.id,
             agent_id=old_agent.id,
             waba_id="100",
             phone_number_id="777",
@@ -388,6 +424,7 @@ async def test_provider_message_duplicate_survives_phone_transfer_between_tenant
         await session.flush()
         old_receipt = WhatsAppInboundMessage(
             tenant_id=old_tenant.id,
+            workspace_id=old_workspace.id,
             connection_id=old_connection.id,
             phone_number_id="777",
             provider_message_id="wamid.globally-unique-transfer",
@@ -404,6 +441,7 @@ async def test_provider_message_duplicate_survives_phone_transfer_between_tenant
         await session.commit()
         new_connection = WhatsAppConnection(
             tenant_id=new_tenant.id,
+            workspace_id=new_workspace.id,
             agent_id=new_agent.id,
             waba_id="200",
             phone_number_id="777",
@@ -439,12 +477,16 @@ async def test_provider_message_duplicate_survives_phone_transfer_between_tenant
         await session.execute(delete(WhatsAppConnection))
         await session.execute(delete(WhatsAppInboundMessage))
         await session.execute(delete(Agent).where(Agent.tenant_id.in_((old_tenant_id, new_tenant_id))))
+        await session.execute(
+            delete(Workspace).where(Workspace.tenant_id.in_((old_tenant_id, new_tenant_id)))
+        )
         await session.execute(delete(Tenant).where(Tenant.id.in_((old_tenant_id, new_tenant_id))))
         await session.commit()
 
 
 async def _clear_whatsapp_state() -> None:
     async with SessionFactory() as session:
+        await session.execute(delete(WhatsAppDeliveryReceipt))
         await session.execute(delete(WhatsAppOutboundDelivery))
         await session.execute(delete(WhatsAppInboundMessage))
         await session.execute(delete(WhatsAppConnection))
@@ -474,10 +516,13 @@ async def test_workspace_can_manage_one_dedicated_number_per_bot(
     token = auth_headers["Authorization"].removeprefix("Bearer ")
     tenant_id = UUID(decode_token(token, "access")["tid"])
     async with SessionFactory() as session:
+        workspace_id = await session.scalar(select(Workspace.id).where(Workspace.tenant_id == tenant_id))
+    async with SessionFactory() as session:
         session.add_all(
             [
                 WhatsAppConnection(
                     tenant_id=tenant_id,
+                    workspace_id=workspace_id,
                     agent_id=agent_ids[0],
                     waba_id="555",
                     phone_number_id="777",
@@ -488,6 +533,7 @@ async def test_workspace_can_manage_one_dedicated_number_per_bot(
                 ),
                 WhatsAppConnection(
                     tenant_id=tenant_id,
+                    workspace_id=workspace_id,
                     agent_id=agent_ids[1],
                     waba_id="555",
                     phone_number_id="888",
@@ -600,6 +646,35 @@ async def test_embedded_signup_and_signed_idempotent_webhook(
     assert connected.status_code == 200, connected.text
     assert connected.json()["phoneNumberId"] == "777"
     assert connected.json()["agentId"] == agent_id
+
+    # Real signed status webhooks may precede the worker's local send commit,
+    # repeat, and arrive out of order. Preserve evidence without regressing it.
+    status_payload = _webhook_payload([])
+    status_payload["entry"][0]["changes"][0]["value"]["statuses"] = [
+        {"id": "wamid.delivery", "status": state, "timestamp": str(int(datetime.now(UTC).timestamp()))}
+        for state in ("read", "sent", "read", "delivered")
+    ] + [{"id": "malformed", "status": [], "timestamp": "123"}]
+    status_body = json.dumps(status_payload).encode()
+    status_signature = (
+        "sha256="
+        + hmac.new(
+            settings.meta_app_secret.get_secret_value().encode(), status_body, hashlib.sha256
+        ).hexdigest()
+    )
+    rejected_status = await client.post("/api/v1/webhooks/whatsapp", content=status_body)
+    assert rejected_status.status_code == 401
+    for _ in range(2):
+        result = await client.post(
+            "/api/v1/webhooks/whatsapp",
+            content=status_body,
+            headers={"X-Hub-Signature-256": status_signature},
+        )
+        assert result.status_code == 200, result.text
+    activity = await client.get(f"/api/v1/integrations/whatsapp/{agent_id}/activity", headers=auth_headers)
+    assert activity.status_code == 200
+    assert sorted(item["status"] for item in activity.json()["deliveries"]) == ["delivered", "read", "sent"]
+    missing = await client.get(f"/api/v1/integrations/whatsapp/{uuid4()}/activity", headers=auth_headers)
+    assert missing.status_code == 404
 
     fake_toggle = await client.patch(
         "/api/v1/integrations/whatsapp",
@@ -716,8 +791,11 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
     token = auth_headers["Authorization"].removeprefix("Bearer ")
     tenant_id = UUID(decode_token(token, "access")["tid"])
     async with SessionFactory() as session:
+        workspace_id = await session.scalar(select(Workspace.id).where(Workspace.tenant_id == tenant_id))
+    async with SessionFactory() as session:
         connection = WhatsAppConnection(
             tenant_id=tenant_id,
+            workspace_id=workspace_id,
             agent_id=agent_id,
             waba_id="555",
             phone_number_id="777",
@@ -730,6 +808,7 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
         await session.flush()
         conversation = Conversation(
             tenant_id=tenant_id,
+            workspace_id=workspace_id,
             agent_id=agent_id,
             visitor_id="15550101",
             visitor_name="Earlier Name",
@@ -739,6 +818,7 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
         await session.flush()
         receipt = WhatsAppInboundMessage(
             tenant_id=tenant_id,
+            workspace_id=workspace_id,
             connection_id=connection.id,
             phone_number_id=connection.phone_number_id,
             provider_message_id="wamid.worker-1",
@@ -850,6 +930,45 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
     assert outside_window.status_code == 409
     assert "24-hour" in outside_window.text
 
+    approved = {
+        "name": "follow_up",
+        "language": "en",
+        "status": "APPROVED",
+        "components": [{"type": "BODY", "text": "Hello {{1}}, your request is ready."}],
+    }
+    monkeypatch.setattr(shared_whatsapp_client, "list_templates", AsyncMock(return_value=[approved]))
+    template_send = AsyncMock(return_value="wamid.template-1")
+    monkeypatch.setattr(shared_whatsapp_client, "send_template", template_send)
+    template_reply = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+        json={
+            "content": "follow_up",
+            "whatsappTemplate": {
+                "name": "follow_up",
+                "language": "en",
+                "parameters": ["Customer"],
+                "consentConfirmed": True,
+            },
+        },
+    )
+    assert template_reply.status_code == 201, template_reply.text
+    assert template_reply.json()["content"] == "Hello Customer, your request is ready."
+    async with SessionFactory() as session:
+        template_delivery = await session.scalar(
+            select(WhatsAppOutboundDelivery).where(
+                WhatsAppOutboundDelivery.message_id == UUID(template_reply.json()["id"])
+            )
+        )
+        assert template_delivery is not None
+        template_delivery_id = template_delivery.id
+    await _send_whatsapp_human_reply_async(template_delivery_id)
+    await _send_whatsapp_human_reply_async(template_delivery_id)
+    template_send.assert_awaited_once()
+    assert template_send.call_args.kwargs["template"]["components"][0]["parameters"] == [
+        {"type": "text", "text": "Customer"}
+    ]
+
     async with SessionFactory() as session:
         connection = await session.scalar(
             select(WhatsAppConnection).where(WhatsAppConnection.tenant_id == tenant_id)
@@ -875,18 +994,21 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
         assert connection is not None
         crash_window_thread = Conversation(
             tenant_id=tenant_id,
+            workspace_id=workspace_id,
             agent_id=agent_id,
             visitor_id="15550999",
             channel=Channel.WHATSAPP,
         )
         unrelated_channel_thread = Conversation(
             tenant_id=tenant_id,
+            workspace_id=workspace_id,
             agent_id=agent_id,
             visitor_id="15550999",
             channel=Channel.API,
         )
         unrelated_sender_thread = Conversation(
             tenant_id=tenant_id,
+            workspace_id=workspace_id,
             agent_id=agent_id,
             visitor_id="15550888",
             channel=Channel.WHATSAPP,
@@ -896,6 +1018,7 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
         session.add(
             WhatsAppInboundMessage(
                 tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 connection_id=connection.id,
                 phone_number_id=connection.phone_number_id,
                 provider_message_id="wamid.unlinked-crash-window",
@@ -948,6 +1071,7 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
         session.add(
             WhatsAppConnection(
                 tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 agent_id=agent_id,
                 waba_id="555",
                 phone_number_id="777",
@@ -996,3 +1120,254 @@ def _webhook_payload(messages: list[dict[str, Any]]) -> dict[str, Any]:
             }
         ],
     }
+
+
+async def test_customer_accounts_multiple_numbers_and_deployment_routing(client, auth_headers, monkeypatch):
+    from northstar_api.models import WhatsAppBusinessAccount
+    from northstar_api.routers import whatsapp_accounts as accounts_router
+    from northstar_api.services import whatsapp_accounts as account_service
+
+    await _clear_whatsapp_state()
+    monkeypatch.setenv("CRM_CREDENTIAL_ENCRYPTION_KEY", "whatsapp-account-test-encryption-key-more-than-32")
+    settings = whatsapp_settings(crm_oauth_public_base_url="https://example.test")
+    monkeypatch.setattr(accounts_router, "get_settings", lambda: settings)
+    monkeypatch.setattr(account_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        WhatsAppCloudClient, "validate_token", AsyncMock(return_value=datetime.now(UTC) + timedelta(days=30))
+    )
+    monkeypatch.setattr(
+        WhatsAppCloudClient,
+        "get_phone_for_waba",
+        AsyncMock(return_value=("+1 555 0100", "Customer business")),
+    )
+    register = AsyncMock()
+    monkeypatch.setattr(WhatsAppCloudClient, "register_phone", register)
+    monkeypatch.setattr(WhatsAppCloudClient, "subscribe_app", AsyncMock())
+    graph = AsyncMock(
+        return_value={
+            "data": [
+                {"id": "7001", "display_phone_number": "+15550100", "verified_name": "Customer business"}
+            ]
+        }
+    )
+    monkeypatch.setattr(WhatsAppCloudClient, "_request", graph)
+    accounts = []
+    for index in range(2):
+        created = await client.post(
+            "/api/v1/integrations/whatsapp-accounts",
+            headers=auth_headers,
+            json={
+                "name": f"Business {index}",
+                "wabaId": str(9001 + index),
+                "appId": str(1001 + index),
+                "appSecret": f"customer-app-secret-{index}",
+                "accessToken": f"customer-access-token-{index}",
+                "verifyToken": "customer-webhook-verification-secret-32-characters",
+            },
+        )
+        assert created.status_code == 201, created.text
+        assert "customer-app-secret" not in created.text
+        assert "customer-access-token" not in created.text
+        account = created.json()
+        accounts.append(account)
+        verified = await client.get(
+            f"/api/v1/webhooks/whatsapp/accounts/{account['id']}",
+            params={
+                "hub.mode": "subscribe",
+                "hub.verify_token": "customer-webhook-verification-secret-32-characters",
+                "hub.challenge": "challenge",
+            },
+        )
+        assert verified.status_code == 200, verified.text
+        connected = await client.post(
+            f"/api/v1/integrations/whatsapp-accounts/{account['id']}/webhook", headers=auth_headers
+        )
+        assert connected.status_code == 200, connected.text
+    assert len((await client.get("/api/v1/integrations/whatsapp-accounts", headers=auth_headers)).json()) == 2
+    async with SessionFactory() as session:
+        saved = await session.get(WhatsAppBusinessAccount, UUID(accounts[0]["id"]))
+        assert b"customer-access-token" not in saved.credentials_encrypted
+    numbers = []
+    for index in range(3):
+        account = accounts[0 if index < 2 else 1]
+        result = await client.post(
+            f"/api/v1/integrations/whatsapp-accounts/{account['id']}/numbers",
+            headers=auth_headers,
+            json={"phoneNumberId": str(7001 + index), "pin": "123456"},
+        )
+        assert result.status_code == 201, result.text
+        assert result.json()["agentId"] is None
+        numbers.append(result.json())
+    assert register.await_count == 3
+    agents = []
+    for index in range(2):
+        created = await client.post(
+            "/api/v1/agents", headers=auth_headers, json={"name": f"Account Bot {index}"}
+        )
+        assert created.status_code == 201, created.text
+        agent_id = created.json()["id"]
+        await client.patch(f"/api/v1/agents/{agent_id}", headers=auth_headers, json={"status": "active"})
+        agents.append(agent_id)
+        assigned = await client.put(
+            f"/api/v1/integrations/whatsapp-accounts/numbers/{numbers[index]['id']}/assignment",
+            headers=auth_headers,
+            json={"agentId": agent_id},
+        )
+        assert assigned.status_code == 200, assigned.text
+
+    published = []
+    monkeypatch.setattr(inbound_task, "apply_async", lambda **kwargs: published.extend(kwargs["args"]))
+
+    async def send_event(account, phone, message_id, secret):
+        payload = _webhook_payload(
+            [
+                {
+                    "id": message_id,
+                    "from": "15550101",
+                    "timestamp": str(int(datetime.now(UTC).timestamp())),
+                    "type": "text",
+                    "text": {"body": "Hello"},
+                }
+            ]
+        )
+        payload["entry"][0]["id"] = account["wabaId"]
+        payload["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"] = phone
+        body = json.dumps(payload).encode()
+        signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        return await client.post(
+            f"/api/v1/webhooks/whatsapp/accounts/{account['id']}",
+            content=body,
+            headers={"X-Hub-Signature-256": signature},
+        )
+
+    assert (
+        await send_event(accounts[0], "7001", "wamid.account-first", "customer-app-secret-0")
+    ).status_code == 200
+    assert len(published) == 1
+    # A valid signature from a different saved account cannot route this number.
+    assert (
+        await send_event(accounts[1], "7001", "wamid.account-cross", "customer-app-secret-1")
+    ).status_code == 200
+    assert len(published) == 1
+    assert (await send_event(accounts[0], "7002", "wamid.account-invalid", "wrong-secret")).status_code == 401
+    # Reassigning a number cancels queued work and releases the target bot's old number.
+    moved = await client.put(
+        f"/api/v1/integrations/whatsapp-accounts/numbers/{numbers[0]['id']}/assignment",
+        headers=auth_headers,
+        json={"agentId": agents[1]},
+    )
+    assert moved.status_code == 200, moved.text
+    async with SessionFactory() as session:
+        first = await session.get(WhatsAppConnection, UUID(numbers[0]["id"]))
+        second = await session.get(WhatsAppConnection, UUID(numbers[1]["id"]))
+        assert str(first.agent_id) == agents[1]
+        assert second.agent_id is None
+        receipt = await session.scalar(
+            select(WhatsAppInboundMessage).where(
+                WhatsAppInboundMessage.provider_message_id == "wamid.account-first"
+            )
+        )
+        assert receipt.status == "cancelled"
+        assert receipt.connection_id is None
+    assert (
+        await send_event(accounts[0], "7002", "wamid.account-unassigned", "customer-app-secret-0")
+    ).status_code == 200
+    assert len(published) == 1
+    assert (
+        await send_event(accounts[0], "7001", "wamid.account-after-move", "customer-app-secret-0")
+    ).status_code == 200
+    observed = {}
+
+    async def prepare_account_reply(session, **kwargs):
+        observed.update(kwargs)
+        conversation = Conversation(
+            tenant_id=kwargs["tenant_id"],
+            workspace_id=kwargs["workspace_id"],
+            agent_id=kwargs["request"].agent_id,
+            visitor_id="15550101",
+            channel=Channel.WHATSAPP,
+        )
+        session.add(conversation)
+        await session.commit()
+        return PreparedChat(conversation.id, uuid4(), "Reply from assigned bot", [])
+
+    monkeypatch.setattr(chat_coordinator, "prepare", prepare_account_reply)
+    sender = AsyncMock(return_value="wamid.customer-outbound")
+    monkeypatch.setattr(WhatsAppCloudClient, "send_text", sender)
+    await _process_whatsapp_inbound_async(UUID(published[-1]))
+    assert str(observed["request"].agent_id) == agents[1]
+    assert sender.call_args.args[0] == "customer-access-token-0"
+    assert sender.call_args.kwargs["phone_number_id"] == "7001"
+    updated = await client.put(
+        f"/api/v1/integrations/whatsapp-accounts/{accounts[0]['id']}",
+        headers=auth_headers,
+        json={
+            "name": "Updated business",
+            "appId": "1001",
+            "wabaId": "9001",
+            "appSecret": "replacement-app-secret",
+            "accessToken": "replacement-account-token",
+            "verifyToken": "replacement-verify-token-at-least-32-characters",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["status"] == "needs_webhook"
+    assert "replacement-account-token" not in updated.text
+    async with SessionFactory() as session:
+        first = await session.get(WhatsAppConnection, UUID(numbers[0]["id"]))
+        other_account_number = await session.get(WhatsAppConnection, UUID(numbers[2]["id"]))
+        assert first.status == "needs_webhook"
+        assert other_account_number.status == "connected"
+    await _clear_whatsapp_state()
+    async with SessionFactory() as session:
+        await session.execute(delete(WhatsAppBusinessAccount))
+        await session.commit()
+
+
+async def test_create_agent_with_whatsapp_number_is_atomic(client, auth_headers):
+    await _clear_whatsapp_state()
+    baseline = await client.post(
+        "/api/v1/agents", headers=auth_headers, json={"name": "Number creation context"}
+    )
+    assert baseline.status_code == 201, baseline.text
+    async with SessionFactory() as session:
+        owner = await session.get(Agent, UUID(baseline.json()["id"]))
+        number = WhatsAppConnection(
+            tenant_id=owner.tenant_id,
+            workspace_id=owner.workspace_id,
+            waba_id="create-waba",
+            phone_number_id="create-number",
+            display_phone_number="+15550199",
+            verified_name="Creation test",
+            access_token_encrypted=b"test",
+            status="connected",
+        )
+        session.add(number)
+        await session.commit()
+        number_id = str(number.id)
+    payload = {
+        "name": "Number selected at creation",
+        "deploymentChannel": "whatsapp",
+        "whatsappConnectionId": number_id,
+        "purpose": "education",
+    }
+    created = await client.post("/api/v1/agents", headers=auth_headers, json=payload)
+    assert created.status_code == 201, created.text
+    assert created.json()["whatsappNumber"] == "+15550199"
+    assert created.json()["status"] == "draft"
+    async with SessionFactory() as session:
+        number = await session.get(WhatsAppConnection, UUID(number_id))
+        assert str(number.agent_id) == created.json()["id"]
+    rejected = await client.post(
+        "/api/v1/agents", headers=auth_headers, json={**payload, "name": "Must not be created"}
+    )
+    assert rejected.status_code == 409, rejected.text
+    missing = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={**payload, "name": "Missing number bot", "whatsappConnectionId": str(uuid4())},
+    )
+    assert missing.status_code == 404, missing.text
+    listed = (await client.get("/api/v1/agents", headers=auth_headers)).json()
+    assert not any(agent["name"] in {"Must not be created", "Missing number bot"} for agent in listed)
+    await _clear_whatsapp_state()

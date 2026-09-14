@@ -4,11 +4,11 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader } from '@/components/ui';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { formatCompact, relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import { getWidgetLocale, supportedWidgetLanguages } from '@/lib/widget-localization';
-import type { Agent, AgentPurpose, AgentTone, DeploymentChannel } from '@/types';
+import type { Agent, AgentPurpose, AgentTone, DeploymentChannel, WhatsAppConnection } from '@/types';
 
 const purposeOptions: Array<{ id: AgentPurpose; icon: typeof Bot; name: string; description: string; template: string }> = [
   { id: 'support', icon: MessageSquare, name: 'General / Support', description: 'Answer support, onboarding, and general knowledge questions.', template: 'support' },
@@ -62,7 +62,7 @@ function AgentCard({ agent, onDuplicate, onPurpose, onDelete }: { agent: Agent; 
   return <Card className="agent-card">
     <div className="agent-card__top"><span className="agent-avatar agent-avatar--lg" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><Badge tone={agent.status === 'active' ? 'success' : agent.status === 'training' ? 'purple' : 'warning'}><i className="status-dot" /> {agent.status}</Badge><Badge tone={purpose === 'lead_generation' ? 'brand' : purpose === 'education' ? 'purple' : 'neutral'}>{purposeLabels[purpose]}</Badge><div className="more-menu" ref={ref}><button className="icon-button" onClick={() => setOpen((value) => !value)} aria-label={`Actions for ${agent.name}`}><MoreHorizontal /></button>{open ? <div className="menu-popover"><button onClick={() => { setOpen(false); onPurpose(); }}><Sparkles />Change purpose</button><button onClick={() => { setOpen(false); onDuplicate(); }}><Copy />Duplicate</button><button className="danger" onClick={onDelete}><Trash2 />Delete</button></div> : null}</div></div>
     <Link to={`/agents/${agent.id}/instructions`} className="agent-card__link"><h3>{agent.name}</h3><p>{agent.description}</p></Link>
-    <div className="agent-card__stats"><span><strong>{formatCompact(agent.conversations)}</strong><small>Conversations</small></span><span><strong>{agent.resolutionRate}%</strong><small>Resolved</small></span><span><strong>{agent.knowledgeCount}</strong><small>Sources</small></span></div>
+    <p><strong>WhatsApp:</strong> {agent.whatsappNumber || 'No number assigned'}</p><div className="agent-card__stats"><span><strong>{formatCompact(agent.conversations)}</strong><small>Conversations</small></span><span><strong>{agent.resolutionRate}%</strong><small>Resolved</small></span><span><strong>{agent.knowledgeCount}</strong><small>Sources</small></span></div>
     <div className="agent-card__footer"><span>Updated {relativeTime(agent.lastUpdated)}</span><Link to={`/agents/${agent.id}/instructions`}>Open <Ellipsis /></Link></div>
   </Card>;
 }
@@ -90,12 +90,30 @@ function DuplicateAgentModal({ source, onClose, onCreated }: { source: Agent; on
   </Modal>;
 }
 
-function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated: (agent: Agent) => void }) {
+export function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreated: (agent: Agent) => void }) {
   const [step, setStep] = useState(0); const [name, setName] = useState(''); const [description, setDescription] = useState(''); const [purpose, setPurpose] = useState<AgentPurpose>('support'); const [tone, setTone] = useState<AgentTone>('friendly'); const [language, setLanguage] = useState('English'); const [deploymentChannel, setDeploymentChannel] = useState<DeploymentChannel>('website'); const [saving, setSaving] = useState(false); const [error, setError] = useState('');
+  const [numbers, setNumbers] = useState<WhatsAppConnection[]>([]);
+  const [numberId, setNumberId] = useState('');
+  const [numberLoading, setNumberLoading] = useState(false);
+  const [numberError, setNumberError] = useState('');
+  const [numberRevision, setNumberRevision] = useState(0);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  useEffect(() => {
+    if (deploymentChannel !== 'whatsapp') return;
+    let active = true;
+    setNumberLoading(true); setNumberError('');
+    void Promise.all([api.integrations.whatsapp.status(), api.agents.list()]).then(([status, items]) => {
+      if (active) { setNumbers(status.connections ?? []); setAgents(items); }
+    }).catch(() => { if (active) setNumberError('Could not load connected numbers. Check your integration access and retry.'); })
+      .finally(() => { if (active) setNumberLoading(false); });
+    return () => { active = false; };
+  }, [deploymentChannel, numberRevision]);
+  const selectedNumber = numbers.find((number) => number.id === numberId);
+  const available = (number: WhatsAppConnection) => Boolean(number.id && !number.agentId && number.status === 'connected' && (!number.tokenExpiresAt || Date.parse(number.tokenExpiresAt) > Date.now()));
   const steps = ['Basics', 'Purpose', 'Voice', 'Channel'];
   const locale = getWidgetLocale(language);
-  const canContinue = step !== 0 || Boolean(name.trim());
-  const submit = async () => { if (!name.trim()) return; setSaving(true); setError(''); try { const option = purposeOptions.find((item) => item.id === purpose)!; const created = await api.agents.create({ name: name.trim(), description: description.trim() || 'A helpful AI agent', purpose, template: option.template, tone, language, deploymentChannel }); const saved = created.purpose === purpose ? created : await api.agents.update(created.id, { purpose }); onCreated(saved); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create this agent.'); } finally { setSaving(false); } };
+  const canContinue = (step !== 0 || Boolean(name.trim())) && (step !== 3 || deploymentChannel !== 'whatsapp' || Boolean(!numberLoading && !numberError && selectedNumber && available(selectedNumber)));
+  const submit = async () => { if (!name.trim()) return; setSaving(true); setError(''); try { const option = purposeOptions.find((item) => item.id === purpose)!; const created = await api.agents.create({ name: name.trim(), description: description.trim() || 'A helpful AI agent', purpose, template: option.template, tone, language, deploymentChannel, ...(deploymentChannel === 'whatsapp' ? { whatsappConnectionId: numberId } : {}) }); const saved = created.purpose === purpose ? created : await api.agents.update(created.id, { purpose }); onCreated(saved); } catch (reason) { const detail = reason instanceof ApiError && reason.detail && typeof reason.detail === 'object' ? (reason.detail as { error?: { message?: unknown }; detail?: unknown }).error?.message ?? (reason.detail as { detail?: unknown }).detail : null; setError(typeof detail === 'string' ? detail : reason instanceof Error ? reason.message : 'Could not create this agent.'); if (deploymentChannel === 'whatsapp') setNumberRevision((value) => value + 1); } finally { setSaving(false); } };
   const advance = () => { if (!canContinue || saving) return; if (step < steps.length - 1) { setStep((current) => current + 1); setError(''); } else void submit(); };
   return <Modal open onClose={onClose} title="Create an AI agent" description="Follow four simple steps. Purpose is saved as part of the agent and can be changed later." size="lg" footer={<><Button variant="secondary" onClick={step === 0 ? onClose : () => setStep((current) => current - 1)} icon={step === 0 ? undefined : ChevronLeft}>{step === 0 ? 'Cancel' : 'Back'}</Button><Button disabled={!canContinue || saving} icon={step === steps.length - 1 ? Check : ChevronRight} onClick={advance}>{saving ? 'Creating…' : step === steps.length - 1 ? 'Create agent' : 'Continue'}</Button></>}>
     <form className="agent-flow" onSubmit={(event) => { event.preventDefault(); advance(); }}>
@@ -103,7 +121,18 @@ function CreateAgentModal({ onClose, onCreated }: { onClose: () => void; onCreat
       {step === 0 ? <section className="agent-flow__panel"><div className="agent-flow__intro"><Sparkles /><div><h3>Let’s name your assistant</h3><p>Use a clear name so your team immediately knows what this bot does.</p></div></div><Field label="Agent name" htmlFor="agent-name"><input id="agent-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Product Guide" maxLength={64} autoFocus /></Field><Field label="What should it help with?" htmlFor="agent-description" hint="A short sentence is enough."><input id="agent-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="e.g. Answer product and account questions" maxLength={120} /></Field></section> : null}
       {step === 1 ? <section className="agent-flow__panel"><div className="agent-flow__intro"><Bot /><div><h3>Choose its main purpose</h3><p>This is a real platform setting, not just a starter template. It determines which business workflow the agent can enter.</p></div></div><fieldset className="template-field"><legend>Agent purpose</legend><div className="template-grid">{purposeOptions.map(({ id, icon: Icon, name: purposeName, description: text }) => <label key={id} className={purpose === id ? 'is-selected' : ''}><input type="radio" name="purpose" value={id} checked={purpose === id} onChange={() => setPurpose(id)} /><Icon /><strong>{purposeName}</strong><small>{text}</small></label>)}</div></fieldset>{purpose === 'education' ? <div className="hint-card"><BookOpen /><div><strong>Safe education provisioning</strong><p>This Agent will be created as draft until Course, Batch, Student, and Enrollment access is configured.</p></div></div> : null}</section> : null}
       {step === 2 ? <section className="agent-flow__panel"><div className="agent-flow__intro"><MessageSquare /><div><h3>Choose how it communicates</h3><p>The language applies to labels, starter questions, typed conversations, and AI answers.</p></div></div><div className="two-fields"><Field label="Response tone" htmlFor="create-tone"><select id="create-tone" value={tone} onChange={(event) => setTone(event.target.value as AgentTone)}><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="concise">Concise</option><option value="empathetic">Empathetic</option><option value="playful">Playful</option></select></Field><Field label="Primary language" htmlFor="create-language"><select id="create-language" value={language} onChange={(event) => setLanguage(event.target.value)}>{supportedWidgetLanguages.map((item) => <option key={item}>{item}</option>)}</select></Field></div><div className="agent-flow__language-preview" dir={language === 'Arabic' ? 'rtl' : 'ltr'}><small>Visitor preview</small><strong>{locale.welcomeTitle}</strong><span>{locale.suggestedQuestions[0]}</span></div></section> : null}
-      {step === 3 ? <section className="agent-flow__panel"><div className="agent-flow__intro"><Globe2 /><div><h3>Where will people use this bot?</h3><p>Choose a channel now. The correct preview and deployment tools will be ready automatically.</p></div></div><fieldset className="deployment-option-field"><legend>Deployment channel</legend><div className="deployment-option-grid">{deploymentOptions.map(({ id, icon: Icon, name: optionName, description: text }) => <label key={id} className={deploymentChannel === id ? 'is-selected' : ''}><input type="radio" name="create-deployment-channel" value={id} checked={deploymentChannel === id} onChange={() => setDeploymentChannel(id)} /><Icon /><span><strong>{optionName}</strong><small>{text}</small></span></label>)}</div></fieldset><div className="agent-flow__summary"><span><small>Agent</small><strong>{name}</strong></span><span><small>Purpose</small><strong>{purposeLabels[purpose]}</strong></span><span><small>Language</small><strong>{language}</strong></span><span><small>Channel</small><strong>{deploymentOptions.find((item) => item.id === deploymentChannel)?.name}</strong></span></div></section> : null}
+      {step === 3 ? <section className="agent-flow__panel"><div className="agent-flow__intro"><Globe2 /><div><h3>Where will people use this bot?</h3><p>Choose a channel now. The correct preview and deployment tools will be ready automatically.</p></div></div><fieldset className="deployment-option-field"><legend>Deployment channel</legend><div className="deployment-option-grid">{deploymentOptions.map(({ id, icon: Icon, name: optionName, description: text }) => <label key={id} className={deploymentChannel === id ? 'is-selected' : ''}><input type="radio" name="create-deployment-channel" value={id} checked={deploymentChannel === id} onChange={() => setDeploymentChannel(id)} /><Icon /><span><strong>{optionName}</strong><small>{text}</small></span></label>)}</div></fieldset>{deploymentChannel === 'whatsapp' ? <div>
+        <Field label="WhatsApp number for this bot" htmlFor="create-whatsapp-number" hint="Each number belongs to one bot. Manage existing assignments in Deploy.">
+          <select id="create-whatsapp-number" value={numberId} disabled={numberLoading || saving} onChange={(event) => setNumberId(event.target.value)}>
+            <option value="">{numberLoading ? 'Loading connected numbers?' : 'Select a connected number'}</option>
+            {numbers.map((number) => <option key={number.id || number.phoneNumberId} value={number.id} disabled={!available(number)}>{number.displayPhoneNumber || number.phoneNumberId} ? {number.verifiedName}{number.agentId ? ` ? Assigned to ${agents.find((agent) => agent.id === number.agentId)?.name ?? 'another bot'}` : available(number) ? ' ? Available' : ' ? Connection setup needed'}</option>)}
+          </select>
+        </Field>
+        {numberError ? <p role="alert">{numberError}</p> : null}
+        {!numberLoading && !numbers.some(available) ? <p>No available connected numbers. Add a number in Integrations or release an existing assignment in Deploy.</p> : null}
+        <div className="whatsapp-manager__actions"><a href="/integrations" target="_blank" rel="noreferrer">Manage WhatsApp numbers</a><Button variant="secondary" disabled={numberLoading || saving} onClick={() => setNumberRevision((value) => value + 1)}>Refresh numbers</Button></div>
+        {purpose === 'education' ? <p>The number will be reserved for this draft bot. Replies start only after education access is configured and the bot is published.</p> : null}
+      </div> : null}<div className="agent-flow__summary"><span><small>Agent</small><strong>{name}</strong></span><span><small>Purpose</small><strong>{purposeLabels[purpose]}</strong></span><span><small>Language</small><strong>{language}</strong></span><span><small>Channel</small><strong>{deploymentOptions.find((item) => item.id === deploymentChannel)?.name}</strong></span>{deploymentChannel === 'whatsapp' ? <span><small>WhatsApp number</small><strong>{selectedNumber?.displayPhoneNumber || selectedNumber?.phoneNumberId || 'Select a number'}</strong></span> : null}</div></section> : null}
       {error ? <div className="form-error" role="alert">{error}</div> : null}
     </form>
   </Modal>;
