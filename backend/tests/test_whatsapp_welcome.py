@@ -52,6 +52,8 @@ def test_only_short_greetings_use_configured_welcome():
         == "Hi! Welcome to CMA.\n\nWhich course topic would you like to study?"
     )
     assert whatsapp_welcome(agent, "hello, explain course fees") is None
+    assert whatsapp_welcome(agent, "Hii") == whatsapp_welcome(agent, "Hi")
+    assert whatsapp_welcome(agent, "Hiii!") == whatsapp_welcome(agent, "Hi")
     assert whatsapp_welcome(agent, "higher accounting") is None
 
 
@@ -97,7 +99,7 @@ async def test_verified_student_gets_welcome_at_india_midnight_without_model(
             provider_message_id=uuid4().hex,
             sender_wa_id=seeded["phone"].lstrip("+"),
             message_type="text",
-            message_text="Hi",
+            message_text="Hii",
             provider_timestamp=datetime.now(UTC),
             status="queued",
         )

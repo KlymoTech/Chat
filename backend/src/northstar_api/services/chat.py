@@ -38,7 +38,7 @@ from northstar_api.services.retrieval import Evidence, RetrievalService, retriev
 def whatsapp_welcome(agent: Agent, message: str) -> str | None:
     """Answer greeting-only messages from configured copy, after access checks."""
     greeting = re.sub(r"[!?.,\s👋]+", " ", message.casefold()).strip()
-    if greeting not in {"hi", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste", "नमस्ते", "नमस्कार", "hola", "bonjour", "hallo", "مرحبا", "السلام عليكم"}:
+    if greeting not in {"hi", "hii", "hiii", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste", "नमस्ते", "नमस्कार", "hola", "bonjour", "hallo", "مرحبا", "السلام عليكم"}:
         return None
     locale = localized_appearance(agent.language)
     body = str((agent.appearance or {}).get("welcomeMessage") or locale["welcomeMessage"]).strip()
