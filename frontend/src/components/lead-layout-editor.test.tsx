@@ -39,6 +39,7 @@ describe('custom lead layouts', () => {
     await waitFor(() => expect(mocks.edit).toHaveBeenCalledWith(demoLeads[0]!.id, expect.objectContaining({ fields: { follow_up: false } })));
   });
   it('formats dates consistently without shifting the calendar date', () => {
+    expect(leadColumnValue({ ...demoLeads[0]!, consent: true }, { ...defaultLayout.columns[0]!, source: 'consent', format: 'upper' })).toBe('TRUE');
     const lead = { ...demoLeads[0]!, createdAt: '2026-09-15T00:01:00+05:30' };
     expect(leadColumnValue(lead, { ...defaultLayout.columns[0]!, source: 'createdAt', format: 'dd/mm/yyyy' })).toBe('15/09/2026');
   });

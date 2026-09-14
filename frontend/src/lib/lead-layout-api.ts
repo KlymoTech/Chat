@@ -42,7 +42,7 @@ export const leadLayoutApi = {
 export function leadColumnValue(lead: Lead, column: LeadColumn, agentName = ''): string {
   const raw = column.source.startsWith('fields.') ? lead.fields[column.source.slice(7)] : column.source === 'agentName' ? agentName : lead[column.source as keyof Lead];
   if (raw == null || raw === '') return '';
-  let value = typeof raw === 'boolean' ? raw ? 'Yes' : 'No' : String(raw);
+  let value = typeof raw === 'boolean' ? ['upper', 'lower'].includes(column.format) ? String(raw) : raw ? 'Yes' : 'No' : String(raw);
   if (column.format === 'upper') value = value.toUpperCase();
   if (column.format === 'lower') value = value.toLowerCase();
   if (['yyyy-mm-dd', 'dd/mm/yyyy', 'mm/dd/yyyy'].includes(column.format)) {

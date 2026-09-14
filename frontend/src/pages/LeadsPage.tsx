@@ -178,7 +178,7 @@ export function LeadsPage() {
       <div className="page-heading page-heading--split"><small>Page {page} of {totalPages}</small><div><Button variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button> <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></div>
     </Card>
 
-    {customizing && <LeadLayoutEditor initial={layout} records={records} onClose={() => setCustomizing(false)} onSaved={setSavedLayout} />}
+    {customizing && <LeadLayoutEditor initial={layout} records={records} agentNames={agentNames} onClose={() => setCustomizing(false)} onSaved={setSavedLayout} />}
     {editing && <LeadDetailsEditor lead={editing} layout={layout} onClose={() => setEditing(null)} onSaved={() => { leads.reload(); pushToast("Lead details saved"); }} />}
     {selected ? <Card>
       <div className="page-heading page-heading--split">
