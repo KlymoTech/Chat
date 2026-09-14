@@ -102,7 +102,7 @@ export function MaterialmAppShell() {
     catch (error) { pushToast(error instanceof Error ? error.message : 'Sign out failed', 'error'); }
   }
 
-  return <div className={`mm-shell${collapsed ? ' mm-shell--compact' : ''}`} style={theme}>
+  return <div className={`mm-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
     <a className="mm-skip" href="#mm-main-content">Skip to content</a>
     <aside className="mm-sidebar" aria-label="Primary navigation">
       <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} /></Link>

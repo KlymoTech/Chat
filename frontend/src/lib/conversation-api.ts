@@ -60,7 +60,7 @@ export const conversationApi = {
     if (!response.ok) throw new ApiError('Could not save visitor details. Check the fields and try again.', response.status);
     return response.json();
   },
-  async list(filters: ConversationFilters = {}): Promise<PageResult<Conversation>> {
+  async list(filters: ConversationFilters = {}, signal?: AbortSignal): Promise<PageResult<Conversation>> {
     const params = new URLSearchParams();
     if (filters.agentId) params.set('agent_id', filters.agentId);
     if (filters.courseId) params.set('course_id', filters.courseId);
@@ -75,12 +75,14 @@ export const conversationApi = {
     const endpoint = educationScoped ? '/education/conversations' : '/conversations';
     try {
       const response = await fetch(`${API_URL}${endpoint}?${params.toString()}`, {
+        signal,
         credentials: 'include',
         headers: authHeaders(),
       });
       if (!response.ok) throw new ApiError(`Conversation request failed (${response.status})`, response.status);
       return response.json() as Promise<PageResult<Conversation>>;
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (!DEMO_MODE || (error instanceof ApiError && [400, 401, 403, 409, 422].includes(error.status))) throw error;
       const fallback = await api.conversations.list();
       const page = filters.page ?? 1;

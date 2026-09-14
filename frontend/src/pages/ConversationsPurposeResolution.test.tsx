@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -211,4 +211,64 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
     await waitFor(() => expect(mocks.resolve).toHaveBeenCalledWith(baseConversation.id, undefined));
   });
 
+});
+
+
+describe('Conversations live messages and reading position', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    mocks.agentList.mockResolvedValue([agentForPurpose('support')]);
+    mocks.educationSalesSettings.mockResolvedValue({ createUpsellLeads: false });
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('discovers the first website conversation and updates its messages without navigation', async () => {
+    mocks.conversationList.mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 50 });
+    await act(async () => { render(<MemoryRouter><ConversationsPage /></MemoryRouter>); });
+    expect(screen.getByText('No conversations here')).toBeInTheDocument();
+    const conversation = { ...baseConversation, messages: [{ id: 'message-1', role: 'user' as const, content: 'A new website message', createdAt: baseConversation.startedAt }] };
+    mocks.conversationList.mockResolvedValue({ items: [conversation], total: 1, page: 1, pageSize: 50 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.getByRole('log', { name: 'Conversation messages' })).toHaveTextContent('A new website message');
+    fireEvent.change(screen.getByPlaceholderText(/Reply as a teammate/), { target: { value: 'My unsent reply' } });
+    mocks.conversationList.mockResolvedValue({ items: [{ ...conversation, messages: [...conversation.messages, { id: 'message-2', role: 'assistant', content: 'An automatic reply', createdAt: baseConversation.startedAt }] }], total: 1, page: 1, pageSize: 50 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.getByRole('log')).toHaveTextContent('An automatic reply');
+    expect(screen.getByPlaceholderText(/Reply as a teammate/)).toHaveValue('My unsent reply');
+  });
+
+  it('follows new messages at the bottom but preserves older reading position', async () => {
+    let messages = [{ id: 'message-1', role: 'user' as const, content: 'First message', createdAt: baseConversation.startedAt }];
+    const current = () => ({ items: [{ ...baseConversation, messages }], total: 1, page: 1, pageSize: 50 });
+    mocks.conversationList.mockImplementation(async () => current());
+    await act(async () => { render(<MemoryRouter><ConversationsPage /></MemoryRouter>); });
+    const thread = screen.getByRole('log');
+    let scrollHeight = 1000;
+    Object.defineProperties(thread, { scrollHeight: { get: () => scrollHeight }, clientHeight: { value: 200 } });
+    thread.scrollTop = 800;
+    fireEvent.scroll(thread);
+    messages = [...messages, { ...messages[0]!, id: 'message-2', content: 'Second message' }];
+    scrollHeight = 1200;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(thread.scrollTop).toBe(1200);
+    thread.scrollTop = 100;
+    fireEvent.scroll(thread);
+    messages = [...messages, { ...messages[0]!, id: 'message-3', content: 'Third message' }];
+    scrollHeight = 1400;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(thread.scrollTop).toBe(100);
+    fireEvent.click(screen.getByRole('button', { name: 'New messages' }));
+    expect(thread.scrollTop).toBe(1400);
+    expect(screen.queryByRole('button', { name: 'New messages' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the conversation list open after pressing Back while updates continue', async () => {
+    mocks.conversationList.mockResolvedValue({ items: [baseConversation], total: 1, page: 1, pageSize: 50 });
+    await act(async () => { render(<MemoryRouter><ConversationsPage /></MemoryRouter>); });
+    fireEvent.click(screen.getByRole('button', { name: 'Back to conversation list' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.queryByRole('log')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Conversation list' })).toBeInTheDocument();
+  });
 });

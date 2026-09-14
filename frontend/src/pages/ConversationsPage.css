@@ -60,6 +60,52 @@
 .visitor-details-editor dd { overflow-wrap: anywhere; }
 .visitor-details-editor [role="alert"] { color: #b42318; }
 
+/* Constrain the inbox to the space below the actual app header. Each pane
+   scrolls independently, including when browser zoom or mobile height changes. */
+.mm-shell--inbox .mm-main {
+  height: 100vh; height: 100dvh; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.mm-shell--inbox .mm-topbar { flex: 0 0 auto; }
+.mm-shell--inbox .mm-content { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.mm-shell--inbox .inbox-page { width: 100%; height: 100%; min-height: 0; flex: 1; }
+.inbox-page .conversation-list-panel,
+.inbox-page .conversation-detail { height: 100%; min-height: 0; overflow: hidden; }
+.inbox-page .inbox-title,
+.inbox-page .inbox-tools,
+.inbox-page .education-inbox-filters,
+.inbox-page .inbox-update-status { flex: 0 0 auto; }
+.inbox-page .conversation-items { flex: 1 1 0%; min-height: 0; }
+.inbox-page .conversation-layout { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.inbox-page .conversation-thread { flex: 1 1 0%; min-height: 0; overflow-anchor: none; }
+.inbox-page .human-composer { flex: 0 0 auto; }
+.inbox-page .visitor-panel { min-height: 0; }
+.inbox-page .conversation-items,
+.inbox-page .conversation-thread,
+.inbox-page .visitor-panel {
+  overflow-y: scroll; overflow-x: hidden; overscroll-behavior: contain;
+  scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #94a3b8 #f1f5f9;
+}
+.inbox-page .conversation-items::-webkit-scrollbar,
+.inbox-page .conversation-thread::-webkit-scrollbar,
+.inbox-page .visitor-panel::-webkit-scrollbar { width: 9px; }
+.inbox-page .conversation-items::-webkit-scrollbar-thumb,
+.inbox-page .conversation-thread::-webkit-scrollbar-thumb,
+.inbox-page .visitor-panel::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; border: 2px solid #f1f5f9; }
+.inbox-page .conversation-items::-webkit-scrollbar-track,
+.inbox-page .conversation-thread::-webkit-scrollbar-track,
+.inbox-page .visitor-panel::-webkit-scrollbar-track { background: #f1f5f9; }
+.conversation-reply-tools { flex: 0 0 auto; padding: 8px 12px 0; }
+.conversation-new-messages {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; border-top: 1px solid var(--line); padding: 8px 12px;
+  color: #006fae; background: #eaf6ff; font-size: 12px; cursor: pointer;
+}
+.conversation-new-messages svg { width: 15px; height: 15px; }
+.inbox-update-status { padding: 6px 14px; color: var(--muted); background: #f8fafc; font-size: 10px; }
+.inbox-update-status--error { color: #92400e; background: #fffbeb; }
+.inbox-update-status button { padding: 0 0 0 8px; border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; }
+
 .inbox-page .conversation-detail { grid-template-rows: max-content minmax(0, 1fr); }
 .inbox-page .conversation-detail__header { flex-wrap: wrap; min-height: 78px; padding-top: 12px; padding-bottom: 12px; }
 .inbox-page .conversation-detail__header > div:nth-child(3) { min-width: 0; }
