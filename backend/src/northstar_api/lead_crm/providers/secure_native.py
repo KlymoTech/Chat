@@ -189,8 +189,53 @@ class SecurePipedriveConnector(HardenedOAuthJSONConnector, PipedriveConnector):
     pass
 
 
-class SecureFreshsalesConnector(HardenedOAuthJSONConnector, FreshsalesConnector):
-    pass
+class SecureFreshsalesConnector(FreshsalesConnector):
+    async def _request(
+        self,
+        context: CRMConnectionContext,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        api_key = str(context.credentials.get("api_key") or "")
+        if not api_key:
+            raise CRMError(
+                NormalizedCRMErrorCode.AUTHENTICATION_ERROR,
+                "Freshsales API key is missing",
+                requires_reconnect=True,
+            )
+        try:
+            response = await request_public(
+                method,
+                f"{self._base_url(context)}/{path.lstrip('/')}",
+                params=params,
+                json_body=payload,
+                headers={
+                    "Authorization": f"Token token={api_key}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                timeout_seconds=20,
+            )
+        except UnsafeOutboundCRMURL as exc:
+            raise CRMError(
+                NormalizedCRMErrorCode.CONFIGURATION_ERROR,
+                "Freshsales API destination is not a permitted public HTTPS URL",
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise CRMError(
+                NormalizedCRMErrorCode.TIMEOUT, "Freshsales request timed out", retryable=True
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise CRMError(
+                NormalizedCRMErrorCode.NETWORK_ERROR, "Freshsales request failed", retryable=True
+            ) from exc
+        if response.status_code < 400:
+            return response
+        _raise_native_http_error(response)
+        raise AssertionError("unreachable")
 
 
 class SecureZohoCRMConnector(ZohoCRMConnector):

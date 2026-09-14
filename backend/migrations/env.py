@@ -4,7 +4,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import inspect, pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from northstar_api import (
@@ -55,6 +55,24 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
     with context.begin_transaction():
+        if connection.dialect.name == "postgresql":
+            # Descriptive revision identifiers exceed Alembic's default 32 characters.
+            inspector = inspect(connection)
+            if not inspector.has_table("alembic_version"):
+                connection.execute(
+                    text("CREATE TABLE alembic_version (version_num VARCHAR(128) NOT NULL PRIMARY KEY)")
+                )
+            elif (
+                next(
+                    column
+                    for column in inspector.get_columns("alembic_version")
+                    if column["name"] == "version_num"
+                )["type"].length
+                < 128
+            ):
+                connection.execute(
+                    text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+                )
         context.run_migrations()
 
 

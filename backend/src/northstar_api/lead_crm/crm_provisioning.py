@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import SecretStr
 from sqlalchemy import delete, select
@@ -439,6 +439,7 @@ async def ensure_managed_oauth_connection(
     region: str | None,
     configuration: dict[str, Any],
     settings: Settings | None = None,
+    client_credentials: dict[str, str] | None = None,
 ) -> CRMConnection:
     if provider not in MANAGED_OAUTH_PROVIDERS:
         raise ValueError("Provider does not support one-click OAuth")
@@ -464,7 +465,22 @@ async def ensure_managed_oauth_connection(
         ),
         None,
     )
-    managed_credentials = managed_oauth_credentials(provider, settings)
+    previous = (
+        credential_store.decrypt(connection.credentials_encrypted)
+        if connection is not None and connection.credentials_encrypted
+        else {}
+    )
+    customer_app = bool(client_credentials) or bool(
+        connection is not None and (connection.configuration_json or {}).get("credentialSource") == "customer"
+    )
+    managed_credentials = client_credentials or (
+        {key: previous.get(key, "") for key in ("client_id", "client_secret")}
+        if customer_app
+        else managed_oauth_credentials(provider, settings)
+    )
+    if not all(managed_credentials.get(key) for key in ("client_id", "client_secret")):
+        raise ValueError("OAuth client ID and client secret are required")
+    configuration = {**configuration, "credentialSource": "customer" if customer_app else "platform"}
     stored_credentials: dict[str, Any] = dict(managed_credentials)
     if connection is None:
         base_name = (display_name or PROVIDER_NAMES[provider]).strip()[:160]
@@ -476,7 +492,7 @@ async def ensure_managed_oauth_connection(
             )
         )
         if conflict:
-            stored_name = f"{base_name[:140]} [{str(workspace_id)[:8]}]"
+            stored_name = f"{base_name[:130]} [{str(workspace_id)[:8]}-{uuid4().hex[:8]}]"
         capabilities: CRMCapabilities = crm_registry.get(provider).capabilities
         connection = CRMConnection(
             tenant_id=tenant_id,
@@ -501,8 +517,13 @@ async def ensure_managed_oauth_connection(
         session.add(connection)
         await session.flush()
     else:
-        if connection.credentials_encrypted:
-            stored_credentials.update(credential_store.decrypt(connection.credentials_encrypted))
+        if (
+            all(previous.get(key) == managed_credentials.get(key) for key in ("client_id", "client_secret"))
+            and connection.environment == environment
+            and connection.region == region
+            and (connection.configuration_json or {}).get("resourceUrl") == configuration.get("resourceUrl")
+        ):
+            stored_credentials.update(previous)
         stored_credentials.update(managed_credentials)
         connection.environment = environment
         connection.region = region

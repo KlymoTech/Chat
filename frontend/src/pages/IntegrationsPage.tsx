@@ -1,4 +1,5 @@
-import { BookOpen, Check, CircleAlert, Code2, Database, Facebook, Hash, Instagram, MessageCircle, PlugZap, RefreshCw, Search, Terminal, Users, Zap } from 'lucide-react';
+import { Facebook, Instagram } from '@/components/social-icons';
+import { BookOpen, Check, CircleAlert, Code2, Database, Hash, MessageCircle, PlugZap, RefreshCw, Search, Terminal, Users, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ChannelHealthHistoryPanel } from '@/components/channel-health-history-panel';
 import { ChannelOperationalHealthPanel } from '@/components/channel-operational-health-panel';

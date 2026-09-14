@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-from northstar_api import models  # noqa: F401
-from northstar_api.database import Base
+from northstar_api.migration_schema_v1 import Base
 
 revision = "0001_initial"
 down_revision = None

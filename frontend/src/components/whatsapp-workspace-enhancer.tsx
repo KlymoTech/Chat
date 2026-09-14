@@ -1,5 +1,6 @@
+import { Facebook, Instagram } from '@/components/social-icons';
 import {
-  BookOpen, Facebook, Hash, Instagram, MessageCircle, MessageSquareText, MoreVertical,
+  BookOpen, Hash, MessageCircle, MessageSquareText, MoreVertical,
   RefreshCw, SendHorizontal, Terminal, Workflow,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';

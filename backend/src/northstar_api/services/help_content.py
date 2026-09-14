@@ -229,13 +229,13 @@ async def sync_help_content(
             chunks = _chunk_markdown(document.body)
             vectors, embedding_model = await _embed_chunks(chunks)
             await session.execute(delete(HelpArticleChunk).where(HelpArticleChunk.article_id == article.id))
-            for index, ((heading, text), vector) in enumerate(zip(chunks, vectors, strict=True)):
+            for index, ((heading, chunk_text), vector) in enumerate(zip(chunks, vectors, strict=True)):
                 session.add(
                     HelpArticleChunk(
                         article_id=article.id,
                         chunk_index=index,
                         heading_path=heading[:500],
-                        content=text,
+                        content=chunk_text,
                         embedding_model=embedding_model,
                         embedding=vector,
                     )

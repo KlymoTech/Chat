@@ -21,13 +21,13 @@ from northstar_api.models import (
     WorkspaceStatus,
 )
 from northstar_api.schemas import APIModel
-from northstar_api.security import Principal, WORKSPACE_ROLE_PERMISSIONS
-from northstar_api.workspace_invitations import (
-    WorkspaceInvitation,
+from northstar_api.security import WORKSPACE_ROLE_PERMISSIONS, Principal
+from northstar_api.services.workspace_invitations import (
     WorkspaceInvitationError,
     issue_workspace_invitation,
     send_workspace_invitation_email,
 )
+from northstar_api.workspace_invitations import WorkspaceInvitation
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 collection_router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -48,8 +48,8 @@ class WhiteLabelSettings(APIModel):
     logo_data_url: str = Field(default="", max_length=500_000)
     favicon_data_url: str = Field(default="", max_length=500_000)
     app_icon_data_url: str = Field(default="", max_length=500_000)
-    primary_color: str = "#146cf6"
-    secondary_color: str = "#705cf6"
+    primary_color: str = "#00a1ff"
+    secondary_color: str = "#16cdc7"
     support_email: EmailStr | None = None
     support_url: str = Field(default="", max_length=2000)
     browser_title: str = Field(default="Northstar AI", min_length=1, max_length=120)
@@ -144,7 +144,6 @@ class WorkspaceInvite(APIModel):
     role: WorkspaceRole = WorkspaceRole.OPERATOR
 
 
-
 def _workspace_response(
     tenant: Tenant,
     workspace: Workspace,
@@ -163,12 +162,14 @@ def _workspace_response(
         permissions=sorted(WORKSPACE_ROLE_PERMISSIONS[membership.role]),
         plan=tenant.plan,
         member_count=member_count,
-        preferences=WorkspacePreferences.model_validate({
-            "timezone": workspace.timezone,
-            "defaultLanguage": workspace.default_language,
-            "dateFormat": workspace.date_format,
-            **settings.get("preferences", {}),
-        }),
+        preferences=WorkspacePreferences.model_validate(
+            {
+                "timezone": workspace.timezone,
+                "defaultLanguage": workspace.default_language,
+                "dateFormat": workspace.date_format,
+                **settings.get("preferences", {}),
+            }
+        ),
         white_label=WhiteLabelSettings.model_validate(
             {"companyName": tenant.name, **(workspace.branding_json or {})}
         ),
@@ -338,9 +339,7 @@ async def invite_workspace_member(
         principal.tenant_id, principal.workspace_id, principal.user_id, session
     )
     normalized_email = str(payload.email).strip().lower()
-    existing_user = await session.scalar(
-        select(User).where(func.lower(User.email) == normalized_email)
-    )
+    existing_user = await session.scalar(select(User).where(func.lower(User.email) == normalized_email))
     if existing_user is not None:
         existing_membership = await session.get(
             WorkspaceMembership,
@@ -372,26 +371,32 @@ async def invite_workspace_member(
         await session.commit()
         return await _team_response(principal.tenant_id, workspace.id, session)
 
-    invitation, raw_token = await issue_workspace_invitation(
+    issued = await issue_workspace_invitation(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=workspace.id,
         email=normalized_email,
         role=payload.role,
-        invited_by=principal.user_id,
+        invited_by_user_id=principal.user_id,
+        all_agents_access=True,
+        agent_ids=[],
     )
     try:
         await send_workspace_invitation_email(
-            email=invitation.email,
+            recipient_email=issued.invitation.email,
             workspace_name=workspace.name,
-            raw_token=raw_token,
+            tenant_name=workspace.name,
+            role=issued.invitation.role,
+            raw_token=issued.token,
         )
     except WorkspaceInvitationError as exc:
         await session.rollback()
         raise HTTPException(status_code=503, detail=str(exc)) from None
     except Exception:
         await session.rollback()
-        raise HTTPException(status_code=502, detail="Workspace invitation email could not be delivered") from None
+        raise HTTPException(
+            status_code=502, detail="Workspace invitation email could not be delivered"
+        ) from None
     await session.commit()
     return await _team_response(principal.tenant_id, workspace.id, session)
 

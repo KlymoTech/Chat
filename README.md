@@ -106,15 +106,25 @@ compose.yaml            Complete local service topology
 
 ### Windows: one click
 
-Double-click `start.bat` in the repository root. It verifies Docker Desktop, creates `.env` if missing, stops previous Northstar containers, validates required ports, builds and starts services, waits for API/web health checks, prints seeded sign-in credentials, and opens Swagger UI plus the web app.
+Double-click `start.bat` in the repository root. It starts Docker Desktop when needed, checks the configured ports, builds the current backend/frontend using Docker's cache, runs migrations and services, checks readiness, and automatically starts ngrok. It opens the public app when the tunnel is ready, or the local app when ngrok is unavailable. Existing project containers and persistent data are reused. Closing the launcher window after startup leaves the services running.
 
-Sign in with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from `.env` (`admin@example.com` by default for disposable local development). To exercise a protected route in Swagger, call `POST /api/v1/auth/login`, copy `accessToken`, then use **Authorize**.
+The launcher prefers `.env.launch` when present (the verified local stack), otherwise `.env`, creating it from `.env.example` when necessary. An explicit `-EnvFile` or `NORTHSTAR_ENV_FILE` overrides that choice. It uses `compose.yaml` and an optional `compose.override.yaml`; it does not depend on temporary files under `reports/`. Printed URLs come from the selected configuration, normally http://localhost:3100 and http://localhost:8100/docs.
 
-Shut everything down with:
+Sign in with `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from the selected environment file. Credentials are not printed. All local/public app links, API docs, configured CRM callbacks, webhook templates and local service consoles are printed together and saved to `reports/startup/links.txt`. Startup diagnostics are saved to `reports/startup/latest.log`. An occupied port, failed build, failed migration, or unhealthy service produces a nonzero exit code and a diagnostic message. Missing ngrok authentication leaves the healthy local app running and prints the setup command. Configure ngrok once with `ngrok config add-authtoken YOUR_TOKEN` locally; see [ngrok setup](docs/NGROK.md).
 
-```bash
-docker compose down
+Optional command-line usage:
+
+```bat
+start.bat -NoBuild
+start.bat -EnvFile .env -NoBrowser -NoPause
+start.bat -TimeoutSeconds 600
+start.bat -NoNgrok
+start.bat -NgrokDomain your-domain.ngrok-free.dev
 ```
+
+`-NoBuild` reuses existing images; run without it after changing code. `-NoNgrok` skips starting a tunnel; stop an existing tunnel with `start-ngrok.bat -Stop`. `NORTHSTAR_NO_BROWSER` and `NORTHSTAR_NO_PAUSE` remain supported. To stop the verified stack while preserving containers and data, run `docker compose --env-file .env.launch stop` (substitute `.env` if that was selected).
+
+To exercise a protected route in Swagger, call `POST /api/v1/auth/login`, copy `accessToken`, then use **Authorize**.
 
 Prerequisites:
 

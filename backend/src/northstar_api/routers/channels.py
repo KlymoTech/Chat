@@ -81,9 +81,7 @@ def _out(value: ChannelConnection, scope: WorkspaceChannelConnection) -> Channel
         name=value.name,
         status=value.status,
         configuration=value.configuration_json,
-        webhook_path=(
-            f"/api/v1/webhooks/channels/{value.tenant_id}/{value.provider}/{value.public_id}"
-        ),
+        webhook_path=(f"/api/v1/webhooks/channels/{value.tenant_id}/{value.provider}/{value.public_id}"),
         last_health_at=value.last_health_at,
         last_event_at=value.last_event_at,
         last_failure_at=value.last_failure_at,
@@ -203,11 +201,15 @@ async def create_channel_connection(
         )
     )
     if duplicate:
-        raise HTTPException(status_code=409, detail="A channel connection with that name already exists in this workspace")
+        raise HTTPException(
+            status_code=409, detail="A channel connection with that name already exists in this workspace"
+        )
     try:
         channel_registry.get(payload.provider)
     except KeyError as exc:
-        raise HTTPException(status_code=409, detail="Channel connector is not available in this runtime") from exc
+        raise HTTPException(
+            status_code=409, detail="Channel connector is not available in this runtime"
+        ) from exc
     encrypted = None
     if payload.credentials:
         try:
@@ -270,6 +272,43 @@ async def list_channel_connections(
         )
     ).all()
     return [_out(value, scope) for value, scope in rows]
+
+
+@router.patch("/channels/connections/{connection_id}", response_model=ChannelConnectionOut)
+async def update_channel_connection(
+    connection_id: UUID,
+    payload: ChannelConnectionCreate,
+    principal: ChannelsManagePrincipal,
+    session: DB,
+) -> ChannelConnectionOut:
+    scoped = await _scoped_connection(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
+    )
+    if not scoped:
+        raise HTTPException(status_code=404, detail="Channel connection not found in this workspace")
+    value, scope = scoped
+    if value.provider != payload.provider.value:
+        raise HTTPException(status_code=422, detail="A connection's provider cannot be changed")
+    await _validate_agent_channel(session, principal, payload.provider, payload.agent_id)
+    # Keep the existing name and public webhook URL stable when replacing credentials.
+    if not payload.credentials:
+        raise HTTPException(status_code=422, detail="Replacement credentials are required")
+    try:
+        value.credentials_encrypted = credential_store.encrypt(payload.credentials)
+    except CredentialStoreError as exc:
+        raise HTTPException(status_code=503, detail="Credential encryption is not configured") from exc
+    value.configuration_json = payload.configuration
+    scope.agent_id = payload.agent_id
+    value.status = "configured"
+    value.last_error = None
+    value.last_health_at = None
+    value.last_event_at = None
+    await session.commit()
+    await session.refresh(value)
+    return _out(value, scope)
 
 
 @router.post("/channels/connections/{connection_id}/test")
@@ -371,9 +410,7 @@ async def verify_meta_channel_webhook(
     }:
         raise HTTPException(status_code=404, detail="Webhook verification is not supported")
     await set_tenant_context(session, tenant_id)
-    scoped = await _external_connection(
-        session, tenant_id=tenant_id, provider=provider, public_id=public_id
-    )
+    scoped = await _external_connection(session, tenant_id=tenant_id, provider=provider, public_id=public_id)
     if not scoped:
         raise HTTPException(status_code=404, detail="Channel connection not found")
     value, _ = scoped
@@ -409,9 +446,7 @@ async def receive_channel_webhook(
         raise HTTPException(status_code=400, detail="Webhook payload must be an object")
 
     await set_tenant_context(session, tenant_id)
-    scoped = await _external_connection(
-        session, tenant_id=tenant_id, provider=provider, public_id=public_id
-    )
+    scoped = await _external_connection(session, tenant_id=tenant_id, provider=provider, public_id=public_id)
     if not scoped:
         raise HTTPException(status_code=404, detail="Channel connection not found")
     connection, scope = scoped

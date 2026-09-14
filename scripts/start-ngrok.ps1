@@ -1,0 +1,168 @@
+[CmdletBinding()]
+param(
+    [string]$EnvFile = '.env.launch',
+    [string]$Domain = $env:NGROK_DOMAIN,
+    [switch]$Stop,
+    [switch]$NoBrowser,
+    [switch]$NoPause
+)
+
+$ErrorActionPreference = 'Stop'
+$workspaceRoot = Split-Path $PSScriptRoot -Parent
+Set-Location -LiteralPath $workspaceRoot
+$runtimeDirectory = Join-Path $workspaceRoot 'reports/ngrok'
+New-Item -ItemType Directory -Force -Path $runtimeDirectory | Out-Null
+$stateFile = Join-Path $runtimeDirectory 'state.json'
+$processStarted = $null
+$launchLock = $null
+$exitCode = 1
+
+function Set-EnvironmentValues {
+    param([string]$Path, [System.Collections.IDictionary]$Values)
+    $lines = @([IO.File]::ReadAllLines($Path))
+    foreach ($key in $Values.Keys) {
+        $pattern = '^' + [regex]::Escape($key) + '='
+        $lines = @($lines | Where-Object { $_ -notmatch $pattern })
+        if ($null -ne $Values[$key]) { $lines += "$key=$($Values[$key])" }
+    }
+    [IO.File]::WriteAllLines($Path, $lines, (New-Object Text.UTF8Encoding($false)))
+}
+
+function Invoke-Compose {
+    param([string[]]$Command)
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & docker @script:composeArgs @Command 2>&1 | ForEach-Object { Write-Host $_.ToString() }
+        $result = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previousPreference }
+    if ($result -ne 0) { throw 'Docker could not apply the public URL settings.' }
+}
+
+function Refresh-PublicConfiguration {
+    Invoke-Compose -Command @('up', '-d', '--no-build', '--wait', '--wait-timeout', '120', 'api')
+    # Nginx resolves the backend container at startup; refresh after API recreation.
+    Invoke-Compose -Command @('restart', 'web')
+}
+
+try {
+    $launchLock = [IO.File]::Open((Join-Path $runtimeDirectory 'launch.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+    $EnvFile = (Resolve-Path -LiteralPath $EnvFile).Path
+    if (-not $Domain) {
+        $domainLine = [IO.File]::ReadAllLines($EnvFile) | Where-Object { $_ -match '^NGROK_DOMAIN=' } | Select-Object -Last 1
+        if ($domainLine) { $Domain = ($domainLine -split '=', 2)[1].Trim().Trim('"', "'") }
+    }
+    $script:composeArgs = @('compose', '--env-file', $EnvFile, '-f', 'compose.yaml')
+    if (Test-Path -LiteralPath 'compose.override.yaml') { $script:composeArgs += @('-f', 'compose.override.yaml') }
+
+    if ($Stop) {
+        if (-not (Test-Path -LiteralPath $stateFile)) { throw 'There is no saved Northstar ngrok session to stop.' }
+        $state = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+        if ($state.envFile -ne $EnvFile) { throw "This session uses $($state.envFile). Pass that file using -EnvFile." }
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($state.processId)" -ErrorAction SilentlyContinue
+        if ($process -and $process.Name -eq 'ngrok.exe' -and $process.CommandLine -like '*northstar-chat*') {
+            Stop-Process -Id $process.ProcessId
+        }
+        $original = @{}
+        foreach ($property in $state.original.PSObject.Properties) { $original[$property.Name] = $property.Value }
+        Set-EnvironmentValues -Path $EnvFile -Values $original
+        Refresh-PublicConfiguration
+        Remove-Item -LiteralPath $stateFile
+        Write-Host 'ngrok stopped. Local CRM callback settings restored.'
+    } else {
+        $ngrok = Get-Command ngrok -ErrorAction SilentlyContinue
+        if (-not $ngrok) { throw 'Install ngrok first: winget install ngrok --source msstore' }
+        $config = Join-Path $env:LOCALAPPDATA 'ngrok/ngrok.yml'
+        if (-not $env:NGROK_AUTHTOKEN -and -not (Test-Path -LiteralPath $config)) {
+            throw 'Authenticate ngrok first: ngrok config add-authtoken YOUR_TOKEN (get the token at https://dashboard.ngrok.com/get-started/your-authtoken). Keep the token local.'
+        }
+        if ($Domain -and $Domain -notmatch '^(https://)?[a-zA-Z0-9.-]+$') { throw 'Domain must be an ngrok hostname or an HTTPS origin.' }
+        $envLines = [IO.File]::ReadAllLines($EnvFile)
+        $portLine = $envLines | Where-Object { $_ -match '^WEB_PORT=' } | Select-Object -Last 1
+        $webPort = if ($portLine) { [int]($portLine -split '=', 2)[1].Trim('"', "'") } else { 3000 }
+        $upstream = "http://localhost:$webPort"
+        try { $null = Invoke-WebRequest -UseBasicParsing -Uri "$upstream/healthz" -TimeoutSec 5 }
+        catch { throw 'The local app is not ready. Run start.bat first, then start-ngrok.bat.' }
+
+        $existingState = if (Test-Path -LiteralPath $stateFile) { Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json } else { $null }
+        $tunnel = $null
+        if ($existingState) {
+            if ($existingState.envFile -ne $EnvFile) { throw 'Stop the existing ngrok session before using a different environment file.' }
+            if ($Domain -and $existingState.publicUrl -ne "https://$($Domain -replace '^https://', '')") { throw 'Stop the existing ngrok session before changing its domain: start-ngrok.bat -Stop' }
+            try {
+                $tunnel = (Invoke-RestMethod -Uri 'http://127.0.0.1:4040/api/tunnels' -TimeoutSec 3).tunnels | Where-Object { $_.public_url -eq $existingState.publicUrl -and $_.config.addr -eq $upstream } | Select-Object -First 1
+            } catch { }
+        }
+        if (-not $tunnel) {
+            if (Get-NetTCPConnection -LocalPort 4040 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 4040 is used by another tunnel. Stop that ngrok session before starting this app.' }
+            $arguments = @('http', $upstream, '--inspect=false', '--metadata=northstar-chat', '--log=stdout', '--log-format=json')
+            if ($Domain) { $arguments += "--url=https://$($Domain -replace '^https://', '')" }
+            $processStarted = Start-Process -FilePath $ngrok.Source -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runtimeDirectory 'agent.log') -RedirectStandardError (Join-Path $runtimeDirectory 'agent-error.log')
+            $deadline = (Get-Date).AddSeconds(40)
+            do {
+                Start-Sleep -Milliseconds 500
+                $processStarted.Refresh()
+                if ($processStarted.HasExited) { throw "ngrok could not connect. Check reports/ngrok/agent-error.log and your ngrok authtoken." }
+                try {
+                    $tunnel = (Invoke-RestMethod -Uri 'http://127.0.0.1:4040/api/tunnels' -TimeoutSec 2).tunnels | Where-Object { $_.proto -eq 'https' -and $_.config.addr -eq $upstream } | Select-Object -First 1
+                } catch { }
+            } until ($tunnel -or (Get-Date) -gt $deadline)
+            if (-not $tunnel) { throw 'ngrok did not return a public HTTPS URL. Check reports/ngrok/agent.log.' }
+        }
+        $publicUrl = ([uri]$tunnel.public_url).GetLeftPart([UriPartial]::Authority)
+        if ($publicUrl -notmatch '^https://') { throw 'ngrok must provide an HTTPS endpoint.' }
+        $values = [ordered]@{
+            CRM_OAUTH_PUBLIC_BASE_URL = $publicUrl
+            CRM_OAUTH_FRONTEND_ORIGIN = $publicUrl
+            APP_CORS_ORIGINS = '["' + $publicUrl + '","http://localhost:3100","http://127.0.0.1:3100"]'
+            EMAIL_VERIFICATION_FRONTEND_URL = "$publicUrl/verify-email"
+            PASSWORD_RESET_FRONTEND_URL = "$publicUrl/reset-password"
+            WORKSPACE_INVITATION_FRONTEND_URL = "$publicUrl/workspace-invitation"
+            ZOHO_OAUTH_FRONTEND_URL = "$publicUrl/integrations"
+        }
+        $original = @{}
+        if ($existingState) {
+            foreach ($property in $existingState.original.PSObject.Properties) { $original[$property.Name] = $property.Value }
+        } else {
+            foreach ($key in $values.Keys) {
+                $line = $envLines | Where-Object { $_ -match ('^' + [regex]::Escape($key) + '=') } | Select-Object -Last 1
+                $original[$key] = if ($line) { ($line -split '=', 2)[1] } else { $null }
+            }
+        }
+        $processId = if ($processStarted) { $processStarted.Id } else { $existingState.processId }
+        @{ envFile = $EnvFile; processId = $processId; publicUrl = $publicUrl; original = $original } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stateFile -Encoding UTF8
+        $settingsChanged = $false
+        foreach ($key in $values.Keys) {
+            if ($envLines -notcontains "$key=$($values[$key])") { $settingsChanged = $true }
+        }
+        if ($settingsChanged -or $processStarted) {
+            Set-EnvironmentValues -Path $EnvFile -Values $values
+            Write-Host 'Applying the public CRM callback and account URLs...'
+            Refresh-PublicConfiguration
+        } else { Write-Host 'Reusing the existing ngrok endpoint and public URL settings.' }
+        $headers = @{ 'ngrok-skip-browser-warning' = 'northstar-readiness-check' }
+        $deadline = (Get-Date).AddSeconds(40)
+        do {
+            try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri "$publicUrl/healthz" -Headers $headers -TimeoutSec 10
+                if ($response.StatusCode -eq 200 -and $response.Content.Trim() -eq 'ok') { break }
+            } catch { }
+            Start-Sleep -Seconds 1
+        } until ((Get-Date) -gt $deadline)
+        if (-not $response -or $response.StatusCode -ne 200 -or $response.Content.Trim() -ne 'ok') { throw 'The public endpoint is not ready. The ngrok session is saved; rerun this launcher to retry.' }
+        Write-Host "`nPUBLIC APP: $publicUrl/integrations"
+        Write-Host "ZOHO REDIRECT URL: $publicUrl/api/v1/crm/oauth/zoho/callback"
+        Write-Host 'Keep this PC and Docker running. The ngrok agent runs in the background.'
+        Write-Host 'To stop sharing and restore localhost callbacks: start-ngrok.bat -Stop'
+        Write-Host 'Use the public app URL when authorizing CRM accounts.'
+        if (-not $NoBrowser) { Start-Process -FilePath "$publicUrl/integrations" | Out-Null }
+    }
+    $exitCode = 0
+} catch {
+    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    if ($processStarted -and -not (Test-Path -LiteralPath $stateFile)) { Stop-Process -Id $processStarted.Id -ErrorAction SilentlyContinue }
+} finally {
+    if ($launchLock) { $launchLock.Dispose() }
+    if (-not $NoPause) { Read-Host 'Press Enter to close' | Out-Null }
+}
+exit $exitCode

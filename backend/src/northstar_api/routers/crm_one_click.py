@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import EmailStr, Field, field_validator
+from pydantic import EmailStr, Field, SecretStr, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +53,14 @@ class OneClickCRMStart(LeadCRMModel):
     region: str | None = Field(default=None, max_length=16)
     resource_url: str | None = Field(default=None, max_length=512)
     azure_tenant_id: str | None = Field(default=None, max_length=128)
+    client_id: str | None = Field(default=None, min_length=1, max_length=4096)
+    client_secret: SecretStr | None = Field(default=None, min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_client_credentials(self) -> OneClickCRMStart:
+        if bool(self.client_id) != bool(self.client_secret):
+            raise ValueError("Provide both the OAuth client ID and client secret")
+        return self
 
     @field_validator("resource_url")
     @classmethod
@@ -115,9 +123,19 @@ async def _scoped_connection(
 
 
 @router.get("/crm/one-click/providers")
-async def list_one_click_crm_providers(principal: CRMViewPrincipal) -> list[dict[str, Any]]:
+async def list_one_click_crm_providers(request: Request, principal: CRMViewPrincipal) -> list[dict[str, Any]]:
     del principal
-    return managed_provider_catalog()
+    from northstar_api.config import get_settings
+
+    settings = get_settings()
+    base = (settings.crm_oauth_public_base_url or str(request.base_url)).rstrip("/")
+    return [
+        {
+            **provider,
+            "oauthRedirectUri": f"{base}{settings.app_api_prefix}/crm/oauth/{provider['id']}/callback",
+        }
+        for provider in managed_provider_catalog()
+    ]
 
 
 @router.post("/crm/one-click/{provider}/start")
@@ -154,6 +172,12 @@ async def start_one_click_crm(
             environment=payload.environment,
             region=payload.region,
             configuration=configuration,
+            client_credentials={
+                "client_id": payload.client_id,
+                "client_secret": payload.client_secret.get_secret_value(),
+            }
+            if payload.client_id and payload.client_secret
+            else None,
         )
     except CredentialStoreError as exc:
         raise HTTPException(status_code=503, detail="CRM credential encryption is not configured") from exc

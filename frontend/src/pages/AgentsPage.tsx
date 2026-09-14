@@ -1,4 +1,5 @@
-import { BookOpen, Bot, Check, ChevronLeft, ChevronRight, Code2, Copy, Ellipsis, Facebook, Globe2, Hash, Instagram, LayoutGrid, List, MessageSquare, MoreHorizontal, Plus, Search, Sparkles, Trash2, Users, Zap } from 'lucide-react';
+import { Facebook, Instagram } from '@/components/social-icons';
+import { BookOpen, Bot, Check, ChevronLeft, ChevronRight, Code2, Copy, Ellipsis, Globe2, Hash, LayoutGrid, List, MessageSquare, MoreHorizontal, Plus, Search, Sparkles, Trash2, Users, Zap } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useToast } from '@/components/providers';

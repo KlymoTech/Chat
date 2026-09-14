@@ -202,13 +202,20 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(body || `Request failed (${response.status})`);
+    let message = `Request failed (${response.status})`;
+    try {
+      const value = JSON.parse(body) as { detail?: unknown; error?: { message?: string } };
+      if (value.error?.message) message = value.error.message;
+      else if (typeof value.detail === 'string') message = value.detail;
+    } catch { if (body && !body.includes('<')) message = body; }
+    throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 export const leadCrmApi = {
+  connectionEntitlements: () => call<{ plan: string; features: { crm: boolean; allowedChannels: string[] } }>('/billing/entitlements'),
   leads: (filters: { page?: number; pageSize?: number; search?: string; status?: string; agentId?: string; channel?: string; crmStatus?: string } = {}) => {
     const params = new URLSearchParams();
     if (filters.page) params.set('page', String(filters.page));
@@ -259,5 +266,7 @@ export const leadCrmApi = {
   createChannelConnection: (value: { provider: string; name: string; agentId?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
     call<ChannelConnectionView>('/channels/connections', { method: 'POST', body: JSON.stringify(value) }),
   testChannelConnection: (id: string) => call<Record<string, string>>(`/channels/connections/${id}/test`, { method: 'POST' }),
+  updateChannelConnection: (id: string, value: { provider: string; name: string; agentId?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
+    call<ChannelConnectionView>(`/channels/connections/${id}`, { method: 'PATCH', body: JSON.stringify(value) }),
   disableChannelConnection: (id: string) => call<void>(`/channels/connections/${id}`, { method: 'DELETE' }),
 };

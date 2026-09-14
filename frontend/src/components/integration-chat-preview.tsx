@@ -1,9 +1,8 @@
+import { Facebook, Instagram } from '@/components/social-icons';
 import {
   BookOpen,
   ExternalLink,
-  Facebook,
   Hash,
-  Instagram,
   MessageSquareText,
   MoreVertical,
   Paperclip,

@@ -97,7 +97,7 @@ const defaults: WorkspaceSettings = {
   preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
   whiteLabel: {
     companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
-    primaryColor: '#146cf6', secondaryColor: '#705cf6', supportEmail: 'support@northstar.ai',
+    primaryColor: '#00a1ff', secondaryColor: '#16cdc7', supportEmail: 'support@northstar.ai',
     supportUrl: 'https://northstar.ai/support', browserTitle: 'Northstar AI', customDomain: '',
     dnsStatus: 'not-configured', brandedLogin: true, brandedDashboard: true, brandedWidget: true,
     brandedEmails: true, removePlatformBranding: false,

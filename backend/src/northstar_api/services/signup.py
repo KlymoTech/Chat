@@ -21,11 +21,12 @@ from northstar_api.models import (
 )
 from northstar_api.security import hash_password
 from northstar_api.services.subscriptions import create_subscription_for_tenant
-from northstar_api.signup_schemas import SignupRequest
-from northstar_api.workspace_invitations import (
+from northstar_api.services.workspace_invitations import (
     WorkspaceInvitationError,
-    resolve_workspace_invitation,
+    preview_workspace_invitation,
+    signup_with_workspace_invitation,
 )
+from northstar_api.signup_schemas import SignupRequest
 
 
 class SignupConflict(RuntimeError):
@@ -68,53 +69,27 @@ async def _provision_invited_signup(
     *,
     payload: SignupRequest,
     normalized_email: str,
-    password_hash: str,
-    accepted_at: datetime,
 ) -> ProvisionedSignup:
     if payload.workspace_invitation_token is None:
         raise SignupConflict("Workspace invitation is required")
     try:
-        invitation = await resolve_workspace_invitation(session, payload.workspace_invitation_token)
+        details = await preview_workspace_invitation(session, payload.workspace_invitation_token, lock=True)
+        if details.invitation.email != normalized_email:
+            raise SignupConflict("This workspace invitation was issued to a different email address")
+        accepted = await signup_with_workspace_invitation(
+            session,
+            raw_token=payload.workspace_invitation_token,
+            name=payload.name,
+            password=payload.password,
+        )
     except WorkspaceInvitationError as exc:
         raise SignupConflict(str(exc)) from None
-    if invitation.email != normalized_email:
-        raise SignupConflict("This workspace invitation was issued to a different email address")
-
-    tenant = await session.get(Tenant, invitation.tenant_id)
-    workspace = await session.get(Workspace, invitation.workspace_id)
-    if tenant is None or workspace is None or workspace.tenant_id != tenant.id:
-        raise SignupConflict("Workspace invitation is invalid or expired")
-
-    user = User(
-        email=normalized_email,
-        name=payload.name,
-        password_hash=password_hash,
-        is_active=True,
-        last_login_at=accepted_at,
+    return ProvisionedSignup(
+        user=accepted.user,
+        tenant=accepted.tenant,
+        workspace=accepted.workspace,
+        role=accepted.tenant_role,
     )
-    session.add(user)
-    await session.flush()
-    session.add(EmailVerificationState(user_id=user.id, verified_at=None))
-    session.add(
-        TenantMembership(
-            tenant_id=tenant.id,
-            user_id=user.id,
-            role=Role.MEMBER,
-        )
-    )
-    session.add(
-        WorkspaceMembership(
-            tenant_id=tenant.id,
-            workspace_id=workspace.id,
-            user_id=user.id,
-            role=invitation.role,
-            all_agents_access=True,
-        )
-    )
-    invitation.accepted_at = accepted_at
-    invitation.updated_at = accepted_at
-    await session.flush()
-    return ProvisionedSignup(user=user, tenant=tenant, workspace=workspace, role=Role.MEMBER)
 
 
 async def provision_signup(
@@ -123,23 +98,19 @@ async def provision_signup(
     payload: SignupRequest,
 ) -> ProvisionedSignup:
     normalized_email = str(payload.email).strip().lower()
-    existing_user = await session.scalar(
-        select(User.id).where(func.lower(User.email) == normalized_email)
-    )
+    existing_user = await session.scalar(select(User.id).where(func.lower(User.email) == normalized_email))
     if existing_user is not None:
         raise SignupConflict("An account with this email already exists")
 
-    password_hash = await asyncio.to_thread(hash_password, payload.password)
-    accepted_at = datetime.now(UTC)
     if payload.workspace_invitation_token is not None:
         return await _provision_invited_signup(
             session,
             payload=payload,
             normalized_email=normalized_email,
-            password_hash=password_hash,
-            accepted_at=accepted_at,
         )
 
+    password_hash = await asyncio.to_thread(hash_password, payload.password)
+    accepted_at = datetime.now(UTC)
     if payload.organization_name is None:
         raise SignupConflict("Organization name is required")
     tenant_slug = await _available_tenant_slug(session, payload.organization_name)

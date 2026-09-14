@@ -6,6 +6,10 @@ import { AuthProvider, ToastProvider, WorkspaceProvider } from '@/components/pro
 import '@/styles.css';
 import '@/help.css';
 import '@/help-detail.css';
+import '@fontsource-variable/inter';
+import '@/theme/materialm.tokens.css';
+import '@/theme/materialm.css';
+import '@/theme/materialm.components.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

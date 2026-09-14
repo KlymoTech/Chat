@@ -1,3 +1,4 @@
+import { Facebook, Instagram } from '@/components/social-icons';
 import {
   Bot,
   Check,
@@ -6,11 +7,9 @@ import {
   Copy,
   Download,
   ExternalLink,
-  Facebook,
   FileCode2,
   Globe2,
   Image,
-  Instagram,
   Languages,
   Link2,
   MessageSquareText,

@@ -280,7 +280,7 @@ def _callback_failure(
     raise HTTPException(status_code=status_code, detail=detail)
 
 
-@router.get("/oauth/{provider}/callback", name="crm_oauth_callback")
+@router.get("/oauth/{provider}/callback", name="crm_oauth_callback", response_model=None)
 async def crm_oauth_callback(
     provider: str,
     request: Request,

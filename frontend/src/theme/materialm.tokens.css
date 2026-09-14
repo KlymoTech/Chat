@@ -1,6 +1,6 @@
 /* Adapted from the user-supplied MaterialM default-colors.css.
- * Scoped to authenticated Northstar pages; no global reset or web-font imports. */
-.mm-shell {
+ * Source provenance: docs/MATERIALM_SOURCE_PROVENANCE.json. */
+.mm-shell, .login-page {
     --m-color-primary: #00a1ff;
     --m-color-secondary: #16CDC7;
     --m-color-primary-emphasis: #0491e2;

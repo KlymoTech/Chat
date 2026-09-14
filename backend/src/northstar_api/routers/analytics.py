@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BeforeValidator
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +47,10 @@ from northstar_api.security import Principal
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 DB = Annotated[AsyncSession, Depends(get_session)]
 AnalyticsPrincipal = Annotated[Principal, Depends(require_permissions("analytics.view"))]
-AnalyticsDays = Literal[7, 30, 90]
+AnalyticsDays = Annotated[
+    Literal[7, 30, 90],
+    BeforeValidator(lambda value: int(value) if isinstance(value, str) and value.isdigit() else value),
+]
 
 
 def _rate(numerator: int, denominator: int) -> float:
@@ -57,7 +61,7 @@ def _rate(numerator: int, denominator: int) -> float:
 async def analytics_summary(
     principal: AnalyticsPrincipal,
     session: DB,
-    days: AnalyticsDays = Query(default=30),
+    days: Annotated[AnalyticsDays, Query()] = 30,
 ) -> AnalyticsSummaryOut:
     now = datetime.now(UTC)
     current_start = now - timedelta(days=days)

@@ -15,6 +15,7 @@ export interface CRMOneClickProvider {
   requiredInputs: string[];
   supportsSandbox: boolean;
   supportsReadBack: boolean;
+  oauthRedirectUri?: string;
 }
 
 export interface CRMReadiness {
@@ -41,6 +42,8 @@ export interface CRMOneClickStartRequest {
   region?: string;
   resource_url?: string;
   azure_tenant_id?: string;
+  client_id?: string;
+  client_secret?: string;
 }
 
 export interface CRMDirectActivateRequest {
@@ -122,12 +125,14 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
-      const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+      const body = await response.json().catch(() => null) as { detail?: unknown; error?: { message?: string } } | null;
+      if (body?.error?.message) throw new Error(body.error.message);
       const detail = body?.detail;
       if (typeof detail === 'string') throw new Error(detail);
       if (detail && typeof detail === 'object' && 'message' in detail) {
         throw new Error(String((detail as { message: unknown }).message));
       }
+      throw new Error(`Connection request failed (${response.status}). Check the required fields and try again.`);
     }
     throw new Error(await response.text().catch(() => '') || `Request failed (${response.status})`);
   }

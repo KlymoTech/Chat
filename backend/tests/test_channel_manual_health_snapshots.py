@@ -62,20 +62,22 @@ async def manual_health_case() -> AsyncIterator[
         )
         session.add_all([connection, other_connection])
         await session.flush()
-        session.add_all([
-            WorkspaceChannelConnection(
-                tenant_id=tenant.id,
-                workspace_id=workspace.id,
-                agent_id=None,
-                connection_id=connection.id,
-            ),
-            WorkspaceChannelConnection(
-                tenant_id=tenant.id,
-                workspace_id=other_workspace.id,
-                agent_id=None,
-                connection_id=other_connection.id,
-            ),
-        ])
+        session.add_all(
+            [
+                WorkspaceChannelConnection(
+                    tenant_id=tenant.id,
+                    workspace_id=workspace.id,
+                    agent_id=None,
+                    connection_id=connection.id,
+                ),
+                WorkspaceChannelConnection(
+                    tenant_id=tenant.id,
+                    workspace_id=other_workspace.id,
+                    agent_id=None,
+                    connection_id=other_connection.id,
+                ),
+            ]
+        )
         await session.commit()
 
         principal = Principal(
@@ -94,6 +96,39 @@ async def manual_health_case() -> AsyncIterator[
 
 def _utc(value):
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+async def test_channel_credentials_can_be_corrected_without_changing_webhook_or_leaking_secrets(
+    manual_health_case,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from northstar_api.lead_crm.credentials import credential_store
+
+    monkeypatch.setenv("CRM_CREDENTIAL_ENCRYPTION_KEY", "test-channel-update-key")
+    session, principal, connection, other = manual_health_case
+    original_public_id = connection.public_id
+    payload = channels.ChannelConnectionCreate(
+        provider=ChannelProvider.TELEGRAM,
+        name="Ignored replacement name",
+        credentials={"bot_token": "corrected-secret", "webhook_secret": "verification-secret"},
+    )
+    result = await channels.update_channel_connection(connection.id, payload, principal, session)
+    assert result.id == connection.id
+    assert result.public_id == original_public_id
+    assert result.name == "Primary Telegram"
+    assert result.status == "configured"
+    assert "corrected-secret" not in result.model_dump_json()
+    assert b"corrected-secret" not in connection.credentials_encrypted
+    assert credential_store.decrypt(connection.credentials_encrypted)["bot_token"] == payload.credentials["bot_token"]
+    with pytest.raises(HTTPException) as error:
+        await channels.update_channel_connection(other.id, payload, principal, session)
+    assert error.value.status_code == 404
+    wrong_provider = channels.ChannelConnectionCreate(
+        provider=ChannelProvider.SLACK, name="Slack", credentials={"bot_token": "value"}
+    )
+    with pytest.raises(HTTPException) as error:
+        await channels.update_channel_connection(connection.id, wrong_provider, principal, session)
+    assert error.value.status_code == 422
 
 
 async def test_manual_channel_health_check_persists_safe_snapshot(
@@ -166,9 +201,7 @@ async def test_manual_nonhealthy_result_is_recorded_without_provider_details(
     assert stored.last_error == "Channel health validation failed"
 
     snapshot = await session.scalar(
-        select(ChannelHealthSnapshot).where(
-            ChannelHealthSnapshot.connection_id == connection.id
-        )
+        select(ChannelHealthSnapshot).where(ChannelHealthSnapshot.connection_id == connection.id)
     )
     assert snapshot is not None
     assert snapshot.status == "auth_required"
@@ -195,8 +228,6 @@ async def test_manual_channel_health_check_cannot_cross_workspace_scope(
     assert exc_info.value.status_code == 404
 
     leaked_snapshot = await session.scalar(
-        select(ChannelHealthSnapshot).where(
-            ChannelHealthSnapshot.connection_id == other_connection.id
-        )
+        select(ChannelHealthSnapshot).where(ChannelHealthSnapshot.connection_id == other_connection.id)
     )
     assert leaked_snapshot is None

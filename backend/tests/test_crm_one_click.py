@@ -115,6 +115,140 @@ def test_provider_catalog_does_not_claim_unconfigured_oauth_apps() -> None:
     assert catalog["generic_rest"]["configured"] is True
 
 
+async def test_customer_oauth_credentials_are_encrypted_reused_rotated_and_workspace_scoped(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from northstar_api.lead_crm.credentials import credential_store
+    from northstar_api.lead_crm.crm_provisioning import ensure_managed_oauth_connection
+
+    monkeypatch.setenv("CRM_CREDENTIAL_ENCRYPTION_KEY", "test-customer-oauth-key")
+    tenant = Tenant(slug=f"customer-oauth-{uuid4().hex}", name="Customer OAuth")
+    session.add(tenant)
+    await session.flush()
+    workspaces = [
+        Workspace(tenant_id=tenant.id, name=name, slug=f"{name}-{uuid4().hex[:8]}")
+        for name in ("first", "second")
+    ]
+    session.add_all(workspaces)
+    await session.flush()
+    arguments = dict(
+        tenant_id=tenant.id,
+        workspace_id=workspaces[0].id,
+        provider=CRMProvider.ZOHO,
+        display_name="Customer Zoho",
+        environment="production",
+        region="in",
+        configuration={"managedOAuth": True},
+        settings=SimpleNamespace(),
+    )
+    pair = {"client_id": "customer-client", "client_secret": "customer-secret"}
+    connection = await ensure_managed_oauth_connection(session, **arguments, client_credentials=pair)
+    assert b"customer-secret" not in connection.credentials_encrypted
+    assert "customer-secret" not in str(connection.configuration_json)
+    assert connection.configuration_json["credentialSource"] == "customer"
+    assert credential_store.decrypt(connection.credentials_encrypted) == pair
+    connection.credentials_encrypted = credential_store.encrypt({**pair, "refresh_token": "old-refresh"})
+    reused = await ensure_managed_oauth_connection(session, **arguments)
+    assert reused.id == connection.id
+    assert credential_store.decrypt(reused.credentials_encrypted)["refresh_token"] == "old-refresh"  # noqa: S105
+    rotated = await ensure_managed_oauth_connection(
+        session, **arguments, client_credentials={**pair, "client_secret": "replacement"}
+    )
+    assert "refresh_token" not in credential_store.decrypt(rotated.credentials_encrypted)
+    other = await ensure_managed_oauth_connection(
+        session, **{**arguments, "workspace_id": workspaces[1].id}, client_credentials=pair
+    )
+    assert other.id != connection.id
+    assert other.name != connection.name
+    assert credential_store.decrypt(other.credentials_encrypted)["client_secret"] == pair["client_secret"]
+
+
+def test_customer_oauth_requires_a_complete_secret_pair() -> None:
+    from pydantic import ValidationError
+
+    from northstar_api.routers.crm_one_click import OneClickCRMStart
+
+    with pytest.raises(ValidationError, match="both"):
+        OneClickCRMStart(client_id="client")
+    with pytest.raises(ValidationError, match="both"):
+        OneClickCRMStart(client_secret="secret")  # noqa: S106
+    payload = OneClickCRMStart(client_id="client", client_secret="private-client-secret")  # noqa: S106
+    assert "private-client-secret" not in repr(payload)
+
+
+async def test_customer_oauth_api_returns_authorization_url_without_exposing_secret(
+    client,
+    auth_headers,
+    customer_oauth_plan,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock
+    from urllib.parse import parse_qs, urlparse
+
+    from northstar_api.routers import crm_oauth
+
+    monkeypatch.setattr(
+        crm_oauth.oauth_state_store,
+        "create",
+        AsyncMock(return_value=SimpleNamespace(state="test-state", code_challenge="test-challenge")),
+    )
+
+    monkeypatch.setenv("CRM_CREDENTIAL_ENCRYPTION_KEY", "test-http-customer-oauth-key")
+    catalog = await client.get("/api/v1/crm/one-click/providers", headers=auth_headers)
+    assert catalog.status_code == 200
+    provider = next(item for item in catalog.json() if item["id"] == "zoho")
+    assert provider["oauthRedirectUri"].endswith("/api/v1/crm/oauth/zoho/callback")
+    response = await client.post(
+        "/api/v1/crm/one-click/zoho/start",
+        headers=auth_headers,
+        json={
+            "name": "Customer OAuth API",
+            "region": "in",
+            "client_id": "customer-app-id",
+            "client_secret": "private-http-secret",
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert "private-http-secret" not in response.text
+    authorization = urlparse(result["authorizationUrl"])
+    assert authorization.hostname == "accounts.zoho.in"
+    query = parse_qs(authorization.query)
+    assert query["client_id"] == ["customer-app-id"]
+    assert query["redirect_uri"] == [provider["oauthRedirectUri"]]
+    connections = await client.get("/api/v1/crm/connections", headers=auth_headers)
+    assert connections.status_code == 200
+    assert "private-http-secret" not in connections.text
+    value = next(item for item in connections.json() if item["id"] == result["connectionId"])
+    assert value["status"] == "connecting"
+
+
+@pytest.fixture
+async def customer_oauth_plan(client, auth_headers):
+    from uuid import UUID
+
+    from northstar_api.database import SessionFactory
+    from northstar_api.services.subscriptions import set_subscription_state
+    from northstar_api.subscriptions import SubscriptionStatus
+
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    tenant_id = UUID(workspace.json()["tenantId"])
+    async with SessionFactory() as database:
+        subscription = await set_subscription_state(database, tenant_id=tenant_id)
+        original = (subscription.plan, subscription.status)
+        await set_subscription_state(
+            database, tenant_id=tenant_id, plan="business", status=SubscriptionStatus.ACTIVE
+        )
+        await database.commit()
+    try:
+        yield
+    finally:
+        async with SessionFactory() as database:
+            await set_subscription_state(database, tenant_id=tenant_id, plan=original[0], status=original[1])
+            await database.commit()
+
+
 async def test_generic_rest_provisioning_activates_mapping_route_autosync_and_backfill(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,

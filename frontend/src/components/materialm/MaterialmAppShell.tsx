@@ -9,8 +9,6 @@ import { platformAdminApi } from '@/lib/platform-admin-api';
 import { commandNavigation, materialmPageTitle, primaryNavigation, visibleNavigation } from '@/lib/materialm-navigation';
 import { MaterialmSidebarLinks } from './MaterialmSidebar';
 import { MaterialmWorkspaceSwitcher } from './WorkspaceSwitcher';
-import '@/theme/materialm.tokens.css';
-import '@/theme/materialm.css';
 
 const COLLAPSED_KEY = 'northstar.materialm.sidebar-collapsed';
 function savedCollapsed(): boolean {
@@ -82,7 +80,7 @@ export function MaterialmAppShell() {
     if (!mobileOpen) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const resize = () => { if (window.innerWidth >= 1100) setMobileOpen(false); };
+    const resize = () => { if (window.innerWidth >= 1280) setMobileOpen(false); };
     window.addEventListener('resize', resize);
     return () => { document.body.style.overflow = previous; window.removeEventListener('resize', resize); };
   }, [mobileOpen]);

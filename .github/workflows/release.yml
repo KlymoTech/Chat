@@ -63,10 +63,12 @@ jobs:
         include:
           - component: api
             context: backend
+            dockerfile: backend/Dockerfile
             image: ghcr.io/${{ github.repository_owner }}/northstar-api
             build_args: ""
           - component: web
-            context: frontend
+            context: .
+            dockerfile: frontend/Dockerfile
             image: ghcr.io/${{ github.repository_owner }}/northstar-web
             build_args: |
               VITE_API_URL=/api/v1
@@ -93,6 +95,7 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

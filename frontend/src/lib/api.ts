@@ -317,7 +317,7 @@ export const api = {
       lead.status = status; lead.updatedAt = new Date().toISOString(); writeStorage(LEADS_KEY, items); return lead;
     }),
   },
-  analytics: { summary: () => withFallback(() => request<AnalyticsSummary>('/analytics/summary'), async () => { await pause(); return clone(demoAnalytics); }) },
+  analytics: { summary: (days?: 7 | 30) => withFallback(() => request<AnalyticsSummary>(`/analytics/summary${days ? `?days=${days}` : ''}`), async () => { await pause(); return clone(demoAnalytics); }) },
   integrations: {
     list: () => withFallback(() => request<Integration[]>('/integrations'), async () => { await pause(); return demoIntegrationList(); }),
     setConnected: (integrationId: string, connected: boolean) => withFallback(() => request<Integration>(`/integrations/${integrationId}`, { method: 'PATCH', body: JSON.stringify({ connected }) }), async () => {
