@@ -10,6 +10,8 @@ import '@fontsource-variable/inter';
 import '@/theme/materialm.tokens.css';
 import '@/theme/materialm.css';
 import '@/theme/materialm.components.css';
+import '@/theme/academy.tokens.css';
+import '@/theme/academy.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

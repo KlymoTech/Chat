@@ -48,8 +48,8 @@ class WhiteLabelSettings(APIModel):
     logo_data_url: str = Field(default="", max_length=500_000)
     favicon_data_url: str = Field(default="", max_length=500_000)
     app_icon_data_url: str = Field(default="", max_length=500_000)
-    primary_color: str = "#00a1ff"
-    secondary_color: str = "#16cdc7"
+    primary_color: str = "#0c0b0b"
+    secondary_color: str = "#6b6b70"
     support_email: EmailStr | None = None
     support_url: str = Field(default="", max_length=2000)
     browser_title: str = Field(default="Northstar AI", min_length=1, max_length=120)

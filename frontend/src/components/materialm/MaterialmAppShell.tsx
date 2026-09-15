@@ -10,12 +10,12 @@ import { commandNavigation, materialmPageTitle, primaryNavigation, visibleNaviga
 import { MaterialmSidebarLinks } from './MaterialmSidebar';
 import { MaterialmWorkspaceSwitcher } from './WorkspaceSwitcher';
 
-const COLLAPSED_KEY = 'northstar.materialm.sidebar-collapsed';
+const COLLAPSED_KEY = 'northstar.academy.sidebar-collapsed';
 function savedCollapsed(): boolean {
-  try { return localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
+  try { return localStorage.getItem(COLLAPSED_KEY) !== 'false'; } catch { return true; }
 }
 
-/** MaterialM layout adaptation. Existing business pages, providers and APIs are reused. */
+/** Responsive academy shell sharing the existing business pages, providers and APIs. */
 export function MaterialmAppShell() {
   const { session, logout } = useAuth();
   const { activeWorkspace, workspaces, selectWorkspace } = useWorkspace();
@@ -102,14 +102,15 @@ export function MaterialmAppShell() {
     catch (error) { pushToast(error instanceof Error ? error.message : 'Sign out failed', 'error'); }
   }
 
-  return <div className={`mm-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
+  return <div className={`mm-shell academy-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
     <a className="mm-skip" href="#mm-main-content">Skip to content</a>
     <aside className="mm-sidebar" aria-label="Primary navigation">
-      <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} /></Link>
+      <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} light /></Link>
       <MaterialmSidebarLinks items={items} />
       <button type="button" className="mm-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
         {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse sidebar'}</span>
       </button>
+      <button type="button" className="academy-signout" aria-label="Sign out" title="Sign out" onClick={() => void signOut()}><LogOut /><span>Sign out</span></button>
     </aside>
     <div className="mm-main">
       <header className="mm-topbar">

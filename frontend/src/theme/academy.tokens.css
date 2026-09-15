@@ -1,0 +1,17 @@
+/* Design reference: user-supplied Online Courses Dashboard PDF, page 1.
+   Assets, provenance and scope: docs/ONLINE_COURSES_DESIGN.md. */
+@font-face{font-family:Academy Heading;src:url('/design/online-courses/baloo-bhai-2.ttf') format('truetype');font-weight:400 800;font-display:swap}
+@font-face{font-family:Academy Sans;src:url('/design/online-courses/roboto.ttf') format('truetype');font-weight:100 900;font-display:swap}
+:root,.mm-shell,.login-page{
+  --academy-black:#0c0b0b;--academy-grey:#f5f5f7;--academy-muted:#6b6b70;
+  --academy-heading:'Academy Heading',sans-serif;--academy-font:'Academy Sans',Arial,sans-serif;
+  --ink:var(--academy-black);--muted:var(--academy-muted);--muted-2:#77777d;
+  --surface:#fff;--canvas:#fff;--line:#e5e5e8;--line-strong:#d7d7dc;
+  --blue:var(--academy-black);--blue-hover:#303033;--blue-soft:#ededf0;--navy:#0c0b0b;
+  --m-color-primary:var(--academy-black);--m-color-primary-emphasis:#303033;--m-color-lightprimary:#ededf0;
+  --m-color-secondary:#535359;--m-color-lightsecondary:#efeff1;--m-color-link:#242426;
+  --m-color-lightgray:#f5f5f7;--m-color-lighthover:#ededf0;--m-color-border:#e5e5e8;--m-color-dark:#0c0b0b;
+  --m-color-lightsuccess:#edf5ef;--m-color-lightwarning:#faf3df;--m-color-bodytext:#6b6b70;
+  --radius:16px;--shadow-sm:none;--shadow-md:0 10px 32px #0c0b0b12;--shadow-lg:0 24px 70px #0c0b0b28;
+  font-family:var(--academy-font);color:var(--ink);background:#fff;
+}

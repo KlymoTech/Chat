@@ -1,8 +1,9 @@
-import { ArrowRight, Bot, CheckCircle2, Clock3, Inbox, MessageSquareText, Plus, Sparkles, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bot, CheckCircle2, Clock3, Inbox, MessageSquareText, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '@/components/providers';
-import { Badge, Button, Card, PageLoader } from '@/components/ui';
+import { Badge, Button, EmptyState } from '@/components/ui';
+import { DashboardTrend, DashboardWelcome, LearningTip } from '@/components/academy-dashboard';
 import { api } from '@/lib/api';
 import { formatCompact, formatPercent, relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
@@ -13,44 +14,43 @@ export function OverviewPage() {
   const conversations = useApi(() => api.conversations.list());
   const [period, setPeriod] = useState<7 | 30>(7);
   const analytics = useApi(() => api.analytics.summary(period), [period]);
-  if (agents.loading && !agents.data) return <PageLoader />;
-  const activeAgents = agents.data?.filter((agent) => agent.status === 'active').length ?? 0;
-  const now = new Date();
-  const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
-  const displayName = session?.user.name.split(/\s+/)[0] || 'there';
-  const currentDelta = analytics.data?.conversationsDelta ?? 0;
-  const resolutionDelta = analytics.data?.resolutionDelta ?? 0;
-  const stats = [
-    { label: 'Conversations', value: analytics.data ? formatCompact(analytics.data.conversations) : '—', note: `${currentDelta > 0 ? '+' : ''}${currentDelta}% vs previous period`, icon: MessageSquareText, tone: 'blue' },
-    { label: 'Resolved by AI', value: analytics.data ? formatPercent(analytics.data.resolutionRate) : '—', note: `${resolutionDelta > 0 ? '+' : ''}${resolutionDelta}% vs previous period`, icon: CheckCircle2, tone: 'green' },
-    { label: 'Avg. response', value: analytics.data ? `${analytics.data.avgResponseSeconds}s` : '—', note: 'Across completed AI replies', icon: Clock3, tone: 'purple' },
-    { label: 'Active agents', value: String(activeAgents), note: `${agents.data?.length ?? 0} agents total`, icon: Bot, tone: 'orange' },
-  ];
-  return <div className="page page--overview">
-    <div className="page-heading page-heading--split"><div><span className="page-kicker">{new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(now)}</span><h2>{greeting}, {displayName} <span aria-hidden="true">👋</span></h2><p>Here’s what your AI team has been doing.</p></div><Link to="/agents"><Button icon={Plus}>Create agent</Button></Link></div>
-    <div className="mm-dashboard-grid">
-      <Card className="activity-card mm-dashboard-report">
-        <div className="card-heading"><div><h3>Conversation volume</h3><p>Questions handled across all agents</p></div><select aria-label="Chart period" value={period} onChange={(event) => setPeriod(Number(event.target.value) as 7 | 30)}><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></div>
-        <div className="mm-chart-summary"><strong>{analytics.data ? formatCompact(analytics.data.conversations) : '—'}</strong><span>conversations this period</span></div>
-        {analytics.error ? <p role="alert" className="form-error">{analytics.error}</p> : analytics.loading ? <div className="mini-empty" role="status">Loading conversation activity…</div> : analytics.data?.chart.length ? <OverviewChart data={analytics.data.chart.slice(-period)} /> : <div className="mini-empty">No conversation activity in this period.</div>}
-        <div className="chart-legend"><span><i className="legend-dot legend-dot--blue" /> Conversations</span><strong>{analytics.data ? formatCompact(analytics.data.conversations) : '—'} total</strong></div>
-      </Card>
-      <div className="mm-dashboard-stats">{stats.map(({ label, value, note, icon: Icon, tone }) => <Card key={label} className="stat-card"><div className={`stat-card__icon stat-card__icon--${tone}`}><Icon /></div><span>{label}</span><strong>{value}</strong><small><TrendingUp /> {note}</small></Card>)}</div>
-    <Card className="agents-snapshot mm-dashboard-agents"><div className="card-heading"><div><h3>Your agents</h3><p>Performance at a glance</p></div><Link to="/agents">Manage agents <ArrowRight /></Link></div><div className="agent-row-list">{agents.data?.slice(0, 4).map((agent) => <Link className="agent-row" key={agent.id} to={`/agents/${agent.id}/instructions`}><span className="agent-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span><span className="agent-row__main"><strong>{agent.name}</strong><small>{agent.description}</small></span><span className="agent-row__metric"><small>Conversations</small><strong>{formatCompact(agent.conversations)}</strong></span><span className="agent-row__metric"><small>Resolution</small><strong>{formatPercent(agent.resolutionRate)}</strong></span><span className="agent-row__status"><i className={`status-dot status-dot--${agent.status === 'active' ? 'success' : 'warning'}`} /> {agent.status}</span><ArrowRight className="row-arrow" /></Link>)}</div>{agents.data?.length === 0 ? <div className="mini-empty"><Bot /><p>Create an agent to see its performance here.</p></div> : null}</Card>
-      <Card className="inbox-card mm-dashboard-inbox">
-        <div className="card-heading"><div><h3>Needs attention</h3><p>Open and escalated conversations</p></div><Link to="/conversations">View inbox <ArrowRight /></Link></div>
-        <div className="attention-list">{conversations.data?.items.filter((item) => item.state !== 'resolved').slice(0, 3).map((conversation) => <Link to={`/conversations?selected=${conversation.id}`} key={conversation.id} className="attention-item"><span className="mini-avatar">{conversation.visitorName.charAt(0)}</span><span><strong>{conversation.visitorName}</strong><small>{conversation.preview}</small></span><span className="attention-meta">{conversation.state === 'escalated' ? <Badge tone="danger">Escalated</Badge> : <Badge tone="brand">Open</Badge>}<small>{relativeTime(conversation.updatedAt)}</small></span></Link>)}</div>
-        {!conversations.data?.items.some((item) => item.state !== 'resolved') ? <div className="mini-empty"><Inbox /><p>You’re all caught up.</p></div> : null}
-      </Card>
+  const [filter, setFilter] = useState('all');
+  const [metric, setMetric] = useState<'conversations' | 'resolved'>('conversations');
+  const [selected, setSelected] = useState(0);
+  const records = agents.data ?? [];
+  const featured = records[selected % Math.max(records.length, 1)];
+  const shown = records.filter((agent) => filter === 'all' || (filter === 'education' ? agent.purpose === 'education' : agent.status === filter));
+  const open = conversations.data?.items.filter((item) => item.state !== 'resolved') ?? [];
+  return <div className="page academy-dashboard">
+    <div className="academy-dashboard__primary">
+      <DashboardWelcome name={session?.user.name?.split(/\s+/)[0] || 'there'}>It’s good to see you again.</DashboardWelcome>
+      {featured ? <div className="academy-continue">
+        <Link className="academy-continue__record" aria-label={`Continue with ${featured.name}`} to={`/agents/${featured.id}/instructions`}>
+          <span className="academy-record-icon"><Bot /></span><span><strong>{featured.name}</strong><small>{featured.appearance.deploymentChannel === 'whatsapp' ? featured.whatsappNumber || 'WhatsApp · number needed' : 'Your AI agent'}</small></span>
+          <Badge tone={featured.status === 'active' ? 'success' : 'neutral'}>{featured.status}</Badge><span className="button button--primary">Continue</span>
+        </Link>
+        <div className="academy-carousel-actions"><button disabled={records.length < 2} aria-label="Previous agent" onClick={() => setSelected((value) => (value + records.length - 1) % records.length)}><ArrowLeft /></button><button disabled={records.length < 2} aria-label="Next agent" onClick={() => setSelected((value) => (value + 1) % records.length)}><ArrowRight /></button></div>
+      </div> : null}
+      <section className="academy-records">
+        <div className="academy-section-heading"><h3>Your agents</h3><Link className="button button--secondary button--sm" to="/agents"><Plus /> Create agent</Link></div>
+        <div className="academy-tabs" role="group" aria-label="Filter agents">{[['all', 'All agents'], ['active', 'Active'], ['draft', 'Draft'], ['education', 'Education']].map(([id, label]) => <button key={id} aria-pressed={filter === id} className={filter === id ? 'is-active' : ''} onClick={() => setFilter(id!)}>{label}</button>)}</div>
+        {agents.error ? <EmptyState icon={Bot} title="Agents are unavailable" description={agents.error} action={<Button onClick={agents.reload}>Try again</Button>} /> : agents.loading ? <p role="status" className="academy-empty">Loading your agents…</p> : shown.length ? <div className="academy-record-list">{shown.map((agent) => <article className="academy-record" key={agent.id}>
+          <span className="academy-record-icon"><Bot /></span><div className="academy-record__name"><h4>{agent.name}</h4><p>{agent.description || `${agent.purpose === 'education' ? 'Education' : 'AI'} assistant`}</p></div>
+          <span className="academy-record__metric" title="Conversations"><MessageSquareText />{formatCompact(agent.conversations)}</span><span className="academy-record__metric" title="Resolved by AI"><CheckCircle2 />{formatPercent(agent.resolutionRate)}</span>
+          <Link className="button button--secondary" to={`/agents/${agent.id}/instructions`} aria-label={`Open ${agent.name}`}>Open agent</Link>
+        </article>)}</div> : <EmptyState icon={Bot} title={records.length ? 'No matching agents' : 'Create your first agent'} description="Build an assistant for your customers or students." action={<Link className="button button--primary" to="/agents">Manage agents</Link>} />}
+      </section>
+      <section className="academy-attention"><div className="academy-section-heading"><h3>Needs attention</h3><Link to="/conversations">View inbox <ArrowRight /></Link></div>
+        {conversations.error ? <p role="alert">{conversations.error} <button className="text-button" onClick={conversations.reload}>Try again</button></p> : conversations.loading ? <p role="status">Loading conversations…</p> : open.length ? open.slice(0, 3).map((item) => <Link className="academy-inbox-row" key={item.id} to={`/conversations?selected=${item.id}`}><span className="mini-avatar">{item.visitorName.charAt(0)}</span><span><strong>{item.visitorName}</strong><small>{item.preview}</small></span><small>{relativeTime(item.updatedAt)}</small></Link>) : <div className="academy-empty"><Inbox /><p>You’re all caught up.</p></div>}
+      </section>
     </div>
-    <aside className="tip-banner"><span><Sparkles /></span><div><strong>Make every answer sharper</strong><p>Review unresolved questions and add the missing information to your knowledge base.</p></div><Link to="/conversations">Review gaps <ArrowRight /></Link></aside>
+    <aside className="academy-dashboard__secondary">
+      <div className="academy-big-stats"><div><strong>{agents.data ? records.filter((agent) => agent.status === 'active').length : '—'}</strong><span>Agents<br />active</span></div><div><strong>{analytics.data ? formatCompact(analytics.data.conversations) : '—'}</strong><span>Conversations<br />this period</span></div></div>
+      <section className="academy-statistics"><h3>Your statistics</h3><div className="academy-statistics__controls"><div className="academy-tabs" role="group" aria-label="Chart metric"><button aria-pressed={metric === 'conversations'} className={metric === 'conversations' ? 'is-active' : ''} onClick={() => setMetric('conversations')}>Conversations</button><button aria-pressed={metric === 'resolved'} className={metric === 'resolved' ? 'is-active' : ''} onClick={() => setMetric('resolved')}>Resolved</button></div><select aria-label="Chart period" value={period} onChange={(event) => setPeriod(Number(event.target.value) as 7 | 30)}><option value="7">Weekly</option><option value="30">Monthly</option></select></div>
+        {analytics.error ? <EmptyState icon={MessageSquareText} title="Statistics are unavailable" description={analytics.error} action={<Button onClick={analytics.reload}>Try again</Button>} /> : analytics.loading ? <p className="academy-empty" role="status">Loading statistics…</p> : <DashboardTrend label={metric === 'conversations' ? 'Conversation volume trend' : 'Resolved conversations trend'} data={(analytics.data?.chart ?? []).map((item) => ({ label: item.label, value: item[metric] }))} />}
+        <div className="academy-mini-stats"><span><CheckCircle2 /><strong>{analytics.data ? formatPercent(analytics.data.resolutionRate) : '—'}</strong> Resolved by AI</span><span><Clock3 /><strong>{analytics.data ? `${analytics.data.avgResponseSeconds}s` : '—'}</strong> Avg. response</span></div>
+      </section>
+      <LearningTip description="Give your agents more knowledge. Make every answer more useful." to="/agents" action="Improve your agents" />
+    </aside>
   </div>;
-}
-
-function OverviewChart({ data }: { data: Array<{ label: string; conversations: number }> }) {
-  const values = data.map((item) => item.conversations);
-  const width = 720; const height = 210; const pad = 16; const max = Math.max(...values, 1); const min = Math.min(...values, 0);
-  const points = values.map((value, index) => `${pad + index * ((width - pad * 2) / Math.max(values.length - 1, 1))},${height - pad - ((value - min) / Math.max(max - min, 1)) * (height - pad * 2)}`).join(' ');
-  const area = `${pad},${height - pad} ${points} ${width - pad},${height - pad}`;
-  return <div className="overview-chart"><div className="chart-lines"><i/><i/><i/><i/></div><svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label="Conversation volume trend"><defs><linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" className="mm-chart-fill" stopOpacity=".22"/><stop offset="1" className="mm-chart-fill" stopOpacity=".01"/></linearGradient></defs><polygon points={area} fill="url(#chartFill)"/><polyline points={points} fill="none" className="mm-chart-line" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>{values.map((value, index) => { const [x = 0, y = 0] = points.split(' ')[index]?.split(',').map(Number) ?? []; return <circle key={index} cx={x} cy={y} r="4.5" fill="white" className="mm-chart-line" strokeWidth="3"><title>{value} conversations</title></circle>; })}</svg><div className="chart-labels">{data.filter((_, index) => index % Math.max(1, Math.ceil(data.length / 6)) === 0 || index === data.length - 1).map((item, index) => <span key={index}>{item.label}</span>)}</div></div>;
 }
