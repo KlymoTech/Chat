@@ -30,6 +30,7 @@ from northstar_api.lead_crm.models import (
 )
 from northstar_api.lead_crm.normalization import normalize_identity
 from northstar_api.models import Lead
+from northstar_api.services.education_conversation_policy import is_education_lead
 from northstar_api.services.outbox import enqueue_event
 
 
@@ -226,6 +227,11 @@ class LeadDomainService:
             source_provider=source_provider,
             source_connection_id=source_connection_id,
             source_external_id=source_external_id,
+            utm_source=(lead.fields_json or {}).get("utm_source"),
+            utm_medium=(lead.fields_json or {}).get("utm_medium"),
+            utm_campaign=(lead.fields_json or {}).get("utm_campaign"),
+            utm_term=(lead.fields_json or {}).get("utm_term"),
+            utm_content=(lead.fields_json or {}).get("utm_content"),
             first_touch_at=lead.created_at,
             last_touch_at=lead.updated_at,
         )
@@ -253,6 +259,74 @@ class LeadDomainService:
             )
         )
         return candidate
+
+    async def update_status(
+        self,
+        session: AsyncSession,
+        *,
+        lead: Lead,
+        status: LeadLifecycleStatus,
+        actor_id: str | None,
+        correlation_id: str | None,
+        qualification_reason: str = "Marked Qualified in Leads",
+        skip_unchanged: bool = False,
+    ) -> None:
+        profile = await self.ensure_profile(session, lead=lead)
+        if skip_unchanged and lead.status == status.value and (
+            status != LeadLifecycleStatus.QUALIFIED
+            or profile.qualification_status == QualificationStatus.QUALIFIED.value
+        ):
+            return
+        previous = lead.status
+        lead.status = status.value
+        profile.lifecycle_status = status.value
+        qualification_requested = status.value == LeadLifecycleStatus.QUALIFIED.value
+        if qualification_requested and (
+            previous != status.value or profile.qualification_status != QualificationStatus.QUALIFIED.value
+        ):
+            await self.qualify(
+                session,
+                lead=lead,
+                score=profile.qualification_score,
+                reason=qualification_reason,
+                actor_id=actor_id,
+                correlation_id=correlation_id,
+            )
+        else:
+            if status.value in {LeadLifecycleStatus.UNQUALIFIED.value, LeadLifecycleStatus.LOST.value}:
+                profile.qualification_status = QualificationStatus.UNQUALIFIED.value
+                profile.qualified_at = None
+            elif status.value not in {LeadLifecycleStatus.QUALIFIED.value, LeadLifecycleStatus.CONVERTED.value}:
+                profile.qualification_status = QualificationStatus.PENDING.value
+                profile.qualified_at = None
+            await self.request_sync(
+                session, lead=lead, reason="qualification" if qualification_requested else "lead_updated",
+                actor_id=actor_id, correlation_id=correlation_id,
+            )
+        session.add(
+            LeadActivityEvent(
+                tenant_id=lead.tenant_id,
+                lead_id=lead.id,
+                event_type="lead.status.changed.v1",
+                actor_type="user" if actor_id else "system",
+                actor_id=actor_id,
+                correlation_id=correlation_id,
+                details_json={"previousStatus": previous, "status": status.value},
+            )
+        )
+        enqueue_event(
+            session,
+            tenant_id=lead.tenant_id,
+            aggregate_type="lead",
+            aggregate_id=lead.id,
+            event_type="lead.updated.v1",
+            payload={
+                "leadId": str(lead.id),
+                "workspaceId": str(lead.workspace_id),
+                "previousStatus": previous,
+                "status": status.value,
+            },
+        )
 
     async def qualify(
         self,
@@ -367,6 +441,8 @@ class CRMRouteService:
         lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id))
         if not lead:
             raise ValueError("Lead does not exist in tenant scope")
+        if await is_education_lead(session, lead.id):
+            return []
         profile = await session.scalar(
             select(LeadProfile).where(LeadProfile.tenant_id == tenant_id, LeadProfile.lead_id == lead_id)
         )

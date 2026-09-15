@@ -48,10 +48,11 @@ describe('MaterialM application shell', () => {
     expect(within(primary).queryByRole('link', { name: 'Courses' })).not.toBeInTheDocument();
   });
   it('persists only the collapsed-sidebar preference', async () => {
-    mount(); await userEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
-    expect(localStorage.getItem('northstar.materialm.sidebar-collapsed')).toBe('true');
+    mount();
     await userEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
-    expect(localStorage.getItem('northstar.materialm.sidebar-collapsed')).toBe('false');
+    expect(localStorage.getItem('northstar.academy.sidebar-collapsed')).toBe('false');
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    expect(localStorage.getItem('northstar.academy.sidebar-collapsed')).toBe('true');
   });
   it('makes all primary links available in the mobile drawer and closes on navigation', async () => {
     mount();
@@ -78,7 +79,7 @@ describe('MaterialM application shell', () => {
   it('retains sign-out failure handling', async () => {
     mocks.logout.mockRejectedValueOnce(new Error('Session unavailable'));
     mount(); await userEvent.click(screen.getByRole('button', { name: 'Account menu' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!);
     expect(mocks.pushToast).toHaveBeenCalledWith('Session unavailable', 'error');
   });
 });

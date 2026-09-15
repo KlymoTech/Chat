@@ -44,7 +44,7 @@ from northstar_api.lead_crm.models import (
 )
 from northstar_api.lead_crm.services import crm_route_service, lead_domain_service
 from northstar_api.lead_crm.verification import as_utc, verify_record
-from northstar_api.models import Agent, Lead, OutboxEvent, Role, Tenant
+from northstar_api.models import Agent, Lead, OutboxEvent, Role, Tenant, Workspace
 from northstar_api.routers.crm import cancel_crm_delivery, retry_crm_delivery
 from northstar_api.security import Principal
 from northstar_api.workers import crm_router_consumer
@@ -112,11 +112,15 @@ async def case() -> AsyncIterator[tuple[AsyncSession, Lead, CRMConnection, CRMDe
         tenant = Tenant(slug=f"acceptance-{uuid4().hex}", name="CRM acceptance")
         session.add(tenant)
         await session.flush()
-        agent = Agent(tenant_id=tenant.id, name="CRM acceptance agent")
+        workspace = Workspace(tenant_id=tenant.id, name="Acceptance workspace", slug="acceptance")
+        session.add(workspace)
+        await session.flush()
+        agent = Agent(tenant_id=tenant.id, workspace_id=workspace.id, name="CRM acceptance agent")
         session.add(agent)
         await session.flush()
         lead = Lead(
             tenant_id=tenant.id,
+            workspace_id=workspace.id,
             agent_id=agent.id,
             name="Test Lead",
             email="lead@example.com",

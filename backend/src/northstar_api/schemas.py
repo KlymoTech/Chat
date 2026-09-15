@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, field_validator, model_validator
 
+from northstar_api.agent_purpose import AgentPurpose
+from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.models import (
     AgentStatus,
     AgentTone,
@@ -71,6 +73,28 @@ class SessionOut(APIModel):
     refresh_token: str | None = None
 
 
+class WhatsAppMessageSettings(APIModel):
+    welcome_enabled: bool = True
+    welcome_message: str | None = Field(default=None, max_length=4096)
+    reply_template: str = Field(default="{message}", min_length=1, max_length=1500)
+
+    @model_validator(mode="after")
+    def nonempty_welcome(self) -> WhatsAppMessageSettings:
+        if self.welcome_enabled and self.welcome_message is not None and not self.welcome_message.strip():
+            raise ValueError("Enter a welcome message or turn it off")
+        return self
+
+    @field_validator("reply_template")
+    @classmethod
+    def valid_reply_template(cls, value: str) -> str:
+        if value.count("{message}") != 1:
+            raise ValueError("Include {message} exactly once in the reply structure")
+        remainder = value.replace("{message}", "").replace("{bot_name}", "")
+        if "{" in remainder or "}" in remainder:
+            raise ValueError("Only {message} and {bot_name} placeholders are supported")
+        return value
+
+
 class AgentAppearance(APIModel):
     primary_color: str = "#146cf6"
     surface_color: str = "#f6f8fb"
@@ -110,6 +134,7 @@ class AgentAppearance(APIModel):
     widget_name: str = Field(default="", max_length=120)
     z_index: int = Field(default=99_999, ge=1, le=2_147_483_647)
     custom_domain: str = Field(default="", max_length=253)
+    whatsapp: WhatsAppMessageSettings | None = None
     deployment_channel: Literal[
         "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
     ] = "website"
@@ -321,7 +346,28 @@ class MessageOut(APIModel):
     citations: list[CitationOut] = Field(default_factory=list)
 
 
+class VisitorDetails(APIModel):
+    phone: str | None = Field(default=None, max_length=80)
+    ip_address: str | None = Field(default=None, max_length=45)
+    location: str | None = Field(default=None, max_length=500)
+    timezone: str | None = Field(default=None, max_length=500)
+    language: str | None = Field(default=None, max_length=500)
+    page_slug: str | None = Field(default=None, max_length=500)
+    utm_source: str | None = Field(default=None, max_length=240)
+    utm_medium: str | None = Field(default=None, max_length=240)
+    utm_campaign: str | None = Field(default=None, max_length=240)
+    utm_term: str | None = Field(default=None, max_length=240)
+    utm_content: str | None = Field(default=None, max_length=500)
+    referrer: str | None = Field(default=None, max_length=2048)
+
+
 class ConversationOut(APIModel):
+    purpose: AgentPurpose = AgentPurpose.SUPPORT
+    lead_id: UUID | None = None
+    lead_status: str | None = None
+    can_update_lead_status: bool = False
+    page_url: str | None = None
+    visitor_details: VisitorDetails = Field(default_factory=VisitorDetails)
     id: UUID
     workspace_id: UUID
     agent_id: UUID
@@ -337,7 +383,14 @@ class ConversationOut(APIModel):
     messages: list[MessageOut] = Field(default_factory=list)
 
 
+class ConversationResolve(APIModel):
+    lead_status: LeadLifecycleStatus | None = None
+
+
 class ConversationPatch(APIModel):
+    visitor_email: EmailStr | None = None
+    page_url: str | None = Field(default=None, max_length=2048)
+    visitor_details: VisitorDetails | None = None
     state: ConversationState | None = None
     unread: int | None = Field(default=None, ge=0)
     visitor_name: str | None = Field(default=None, max_length=160)
@@ -504,6 +557,7 @@ class WidgetBootstrap(APIModel):
 
 
 class WidgetSessionCreate(APIModel):
+    visitor_details: VisitorDetails = Field(default_factory=VisitorDetails)
     visitor_id: str | None = Field(default=None, max_length=128)
     visitor_name: str | None = Field(default=None, max_length=160)
     visitor_email: EmailStr | None = None

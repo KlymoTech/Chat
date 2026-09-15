@@ -5,6 +5,8 @@ x-api-build: &api-build
   dockerfile: Dockerfile
 
 x-api-environment: &api-environment
+  VISITOR_TRUSTED_PROXY_CIDRS: ${VISITOR_TRUSTED_PROXY_CIDRS:-}
+  VISITOR_GEOIP_ENABLED: ${VISITOR_GEOIP_ENABLED:-false}
   APP_ENV: ${APP_ENV:-development}
   APP_HOST: 0.0.0.0
   APP_PORT: 8000

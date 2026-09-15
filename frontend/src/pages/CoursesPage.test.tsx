@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/providers';
 import { CoursesPage } from '@/pages/CoursesPage';
@@ -77,7 +78,7 @@ describe('CoursesPage', () => {
 
   it('creates and edits a workspace course', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><CoursesPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><CoursesPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('CMA Part 1')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create course' }));
@@ -112,7 +113,7 @@ describe('CoursesPage', () => {
 
   it('archives, filters, and reactivates a course without deleting it', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><CoursesPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><CoursesPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('CMA Part 1')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Archive' }));

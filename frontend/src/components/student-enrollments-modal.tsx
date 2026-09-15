@@ -26,6 +26,7 @@ import type { Agent } from '@/types';
 import './student-enrollments-modal.css';
 
 interface StudentEnrollmentsModalProps {
+  defaultAgentId?: string;
   student: EducationStudent | null;
   open: boolean;
   onClose: () => void;
@@ -71,7 +72,7 @@ function dateLabel(value: string | null): string {
   return new Date(`${value}T00:00:00`).toLocaleDateString();
 }
 
-export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrollmentsModalProps) {
+export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId }: StudentEnrollmentsModalProps) {
   const { pushToast } = useToast();
   const [enrollments, setEnrollments] = useState<EducationEnrollment[]>([]);
   const [courses, setCourses] = useState<EducationCourse[]>([]);
@@ -80,11 +81,17 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState<'all' | EnrollmentStatus>('all');
-  const [form, setForm] = useState<EnrollmentFormState>(emptyForm);
+  const [form, setForm] = useState<EnrollmentFormState>({ ...emptyForm, agentId: defaultAgentId ?? '' });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [actingId, setActingId] = useState<string>();
   const [editing, setEditing] = useState<EducationEnrollment | null>(null);
+  useEffect(() => {
+    if (open) {
+      setForm({ ...emptyForm, agentId: defaultAgentId ?? '' });
+      setEditing(null);
+    }
+  }, [open, student?.id, defaultAgentId]);
 
   const educationAgents = useMemo(
     () => agents.filter((agent) => agent.purpose === 'education'),
@@ -157,7 +164,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
 
   const resetForm = () => {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, agentId: defaultAgentId ?? '' });
     setFormError('');
   };
 
@@ -282,7 +289,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
     open={open}
     onClose={close}
     title={student ? `${student.name} · Enrollments` : 'Student enrollments'}
-    description="Assign Course, Batch, Education Agent, validity, and access status. Runtime identity and RAG authorization are enforced separately."
+    description={`Assign Course, Batch, Education Agent, validity, and access status. Student WhatsApp: ${student?.whatsappNumber || 'not added - edit the student profile'}${student?.whatsappNumber ? student.whatsappVerified ? ' (verified)' : ' (verification needed)' : ''}.`}
     size="lg"
     closeDisabled={saving || Boolean(actingId)}
     footer={<Button variant="secondary" onClick={close} disabled={saving || Boolean(actingId)}>Close</Button>}
@@ -322,7 +329,7 @@ export function StudentEnrollmentsModal({ student, open, onClose }: StudentEnrol
           <Field label="Education Agent" htmlFor="enrollment-agent" hint="Only Agents with Education purpose are eligible.">
             <select id="enrollment-agent" value={form.agentId} onChange={(event) => setForm((current) => ({ ...current, agentId: event.target.value }))}>
               <option value="">Select Education Agent</option>
-              {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name} · {agent.status}</option>)}
+              {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name} · {agent.status}{agent.whatsappNumber ? ` - WhatsApp ${agent.whatsappNumber}` : ''}</option>)}
             </select>
           </Field>
           {!editing ? <Field label="Initial status" htmlFor="enrollment-status">

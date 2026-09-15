@@ -29,18 +29,21 @@ import {
   Type,
   WandSparkles,
 } from 'lucide-react';
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ChatWidget } from '@/components/chat-widget';
 import { IntegrationChatPreview } from '@/components/integration-chat-preview';
 import { WhatsAppNumberDeployment } from '@/components/whatsapp-number-deployment';
+import { WhatsAppMessageEditor, WhatsAppMessagePreview } from '@/components/whatsapp-message-editor';
 import { useToast } from '@/components/providers';
-import { Badge, Button, Card, Field, PageLoader, Switch } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, Field, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
+import { apiErrorMessage } from '@/lib/api-error-message';
 import { createQrAssets, downloadQrAsset, type QrAssets } from '@/lib/qr';
 import { useApi } from '@/lib/use-api';
 import { getWidgetLocale, localizeAgentAppearance, supportedWidgetLanguages } from '@/lib/widget-localization';
-import type { Agent, AgentAppearance, AgentPatch, DeploymentChannel, Integration } from '@/types';
+import { validWhatsAppSettings, whatsappChatUrl } from '@/lib/whatsapp-messages';
+import type { Agent, AgentAppearance, AgentPatch, DeploymentChannel, Integration, WhatsAppConnection } from '@/types';
 
 const buildItems = [
   { id: 'source', label: 'Agent source', icon: Bot },
@@ -62,14 +65,23 @@ const shareItems = [
   { id: 'iframe', label: 'IFrame embed', icon: FileCode2 },
 ] as const;
 
-type DeploySection = (typeof buildItems)[number]['id'] | (typeof shareItems)[number]['id'] | 'channel';
+const whatsappBuildItems = [
+  { id: 'channel', label: 'WhatsApp number', icon: PlugZap },
+  { id: 'source', label: 'Agent source', icon: Bot },
+  { id: 'activation', label: 'Bot activation', icon: ToggleRight },
+  { id: 'welcome', label: 'Welcome message', icon: Sparkles },
+  { id: 'format', label: 'Message format', icon: Type },
+  { id: 'localization', label: 'Response language', icon: Languages },
+] as const;
 
-const persistedSections = new Set<DeploySection>(['look', 'toggle', 'starters', 'color', 'font', 'greeting', 'localization', 'gdpr', 'other', 'link', 'channel']);
+type DeploySection = (typeof buildItems)[number]['id'] | (typeof shareItems)[number]['id'] | (typeof whatsappBuildItems)[number]['id'];
+
+const persistedSections = new Set<DeploySection>(['look', 'toggle', 'starters', 'color', 'font', 'greeting', 'localization', 'gdpr', 'other', 'link', 'channel', 'activation', 'welcome', 'format']);
 
 function cloneAgent(agent: Agent): Agent {
   return {
     ...agent,
-    appearance: { ...agent.appearance, suggestedQuestions: [...agent.appearance.suggestedQuestions] },
+    appearance: { ...agent.appearance, suggestedQuestions: [...agent.appearance.suggestedQuestions], ...(agent.appearance.whatsapp ? { whatsapp: { ...agent.appearance.whatsapp } } : {}) },
     model: { ...agent.model },
     security: { ...agent.security, allowedDomains: [...agent.security.allowedDomains] },
   };
@@ -99,9 +111,10 @@ function isValidAppearance(appearance: AgentAppearance): boolean {
 }
 
 export function DeployPage() {
+  const [searchParams] = useSearchParams();
   const agents = useApi(() => api.agents.list());
   const integrations = useApi(() => api.integrations.list());
-  const [agentId, setAgentId] = useState('agent-northstar');
+  const [agentId, setAgentId] = useState(searchParams.get('agentId') || 'agent-northstar');
   const [integrationId, setIntegrationId] = useState('website');
   const [integrationOverrides, setIntegrationOverrides] = useState<Record<string, boolean>>({});
   const [savedAgents, setSavedAgents] = useState<Agent[]>([]);
@@ -122,9 +135,13 @@ export function DeployPage() {
   const agent = draftAgents.find((item) => item.id === agentId) ?? draftAgents[0];
   const savedAgent = savedAgents.find((item) => item.id === agent?.id);
   const dirty = Boolean(agent && savedAgent && JSON.stringify(savedDeployState(agent)) !== JSON.stringify(savedDeployState(savedAgent)));
-  const valid = Boolean(agent && isValidAppearance(agent.appearance));
-  const showActions = persistedSections.has(section);
+  const valid = Boolean(agent && isValidAppearance(agent.appearance) && validWhatsAppSettings(agent.appearance.whatsapp));
   const integration = integrations.data?.find((item) => item.id === integrationId) ?? integrations.data?.[0];
+  const isWhatsApp = integration?.id === 'whatsapp';
+  const visibleBuildItems = isWhatsApp ? whatsappBuildItems : buildItems;
+  const visibleShareItems = isWhatsApp ? shareItems.filter((item) => item.id === 'link' || item.id === 'qr') : shareItems;
+  const activeSection = isWhatsApp && ![...whatsappBuildItems, ...visibleShareItems].some((item) => item.id === section) ? 'channel' : section;
+  const showActions = dirty || (persistedSections.has(activeSection) && !(isWhatsApp && activeSection === 'link'));
   const selectedAgentId = agent?.id;
   const preferredDeploymentChannel = agent?.appearance.deploymentChannel ?? 'website';
 
@@ -134,6 +151,19 @@ export function DeployPage() {
     setIntegrationId(preferredDeploymentChannel);
     setSection(preferredDeploymentChannel === 'website' ? 'look' : 'channel');
   }, [selectedAgentId, preferredDeploymentChannel, integrations.data]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const numbersLoaded = useCallback((numbers: WhatsAppConnection[]) => {
+    const refresh = (items: Agent[]) => items.map((item) => ({ ...item, whatsappNumber: numbers.find((number) => number.agentId === item.id)?.displayPhoneNumber || null }));
+    setSavedAgents(refresh);
+    setDraftAgents(refresh);
+  }, []);
 
   const updateAgent = (patch: AgentPatch) => {
     if (!agent) return;
@@ -152,11 +182,11 @@ export function DeployPage() {
       return;
     }
     setDraftAgents((current) => current.map((item) => item.id === agent.id ? cloneAgent(savedAgent) : item));
-    pushToast('Widget changes reset', 'info');
+    pushToast(isWhatsApp ? 'WhatsApp changes reset' : 'Widget changes reset', 'info');
   };
 
   const save = async () => {
-    if (!agent || !valid) return;
+    if (!agent || !valid || saving) return;
     if (!dirty) {
       pushToast('All changes are already applied', 'info');
       return;
@@ -165,15 +195,15 @@ export function DeployPage() {
     try {
       const saved = await api.agents.update(agent.id, {
         appearance: normalizeAppearance(agent.appearance),
-        status: agent.status,
-        language: agent.language,
+        ...(agent.status !== savedAgent?.status ? { status: agent.status } : {}),
+        ...(agent.language !== savedAgent?.language ? { language: agent.language } : {}),
       });
       const next = cloneAgent(saved);
       setSavedAgents((current) => current.map((item) => item.id === saved.id ? next : item));
       setDraftAgents((current) => current.map((item) => item.id === saved.id ? cloneAgent(next) : item));
-      pushToast('Widget changes published');
+      pushToast(isWhatsApp ? 'WhatsApp settings applied' : 'Widget changes published');
     } catch (reason) {
-      pushToast(reason instanceof Error ? reason.message : 'Could not publish widget changes', 'error');
+      pushToast(apiErrorMessage(reason, 'Could not apply deployment changes'), 'error');
     } finally {
       setSaving(false);
     }
@@ -189,46 +219,58 @@ export function DeployPage() {
     }
   };
 
-  if (agents.loading || integrations.loading || !agent) return <PageLoader />;
+  if (agents.error || integrations.error) return <div className="page"><Card><EmptyState icon={PlugZap} title="Could not load deployment settings" description={agents.error || integrations.error || ''} action={<Button onClick={() => { agents.reload(); integrations.reload(); }}>Retry</Button>} /></Card></div>;
+  if (agents.loading || integrations.loading) return <PageLoader />;
+  if (!agents.data?.length) return <div className="page"><Card><EmptyState icon={Bot} title="Create a bot to get started" description="Your bot's deployment settings will appear here." action={<Link className="button button--primary" to="/agents">Go to agents</Link>} /></Card></div>;
+  if (!agent) return <PageLoader />;
 
-  return <div className="deploy-page">
+  const assignedNumberChanged = (number: string | null, previousAgentId?: string | null) => {
+    const refresh = (items: Agent[]) => items.map((item) => item.id === agent.id ? { ...item, whatsappNumber: number } : item.id === previousAgentId ? { ...item, whatsappNumber: null } : item);
+    setSavedAgents(refresh);
+    setDraftAgents(refresh);
+  };
+
+  return <div className={`deploy-page${isWhatsApp ? ' deploy-page--whatsapp' : ''}`}>
     <aside className="deploy-sidebar">
       <label className="deploy-sidebar__heading">
         <span className="agent-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span>
         <span><small>Agent</small><strong>{agent.name}</strong></span>
-        <select aria-label="Select deploy agent" value={agent.id} onChange={(event) => setAgentId(event.target.value)}>
+        <select aria-label="Select deploy agent" disabled={saving} value={agent.id} onChange={(event) => setAgentId(event.target.value)}>
           {draftAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <ChevronDown />
       </label>
       <label className="deploy-channel-select">
         <span><PlugZap /><small>Deployment channel</small><strong>{integration?.name ?? 'Website widget'}</strong></span>
-        <select aria-label="Select deployment channel" value={integration?.id ?? 'website'} onChange={(event) => { const channel = event.target.value as DeploymentChannel; setIntegrationId(channel); updateAppearance({ deploymentChannel: channel }); setSection(channel === 'website' ? 'look' : 'channel'); }}>
+        <select aria-label="Select deployment channel" disabled={saving} value={integration?.id ?? 'website'} onChange={(event) => { const channel = event.target.value as DeploymentChannel; setIntegrationId(channel); updateAgent({ appearance: { ...agent.appearance, deploymentChannel: channel }, ...(channel === 'whatsapp' && agent.appearance.deploymentChannel !== 'whatsapp' ? { status: 'draft' } : {}) }); setSection(channel === 'website' ? 'look' : 'channel'); }}>
           {integrations.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <ChevronDown />
       </label>
       <p>BUILD</p>
-      {buildItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
+      {visibleBuildItems.map(({ id, label, icon: Icon }) => <button key={id} className={activeSection === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
       <p>SHARE</p>
-      {shareItems.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
+      {visibleShareItems.map(({ id, label, icon: Icon }) => <button key={id} className={activeSection === id ? 'is-active' : ''} onClick={() => setSection(id)}><Icon /><span>{label}</span></button>)}
     </aside>
 
     <section className="deploy-editor">
       <div className="deploy-editor__heading">
         <div>
-          <span className="page-kicker">Widget manager</span>
-          <h2>{section === 'channel' ? integration?.name : [...buildItems, ...shareItems].find((item) => item.id === section)?.label}</h2>
-          <p>Customize and publish a polished experience for every visitor.</p>
+          <span className="page-kicker">{isWhatsApp ? 'WhatsApp bot settings' : 'Widget manager'}</span>
+          <h2>{activeSection === 'channel' ? integration?.name : [...visibleBuildItems, ...visibleShareItems].find((item) => item.id === activeSection)?.label}</h2>
+          <p>{isWhatsApp ? 'Set up your number and the messages your bot sends on WhatsApp.' : 'Customize and publish a polished experience for every visitor.'}</p>
         </div>
         {showActions ? <div className="deploy-heading-actions">
           <Button variant="ghost" icon={RotateCcw} disabled={saving} onClick={reset}>Reset changes</Button>
           <Button icon={Save} disabled={saving || !valid} onClick={() => void save()}>{saving ? 'Applying...' : 'Apply'}</Button>
         </div> : null}
       </div>
+      {dirty ? <p className="wa-editor-note" role="status">You have unapplied changes for {agent.name}.</p> : null}
+      {!valid ? <p className="wa-editor-validation" role="alert">Check the welcome message and reply structure before applying changes, or reset to your saved settings.</p> : null}
+      <fieldset className="deploy-controls" disabled={saving} aria-label="Deployment settings">
       <DeployEditor
         key={agent.id}
-        section={section}
+        section={activeSection}
         agent={agent}
         agents={draftAgents}
         setAgentId={setAgentId}
@@ -239,7 +281,10 @@ export function DeployPage() {
         setIntegrationConnected={setIntegrationConnected}
         setSection={setSection}
         onSave={save}
+        onNumberChanged={assignedNumberChanged}
+        onNumbersLoaded={numbersLoaded}
       />
+      </fieldset>
     </section>
 
     <aside className="deploy-preview">
@@ -251,14 +296,15 @@ export function DeployPage() {
         </div>
       </div>
       <div className={`deploy-preview__stage deploy-preview__stage--${device}`}>
-        <DeploymentPreview agent={agent} integrationId={integration?.id ?? 'website'} device={device} section={section} />
+        <DeploymentPreview agent={agent} integrationId={integration?.id ?? 'website'} device={device} section={activeSection} />
       </div>
-      <p className="preview-note">{device === 'desktop' ? 'Desktop preview scales to fit the available canvas.' : 'Mobile preview uses the compact channel layout.'}</p>
+      <p className="preview-note">{isWhatsApp ? 'Message formatting preview. WhatsApp controls its own interface. Apply changes to use them in new replies.' : device === 'desktop' ? 'Desktop preview scales to fit the available canvas.' : 'Mobile preview uses the compact channel layout.'}</p>
     </aside>
   </div>;
 }
 
 function DeploymentPreview({ agent, integrationId, device, section }: { agent: Agent; integrationId: string; device: 'desktop' | 'mobile'; section: DeploySection }) {
+  if (integrationId === 'whatsapp') return <WhatsAppMessagePreview agent={agent} device={device} showReply={section === 'format'} />;
   if (integrationId === 'website') return <WebsiteDeploymentPreview agent={agent} device={device} section={section} />;
   return <IntegrationChatPreview agent={agent} integrationId={integrationId} device={device} />;
 }
@@ -320,9 +366,11 @@ interface DeployEditorProps {
   setIntegrationConnected: (integration: Integration, connected: boolean) => Promise<void>;
   setSection: (section: DeploySection) => void;
   onSave: () => Promise<void>;
+  onNumberChanged: (number: string | null, previousAgentId?: string | null) => void;
+  onNumbersLoaded: (numbers: WhatsAppConnection[]) => void;
 }
 
-function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateAppearance, integration, integrationConnected, setIntegrationConnected, setSection, onSave }: DeployEditorProps) {
+function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateAppearance, integration, integrationConnected, setIntegrationConnected, setSection, onSave, onNumberChanged, onNumbersLoaded }: DeployEditorProps) {
   const [iframeWidth, setIframeWidth] = useState(100);
   const [iframeHeight, setIframeHeight] = useState(700);
   const [diagnostics, setDiagnostics] = useState('');
@@ -330,7 +378,18 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
   const hostedUrl = `${window.location.origin}/demo/${agent.publicId}`;
   const embeddedUrl = `${window.location.origin}/widget/${agent.publicId}`;
 
-  if (section === 'channel' && integration?.id === 'whatsapp') return <WhatsAppNumberDeployment key={agent.id} agentId={agent.id} />;
+  if (integration?.id === 'whatsapp') {
+    if (section === 'welcome' || section === 'format') return <WhatsAppMessageEditor agent={agent} section={section} onChange={updateAppearance} />;
+    if (section === 'activation') return <Panel title="Bot activation" description="Choose whether this bot responds to incoming WhatsApp messages."><Switch label="Bot active" checked={agent.status === 'active'} onChange={(active) => updateAgent({ status: active ? 'active' : 'draft' })} description="Active bots reply on their assigned number. Inactive bots stay in draft." /><p className="wa-editor-note">Apply changes to update the bot. A connected number is required; education bots also need their course and enrollment setup.</p></Panel>;
+    if (section === 'localization') return <Panel title="Response language" description="Choose the language for generated answers. Write your welcome message and reply structure in the language you want to send."><Field label="Response language" htmlFor="wa-response-language"><select id="wa-response-language" value={agent.language} onChange={(event) => updateAgent({ language: event.target.value })}>{supportedWidgetLanguages.map((language) => <option key={language}>{language}</option>)}</select></Field></Panel>;
+    if (section === 'channel') return <WhatsAppNumberDeployment key={agent.id} agentId={agent.id} onNumberChanged={onNumberChanged} onNumbersLoaded={onNumbersLoaded} />;
+    if (section === 'link' || section === 'qr') {
+      const url = whatsappChatUrl(agent.whatsappNumber);
+      if (!url) return <Panel title="Connect a WhatsApp number" description="Assign a connected phone number to create its WhatsApp chat link and QR code."><Button onClick={() => setSection('channel')}>Choose WhatsApp number</Button></Panel>;
+      if (section === 'qr') return <QrSharePanel hostedUrl={url} agent={agent} whatsapp />;
+      return <SharePanel icon={Link2} title="WhatsApp chat link" description="Customers can open WhatsApp and message the number assigned to this bot."><div className="share-url"><Link2 /><span>{url}</span><CopyAction value={url} /></div><div className="share-actions"><a className="button button--secondary" href={url} target="_blank" rel="noreferrer">Open WhatsApp <ExternalLink /></a></div></SharePanel>;
+    }
+  }
   if (section === 'channel' && integration) return <IntegrationDeployPanel
     integration={integration}
     connected={integrationConnected}
@@ -338,14 +397,14 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
     onWebsite={() => setSection('embed')}
   />;
 
-  if (section === 'source') return <Panel title="Choose an agent" description="This widget uses the selected agent's knowledge, behavior, and model.">
+  if (section === 'source') return <Panel title="Choose an agent" description="Replies use the selected agent's knowledge, behavior, and model.">
     <Field label="Agent source" htmlFor="deploy-agent">
       <select id="deploy-agent" value={agent.id} onChange={(event) => setAgentId(event.target.value)}>{agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
     </Field>
     <div className="selected-agent">
       <span className="agent-avatar" style={{ background: agent.appearance.primaryColor }}>{agent.avatar}</span>
       <span><strong>{agent.name}</strong><small>{agent.knowledgeCount} sources &middot; {agent.status}</small></span>
-      <Badge tone="success">Connected</Badge>
+      <Badge tone="success">Selected</Badge>
     </div>
     <Link className="inline-link" to={`/agents/${agent.id}/instructions`}>Edit agent <ExternalLink /></Link>
   </Panel>;
@@ -476,7 +535,7 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
   </SharePanel>;
 }
 
-function QrSharePanel({ hostedUrl, agent }: { hostedUrl: string; agent: Agent }) {
+function QrSharePanel({ hostedUrl, agent, whatsapp = false }: { hostedUrl: string; agent: Agent; whatsapp?: boolean }) {
   const [assets, setAssets] = useState<QrAssets>();
   const [error, setError] = useState('');
   const { pushToast } = useToast();
@@ -497,7 +556,7 @@ function QrSharePanel({ hostedUrl, agent }: { hostedUrl: string; agent: Agent })
     pushToast(`QR code downloaded as ${format.toUpperCase()}`);
   };
 
-  return <SharePanel icon={QrCode} title="QR code" description="Send visitors directly to your hosted agent from print or physical spaces.">
+  return <SharePanel icon={QrCode} title="QR code" description={whatsapp ? 'Scan to start a WhatsApp chat with this bot’s assigned number.' : 'Send visitors directly to your hosted agent from print or physical spaces.'}>
     <div className="qr-layout">
       <div className="qr-code-preview" aria-live="polite">
         {assets ? <img src={assets.pngDataUrl} alt={`QR code linking to ${hostedUrl}`} /> : <span>{error ? <QrCode /> : 'Generating...'}</span>}

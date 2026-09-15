@@ -132,7 +132,7 @@ describe('ConversationsPage Education filters', () => {
     expect(student).toBeDisabled();
     await waitFor(() => expect(mocks.conversationList).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'education-agent', educationScope: true,
-    })));
+    }), expect.any(AbortSignal)));
     expect(await screen.findByRole('option', { name: 'CPA · CPA Program' })).toBeInTheDocument();
 
     await user.selectOptions(course, 'course-1');
@@ -155,7 +155,7 @@ describe('ConversationsPage Education filters', () => {
       courseId: 'course-1',
       batchId: 'batch-1',
       studentId: 'student-1',
-    })));
+    }), expect.any(AbortSignal)));
   });
 
   it('removes Education scope again when switching to a non-Education Agent', async () => {
@@ -174,6 +174,6 @@ describe('ConversationsPage Education filters', () => {
       courseId: undefined,
       batchId: undefined,
       studentId: undefined,
-    })));
+    }), expect.any(AbortSignal)));
   });
 });

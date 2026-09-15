@@ -80,7 +80,7 @@ describe('CRMWebhookEventsPanel', () => {
     render(<CRMWebhookEventsPanel connections={connections} />);
 
     expect(await screen.findByText('Zoho Production')).toBeInTheDocument();
-    expect(screen.getByText('HubSpot Sales')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: /^HubSpot Sales/ })).toBeInTheDocument();
     expect(screen.getByText('record.updated')).toBeInTheDocument();
     expect(screen.getByText('contact.changed')).toBeInTheDocument();
     expect(screen.getByText('no_effective_changes')).toBeInTheDocument();

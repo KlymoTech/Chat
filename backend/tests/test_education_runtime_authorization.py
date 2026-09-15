@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -17,6 +18,8 @@ from northstar_api.services.education_runtime_authorization import (
     authorize_education_access,
     identity_candidate_for_event,
 )
+
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 
 async def _workspace_headers(client: AsyncClient, auth_headers: dict[str, str]) -> tuple[str, dict[str, str]]:

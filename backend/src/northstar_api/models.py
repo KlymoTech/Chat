@@ -498,6 +498,7 @@ class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
     knowledge_revision: Mapped[int] = mapped_column(Integer, default=1)
     page_url: Mapped[str | None] = mapped_column(String(2048))
+    visitor_details: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolution: Mapped[str | None] = mapped_column(String(120))

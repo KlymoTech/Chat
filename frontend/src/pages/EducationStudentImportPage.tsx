@@ -201,7 +201,7 @@ export function EducationStudentImportPage() {
           <li>Student IDs must be valid and unique inside the workspace and import batch.</li>
           <li>Phone/login identities are normalized and cannot already belong to another Student.</li>
           <li>Course and Batch must exist, be active, and belong together.</li>
-          <li>Agent must exist, be active, and have Education purpose.</li>
+          <li>Agent must have Education purpose. Draft bots can be provisioned here, then activated after enrollment.</li>
           <li>Enrollment dates must be ordered and stay within selected Batch bounds.</li>
           <li>Pending identities do not grant messaging access until verified.</li>
           <li>If any row is invalid, Commit creates nothing.</li>

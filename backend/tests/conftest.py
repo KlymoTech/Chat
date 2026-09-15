@@ -50,3 +50,26 @@ async def session_payload(client: AsyncClient) -> dict:
 @pytest.fixture(scope="session")
 async def auth_headers(session_payload: dict) -> dict[str, str]:
     return {"Authorization": f"Bearer {session_payload['accessToken']}"}
+
+
+@pytest.fixture
+async def crm_test_plan(client, auth_headers):
+    from uuid import UUID
+
+    from northstar_api.database import SessionFactory
+    from northstar_api.security import decode_token
+    from northstar_api.services.subscriptions import set_subscription_state
+    from northstar_api.subscriptions import SubscriptionStatus
+
+    tenant_id = UUID(decode_token(auth_headers["Authorization"].removeprefix("Bearer "), "access")["tid"])
+    async with SessionFactory() as session:
+        subscription = await set_subscription_state(session, tenant_id=tenant_id)
+        original = subscription.plan, subscription.status
+        await set_subscription_state(
+            session, tenant_id=tenant_id, plan="enterprise", status=SubscriptionStatus.ACTIVE
+        )
+        await session.commit()
+    yield
+    async with SessionFactory() as session:
+        await set_subscription_state(session, tenant_id=tenant_id, plan=original[0], status=original[1])
+        await session.commit()

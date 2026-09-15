@@ -1,5 +1,6 @@
 import { Archive, BookOpen, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader } from '@/components/ui';
 import {
@@ -24,7 +25,8 @@ const emptyForm: CourseFormState = { code: '', name: '', description: '' };
 export function CoursesPage() {
   const courses = useApi(() => educationApi.courses.list());
   const { pushToast } = useToast();
-  const [search, setSearch] = useState('');
+  const [params] = useSearchParams();
+  const [search, setSearch] = useState(() => params.get('search') ?? '');
   const [status, setStatus] = useState<CourseFilter>('all');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<EducationCourse | null>(null);

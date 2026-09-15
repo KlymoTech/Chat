@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -17,6 +17,7 @@ from northstar_api.lead_crm.channels import CanonicalInboundEvent
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.models import Agent, AgentStatus
 from northstar_api.services.student_identity import find_workspace_student_identity
+from northstar_api.services.workspace_dates import workspace_today
 
 
 class EducationAccessReason(str, enum.Enum):
@@ -273,7 +274,7 @@ async def authorize_education_access(
             student_id=student_identity.student_id,
         )
 
-    today = as_of or datetime.now(UTC).date()
+    today = as_of or await workspace_today(session, tenant_id=tenant_id, workspace_id=workspace_id)
     valid: list[EducationEnrollment] = []
     first_denial: tuple[EducationEnrollment, EducationAccessReason] | None = None
 

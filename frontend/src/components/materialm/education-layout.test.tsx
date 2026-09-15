@@ -13,6 +13,8 @@ const context = vi.hoisted(() => ({
   role: 'member', permissions: ['education.view', 'education.manage'],
   workspaceId: 'workspace-a', loading: false,
 }));
+vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: async () => [] } } }));
+vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: async () => [] } }));
 vi.mock('@/components/providers', () => ({
   useAuth: () => ({ session: { user: { role: context.role } } }),
   useWorkspace: () => ({ activeWorkspace: { id: context.workspaceId, name: 'Academy A', permissions: context.permissions }, loading: context.loading }),
@@ -36,7 +38,7 @@ describe('Unified education workspace', () => {
   it('renders the hub without querying CRM or adding demo statistics', () => {
     const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
     renderEducation();
-    expect(screen.getByRole('heading', { name: 'Your academy, in one place.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Hello there!' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Education navigation' });
     expect(within(nav).getAllByRole('link')).toHaveLength(8);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -44,7 +46,7 @@ describe('Unified education workspace', () => {
   });
   it('navigates to the existing student page inside the education layout', async () => {
     renderEducation();
-    await userEvent.click(screen.getByRole('link', { name: 'Open students' }));
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Education navigation' })).getByRole('link', { name: 'Students' }));
     expect(screen.getByText('Existing student directory')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Education navigation' })).toBeInTheDocument();
   });

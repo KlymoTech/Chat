@@ -206,7 +206,82 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                     code=exc.code,
                 )
                 return
-            prepared = await chat_coordinator.prepare(
+            coordinator = chat_coordinator
+            from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
+
+            if (
+                await get_agent_purpose(
+                    session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
+                )
+                is AgentPurpose.EDUCATION
+            ):
+                from northstar_api.education_student_identities import StudentIdentityType
+                from northstar_api.services.education_chat import education_chat_coordinator
+                from northstar_api.services.education_runtime_authorization import (
+                    EducationIdentityCandidate,
+                    authorize_education_access,
+                )
+                from northstar_api.services.outbox import enqueue_event
+
+                decision = await authorize_education_access(
+                    session,
+                    tenant_id=agent.tenant_id,
+                    workspace_id=agent.workspace_id,
+                    agent=agent,
+                    identity=EducationIdentityCandidate(
+                        StudentIdentityType.WHATSAPP, "+" + receipt.sender_wa_id.lstrip("+")
+                    ),
+                )
+                enqueue_event(
+                    session,
+                    tenant_id=agent.tenant_id,
+                    aggregate_type="agent",
+                    aggregate_id=agent.id,
+                    event_type="education.access.authorized.v1"
+                    if decision.authorized
+                    else "education.access.denied.v1",
+                    payload={
+                        **decision.event_payload(),
+                        "provider": "whatsapp",
+                        "receiptId": str(receipt.id),
+                    },
+                )
+                if not decision.authorized:
+                    provider_client, access_token = await connection_client(session, connection)
+                    if not receipt.outbound_message_id:
+                        receipt.outbound_message_id = await provider_client.send_text(
+                            access_token,
+                            phone_number_id=connection.phone_number_id,
+                            to=receipt.sender_wa_id,
+                            text="Your course access is not active for this WhatsApp number. Please contact your institute to verify your number and enrollment.",
+                        )
+                        receipt.outbound_message_ids = [receipt.outbound_message_id]
+                    receipt.status = "rejected"
+                    receipt.last_error = "Education access: " + decision.reason.value
+                    await session.commit()
+                    return
+                from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalSender
+                from northstar_api.lead_crm.domain import ChannelProvider
+                from northstar_api.workers.channel_event_consumer import _get_or_create_education_conversation
+
+                event = CanonicalInboundEvent(
+                    event_id=receipt.id,
+                    tenant_id=receipt.tenant_id,
+                    provider=ChannelProvider.WHATSAPP,
+                    connection_key=str(connection.id),
+                    external_event_id=receipt.provider_message_id,
+                    event_type="message.received",
+                    sender=CanonicalSender(external_id=receipt.sender_wa_id, name=receipt.sender_name),
+                    message=None,
+                    correlation_id=str(receipt.id),
+                    received_at=receipt.created_at,
+                )
+                conversation = await _get_or_create_education_conversation(
+                    session, event=event, agent=agent, decision=decision
+                )
+                await session.commit()
+                coordinator = education_chat_coordinator
+            prepared = await coordinator.prepare(
                 session,
                 tenant_id=receipt.tenant_id,
                 workspace_id=receipt.workspace_id,
@@ -214,7 +289,7 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                     agent_id=connection.agent_id,
                     message=receipt.message_text,
                     conversation_id=conversation.id if conversation else None,
-                    visitor_id=receipt.sender_wa_id,
+                    visitor_id=conversation.visitor_id if conversation else receipt.sender_wa_id,
                     idempotency_key=(
                         "wa:" + hashlib.sha256(receipt.provider_message_id.encode()).hexdigest()
                     ),

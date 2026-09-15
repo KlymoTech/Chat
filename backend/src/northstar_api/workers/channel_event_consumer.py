@@ -35,6 +35,7 @@ from northstar_api.models import (
     MessageRole,
     ProcessedEvent,
 )
+from northstar_api.services.education_conversation_policy import education_source
 from northstar_api.services.education_runtime_authorization import (
     EducationAccessDecision,
     EducationAccessReason,
@@ -522,6 +523,7 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
                 Lead.id == profile.lead_id,
                 Lead.tenant_id == event.tenant_id,
                 Lead.workspace_id == agent.workspace_id,
+                ~education_source(Lead),
             )
         )
     if lead is None and decision.create_lead:

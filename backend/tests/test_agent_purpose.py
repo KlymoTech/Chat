@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from northstar_api.agent_purpose import AgentPurposeSetting
 from northstar_api.database import SessionFactory
 from northstar_api.models import OutboxEvent
+
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 
 async def test_agent_purpose_create_read_update_duplicate_and_safety(

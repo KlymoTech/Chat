@@ -21,6 +21,12 @@ export interface Session {
   expiresAt: string;
 }
 
+export interface WhatsAppMessageSettings {
+  welcomeEnabled: boolean;
+  welcomeMessage: string | null;
+  replyTemplate: string;
+}
+
 export interface AgentAppearance {
   primaryColor: string;
   surfaceColor: string;
@@ -55,6 +61,7 @@ export interface AgentAppearance {
   zIndex?: number;
   customDomain?: string;
   deploymentChannel?: DeploymentChannel;
+  whatsapp?: WhatsAppMessageSettings | null;
 }
 
 export interface AgentModel {
@@ -124,6 +131,12 @@ export interface ChatMessage {
 }
 
 export interface Conversation {
+  purpose?: 'education' | 'support' | 'lead_generation';
+  leadId?: string | null;
+  leadStatus?: string | null;
+  canUpdateLeadStatus?: boolean;
+  pageUrl?: string | null;
+  visitorDetails?: Record<string, string | null>;
   id: string;
   workspaceId?: string;
   agentId: string;

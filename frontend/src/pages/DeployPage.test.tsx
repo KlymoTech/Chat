@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -27,6 +27,10 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/components/chat-widget', () => ({
   ChatWidget: ({ agent }: { agent: Agent }) => <div data-testid="widget-preview">{agent.appearance.welcomeTitle}</div>,
+}));
+
+vi.mock('@/components/whatsapp-number-deployment', () => ({
+  WhatsAppNumberDeployment: ({ onNumberChanged }: { onNumberChanged: (number: string | null, previousAgentId?: string | null) => void }) => <div>WhatsApp number for this bot<button onClick={() => onNumberChanged('+15550199999', 'previous-bot')}>Simulate number move</button></div>,
 }));
 
 function renderPage() {
@@ -58,6 +62,52 @@ describe('DeployPage', () => {
 
   afterEach(cleanup);
 
+  it('shows a retry after a loading failure and an empty state when there are no bots', async () => {
+    const user = userEvent.setup();
+    apiMocks.list.mockRejectedValueOnce(new Error('Network unavailable'));
+    renderPage();
+    expect(await screen.findByText('Could not load deployment settings')).toBeInTheDocument();
+    apiMocks.list.mockResolvedValue([]);
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Create a bot to get started')).toBeInTheDocument();
+  });
+
+  it('locks editing during save, keeps failed drafts, and keeps Apply visible on sharing pages', async () => {
+    original.appearance.deploymentChannel = 'whatsapp';
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Welcome message' }));
+    const welcome = screen.getByLabelText('Welcome message text');
+    fireEvent.change(welcome, { target: { value: 'Preserve this welcome' } });
+    let rejectSave!: (reason: Error) => void;
+    apiMocks.update.mockImplementationOnce(() => new Promise((_, reject) => { rejectSave = reject; }));
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(welcome).toBeDisabled();
+    expect(screen.getByLabelText('Select deploy agent')).toBeDisabled();
+    rejectSave(Object.assign(new Error('Request failed (409)'), { detail: { error: { message: 'Save temporarily unavailable' } } }));
+    await screen.findByText('Save temporarily unavailable');
+    expect(welcome).toHaveValue('Preserve this welcome');
+    expect(welcome).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Get link' }));
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+    expect(screen.getByText(/You have unapplied changes/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reset changes' }));
+    expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument();
+  });
+
+  it('clears the old bot’s chat link after its number is reassigned', async () => {
+    original.appearance.deploymentChannel = 'whatsapp';
+    const old = { ...structuredClone(original), id: 'previous-bot', name: 'Previous bot', whatsappNumber: '+15550199999' };
+    apiMocks.list.mockResolvedValue([original, old]);
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Simulate number move' }));
+    await user.selectOptions(screen.getByLabelText('Select deploy agent'), 'previous-bot');
+    await user.click(screen.getByRole('button', { name: 'Get link' }));
+    expect(screen.queryByRole('link', { name: 'Open WhatsApp' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose WhatsApp number' })).toBeInTheDocument();
+  });
+
   it('publishes appearance changes through the agent API and resets to the saved result', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -82,8 +132,6 @@ describe('DeployPage', () => {
         position: 'bottom-left',
         welcomeTitle: 'A sharper welcome',
       },
-      status: original.status,
-      language: original.language,
     });
     await waitFor(() => expect(apply).toBeEnabled());
     expect(reset).toBeEnabled();
@@ -223,7 +271,7 @@ describe('DeployPage', () => {
   it('opens the Website-style feedback options before submitting negative integration feedback', async () => {
     const user = userEvent.setup();
     renderPage();
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'Select deployment channel' }), 'whatsapp');
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Select deployment channel' }), 'instagram');
 
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Can you help?');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -247,13 +295,13 @@ describe('DeployPage', () => {
     renderPage();
     const channelSelector = await screen.findByRole('combobox', { name: 'Select deployment channel' });
 
-    await user.selectOptions(channelSelector, 'whatsapp');
+    await user.selectOptions(channelSelector, 'instagram');
     await user.click(screen.getByRole('button', { name: 'Localization' }));
-    expect(channelSelector).toHaveValue('whatsapp');
-    expect(screen.getByLabelText('WhatsApp conversation preview')).toBeInTheDocument();
+    expect(channelSelector).toHaveValue('instagram');
+    expect(screen.getByLabelText('Instagram direct-message preview')).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('Interface language'), 'Hindi');
-    expect(channelSelector).toHaveValue('whatsapp');
+    expect(channelSelector).toHaveValue('instagram');
     const messageInput = screen.getByRole('textbox', { name: 'संदेश' });
     await user.type(messageInput, 'hii');
     await user.click(screen.getByRole('button', { name: 'भेजें' }));
@@ -277,7 +325,68 @@ describe('DeployPage', () => {
     await user.click(screen.getByRole('button', { name: 'Apply' }));
     await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith(original.id, expect.objectContaining({
       language: 'Hindi',
-      appearance: expect.objectContaining({ deploymentChannel: 'whatsapp', interfaceLanguage: 'Hindi' }),
+      appearance: expect.objectContaining({ deploymentChannel: 'instagram', interfaceLanguage: 'Hindi' }),
     })));
+  });
+
+  it('shows only supported WhatsApp controls and uses the assigned number for sharing', async () => {
+    original.appearance.deploymentChannel = 'whatsapp';
+    original.whatsappNumber = '+91 81470 24024';
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('WhatsApp number for this bot');
+    for (const name of ['Look and feel', 'Toggle', 'Conversation starters', 'Color studio', 'Font studio', 'Greeting editor', 'GDPR & consent', 'Other', 'Instant embed', 'IFrame embed']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText('What services do you offer?')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Get link' }));
+    expect(screen.getByRole('link', { name: 'Open WhatsApp' })).toHaveAttribute('href', 'https://wa.me/918147024024');
+    await user.click(screen.getByRole('button', { name: 'Bot activation' }));
+    expect(screen.getByRole('checkbox', { name: /Bot active/ })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /Open on page load/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Response language' }));
+    await user.selectOptions(screen.getByLabelText('Response language'), 'Hindi');
+    expect(screen.queryByLabelText('Interface language')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(apiMocks.update).toHaveBeenCalledWith(original.id, expect.objectContaining({ language: 'Hindi', appearance: expect.objectContaining({ welcomeMessage: original.appearance.welcomeMessage }) }));
+    await user.selectOptions(screen.getByLabelText('Select deployment channel'), 'website');
+    expect(await screen.findByRole('button', { name: 'Color studio' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Message format' })).not.toBeInTheDocument();
+  });
+
+  it('saves and reloads exact welcome copy and formatted reply structure without changing website appearance', async () => {
+    original.appearance.deploymentChannel = 'whatsapp';
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Welcome message' }));
+    const welcome = screen.getByLabelText('Welcome message text');
+    fireEvent.change(welcome, { target: { value: 'Welcome to class!\n\nAsk your question.' } });
+    (welcome as HTMLTextAreaElement).setSelectionRange(0, 16);
+    await user.click(screen.getByRole('button', { name: 'Bold' }));
+    expect(welcome).toHaveValue('*Welcome to class*!\n\nAsk your question.');
+    const exactWelcome = (welcome as HTMLTextAreaElement).value;
+    expect(within(screen.getByLabelText('WhatsApp conversation preview')).getByText('Welcome to class').tagName).toBe('STRONG');
+    await user.click(screen.getByRole('button', { name: 'Message format' }));
+    const structure = screen.getByLabelText('Reply structure');
+    fireEvent.change(structure, { target: { value: '*{bot_name}*\n\n{message}\n\n_Thank you!_' } });
+    expect(screen.getByLabelText('WhatsApp conversation preview')).toHaveTextContent('Thank you!');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith(original.id, expect.objectContaining({ appearance: expect.objectContaining({ welcomeMessage: original.appearance.welcomeMessage, primaryColor: original.appearance.primaryColor, whatsapp: { welcomeEnabled: true, welcomeMessage: exactWelcome, replyTemplate: '*{bot_name}*\n\n{message}\n\n_Thank you!_' } }) })));
+    fireEvent.change(structure, { target: { value: 'Missing answer' } });
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(screen.getByText(/Include \{message\} exactly once for/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reset changes' }));
+    expect(structure).toHaveValue('*{bot_name}*\n\n{message}\n\n_Thank you!_');
+    const patch = apiMocks.update.mock.calls.at(-1)![1];
+    expect(patch).not.toHaveProperty('status');
+    apiMocks.list.mockResolvedValue([{ ...original, ...patch }]);
+    cleanup(); renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Welcome message' }));
+    expect(screen.getByLabelText('Welcome message text')).toHaveValue(exactWelcome);
+    await user.click(screen.getByRole('checkbox', { name: /Send welcome message/ }));
+    expect(screen.getByLabelText('WhatsApp conversation preview')).not.toHaveTextContent('Welcome to class');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(apiMocks.update).toHaveBeenLastCalledWith(original.id, expect.objectContaining({ appearance: expect.objectContaining({ whatsapp: expect.objectContaining({ welcomeEnabled: false }) }) })));
   });
 });

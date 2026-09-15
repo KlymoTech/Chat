@@ -8,12 +8,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load, selectinload
 
+from northstar_api.agent_purpose import AgentPurpose
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.models import Channel, Conversation, ConversationState, Message
 from northstar_api.schemas import CitationOut, ConversationOut, MessageOut, PageResult
 from northstar_api.security import Principal
+from northstar_api.services.conversation_lead_status import attach_lead_status
 
 router = APIRouter(prefix="/education/conversations", tags=["education"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -63,6 +65,7 @@ async def list_education_conversations(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     agent_id: UUID | None = Query(default=None),
+    purpose: AgentPurpose | None = Query(default=None),
     course_id: UUID | None = Query(default=None),
     batch_id: UUID | None = Query(default=None),
     student_id: UUID | None = Query(default=None),
@@ -76,6 +79,9 @@ async def list_education_conversations(
     existing workspace, Agent, channel, state and search boundaries without changing
     the generic conversation inbox behavior when Education filters are not used.
     """
+
+    if purpose is not None and purpose is not AgentPurpose.EDUCATION:
+        return PageResult(items=[], total=0, page=page, page_size=page_size)
 
     conditions = [
         Conversation.tenant_id == principal.tenant_id,
@@ -140,8 +146,10 @@ async def list_education_conversations(
             .limit(page_size)
         )
     ).all()
+    items = [_conversation_response(item) for item in rows]
+    await attach_lead_status(session, principal, items)
     return PageResult(
-        items=[_conversation_response(item) for item in rows],
+        items=items,
         total=total,
         page=page,
         page_size=page_size,

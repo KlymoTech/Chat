@@ -5,6 +5,8 @@ export type StudentStatus = 'active' | 'archived';
 export type StudentCustomFields = Record<string, string | number | boolean | null>;
 
 export interface EducationStudent {
+  whatsappNumber?: string | null;
+  whatsappVerified?: boolean;
   id: string;
   tenantId: string;
   workspaceId: string;
@@ -18,6 +20,8 @@ export interface EducationStudent {
 }
 
 export interface StudentCreateInput {
+  whatsappNumber?: string | null;
+  whatsappVerified?: boolean;
   studentNumber: string;
   name: string;
   email?: string | null;
@@ -25,6 +29,8 @@ export interface StudentCreateInput {
 }
 
 export interface StudentPatchInput {
+  whatsappNumber?: string | null;
+  whatsappVerified?: boolean;
   studentNumber?: string;
   name?: string;
   email?: string | null;

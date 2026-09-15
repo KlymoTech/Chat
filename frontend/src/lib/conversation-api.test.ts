@@ -33,6 +33,7 @@ const emptyPage = { items: [], total: 0, page: 1, pageSize: 50 };
 describe('conversationApi Education filters', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
@@ -116,12 +117,15 @@ describe('conversationApi Education filters', () => {
   });
 
   it('does not leak generic demo conversations when Education context cannot be loaded', async () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'true');
+    vi.resetModules();
+    const { conversationApi: demoApi } = await import('@/lib/conversation-api');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network unavailable')));
     mocks.fallbackList.mockResolvedValue({
       items: [{ id: 'generic-1' }], total: 1, page: 1, pageSize: 50,
     });
 
-    const result = await conversationApi.list({ educationScope: true, agentId: 'education-agent' });
+    const result = await demoApi.list({ educationScope: true, agentId: 'education-agent' });
 
     expect(mocks.fallbackList).toHaveBeenCalledTimes(1);
     expect(result.items).toEqual([]);
@@ -171,4 +175,15 @@ describe('conversationApi Education filters', () => {
       message: 'Education upsell Lead routing is disabled for this workspace',
     });
   });
+  it('posts the selected lead status together with Resolve and preserves workspace authentication', async () => {
+    const saved = { id: 'conversation-1', state: 'resolved', leadStatus: 'qualified' };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => saved });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await conversationApi.resolve('conversation-1', 'qualified')).toEqual(saved);
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/conversations/conversation-1/resolve'), expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ leadStatus: 'qualified' }),
+      headers: expect.objectContaining({ 'Content-Type': 'application/json', Authorization: 'Bearer token-123', 'X-Workspace-ID': 'workspace-1' }),
+    }));
+  });
+
 });

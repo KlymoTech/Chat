@@ -8,10 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.lead_crm.domain import CRMDeliveryStatus, CRMOperation
+from northstar_api.lead_crm.domain import CRMDeliveryStatus, CRMOperation, LeadLifecycleStatus
 from northstar_api.lead_crm.models import (
     CRMConnection,
     CRMDelivery,
+    CRMExternalReference,
     CRMFieldMapping,
     CRMRoute,
     LeadActivityEvent,
@@ -19,7 +20,8 @@ from northstar_api.lead_crm.models import (
 )
 from northstar_api.lead_crm.services import _payload_hash, canonical_lead, lead_domain_service
 from northstar_api.lead_crm.workspace_scope import WorkspaceCRMConnection, WorkspaceCRMRoute
-from northstar_api.models import Lead
+from northstar_api.models import Conversation, ConversationState, Lead
+from northstar_api.services.education_conversation_policy import is_education_lead
 from northstar_api.services.outbox import enqueue_event
 
 
@@ -64,6 +66,8 @@ class WorkspaceCRMRouteService:
         lead = await session.scalar(select(Lead).where(Lead.id == lead_id, Lead.tenant_id == tenant_id))
         if not lead:
             raise ValueError("Lead does not exist in tenant scope")
+        if await is_education_lead(session, lead.id):
+            return []
 
         profile = await session.scalar(
             select(LeadProfile).where(
@@ -73,6 +77,24 @@ class WorkspaceCRMRouteService:
         )
         if not profile:
             profile = await lead_domain_service.ensure_profile(session, lead=lead)
+
+        synced_connections = set(await session.scalars(select(CRMExternalReference.connection_id).where(
+            CRMExternalReference.tenant_id == tenant_id,
+            CRMExternalReference.lead_id == lead.id,
+            CRMExternalReference.object_name == "Leads",
+        )))
+        conversation_ready = True
+        if lead.conversation_id is not None:
+            conversation_state = await session.scalar(select(Conversation.state).where(
+                Conversation.id == lead.conversation_id,
+                Conversation.tenant_id == tenant_id,
+                Conversation.workspace_id == lead.workspace_id,
+                Conversation.agent_id == lead.agent_id,
+            ))
+            conversation_ready = (
+                lead.status == LeadLifecycleStatus.QUALIFIED.value
+                and conversation_state == ConversationState.RESOLVED
+            )
 
         routes = list(
             await session.scalars(
@@ -104,6 +126,10 @@ class WorkspaceCRMRouteService:
 
         deliveries: list[CRMDelivery] = []
         for connection_id in connection_ids:
+            # Initial automatic delivery waits for both workflow steps. Explicit
+            # manual sync and updates to existing CRM records retain their behavior.
+            if sync_reason != "manual" and connection_id not in synced_connections and not conversation_ready:
+                continue
             if origin_connection_id is not None and connection_id == origin_connection_id:
                 session.add(
                     LeadActivityEvent(
@@ -129,6 +155,12 @@ class WorkspaceCRMRouteService:
             ]
             if sync_reason == "manual":
                 pass
+            elif sync_reason in {"qualification", "conversation_resolved", "education_upsell_conversation_resolved"}:
+                auto_sync = (
+                    WorkspaceCRMConnection.auto_sync_updates if connection_id in synced_connections
+                    else WorkspaceCRMConnection.auto_sync_new_leads
+                )
+                connection_conditions.append(auto_sync.is_(True))
             elif sync_reason in (None, "lead_created"):
                 connection_conditions.append(WorkspaceCRMConnection.auto_sync_new_leads.is_(True))
             else:

@@ -57,3 +57,35 @@ Use the value of `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` for verification and subsc
 Backend tests: `backend/tests/test_whatsapp.py` and `backend/tests/test_whatsapp_templates.py`.
 Frontend tests cover the Meta SDK, template consent/parameters/error handling, and WhatsApp workspace preview.
 Migration `0039_whatsapp_delivery_receipts` adds tenant-isolated provider receipts and durable template payloads.
+
+
+## Education enrollment through WhatsApp
+
+1. In Education > Students, add or edit the student and enter **Student WhatsApp number** with the country code. This is the student's personal number, not the business number assigned to the bot.
+2. Staff must confirm ownership before selecting the verification checkbox. Unconfirmed numbers remain pending and cannot access private course content. Changing the primary number revokes its previous primary identity and requires confirmation again.
+3. Create an active course and batch with valid dates. Open the student's **Enrollments** and select the course, batch, and education bot; the selector shows the bot's assigned WhatsApp number. Activate the enrollment with appropriate access dates.
+4. Publish the education bot after enrollment configuration and add course-scoped knowledge. Configure NVIDIA_API_KEY in .env.launch for model-backed answers.
+5. Messages from the verified student number are checked against the bot, enrollment, course, batch, and access dates before education retrieval. Unknown or ineligible numbers receive an access-help reply without private course content.
+
+CRM connections are configured separately in Integrations. A successful local test does not establish provider authorization: connect an actual CRM account, activate mapping/routing, and verify provider health before relying on live sync. Student enrollment alone does not automatically export the student as a sales lead.
+
+
+## Website visitor details
+
+Conversations > visitor panel > Edit visitor details saves contact details, page URL/slug,
+referrer, IP, approximate location, time zone, language and UTM attribution. If a linked
+lead exists, saving updates its contact and attribution fields and requests CRM sync.
+Existing conversations cannot recover IP/UTM data that was never collected.
+
+The website widget captures only the five standard UTM query parameters, removing other
+query parameters and fragments. Websites may explicitly identify a known visitor through
+`data-visitor-name`, `data-visitor-email`, and `data-visitor-phone` on the widget script.
+An IP address does not identify a visitor's name, email, or phone.
+
+Set `VISITOR_TRUSTED_PROXY_CIDRS` to the actual reverse-proxy network CIDRs. Only those
+peers' forwarded chains are used, reading from right to left; never trust arbitrary
+public clients. The API's authentication proxy behavior is unchanged. Update this setting
+if Docker networks change. `VISITOR_GEOIP_ENABLED=true` enables a best-effort HTTPS
+lookup at ipwho.is for public IPs only, with a two-second timeout. This sends the public
+IP to that provider. Private IPs, provider limits, and lookup failures leave location
+unavailable and do not prevent chat. Location is approximate and can be corrected manually.

@@ -8,6 +8,7 @@ const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) !== 'fa
 const SESSION_KEY = 'northstar.session';
 
 export interface ConversationFilters {
+  purpose?: Conversation['purpose'];
   agentId?: string;
   educationScope?: boolean;
   courseId?: string;
@@ -40,7 +41,8 @@ function authHeaders(): HeadersInit {
 function matchesFallback(item: Conversation, filters: ConversationFilters): boolean {
   const query = filters.search?.trim().toLowerCase();
   return (
-    (!filters.agentId || item.agentId === filters.agentId)
+    (!filters.purpose || item.purpose === filters.purpose)
+    && (!filters.agentId || item.agentId === filters.agentId)
     && (!filters.channel || item.channel === filters.channel)
     && (!filters.state || item.state === filters.state)
     && (!query || `${item.visitorName} ${item.visitorEmail ?? ''} ${item.preview}`.toLowerCase().includes(query))
@@ -52,8 +54,17 @@ function usesEducationScope(filters: ConversationFilters): boolean {
 }
 
 export const conversationApi = {
-  async list(filters: ConversationFilters = {}): Promise<PageResult<Conversation>> {
+  async updateVisitor(conversationId: string, details: { visitorName: string; visitorEmail: string | null; pageUrl: string | null; visitorDetails: Record<string, string | null> }): Promise<Conversation> {
+    const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(details),
+    });
+    if (!response.ok) throw new ApiError('Could not save visitor details. Check the fields and try again.', response.status);
+    return response.json();
+  },
+  async list(filters: ConversationFilters = {}, signal?: AbortSignal): Promise<PageResult<Conversation>> {
     const params = new URLSearchParams();
+    if (filters.purpose) params.set('purpose', filters.purpose);
     if (filters.agentId) params.set('agent_id', filters.agentId);
     if (filters.courseId) params.set('course_id', filters.courseId);
     if (filters.batchId) params.set('batch_id', filters.batchId);
@@ -67,12 +78,14 @@ export const conversationApi = {
     const endpoint = educationScoped ? '/education/conversations' : '/conversations';
     try {
       const response = await fetch(`${API_URL}${endpoint}?${params.toString()}`, {
+        signal,
         credentials: 'include',
         headers: authHeaders(),
       });
       if (!response.ok) throw new ApiError(`Conversation request failed (${response.status})`, response.status);
       return response.json() as Promise<PageResult<Conversation>>;
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (!DEMO_MODE || (error instanceof ApiError && [400, 401, 403, 409, 422].includes(error.status))) throw error;
       const fallback = await api.conversations.list();
       const page = filters.page ?? 1;
@@ -88,13 +101,20 @@ export const conversationApi = {
     }
   },
 
-  async resolve(conversationId: string): Promise<Conversation> {
+  async resolve(conversationId: string, leadStatus?: string): Promise<Conversation> {
     const response = await fetch(`${API_URL}/conversations/${conversationId}/resolve`, {
       method: 'POST',
       credentials: 'include',
-      headers: authHeaders(),
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(leadStatus ? { leadStatus } : {}),
     });
-    if (!response.ok) throw new ApiError(`Conversation resolve failed (${response.status})`, response.status);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: { message?: string }; detail?: string } | null;
+      throw new ApiError(
+        payload?.error?.message ?? (typeof payload?.detail === 'string' ? payload.detail : `Conversation resolve failed (${response.status})`),
+        response.status,
+      );
+    }
     return response.json() as Promise<Conversation>;
   },
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -32,6 +31,8 @@ from northstar_api.services.education_chat import (
     EducationScopedRetrieval,
 )
 from northstar_api.services.retrieval import EducationRetrievalScope, RetrievalService
+
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 
 class FakeEmbeddingModel:
@@ -141,7 +142,7 @@ async def _direct_source(
             token_count=max(1, len(content.split())),
             approved=True,
             revision=1,
-            embedding=None,
+            embedding=[1.0, 0.0],
             metadata_json={},
         )
         session.add(chunk)
@@ -280,7 +281,7 @@ async def test_existing_retrieval_filters_chunks_and_facts_by_education_scope(
             status=FactStatus.APPROVED,
             priority=0,
             revision=1,
-            embedding=None,
+            embedding=[1.0, 0.0],
         )
         fact_inherited = KnowledgeFact(
             tenant_id=tenant_id,
@@ -292,7 +293,7 @@ async def test_existing_retrieval_filters_chunks_and_facts_by_education_scope(
             status=FactStatus.APPROVED,
             priority=0,
             revision=1,
-            embedding=None,
+            embedding=[1.0, 0.0],
         )
         fact_other = KnowledgeFact(
             tenant_id=tenant_id,
@@ -304,7 +305,7 @@ async def test_existing_retrieval_filters_chunks_and_facts_by_education_scope(
             status=FactStatus.APPROVED,
             priority=0,
             revision=1,
-            embedding=None,
+            embedding=[1.0, 0.0],
         )
         fact_unscoped = KnowledgeFact(
             tenant_id=tenant_id,
@@ -315,7 +316,7 @@ async def test_existing_retrieval_filters_chunks_and_facts_by_education_scope(
             status=FactStatus.APPROVED,
             priority=0,
             revision=1,
-            embedding=None,
+            embedding=[1.0, 0.0],
         )
         session.add_all([fact_direct, fact_inherited, fact_other, fact_unscoped])
         await session.flush()
@@ -388,6 +389,8 @@ async def test_existing_retrieval_filters_chunks_and_facts_by_education_scope(
     assert str(fact_unscoped_id) not in scoped_ids
     assert str(chunk_b) in {item.entity_id for item in unscoped}
     assert str(chunk_unscoped) in {item.entity_id for item in unscoped}
+    assert str(fact_other_id) in {item.entity_id for item in unscoped}
+    assert str(fact_unscoped_id) in {item.entity_id for item in unscoped}
     assert source_unscoped is not None
 
 

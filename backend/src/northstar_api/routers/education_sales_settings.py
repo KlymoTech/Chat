@@ -38,8 +38,7 @@ async def _workspace(principal: Principal, session: AsyncSession) -> Workspace:
 
 
 def education_sales_settings(workspace: Workspace) -> EducationSalesRoutingSettings:
-    raw = (workspace.settings_json or {}).get(_SETTINGS_KEY, {})
-    return EducationSalesRoutingSettings.model_validate(raw if isinstance(raw, dict) else {})
+    return EducationSalesRoutingSettings(create_upsell_leads=False)
 
 
 @router.get("", response_model=EducationSalesRoutingSettings)
@@ -57,6 +56,8 @@ async def update_education_sales_routing(
     principal: WorkspaceUpdatePrincipal,
     session: DB,
 ) -> EducationSalesRoutingSettings:
+    if payload.create_upsell_leads:
+        raise HTTPException(status_code=409, detail="Education chats stay separate from leads")
     workspace = await _workspace(principal, session)
     settings = dict(workspace.settings_json or {})
     settings[_SETTINGS_KEY] = payload.model_dump(by_alias=True)

@@ -142,18 +142,19 @@ async def create_widget_session(
     payload = payload or WidgetSessionCreate()
     origin = widget_request_origin(request)
     agent = await public_agent(session, public_id, origin)
-    return await _create_session(session, agent, payload, origin)
+    return await _create_session(session, agent, payload, origin, request)
 
 
 @router.post("/{public_id}/hosted/sessions", response_model=WidgetSessionOut, status_code=201)
 async def create_hosted_widget_session(
     public_id: str,
+    request: Request,
     session: DB,
     payload: WidgetSessionCreate | None = None,
 ) -> WidgetSessionOut:
     payload = payload or WidgetSessionCreate()
     agent = await public_agent(session, public_id, None)
-    return await _create_session(session, agent, payload, "northstar-hosted")
+    return await _create_session(session, agent, payload, "northstar-hosted", request)
 
 
 async def _create_session(
@@ -161,7 +162,9 @@ async def _create_session(
     agent: Agent,
     payload: WidgetSessionCreate,
     deployment_origin: str,
+    request: Request,
 ) -> WidgetSessionOut:
+    from northstar_api.services.visitor_details import capture_visitor_details, enrich_location
     limiter = await redis_services.check_rate_limit(
         f"tenant:{agent.tenant_id}:agent:{agent.id}:widget-sessions",
         get_settings().widget_session_rate_limit_per_minute,
@@ -185,6 +188,7 @@ async def _create_session(
         visitor_name=payload.visitor_name or "Anonymous visitor",
         visitor_email=str(payload.visitor_email) if payload.visitor_email else None,
         page_url=payload.page_url,
+        visitor_details=await enrich_location(capture_visitor_details(request, payload)),
         channel=Channel.WIDGET,
         knowledge_revision=agent.published_knowledge_revision,
     )

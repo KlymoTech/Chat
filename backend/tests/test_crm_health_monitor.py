@@ -18,9 +18,7 @@ from northstar_api.workers import crm_health_monitor
 
 
 @pytest.fixture
-async def monitor_case() -> AsyncIterator[
-    tuple[async_sessionmaker[AsyncSession], UUID, CRMConnection]
-]:
+async def monitor_case() -> AsyncIterator[tuple[async_sessionmaker[AsyncSession], UUID, CRMConnection]]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -51,7 +49,7 @@ async def test_due_health_check_persists_safe_snapshot_and_updates_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     factory, tenant_id, crm = monitor_case
-    checked_at = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
+    checked_at = datetime.now(UTC)
 
     async def fake_load(
         session: AsyncSession,
@@ -162,7 +160,7 @@ async def test_authentication_failure_records_safe_auth_required_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     factory, tenant_id, crm = monitor_case
-    checked_at = datetime(2026, 9, 12, 12, 30, tzinfo=UTC)
+    checked_at = datetime.now(UTC)
 
     async def failed_load(*_args, **_kwargs):
         raise CRMError(
@@ -187,9 +185,7 @@ async def test_authentication_failure_records_safe_auth_required_snapshot(
         assert refreshed.last_error == "Scheduled health check failed: authentication_error"
         assert "sensitive" not in refreshed.last_error
         snapshot = await session.scalar(
-            select(IntegrationHealthSnapshot).where(
-                IntegrationHealthSnapshot.connection_id == crm.id
-            )
+            select(IntegrationHealthSnapshot).where(IntegrationHealthSnapshot.connection_id == crm.id)
         )
         assert snapshot is not None
         assert snapshot.status == "auth_required"

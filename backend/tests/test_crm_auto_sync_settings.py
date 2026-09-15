@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -9,6 +10,7 @@ from northstar_api.database import SessionFactory
 from northstar_api.lead_crm.workspace_routing import workspace_crm_route_service
 from northstar_api.models import Agent, Lead
 
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 async def test_workspace_crm_auto_sync_settings_are_scoped_and_enforced(
     client: AsyncClient,
@@ -106,12 +108,15 @@ async def test_workspace_crm_auto_sync_settings_are_scoped_and_enforced(
         session.add(update_lead)
         await session.flush()
 
-        assert await workspace_crm_route_service.create_deliveries(
-            session,
-            tenant_id=tenant_id,
-            lead_id=update_lead.id,
-            sync_reason="lead_created",
-        ) == []
+        assert (
+            await workspace_crm_route_service.create_deliveries(
+                session,
+                tenant_id=tenant_id,
+                lead_id=update_lead.id,
+                sync_reason="lead_created",
+            )
+            == []
+        )
         update_deliveries = await workspace_crm_route_service.create_deliveries(
             session,
             tenant_id=tenant_id,
@@ -152,12 +157,15 @@ async def test_workspace_crm_auto_sync_settings_are_scoped_and_enforced(
         session.add_all([automatic_lead, manual_lead])
         await session.flush()
 
-        assert await workspace_crm_route_service.create_deliveries(
-            session,
-            tenant_id=tenant_id,
-            lead_id=automatic_lead.id,
-            sync_reason="lead_updated",
-        ) == []
+        assert (
+            await workspace_crm_route_service.create_deliveries(
+                session,
+                tenant_id=tenant_id,
+                lead_id=automatic_lead.id,
+                sync_reason="lead_updated",
+            )
+            == []
+        )
         manual_deliveries = await workspace_crm_route_service.create_deliveries(
             session,
             tenant_id=tenant_id,

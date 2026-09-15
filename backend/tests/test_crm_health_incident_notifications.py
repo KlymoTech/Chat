@@ -32,7 +32,7 @@ async def incident_case() -> AsyncIterator[
         admin = User(
             email=f"admin-{uuid4().hex}@example.test",
             name="Workspace Admin",
-            password_hash="not-used-by-this-test",
+            password_hash="not-used-by-this-test",  # noqa: S106 - no authentication in this fixture
             is_active=True,
         )
         session.add_all([tenant, admin])
@@ -131,36 +131,48 @@ async def test_monitor_notifies_workspace_admin_only_on_incident_and_recovery(
     status_box = {"value": IntegrationHealthStatus.UNHEALTHY}
     _install_health_result(monkeypatch, status_box=status_box)
 
-    first_check = datetime(2026, 9, 12, 13, 0, tzinfo=UTC)
-    assert await crm_health_monitor.monitor_connection(
-        factory,
-        tenant_id=tenant_id,
-        connection_id=crm.id,
-        now=first_check,
-    ) is True
+    first_check = datetime.now(UTC)
+    assert (
+        await crm_health_monitor.monitor_connection(
+            factory,
+            tenant_id=tenant_id,
+            connection_id=crm.id,
+            now=first_check,
+        )
+        is True
+    )
 
     status_box["value"] = IntegrationHealthStatus.AUTH_REQUIRED
-    assert await crm_health_monitor.monitor_connection(
-        factory,
-        tenant_id=tenant_id,
-        connection_id=crm.id,
-        now=first_check + timedelta(minutes=10),
-    ) is True
+    assert (
+        await crm_health_monitor.monitor_connection(
+            factory,
+            tenant_id=tenant_id,
+            connection_id=crm.id,
+            now=first_check + timedelta(minutes=10),
+        )
+        is True
+    )
 
     status_box["value"] = IntegrationHealthStatus.HEALTHY
-    assert await crm_health_monitor.monitor_connection(
-        factory,
-        tenant_id=tenant_id,
-        connection_id=crm.id,
-        now=first_check + timedelta(minutes=20),
-    ) is True
+    assert (
+        await crm_health_monitor.monitor_connection(
+            factory,
+            tenant_id=tenant_id,
+            connection_id=crm.id,
+            now=first_check + timedelta(minutes=20),
+        )
+        is True
+    )
 
-    assert await crm_health_monitor.monitor_connection(
-        factory,
-        tenant_id=tenant_id,
-        connection_id=crm.id,
-        now=first_check + timedelta(minutes=30),
-    ) is True
+    assert (
+        await crm_health_monitor.monitor_connection(
+            factory,
+            tenant_id=tenant_id,
+            connection_id=crm.id,
+            now=first_check + timedelta(minutes=30),
+        )
+        is True
+    )
 
     async with factory() as session:
         notifications = list(await session.scalars(select(Notification)))
@@ -212,22 +224,23 @@ async def test_unbound_connection_keeps_health_snapshot_without_notification(
         )
         await session.commit()
 
-    checked_at = datetime(2026, 9, 12, 14, 0, tzinfo=UTC)
-    assert await crm_health_monitor.monitor_connection(
-        factory,
-        tenant_id=tenant_id,
-        connection_id=crm.id,
-        now=checked_at,
-    ) is True
+    checked_at = datetime.now(UTC)
+    assert (
+        await crm_health_monitor.monitor_connection(
+            factory,
+            tenant_id=tenant_id,
+            connection_id=crm.id,
+            now=checked_at,
+        )
+        is True
+    )
 
     async with factory() as session:
         refreshed = await session.get(CRMConnection, crm.id)
         assert refreshed is not None
         assert refreshed.status == "unhealthy"
         snapshot = await session.scalar(
-            select(IntegrationHealthSnapshot).where(
-                IntegrationHealthSnapshot.connection_id == crm.id
-            )
+            select(IntegrationHealthSnapshot).where(IntegrationHealthSnapshot.connection_id == crm.id)
         )
         assert snapshot is not None
         assert list(await session.scalars(select(Notification))) == []
@@ -245,23 +258,24 @@ async def test_notification_failure_does_not_rollback_health_snapshot(
         raise RuntimeError("notification store unavailable")
 
     monkeypatch.setattr(crm_health_monitor, "_notify_health_transition", fail_notification)
-    checked_at = datetime(2026, 9, 12, 15, 0, tzinfo=UTC)
+    checked_at = datetime.now(UTC)
 
-    assert await crm_health_monitor.monitor_connection(
-        factory,
-        tenant_id=tenant_id,
-        connection_id=crm.id,
-        now=checked_at,
-    ) is True
+    assert (
+        await crm_health_monitor.monitor_connection(
+            factory,
+            tenant_id=tenant_id,
+            connection_id=crm.id,
+            now=checked_at,
+        )
+        is True
+    )
 
     async with factory() as session:
         refreshed = await session.get(CRMConnection, crm.id)
         assert refreshed is not None
         assert refreshed.status == "unhealthy"
         snapshot = await session.scalar(
-            select(IntegrationHealthSnapshot).where(
-                IntegrationHealthSnapshot.connection_id == crm.id
-            )
+            select(IntegrationHealthSnapshot).where(IntegrationHealthSnapshot.connection_id == crm.id)
         )
         assert snapshot is not None
         assert snapshot.status == "unhealthy"

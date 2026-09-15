@@ -38,6 +38,7 @@ from northstar_api.lead_crm.models import (
 from northstar_api.lead_crm.verification import as_utc, verification_failed, verify_delivery
 from northstar_api.logging import configure_logging
 from northstar_api.models import Lead
+from northstar_api.services.education_conversation_policy import is_education_lead
 from northstar_api.services.outbox import enqueue_event
 
 settings = get_settings()
@@ -208,6 +209,13 @@ async def process_delivery(session: AsyncSession, delivery_id: UUID) -> None:
     }:
         return
     if delivery.next_retry_at and as_utc(delivery.next_retry_at) > datetime.now(UTC):
+        return
+    if await is_education_lead(session, delivery.lead_id):
+        delivery.status = CRMDeliveryStatus.CANCELLED.value
+        delivery.next_retry_at = None
+        delivery.last_error_code = "education_conversation"
+        delivery.last_error_message = "Education chats do not enter the lead or CRM workflow"
+        await session.commit()
         return
     connection = await session.scalar(
         select(CRMConnection).where(

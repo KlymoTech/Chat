@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,6 +42,8 @@ describe('StudentsPage', () => {
     apiMocks.create.mockImplementation(async (input) => {
       const now = new Date().toISOString();
       const created: EducationStudent = {
+        whatsappNumber: input.whatsappNumber,
+        whatsappVerified: input.whatsappVerified,
         id: 'student-2',
         tenantId: 'tenant-1',
         workspaceId: 'workspace-1',
@@ -80,7 +83,7 @@ describe('StudentsPage', () => {
 
   it('creates and edits a student profile with custom fields', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><StudentsPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><StudentsPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('Asha Verma')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add student' }));
@@ -88,6 +91,8 @@ describe('StudentsPage', () => {
     await user.type(within(createDialog).getByLabelText('Student ID'), 'ns-1002');
     await user.type(within(createDialog).getByLabelText('Student name'), 'Riya Singh');
     await user.type(within(createDialog).getByLabelText('Email'), 'RIYA@EXAMPLE.COM');
+    await user.type(within(createDialog).getByLabelText('Student WhatsApp number'), '+919876540123');
+    await user.click(within(createDialog).getByRole('checkbox', { name: /I have confirmed/ }));
     await user.click(within(createDialog).getByRole('button', { name: 'Add field' }));
     await user.type(within(createDialog).getByLabelText('Custom field name'), 'language');
     await user.type(within(createDialog).getByLabelText('Custom field value'), 'Hindi');
@@ -97,6 +102,8 @@ describe('StudentsPage', () => {
       studentNumber: 'NS-1002',
       name: 'Riya Singh',
       email: 'riya@example.com',
+      whatsappNumber: '+919876540123',
+      whatsappVerified: true,
       customFields: { language: 'Hindi' },
     }));
     expect(await screen.findByText('Riya Singh')).toBeInTheDocument();
@@ -113,6 +120,8 @@ describe('StudentsPage', () => {
       studentNumber: 'NS-1002',
       name: 'Riya S. Singh',
       email: 'riya@example.com',
+      whatsappNumber: '+919876540123',
+      whatsappVerified: true,
       customFields: { language: 'Hindi' },
     }));
     expect(await screen.findByText('Riya S. Singh')).toBeInTheDocument();
@@ -120,7 +129,7 @@ describe('StudentsPage', () => {
 
   it('archives, filters, searches, and reactivates without deleting the student', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><StudentsPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><StudentsPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('Asha Verma')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Archive' }));
@@ -146,7 +155,7 @@ describe('StudentsPage', () => {
 
   it('blocks duplicate custom field names before calling the API', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><StudentsPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><StudentsPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('Asha Verma')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add student' }));

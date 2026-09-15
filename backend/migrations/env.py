@@ -14,6 +14,7 @@ from northstar_api import (
     education_access_requests,  # noqa: F401
     education_batches,  # noqa: F401
     education_conversation_context,  # noqa: F401
+    education_enrollment_events,  # noqa: F401
     education_enrollments,  # noqa: F401
     education_knowledge_scope,  # noqa: F401
     education_student_activity,  # noqa: F401

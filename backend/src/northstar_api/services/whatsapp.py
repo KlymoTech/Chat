@@ -419,13 +419,23 @@ def split_whatsapp_text(value: str) -> list[str]:
         raise ValueError("A non-empty WhatsApp message is required")
     chunks: list[str] = []
     while len(remaining) > MAX_WHATSAPP_TEXT_LENGTH:
-        boundary = remaining.rfind("\n", 0, MAX_WHATSAPP_TEXT_LENGTH + 1)
+        # Reserve room to close a monospace block and reopen it in the next
+        # message. Each provider message must contain its own formatting pair.
+        limit = MAX_WHATSAPP_TEXT_LENGTH - 3 if "```" in remaining[:MAX_WHATSAPP_TEXT_LENGTH + 3] else MAX_WHATSAPP_TEXT_LENGTH
+        boundary = remaining.rfind("\n", 0, limit + 1)
         if boundary < MAX_WHATSAPP_TEXT_LENGTH // 2:
-            boundary = remaining.rfind(" ", 0, MAX_WHATSAPP_TEXT_LENGTH + 1)
+            boundary = remaining.rfind(" ", 0, limit + 1)
         if boundary < MAX_WHATSAPP_TEXT_LENGTH // 2:
-            boundary = MAX_WHATSAPP_TEXT_LENGTH
-        chunks.append(remaining[:boundary].rstrip())
-        remaining = remaining[boundary:].lstrip()
+            boundary = limit
+        while boundary > 0 and remaining[boundary - 1] == "`" and remaining[boundary] == "`":
+            boundary -= 1
+        # A pathological run of backticks must still make progress.
+        if boundary == 0:
+            boundary = limit
+        chunk = remaining[:boundary]
+        continuation = "```" if chunk.count("```") % 2 else ""
+        chunks.append(chunk + continuation if continuation else chunk.rstrip())
+        remaining = continuation + remaining[boundary:] if continuation else remaining[boundary:].lstrip()
     if remaining:
         chunks.append(remaining)
     return chunks

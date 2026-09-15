@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Load, selectinload
 
+from northstar_api.agent_purpose import AgentPurpose, AgentPurposeSetting
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
@@ -17,6 +18,8 @@ from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutb
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.lead_crm.domain import ChannelProvider
+from northstar_api.lead_crm.services import lead_domain_service
+from northstar_api.logging import request_id_ctx
 from northstar_api.models import (
     Channel,
     Conversation,
@@ -32,11 +35,18 @@ from northstar_api.schemas import (
     ConversationOut,
     ConversationPatch,
     ConversationReplyCreate,
+    ConversationResolve,
     MessageOut,
     PageResult,
 )
 from northstar_api.security import Principal
+from northstar_api.services.conversation_lead_status import attach_lead_status
 from northstar_api.services.conversation_resolution import conversation_resolution_service
+from northstar_api.services.education_conversation_policy import (
+    EDUCATION_WORKFLOW_MESSAGE,
+    conversation_purpose,
+    education_source,
+)
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.slack import decode_slack_target
 from northstar_api.services.whatsapp import (
@@ -77,6 +87,8 @@ def conversation_response(conversation: Conversation) -> ConversationOut:
         agent_id=conversation.agent_id,
         visitor_name=conversation.visitor_name,
         visitor_email=conversation.visitor_email,
+        page_url=conversation.page_url,
+        visitor_details=conversation.visitor_details or {},
         channel=conversation.channel,
         state=conversation.state,
         sentiment=conversation.sentiment,
@@ -393,6 +405,7 @@ async def list_conversations(
     agent_id: UUID | None = Query(default=None),
     channel: Channel | None = Query(default=None),
     state: str | None = Query(default=None, max_length=40),
+    purpose: AgentPurpose | None = Query(default=None),
     search: str | None = Query(default=None, max_length=320),
 ) -> PageResult[ConversationOut]:
     conditions = [
@@ -401,6 +414,16 @@ async def list_conversations(
     ]
     if principal.agent_ids is not None:
         conditions.append(Conversation.agent_id.in_(principal.agent_ids))
+    if purpose is AgentPurpose.EDUCATION:
+        conditions.append(education_source(Conversation))
+    elif purpose is not None:
+        conditions.append(~education_source(Conversation))
+        lead_agents = select(AgentPurposeSetting.agent_id).where(
+            AgentPurposeSetting.tenant_id == principal.tenant_id,
+            AgentPurposeSetting.workspace_id == principal.workspace_id,
+            AgentPurposeSetting.purpose == AgentPurpose.LEAD_GENERATION.value,
+        )
+        conditions.append(Conversation.agent_id.in_(lead_agents) if purpose is AgentPurpose.LEAD_GENERATION else Conversation.agent_id.not_in(lead_agents))
     if agent_id:
         conditions.append(Conversation.agent_id == agent_id)
     if channel:
@@ -427,9 +450,9 @@ async def list_conversations(
             .limit(page_size)
         )
     ).all()
-    return PageResult(
-        items=[conversation_response(item) for item in rows], total=total, page=page, page_size=page_size
-    )
+    items = [conversation_response(item) for item in rows]
+    await attach_lead_status(session, principal, items)
+    return PageResult(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{conversation_id}", response_model=ConversationOut)
@@ -443,7 +466,9 @@ async def get_conversation(
     )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return conversation_response(conversation)
+    response = conversation_response(conversation)
+    await attach_lead_status(session, principal, [response])
+    return response
 
 
 @router.post("/{conversation_id}/resolve", response_model=ConversationOut)
@@ -451,23 +476,37 @@ async def resolve_conversation(
     conversation_id: UUID,
     principal: ConversationsResolvePrincipal,
     session: DB,
+    payload: ConversationResolve | None = None,
 ) -> ConversationOut:
     """Resolve a conversation and atomically create/finalize its linked Lead.
 
     The conversation and every message remain stored. Repeating this request is
     idempotent: it reconciles the existing Lead rather than creating another.
     """
+    if payload and payload.lead_status is not None and not principal.can("leads.update"):
+        raise HTTPException(status_code=403, detail="You do not have permission to update lead status")
     conversation = await locked_conversation(session, principal, conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    await conversation_resolution_service.resolve(
+    if await conversation_purpose(session, conversation) is AgentPurpose.EDUCATION:
+        raise HTTPException(status_code=409, detail=EDUCATION_WORKFLOW_MESSAGE)
+    resolution = await conversation_resolution_service.resolve(
         session,
         conversation=conversation,
         actor_user_id=principal.user_id,
+        create_lead=True,
     )
+    if payload and payload.lead_status is not None and resolution.lead is not None:
+        await lead_domain_service.update_status(
+            session, lead=resolution.lead, status=payload.lead_status,
+            actor_id=str(principal.user_id), correlation_id=request_id_ctx.get(),
+            qualification_reason="Marked Qualified in Conversations", skip_unchanged=True,
+        )
     await session.commit()
     await session.refresh(conversation)
-    return conversation_response(conversation)
+    response = conversation_response(conversation)
+    await attach_lead_status(session, principal, [response])
+    return response
 
 
 @router.patch("/{conversation_id}", response_model=ConversationOut)
@@ -481,10 +520,17 @@ async def update_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if payload.state == ConversationState.RESOLVED and await conversation_purpose(session, conversation) is AgentPurpose.EDUCATION:
+        raise HTTPException(status_code=409, detail=EDUCATION_WORKFLOW_MESSAGE)
     previous_state = conversation.state
     patch = payload.model_dump(exclude_unset=True)
     requested_state = payload.state
     patch.pop("state", None)
+    if "visitor_name" in patch and not (patch["visitor_name"] or "").strip():
+        raise HTTPException(status_code=422, detail="Visitor name cannot be empty")
+    details = patch.pop("visitor_details", None)
+    if details is not None:
+        conversation.visitor_details = {**(conversation.visitor_details or {}), **details}
     for name, value in patch.items():
         setattr(conversation, "unread_count" if name == "unread" else name, value)
 
@@ -522,9 +568,15 @@ async def update_conversation(
                 payload=event_payload,
             )
 
+    if payload.model_fields_set & {"visitor_name", "visitor_email", "page_url", "visitor_details"}:
+        from northstar_api.services.visitor_details import update_linked_lead
+        await update_linked_lead(session, conversation, payload.model_fields_set)
+
     await session.commit()
     await session.refresh(conversation)
-    return conversation_response(conversation)
+    response = conversation_response(conversation)
+    await attach_lead_status(session, principal, [response])
+    return response
 
 
 @router.post("/{conversation_id}/messages", response_model=MessageOut, status_code=201)

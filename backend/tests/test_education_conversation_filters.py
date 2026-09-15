@@ -65,6 +65,7 @@ async def _create_course_batch_student_enrollment(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("crm_test_plan")
 async def test_education_conversation_filters_compose_without_replacing_generic_inbox(
     client: AsyncClient,
     auth_headers: dict[str, str],
@@ -87,13 +88,6 @@ async def test_education_conversation_filters_compose_without_replacing_generic_
     )
     assert agent.status_code == 201, agent.text
     agent_id = agent.json()["id"]
-    activated = await client.patch(
-        f"/api/v1/agents/{agent_id}",
-        headers=headers,
-        json={"status": "active"},
-    )
-    assert activated.status_code == 200, activated.text
-
     first = await _create_course_batch_student_enrollment(
         client,
         headers,
@@ -106,6 +100,13 @@ async def test_education_conversation_filters_compose_without_replacing_generic_
         seed=f"{seed}B",
         agent_id=agent_id,
     )
+
+    activated = await client.patch(
+        f"/api/v1/agents/{agent_id}",
+        headers=headers,
+        json={"status": "active"},
+    )
+    assert activated.status_code == 200, activated.text
 
     async with SessionFactory() as session:
         stored_agent = await session.get(Agent, uuid.UUID(agent_id))

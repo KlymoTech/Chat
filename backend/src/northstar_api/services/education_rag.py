@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -14,6 +13,7 @@ from northstar_api.education_enrollments import EducationEnrollment, EnrollmentS
 from northstar_api.education_students import EducationStudent, StudentStatus
 from northstar_api.models import Agent, AgentStatus
 from northstar_api.services.retrieval import EducationRetrievalScope
+from northstar_api.services.workspace_dates import workspace_today
 
 
 class EducationRagAccessDenied(RuntimeError):
@@ -109,7 +109,7 @@ async def authorized_education_retrieval_scope(
     if batch is None:
         raise EducationRagAccessDenied("batch_inactive")
 
-    today = datetime.now(UTC).date()
+    today = await workspace_today(session, tenant_id=tenant_id, workspace_id=workspace_id)
     if batch.starts_on is not None and today < batch.starts_on:
         raise EducationRagAccessDenied("batch_not_started")
     if batch.ends_on is not None and today > batch.ends_on:

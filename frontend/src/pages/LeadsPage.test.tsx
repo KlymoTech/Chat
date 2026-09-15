@@ -45,6 +45,11 @@ vi.mock('@/lib/lead-crm-api', () => ({
   },
 }));
 
+vi.mock('@/lib/lead-layout-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/lead-layout-api')>();
+  return { ...actual, leadLayoutApi: { ...actual.leadLayoutApi, get: vi.fn(async () => actual.defaultLayout) } };
+});
+
 describe('LeadsPage', () => {
   beforeEach(() => {
     const leads = structuredClone(demoLeads);
@@ -89,6 +94,10 @@ describe('LeadsPage', () => {
     expect(await screen.findByText('Nora Reed')).toBeInTheDocument();
     await user.selectOptions(screen.getByRole('combobox', { name: 'Status for Nora Reed' }), 'converted');
     await waitFor(() => expect(apiMocks.updateStatus).toHaveBeenCalledWith('lead-1', 'converted'));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Status for Nora Reed' }), 'qualified');
+    await waitFor(() => expect(apiMocks.updateStatus).toHaveBeenCalledWith('lead-1', 'qualified'));
+    expect(await screen.findByText('Nora Reed marked Qualified. Resolved leads sync automatically using your CRM settings.')).toBeInTheDocument();
+    expect(apiMocks.syncLead).not.toHaveBeenCalled();
   });
 
   it('uses the configured app fallback when the CRM API is unavailable', async () => {

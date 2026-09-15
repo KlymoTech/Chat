@@ -268,7 +268,7 @@ export function CRMManagementPanel({ connections, canManage, onConnectionsChange
   const selectedRoutes = routes.filter((route) => route.connection_ids.includes(selectedId));
   const currentMapping = mappings.find((item) => item.object_name === 'Leads');
 
-  return <Card>
+  return <Card className="crm-management-panel">
     <div className="page-heading page-heading--split">
       <div><h3>CRM mapping & routing</h3><p>Discover provider fields, validate mappings, and control exactly which qualified leads are delivered to each CRM.</p></div>
       <Badge tone="purple">Management wizard</Badge>

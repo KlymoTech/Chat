@@ -7,12 +7,14 @@ describe('public widget loader', () => {
   const currentScriptDescriptor = Object.getOwnPropertyDescriptor(document, 'currentScript');
 
   afterEach(() => {
+    window.history.replaceState({}, '', '/');
     document.body.innerHTML = '';
     if (currentScriptDescriptor) Object.defineProperty(document, 'currentScript', currentScriptDescriptor);
     else Reflect.deleteProperty(document, 'currentScript');
   });
 
   it('creates no session until the lazy iframe announces readiness', async () => {
+    window.history.replaceState({}, '', '/course?utm_source=google&utm_campaign=summer&access_token=secret#private');
     const bootstrap: WidgetBootstrap = {
       agentId: 'agent-1', publicId: 'public-1', name: 'Support', avatar: 'S', collectEmail: false,
       sessionEndpoint: '/api/v1/widget/public-1/sessions', streamEndpoint: '/api/v1/widget/sessions/{conversationId}/messages',
@@ -48,6 +50,13 @@ describe('public widget loader', () => {
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'northstar:ready', agentId: 'public-1' }, origin: 'https://platform.example', source: frameWindow }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const options = (fetchMock.mock.calls[1] as unknown as [unknown, RequestInit])[1];
+    const sent = JSON.parse(options.body as string);
+    expect(sent.pageUrl).toContain('/course?utm_source=google&utm_campaign=summer');
+    expect(sent.pageUrl).not.toContain('secret');
+    expect(sent.pageUrl).not.toContain('#');
+    expect(sent.visitorDetails.language).toBeTruthy();
+
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: 'northstar:init', agentId: 'public-1', bootstrap, session }, 'https://platform.example'));
   });
 });

@@ -59,6 +59,12 @@ def _resolve(value: Any, path: str) -> Any:
 def _transform(value: Any, operation: str | None) -> Any:
     if operation is None:
         return value
+    if operation in {"yyyy-mm-dd", "dd/mm/yyyy", "mm/dd/yyyy"} and value:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.strftime({"yyyy-mm-dd": "%Y-%m-%d", "dd/mm/yyyy": "%d/%m/%Y", "mm/dd/yyyy": "%m/%d/%Y"}[operation])
+        except ValueError:
+            return value
     if operation == "lower" and isinstance(value, str):
         return value.lower()
     if operation == "upper" and isinstance(value, str):

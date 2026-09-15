@@ -268,3 +268,31 @@
   .connection-steps li { font-size: 10px; gap: 4px; }
   .connection-app-fields { padding: 14px; }
 }
+
+/* CRM forms use the same spacing and full-width controls as the integration catalogue. */
+.mm-shell .crm-management-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.crm-management-panel .integration-toolbar { margin: 0; flex-wrap: wrap; justify-content: flex-start; }
+.crm-management-panel .integration-toolbar > label { display: flex; flex-direction: column; gap: 8px; flex: 1 1 240px; min-width: 0; }
+.crm-management-panel .integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.mm-shell .crm-management-panel .integration-card { display: flex; flex-direction: column; min-width: 0; padding: 24px; }
+.crm-management-panel .integration-card__copy { display: flex; flex-direction: column; gap: 14px; min-width: 0; width: 100%; }
+.crm-management-panel .integration-card__copy > span { flex-wrap: wrap; }
+.crm-management-panel .integration-card__copy h3 { font-size: 17px; }
+.crm-management-panel .integration-card__copy p { margin: 0; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.crm-management-panel .integration-card__copy small { overflow-wrap: anywhere; }
+.crm-management-panel .integration-card__copy > label { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; }
+.crm-management-panel .integration-card__copy input[type="checkbox"] { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 3px; }
+.crm-management-panel .integration-card__copy > .button { align-self: flex-start; }
+.crm-management-panel textarea { min-width: 0; width: 100%; resize: vertical; }
+.crm-management-panel select,
+.crm-management-panel input:not([type="checkbox"]),
+.crm-management-panel textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font: inherit; font-size: 14px; }
+.crm-management-panel :is(select, input, textarea):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.crm-management-panel > .section-heading,
+.crm-management-panel > .integration-toolbar { padding: 0 24px; }
+.crm-management-panel > .section-heading { padding-top: 24px; }
+@media (max-width: 780px) {
+  .crm-management-panel .integration-grid { grid-template-columns: minmax(0, 1fr); }
+  .mm-shell .crm-management-panel .integration-card { padding: 18px; }
+  .crm-management-panel .integration-toolbar > label { flex-basis: auto; width: 100%; }
+}

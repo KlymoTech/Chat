@@ -10,10 +10,6 @@ import { Button, Badge, Card, Field, PageLoader, Switch } from '@/components/ui'
 import { WorkspaceAPIKeysPanel } from '@/components/WorkspaceAPIKeysPanel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
 import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
-import {
-  educationSalesSettingsApi,
-  type EducationSalesRoutingSettings,
-} from '@/lib/education-sales-settings-api';
 import { workspaceApi, type WorkspaceSettings } from '@/lib/workspace-api';
 import '@/pages/WorkspaceTeam.css';
 
@@ -23,19 +19,12 @@ export function WorkspacePage() {
   const [params, setParams] = useSearchParams();
   const section = params.get('section') ?? 'workspace';
   const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
-  const [educationSales, setEducationSales] = useState<EducationSalesRoutingSettings>({
-    createUpsellLeads: false,
-  });
   const [saving, setSaving] = useState(false);
-  const [savingEducationSales, setSavingEducationSales] = useState(false);
   const [masking, setMasking] = useState(true);
   const [digest, setDigest] = useState(true);
 
   useEffect(() => {
     void workspaceApi.get().then(setWorkspace);
-    void educationSalesSettingsApi.get()
-      .then(setEducationSales)
-      .catch(() => setEducationSales({ createUpsellLeads: false }));
   }, []);
   const ownerInitial = useMemo(() => session?.user.name.charAt(0).toUpperCase() ?? 'N', [session]);
 
@@ -54,21 +43,6 @@ export function WorkspacePage() {
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
     } finally { setSaving(false); }
-  }
-
-  async function saveEducationSalesRouting() {
-    setSavingEducationSales(true);
-    try {
-      const saved = await educationSalesSettingsApi.update(educationSales);
-      setEducationSales(saved);
-      pushToast(saved.createUpsellLeads
-        ? 'Education sales Lead routing enabled'
-        : 'Education sales Lead routing disabled');
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Education sales routing could not be saved', 'error');
-    } finally {
-      setSavingEducationSales(false);
-    }
   }
 
   if (!workspace) return <PageLoader />;
@@ -91,16 +65,8 @@ export function WorkspacePage() {
             </Card>
           </form>
 
-          <Card className="workspace-panel"><PanelHeading icon={GraduationCap} title="Education sales routing" description="Keep Education conversations out of the Lead pipeline by default, with an explicit opt-in for verified Student sales opportunities." />
-            <div className="workspace-panel__body">
-              <Switch
-                checked={educationSales.createUpsellLeads}
-                onChange={(createUpsellLeads) => setEducationSales({ createUpsellLeads })}
-                label="Create upsell leads from Education Agents"
-                description="When enabled, teammates can explicitly resolve an authorized Education conversation as sales intent and reuse the existing Lead + CRM pipeline. Normal Education Resolve still creates no Lead."
-              />
-              <div className="workspace-panel__actions"><Button onClick={() => void saveEducationSalesRouting()} disabled={savingEducationSales}>{savingEducationSales ? 'Saving…' : 'Save Education routing'}</Button></div>
-            </div>
+          <Card className="workspace-panel"><PanelHeading icon={GraduationCap} title="Education conversations" description="Student chats stay in Conversations and are kept separate from Leads and CRM sales sync." />
+            <div className="workspace-panel__body"><p>Education agents support enrolled students. Their chats have no Resolve or lead-status actions. Use a Lead Generation agent for sales enquiries.</p></div>
           </Card>
         </> : null}
 

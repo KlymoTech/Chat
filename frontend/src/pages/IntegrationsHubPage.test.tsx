@@ -5,14 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntegrationsHubPage } from '@/pages/IntegrationsHubPage';
 
 const mocks = vi.hoisted(() => ({
-  role: 'owner', crm: vi.fn(), channels: vi.fn(), providers: vi.fn(), agents: vi.fn(),
+  resume: vi.fn(), role: 'owner', crm: vi.fn(), channels: vi.fn(), providers: vi.fn(), agents: vi.fn(),
   create: vi.fn(), update: vi.fn(), test: vi.fn(), start: vi.fn(), activate: vi.fn(), entitlements: vi.fn(),
 }));
 vi.mock('@/components/providers', () => ({ useAuth: () => ({ session: { user: { role: mocks.role } } }), useWorkspace: () => ({ activeWorkspace: { id: 'workspace-1' } }) }));
 vi.mock('@/components/whatsapp-integration-modal', () => ({ WhatsAppIntegrationModal: () => null }));
 vi.mock('@/lib/api', () => ({ api: { integrations: { list: async () => [] }, agents: { list: mocks.agents } } }));
 vi.mock('@/lib/crm-one-click-api', () => ({ crmOneClickApi: { providers: mocks.providers, startOAuth: mocks.start, activateDirect: mocks.activate } }));
-vi.mock('@/lib/lead-crm-api', () => ({ leadCrmApi: { connections: mocks.crm, channelConnections: mocks.channels, createChannelConnection: mocks.create, updateChannelConnection: mocks.update, testChannelConnection: mocks.test, connectionEntitlements: mocks.entitlements } }));
+vi.mock('@/lib/lead-crm-api', () => ({ leadCrmApi: { startOAuth: mocks.resume, connections: mocks.crm, channelConnections: mocks.channels, createChannelConnection: mocks.create, updateChannelConnection: mocks.update, testChannelConnection: mocks.test, connectionEntitlements: mocks.entitlements } }));
 
 const saved = { id: 'slack-1', public_id: 'channel-1', provider: 'slack', name: 'Slack', agent_id: 'agent-1', status: 'configured', configuration: {}, webhook_path: '/api/v1/webhooks/channels/tenant/slack/channel-1' };
 async function open(name: string) {
@@ -125,4 +125,20 @@ describe('integration catalogue and real setup', () => {
     expect(popup.close).toHaveBeenCalled();
     expect(within(dialog).getByLabelText('Client ID')).toHaveValue('customer-app');
   });
+});
+
+
+it('resumes authorization on the existing saved CRM connection', async () => {
+  mocks.crm.mockResolvedValue([{ id: 'zoho-existing', provider: 'zoho', name: 'Zoho CRM', status: 'auth_required', environment: 'production' }]);
+  mocks.resume.mockResolvedValue({ authorizationUrl: 'https://accounts.zoho.com/oauth/v2/auth' });
+  const popup = { closed: false, close: vi.fn(), location: { replace: vi.fn() } };
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+  render(<MemoryRouter><IntegrationsHubPage /></MemoryRouter>);
+  const manage = await screen.findByRole('button', { name: 'Manage Zoho CRM' });
+  await waitFor(() => expect(manage).toBeEnabled());
+  await userEvent.click(manage);
+  await userEvent.click(screen.getByRole('button', { name: 'Authorize account' }));
+  await waitFor(() => expect(mocks.resume).toHaveBeenCalledWith('zoho-existing'));
+  expect(mocks.start).not.toHaveBeenCalled();
+  expect(popup.location.replace).toHaveBeenCalledWith('https://accounts.zoho.com/oauth/v2/auth');
 });

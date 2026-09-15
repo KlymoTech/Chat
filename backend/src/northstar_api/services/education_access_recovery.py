@@ -61,7 +61,7 @@ def _aware(value: datetime) -> datetime:
 
 def _code_digest(request_id: UUID, code: str) -> str:
     key = get_settings().jwt_secret.get_secret_value().encode("utf-8")
-    payload = f"education-access-recovery:{request_id}:{code}".encode("utf-8")
+    payload = f"education-access-recovery:{request_id}:{code}".encode()
     return hmac.new(key, payload, hashlib.sha256).hexdigest()
 
 
@@ -111,7 +111,9 @@ async def _valid_enrollment(
             .order_by(EducationEnrollment.updated_at.desc())
         )
     ).all()
-    today = datetime.now(UTC).date()
+    from northstar_api.services.workspace_dates import workspace_today
+
+    today = await workspace_today(session, tenant_id=tenant_id, workspace_id=workspace_id)
     valid = [
         enrollment
         for enrollment, batch in rows
