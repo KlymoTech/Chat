@@ -1,5 +1,5 @@
 import { X, type LucideIcon } from 'lucide-react';
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, useId, useLayoutEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -20,7 +20,19 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
 }
 
 export function Field({ label, hint, error, children, htmlFor, messageId }: { label: string; hint?: string; error?: string; children: ReactNode; htmlFor?: string; messageId?: string }) {
-  return <div className="field"><label htmlFor={htmlFor}>{label}</label>{children}{error ? <small id={messageId} className="field__error">{error}</small> : hint ? <small id={messageId}>{hint}</small> : null}</div>;
+  const generatedId = useId();
+  const items = Children.toArray(children);
+  const control = items.find((child) => isValidElement<InputHTMLAttributes<HTMLInputElement>>(child)
+    && typeof child.type === 'string' && ['input', 'select', 'textarea'].includes(child.type));
+  const nativeControl = isValidElement<InputHTMLAttributes<HTMLInputElement>>(control) ? control : undefined;
+  const controlId = htmlFor ?? nativeControl?.props.id ?? generatedId;
+  const descriptionId = error || hint ? messageId ?? `${generatedId}-message` : undefined;
+  const contents = items.map((child) => child === nativeControl && nativeControl ? cloneElement(nativeControl, {
+    id: controlId,
+    'aria-invalid': error ? true : nativeControl.props['aria-invalid'],
+    'aria-describedby': [...new Set([nativeControl.props['aria-describedby'], descriptionId].filter(Boolean))].join(' ') || undefined,
+  }) : child);
+  return <div className="field"><label htmlFor={nativeControl ? controlId : htmlFor}>{label}</label>{contents}{error ? <small id={descriptionId} className="field__error">{error}</small> : hint ? <small id={descriptionId}>{hint}</small> : null}</div>;
 }
 
 export function Switch({ checked, onChange, label, description, disabled }: { checked: boolean; onChange: (value: boolean) => void; label: string; description?: string; disabled?: boolean }) {
@@ -38,8 +50,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   const closeDisabledRef = useRef(closeDisabled);
-  closeRef.current = onClose;
-  closeDisabledRef.current = closeDisabled;
+  useLayoutEffect(() => {
+    closeRef.current = onClose;
+    closeDisabledRef.current = closeDisabled;
+  }, [onClose, closeDisabled]);
   useEffect(() => {
     if (!open) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -72,7 +86,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
 export function Skeleton({ height = 16, width = '100%' }: { height?: number; width?: string }) { return <span className="skeleton" style={{ height, width }} aria-hidden="true" />; }
 
-export function PageLoader() { return <div className="page-loader" aria-label="Loading"><div className="loader-orbit"><span /></div><p>Loading your workspace…</p></div>; }
+export function PageLoader() { return <div className="page-loader" role="status" aria-live="polite"><div className="loader-orbit" aria-hidden="true"><span /></div><p>Loading your workspace…</p></div>; }
 
 export function EmptyState({ icon: Icon, title, description, action }: { icon: LucideIcon; title: string; description: string; action?: ReactNode }) {
   return <div className="empty-state"><span className="empty-state__icon"><Icon /></span><h3>{title}</h3><p>{description}</p>{action}</div>;

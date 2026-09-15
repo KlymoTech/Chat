@@ -1,11 +1,14 @@
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
+import { PageLoader } from '@/components/ui';
 import { ChevronDown, CircleHelp, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Settings2, ShieldCheck, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
 import { CommandPalette } from '@/components/CommandPalette';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth, useToast, useWorkspace } from '@/components/providers';
 import { platformAdminApi } from '@/lib/platform-admin-api';
+import { dashboardTheme } from '@/lib/dashboard-theme';
 import { commandNavigation, materialmPageTitle, primaryNavigation, visibleNavigation } from '@/lib/materialm-navigation';
 import { MaterialmSidebarLinks } from './MaterialmSidebar';
 import { MaterialmWorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -44,8 +47,7 @@ export function MaterialmAppShell() {
   const commands = commandNavigation(scope);
   const initials = useMemo(() => (session?.user.name || 'NS').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), [session?.user.name]);
   const branding = activeWorkspace?.whiteLabel;
-  const primary = branding?.brandedDashboard && /^#[0-9a-f]{6}$/i.test(branding.primaryColor) ? branding.primaryColor : undefined;
-  const theme = primary ? { '--mm-accent': primary, '--blue': primary, '--blue-hover': primary } as CSSProperties : undefined;
+  const theme = dashboardTheme(branding?.brandedDashboard ? branding.primaryColor : undefined);
 
   useEffect(() => {
     let active = true;
@@ -133,7 +135,7 @@ export function MaterialmAppShell() {
           </div>
         </div>
       </header>
-      <main id="mm-main-content" className="mm-content" tabIndex={-1}><Outlet key={activeWorkspace?.id ?? 'workspace-loading'} /></main>
+      <main id="mm-main-content" className="mm-content" tabIndex={-1}><PageErrorBoundary key={`${location.pathname}:${activeWorkspace?.id ?? ''}`}><Suspense fallback={<PageLoader />}><Outlet /></Suspense></PageErrorBoundary></main>
     </div>
     <dialog ref={drawer} id="mm-mobile-navigation" className="mm-drawer" aria-label="Main navigation" onCancel={() => setMobileOpen(false)} onClose={() => { setMobileOpen(false); menuTrigger.current?.focus(); }} onClick={(event) => { if (event.target === event.currentTarget) setMobileOpen(false); }}>
       <div className="mm-drawer__inner">

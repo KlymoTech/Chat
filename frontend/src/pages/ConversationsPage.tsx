@@ -109,8 +109,8 @@ export function ConversationsPage() {
       search: debouncedSearch || undefined,
       page: 1,
       pageSize: 100,
-}, signal), 
-[activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch, purposeFilter],
+    }, signal),
+    [activeWorkspace?.id, agentId, courseId, batchId, studentId, isEducationAgent, channel, filter, debouncedSearch, purposeFilter],
   );
 
   const conversations = useMemo(() => result.data?.items ?? [], [result.data]);

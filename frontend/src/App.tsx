@@ -1,47 +1,51 @@
+import { lazy, Suspense } from 'react';
+import { PageErrorBoundary } from '@/components/PageErrorBoundary';
+import { PageLoader } from '@/components/ui';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { MaterialmAppShell } from '@/components/materialm/MaterialmAppShell';
 import { EducationLayout } from '@/components/materialm/EducationLayout';
 import { useAuth } from '@/components/providers';
-import { AgentBuilderPage } from '@/pages/AgentBuilderPage';
-import { AgentsPage } from '@/pages/AgentsPage';
-import { AnalyticsPage } from '@/pages/AnalyticsPage';
-import { AuditPage } from '@/pages/AuditPage';
-import { BatchesPage } from '@/pages/BatchesPage';
-import { ConversationsPage } from '@/pages/ConversationsPage';
-import { CoursesPage } from '@/pages/CoursesPage';
-import { CRMWorkflowPage } from '@/pages/CRMWorkflowPage';
-import { DeployPage } from '@/pages/DeployPage';
-import { EducationAccessRecoveryPage } from '@/pages/EducationAccessRecoveryPage';
-import { EducationAccessRequestsPage } from '@/pages/EducationAccessRequestsPage';
-import { EducationActivityPage } from '@/pages/EducationActivityPage';
-import { EducationEnrollmentsPage } from '@/pages/EducationEnrollmentsPage';
-import { EducationHubPage } from '@/pages/EducationHubPage';
-import { EducationStudentDetailPage } from '@/pages/EducationStudentDetailPage';
-import { EducationStudentImportPage } from '@/pages/EducationStudentImportPage';
-import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage';
-import { IntegrationsHubPage } from '@/pages/IntegrationsHubPage';
-import { IntegrationManagementPage } from '@/pages/IntegrationManagementPage';
-import { HelpArticlePage } from '@/pages/HelpArticlePage';
-import { HelpAskPage } from '@/pages/HelpAskPage';
-import { HelpCategoryPage } from '@/pages/HelpCategoryPage';
-import { HelpCenterPage } from '@/pages/HelpCenterPage';
-import { HelpSearchPage } from '@/pages/HelpSearchPage';
-import { HelpSupportPage } from '@/pages/HelpSupportPage';
-import { HelpSupportRequestPage } from '@/pages/HelpSupportRequestPage';
-import { LeadsPage } from '@/pages/LeadsPage';
-import { LoginPage } from '@/pages/LoginPage';
-import { MFAChallengePage } from '@/pages/MFAChallengePage';
-import { NotFoundPage } from '@/pages/NotFoundPage';
-import { OverviewPage } from '@/pages/OverviewPage';
-import { PlatformAdminPage } from '@/pages/PlatformAdminPage';
-import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
-import { SignupPage } from '@/pages/SignupPage';
-import { StudentsPage } from '@/pages/StudentsPage';
-import { VerifyEmailPage } from '@/pages/VerifyEmailPage';
-import { WhiteLabelPage } from '@/pages/WhiteLabelPage';
-import { WorkspaceInvitationPage } from '@/pages/WorkspaceInvitationPage';
-import { WorkspacePage } from '@/pages/WorkspacePage';
-import { WidgetDemoPage } from '@/pages/WidgetDemoPage';
+
+const AgentBuilderPage = lazy(() => import('@/pages/AgentBuilderPage').then((module) => ({ default: module.AgentBuilderPage })));
+const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((module) => ({ default: module.AgentsPage })));
+const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
+const AuditPage = lazy(() => import('@/pages/AuditPage').then((module) => ({ default: module.AuditPage })));
+const BatchesPage = lazy(() => import('@/pages/BatchesPage').then((module) => ({ default: module.BatchesPage })));
+const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((module) => ({ default: module.ConversationsPage })));
+const CoursesPage = lazy(() => import('@/pages/CoursesPage').then((module) => ({ default: module.CoursesPage })));
+const CRMWorkflowPage = lazy(() => import('@/pages/CRMWorkflowPage').then((module) => ({ default: module.CRMWorkflowPage })));
+const DeployPage = lazy(() => import('@/pages/DeployPage').then((module) => ({ default: module.DeployPage })));
+const EducationAccessRecoveryPage = lazy(() => import('@/pages/EducationAccessRecoveryPage').then((module) => ({ default: module.EducationAccessRecoveryPage })));
+const EducationAccessRequestsPage = lazy(() => import('@/pages/EducationAccessRequestsPage').then((module) => ({ default: module.EducationAccessRequestsPage })));
+const EducationActivityPage = lazy(() => import('@/pages/EducationActivityPage').then((module) => ({ default: module.EducationActivityPage })));
+const EducationEnrollmentsPage = lazy(() => import('@/pages/EducationEnrollmentsPage').then((module) => ({ default: module.EducationEnrollmentsPage })));
+const EducationHubPage = lazy(() => import('@/pages/EducationHubPage').then((module) => ({ default: module.EducationHubPage })));
+const EducationStudentDetailPage = lazy(() => import('@/pages/EducationStudentDetailPage').then((module) => ({ default: module.EducationStudentDetailPage })));
+const EducationStudentImportPage = lazy(() => import('@/pages/EducationStudentImportPage').then((module) => ({ default: module.EducationStudentImportPage })));
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
+const IntegrationsHubPage = lazy(() => import('@/pages/IntegrationsHubPage').then((module) => ({ default: module.IntegrationsHubPage })));
+const IntegrationManagementPage = lazy(() => import('@/pages/IntegrationManagementPage').then((module) => ({ default: module.IntegrationManagementPage })));
+const HelpArticlePage = lazy(() => import('@/pages/HelpArticlePage').then((module) => ({ default: module.HelpArticlePage })));
+const HelpAskPage = lazy(() => import('@/pages/HelpAskPage').then((module) => ({ default: module.HelpAskPage })));
+const HelpCategoryPage = lazy(() => import('@/pages/HelpCategoryPage').then((module) => ({ default: module.HelpCategoryPage })));
+const HelpCenterPage = lazy(() => import('@/pages/HelpCenterPage').then((module) => ({ default: module.HelpCenterPage })));
+const HelpSearchPage = lazy(() => import('@/pages/HelpSearchPage').then((module) => ({ default: module.HelpSearchPage })));
+const HelpSupportPage = lazy(() => import('@/pages/HelpSupportPage').then((module) => ({ default: module.HelpSupportPage })));
+const HelpSupportRequestPage = lazy(() => import('@/pages/HelpSupportRequestPage').then((module) => ({ default: module.HelpSupportRequestPage })));
+const LeadsPage = lazy(() => import('@/pages/LeadsPage').then((module) => ({ default: module.LeadsPage })));
+const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const MFAChallengePage = lazy(() => import('@/pages/MFAChallengePage').then((module) => ({ default: module.MFAChallengePage })));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
+const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((module) => ({ default: module.OverviewPage })));
+const PlatformAdminPage = lazy(() => import('@/pages/PlatformAdminPage').then((module) => ({ default: module.PlatformAdminPage })));
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
+const SignupPage = lazy(() => import('@/pages/SignupPage').then((module) => ({ default: module.SignupPage })));
+const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));
+const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
+const WhiteLabelPage = lazy(() => import('@/pages/WhiteLabelPage').then((module) => ({ default: module.WhiteLabelPage })));
+const WorkspaceInvitationPage = lazy(() => import('@/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
+const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
+const WidgetDemoPage = lazy(() => import('@/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
 function ProtectedLayout() {
   const { session } = useAuth(); const location = useLocation();
@@ -51,7 +55,7 @@ function ProtectedLayout() {
 }
 
 export function App() {
-  return <Routes>
+  return <PageErrorBoundary><Suspense fallback={<PageLoader />}><Routes>
     <Route path="/login" element={<LoginPage />} />
     <Route path="/signup" element={<SignupPage />} />
     <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -98,5 +102,5 @@ export function App() {
       <Route path="settings" element={<Navigate to="/workspace" replace />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />
-  </Routes>;
+  </Routes></Suspense></PageErrorBoundary>;
 }

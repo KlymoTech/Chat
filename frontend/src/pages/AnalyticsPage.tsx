@@ -1,3 +1,4 @@
+import { ChannelBreakdown } from '@/components/channel-breakdown';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -86,7 +87,7 @@ export function AnalyticsPage() {
     </div>
 
     <div className="analytics-lower-grid"><Card className="top-questions"><div className="card-heading"><div><h3>Top questions</h3><p>What visitors ask most often</p></div><Badge tone="brand">Knowledge insights</Badge></div><div className="question-list">{data.topQuestions.map((item, index) => <div key={item.question}><span className="question-rank">{index + 1}</span><span><strong>{item.question}</strong><small>{item.count} conversations</small></span><div className="resolution-bar"><span><i style={{ width: `${item.resolutionRate}%` }} /></span><small>{item.resolutionRate}% resolved</small></div></div>)}</div></Card>
-      <Card className="channel-card"><div className="card-heading"><div><h3>Channels</h3><p>Where conversations begin</p></div></div><div className="donut-wrap"><div className="donut"><span><strong>{formatCompact(data.conversations)}</strong><small>Total</small></span></div><div className="channel-legend">{data.channels.map((item, index) => <span key={item.channel}><i className={`channel-color channel-color--${index}`} /><strong>{item.channel}</strong><em>{item.value}%</em></span>)}</div></div></Card>
+      <Card className="channel-card"><div className="card-heading"><div><h3>Channels</h3><p>Where conversations begin</p></div></div><ChannelBreakdown channels={data.channels} total={data.conversations} /></Card>
     </div>
 
     <Card className="health-insight"><span><Bot /></span><div><h3>Cross-domain analytics are live</h3><p>{leads.created} leads, {crm.verified} verified CRM deliveries, and {education.conversations} education conversations are included for {data.period.toLowerCase()}.</p></div><Button variant="secondary" icon={RefreshCw} onClick={result.reload}>Refresh</Button></Card>
@@ -98,7 +99,7 @@ function MetricRows({ rows }: { rows: Array<[string, number, string]> }) {
 }
 
 function AnalyticsChart({ data }: { data: Array<{ label: string; conversations: number; resolved: number }> }) {
-  const max = Math.max(...data.map((item) => item.conversations), 1);
+  const max = Math.max(...data.flatMap((item) => [item.conversations, item.resolved]), 1);
   return <div className="bar-chart"><div className="bar-y-labels"><span>{max}</span><span>{Math.round(max * .66)}</span><span>{Math.round(max * .33)}</span><span>0</span></div><div className="bar-plot"><div className="bar-grid"><i/><i/><i/><i/></div>{data.map((item) => <div className="bar-group" key={item.label}><div className="bar-pair"><i style={{ height: `${item.conversations / max * 100}%` }} title={`${item.conversations} conversations`} /><i style={{ height: `${item.resolved / max * 100}%` }} title={`${item.resolved} resolved`} /></div><span>{item.label}</span></div>)}</div></div>;
 }
 
