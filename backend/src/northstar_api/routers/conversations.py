@@ -55,6 +55,7 @@ from northstar_api.services.whatsapp import (
     token_expiry_is_current,
 )
 from northstar_api.services.whatsapp_accounts import connection_client
+from northstar_api.services.whatsapp_message_status import attach_whatsapp_message_status
 from northstar_api.services.whatsapp_templates import build_template
 from northstar_api.workers.facebook_messenger_tasks import send_facebook_messenger_message
 from northstar_api.workers.instagram_tasks import send_instagram_message
@@ -451,6 +452,7 @@ async def list_conversations(
         )
     ).all()
     items = [conversation_response(item) for item in rows]
+    await attach_whatsapp_message_status(session, rows, items)
     await attach_lead_status(session, principal, items)
     return PageResult(items=items, total=total, page=page, page_size=page_size)
 
@@ -467,6 +469,7 @@ async def get_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     response = conversation_response(conversation)
+    await attach_whatsapp_message_status(session, [conversation], [response])
     await attach_lead_status(session, principal, [response])
     return response
 

@@ -3,6 +3,22 @@ import { api } from '@/lib/api';
 import type { ChatStreamEvent, Session, WidgetBootstrap, WidgetSession } from '@/types';
 
 describe('api client', () => {
+  it('requires real sign-in when a saved demo session is opened in backend mode', () => {
+    localStorage.setItem('northstar.session', JSON.stringify({
+      accessToken: 'demo.preview.token',
+      user: { id: 'user-demo', name: 'Preview', role: 'owner' },
+    }));
+
+    expect(api.auth.session()).toBeNull();
+  });
+
+  it('does not create a demo session when the backend is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Network unavailable')));
+
+    await expect(api.auth.login('owner@example.com', 'test-password')).rejects.toThrow('Network unavailable');
+    expect(api.auth.session()).toBeNull();
+  });
+
   it('preserves a plain-text proxy error as an ApiError without reading the response twice', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('Upstream Meta gateway unavailable', {
       status: 502, headers: { 'Content-Type': 'text/plain' },

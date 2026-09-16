@@ -200,6 +200,20 @@ describe('Conversations live messages and reading position', () => {
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
+  it('refreshes WhatsApp messages and delivery receipts while preserving an unsent draft', async () => {
+    const message = { id: 'wa-1', role: 'assistant' as const, content: 'Your WhatsApp reply', createdAt: baseConversation.startedAt, deliveryStatus: 'sent' as const };
+    const conversation: Conversation = { ...baseConversation, channel: 'whatsapp', messages: [message] };
+    mocks.conversationList.mockResolvedValue({ items: [conversation], total: 1, page: 1, pageSize: 50 });
+    await act(async () => { render(<MemoryRouter><ConversationsPage /></MemoryRouter>); });
+    expect(screen.getByRole('img', { name: 'Sent to WhatsApp' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'WhatsApp message' }), { target: { value: 'Unsent draft' } });
+    mocks.conversationList.mockResolvedValue({ items: [{ ...conversation, messages: [{ ...message, deliveryStatus: 'read' }, { ...message, id: 'wa-2', role: 'user', content: 'Customer replied', deliveryStatus: undefined }] }], total: 1, page: 1, pageSize: 50 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByRole('img', { name: 'Read' })).toBeInTheDocument();
+    expect(screen.getByRole('log')).toHaveTextContent('Customer replied');
+    expect(screen.getByRole('textbox', { name: 'WhatsApp message' })).toHaveValue('Unsent draft');
+  });
+
   it('discovers the first website conversation and updates its messages without navigation', async () => {
     mocks.conversationList.mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 50 });
     await act(async () => { render(<MemoryRouter><ConversationsPage /></MemoryRouter>); });

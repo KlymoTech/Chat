@@ -16,6 +16,7 @@ from northstar_api.models import Channel, Conversation, ConversationState, Messa
 from northstar_api.schemas import CitationOut, ConversationOut, MessageOut, PageResult
 from northstar_api.security import Principal
 from northstar_api.services.conversation_lead_status import attach_lead_status
+from northstar_api.services.whatsapp_message_status import attach_whatsapp_message_status
 
 router = APIRouter(prefix="/education/conversations", tags=["education"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -147,6 +148,7 @@ async def list_education_conversations(
         )
     ).all()
     items = [_conversation_response(item) for item in rows]
+    await attach_whatsapp_message_status(session, rows, items)
     await attach_lead_status(session, principal, items)
     return PageResult(
         items=items,

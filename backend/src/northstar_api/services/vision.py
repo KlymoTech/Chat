@@ -18,6 +18,10 @@ def _client() -> OpenAI:
     return OpenAI(
         base_url=settings.nvidia_base_url,
         api_key=settings.nvidia_api_key.get_secret_value(),
+        # Celery owns retries. SDK retries can otherwise keep one PDF page
+        # occupied for long enough to lose the broker acknowledgement channel.
+        timeout=90.0,
+        max_retries=0,
     )
 
 

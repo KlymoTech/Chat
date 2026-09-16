@@ -221,9 +221,9 @@ services:
     healthcheck:
       disable: true
 
-  worker:
+  worker: &celery-worker
     <<: *api-runtime
-    command: ["celery", "-A", "northstar_api.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-2}"]
+    command: ["celery", "-A", "northstar_api.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-2}", "--queues=ingest.source,operations,telegram.outbound,instagram.outbound,facebook_messenger.outbound,slack.outbound"]
     environment:
       <<: *api-environment
       DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
@@ -252,6 +252,16 @@ services:
       - egress
     security_opt:
       - no-new-privileges:true
+
+  # Slow document extraction must not share a consumer channel with WhatsApp.
+  whatsapp-worker:
+    <<: *celery-worker
+    command: ["celery", "-A", "northstar_api.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${WHATSAPP_CELERY_CONCURRENCY:-2}", "--queues=whatsapp.inbound,whatsapp.outbound"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-whatsapp-worker
 
   job-dispatcher:
     <<: *api-runtime

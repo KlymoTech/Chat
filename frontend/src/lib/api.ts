@@ -9,7 +9,7 @@ import type {
 } from '@/types';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
-const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) !== 'false';
+const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) === 'true';
 const TOKEN_KEY = 'northstar.session';
 const AGENTS_KEY = 'northstar.agents';
 const KNOWLEDGE_KEY = 'northstar.knowledge';
@@ -32,7 +32,11 @@ export class ApiError extends Error {
 const pause = (ms = 220) => new Promise((resolve) => setTimeout(resolve, ms));
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
 
-function session(): Session | null { return readStorage<Session | null>(TOKEN_KEY, null); }
+function session(): Session | null {
+  const saved = readStorage<Session | null>(TOKEN_KEY, null);
+  // A demo token cannot authenticate against the real backend after a deployment switch.
+  return !DEMO_MODE && saved?.accessToken.startsWith('demo.') ? null : saved;
+}
 
 function notifySessionChanged(): void {
   window.dispatchEvent(new Event(AUTH_SESSION_EVENT));

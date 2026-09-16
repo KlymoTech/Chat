@@ -1,7 +1,8 @@
-import { Facebook, Instagram } from '@/components/social-icons';
+import { WhatsApp, Slack, Teams, Notion, Zapier, Messenger } from '@/components/provider-logo';
+import { Instagram } from '@/components/social-icons';
 import {
-  BookOpen, Hash, MessageCircle, MessageSquareText, MoreVertical,
-  RefreshCw, SendHorizontal, Terminal, Workflow,
+  MessageCircle, MoreVertical,
+  RefreshCw, SendHorizontal, Terminal,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -144,14 +145,14 @@ function newestConversation(items: Conversation[], agentId: string, channel: Dep
 }
 
 function ChannelIcon({ channel }: { channel: DeploymentChannel }) {
-  const Icon = channel === 'whatsapp' ? MessageCircle
+  const Icon = channel === 'whatsapp' ? WhatsApp
     : channel === 'instagram' ? Instagram
-      : channel === 'facebook' ? Facebook
-        : channel === 'slack' ? Hash
-          : channel === 'teams' ? MessageSquareText
+      : channel === 'facebook' ? Messenger
+        : channel === 'slack' ? Slack
+          : channel === 'teams' ? Teams
             : channel === 'api' ? Terminal
-              : channel === 'notion' ? BookOpen
-                : channel === 'zapier' ? Workflow
+              : channel === 'notion' ? Notion
+                : channel === 'zapier' ? Zapier
                   : MessageCircle;
   return <Icon />;
 }

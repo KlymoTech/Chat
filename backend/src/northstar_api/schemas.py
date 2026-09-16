@@ -344,6 +344,7 @@ class MessageOut(APIModel):
     content: str
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)
+    delivery_status: str | None = None
 
 
 class VisitorDetails(APIModel):
@@ -361,6 +362,14 @@ class VisitorDetails(APIModel):
     referrer: str | None = Field(default=None, max_length=2048)
 
 
+class WhatsAppContactOut(APIModel):
+    phone_number: str
+    wa_id: str
+    profile_name: str | None = None
+    last_message_at: datetime | None = None
+    last_message_type: str | None = None
+
+
 class ConversationOut(APIModel):
     purpose: AgentPurpose = AgentPurpose.SUPPORT
     lead_id: UUID | None = None
@@ -368,6 +377,7 @@ class ConversationOut(APIModel):
     can_update_lead_status: bool = False
     page_url: str | None = None
     visitor_details: VisitorDetails = Field(default_factory=VisitorDetails)
+    whatsapp_contact: WhatsAppContactOut | None = None
     id: UUID
     workspace_id: UUID
     agent_id: UUID

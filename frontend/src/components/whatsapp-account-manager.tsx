@@ -1,5 +1,6 @@
+import { WhatsApp } from '@/components/provider-logo';
 import { useEffect, useState } from 'react';
-import { Plus, RefreshCw, MessageCircle, ExternalLink } from 'lucide-react';
+import { Plus, RefreshCw, ExternalLink } from 'lucide-react';
 import { Badge, Button, Field, Modal } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { WhatsAppAccount, WhatsAppConnection } from '@/types';
@@ -56,7 +57,7 @@ export function WhatsAppAccountManager({ open, onClose, onConnectionChanged, onE
   });
   return <Modal open={open} onClose={close} closeDisabled={busy} title="WhatsApp accounts and numbers" description="Connect your accounts, register multiple numbers, then choose a number for each bot in Deploy." size="lg" footer={<Button disabled={busy} onClick={close}>Done</Button>}>
     <div className="whatsapp-manager">
-      <div className="whatsapp-manager__brand"><span className="whatsapp-logo"><MessageCircle /></span><div><strong>Your WhatsApp Business accounts</strong><small>Credentials are encrypted on the server.</small></div></div>
+      <div className="whatsapp-manager__brand"><span className="whatsapp-logo"><WhatsApp /></span><div><strong>Your WhatsApp Business accounts</strong><small>Credentials are encrypted on the server.</small></div></div>
       {error ? <div role="alert" className="integration-error">{error}</div> : null}{notice ? <p role="status">{notice}</p> : null}
       <div className="whatsapp-manager__actions"><Button icon={Plus} disabled={busy} onClick={() => { setAdding(true); setEditingId(null); setForm(emptyForm); }}>Add account</Button><Button variant="secondary" disabled={busy} onClick={() => { setForm(emptyForm); setPin(''); onEmbedded(); }}>Use Facebook signup</Button></div>
       {adding ? <form className="whatsapp-form whatsapp-account-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>

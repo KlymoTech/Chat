@@ -29,6 +29,10 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
+    # Finish or terminate before RabbitMQ's default 30-minute acknowledgement
+    # deadline. Otherwise a stuck task closes the consumer's entire channel.
+    task_soft_time_limit=1440,
+    task_time_limit=1500,
     broker_connection_retry_on_startup=True,
     broker_transport_options={"confirm_publish": True, "max_retries": 5},
     task_default_exchange=jobs_exchange.name,

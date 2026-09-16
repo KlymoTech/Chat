@@ -126,6 +126,22 @@ start.bat -NgrokDomain your-domain.ngrok-free.dev
 
 To exercise a protected route in Swagger, call `POST /api/v1/auth/login`, copy `accessToken`, then use **Authorize**.
 
+### Develop the current frontend against the running backend
+
+Start the stack with `start.bat`, then copy `frontend/.env.example` to
+`frontend/.env.local` and run `npm run dev`. The example connects Vite's `/api`
+proxy to the Docker API on port 8100. Set `VITE_DEV_API_URL=http://localhost:8000`
+instead if you run the API directly on port 8000. Vite prints its frontend URL.
+
+Demo mode is opt-in with `VITE_DEMO_MODE=true`; normal development and public
+builds use the real backend. Saved demo sessions require a real sign-in when
+switching to backend mode. The public launcher serves the current Docker web
+build and its API proxy, so run `start.bat` without `-NoBuild` after code changes.
+
+The Compose stack runs WhatsApp in a dedicated `whatsapp-worker`, separate from
+document ingestion. See [WhatsApp processing and recovery](docs/WHATSAPP_RELIABILITY_REPAIR.md)
+for the queue subscriptions, time limits and verification results.
+
 Prerequisites:
 
 - Docker Engine with Docker Compose v2

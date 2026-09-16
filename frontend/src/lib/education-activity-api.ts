@@ -40,7 +40,7 @@ export interface EducationActivityFilters {
 }
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
-const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) !== 'false';
+const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) === 'true';
 const SESSION_KEY = 'northstar.session';
 
 export class EducationActivityApiError extends Error {

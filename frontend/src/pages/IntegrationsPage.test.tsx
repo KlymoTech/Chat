@@ -15,6 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   bootstrap: vi.fn(),
   status: vi.fn(),
   complete: vi.fn(),
+  accounts: vi.fn(),
+  activity: vi.fn(),
   disconnect: vi.fn(),
   loadFacebookSdk: vi.fn(),
   getFacebookLoginStatus: vi.fn(),
@@ -38,6 +40,8 @@ vi.mock('@/lib/api', () => ({
         bootstrap: apiMocks.bootstrap,
         status: apiMocks.status,
         complete: apiMocks.complete,
+        accounts: apiMocks.accounts,
+        activity: apiMocks.activity,
         disconnect: apiMocks.disconnect,
       },
     },
@@ -80,6 +84,8 @@ describe('IntegrationsPage WhatsApp connection', () => {
     apiMocks.listAgents.mockResolvedValue(structuredClone(demoAgents));
     apiMocks.bootstrap.mockResolvedValue(bootstrap);
     apiMocks.status.mockResolvedValue(disconnected);
+    apiMocks.accounts.mockResolvedValue([]);
+    apiMocks.activity.mockResolvedValue({ lastError: null, inbound: [], outbound: [], deliveries: [] });
     apiMocks.loadFacebookSdk.mockResolvedValue({});
     apiMocks.getFacebookLoginStatus.mockResolvedValue('connected');
     apiMocks.logoutFacebook.mockResolvedValue('unknown');
@@ -110,6 +116,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     const card = whatsappHeading.closest('section');
     expect(card).not.toBeNull();
     await user.click(within(card!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
 
     const continueButton = await screen.findByRole('button', { name: 'Continue with Facebook' });
     expect(continueButton).toBeDisabled();
@@ -139,6 +146,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     const card = whatsappHeading.closest('section');
     await user.click(within(card!).getByRole('button', { name: 'Manage' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
 
     expect(await screen.findByText('Northstar Support')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
@@ -168,6 +176,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Manage' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
 
     expect(await screen.findByText('+1 555 0100')).toBeInTheDocument();
     expect(screen.getByText('2 connected')).toBeInTheDocument();
@@ -185,6 +194,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Manage' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
 
     expect(await screen.findByText('Signed in')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Log out' }));
@@ -205,6 +215,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
     await user.type(await screen.findByLabelText('Two-step verification PIN'), '654321');
     await user.click(screen.getByRole('button', { name: 'Continue with Facebook' }));
 
@@ -223,6 +234,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
     await user.type(await screen.findByLabelText('Two-step verification PIN'), '123456');
     await user.click(screen.getByRole('button', { name: 'Continue with Facebook' }));
     await waitFor(() => expect(apiMocks.complete).toHaveBeenCalled());
@@ -249,6 +261,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
     await user.type(await screen.findByLabelText('Two-step verification PIN'), '123456');
     await user.click(screen.getByRole('button', { name: 'Continue with Facebook' }));
 
@@ -260,6 +273,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     expect(apiMocks.complete).not.toHaveBeenCalled();
 
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
     expect(await screen.findByLabelText('Two-step verification PIN')).toHaveValue('');
   });
 
@@ -273,6 +287,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
     const pinInput = await screen.findByLabelText('Two-step verification PIN');
     await user.type(pinInput, '123456');
     await user.click(screen.getByRole('button', { name: 'Continue with Facebook' }));
@@ -292,6 +307,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Manage' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
 
     expect(await screen.findByText('Reconnect required')).toBeInTheDocument();
     expect(screen.getByText('This connection needs to be renewed')).toBeInTheDocument();
@@ -312,6 +328,7 @@ describe('IntegrationsPage WhatsApp connection', () => {
     renderPage();
     const whatsappHeading = await screen.findByRole('heading', { name: 'WhatsApp' });
     await user.click(within(whatsappHeading.closest('section')!).getByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: 'Use Facebook signup' }));
 
     expect(await screen.findByRole('heading', { name: 'Set up Facebook Login for WhatsApp' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Meta setup required' })).toBeDisabled();

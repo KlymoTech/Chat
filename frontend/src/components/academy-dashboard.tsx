@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { WelcomeCharacter } from './welcome-character';
 
 export function DashboardWelcome({ name, children }: { name: string; children: ReactNode }) {
   return <section className="academy-welcome">
     <div><h2>Hello {name}!</h2><p>{children}</p></div>
-    <img src="/design/online-courses/welcome-illustration.png" width="181" height="195" alt="" />
+    <WelcomeCharacter />
   </section>;
 }
 

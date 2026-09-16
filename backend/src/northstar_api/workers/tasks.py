@@ -300,6 +300,10 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             if conversation and receipt.conversation_id is None:
                 if receipt.sender_name:
                     conversation.visitor_name = receipt.sender_name
+                details = dict(conversation.visitor_details or {})
+                if not details.get("phone"):
+                    details["phone"] = "+" + receipt.sender_wa_id.lstrip("+")
+                conversation.visitor_details = details
                 conversation.unread_count += 1
                 receipt.conversation_id = prepared.conversation_id
                 await session.commit()
@@ -379,6 +383,8 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
 @celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     name="northstar.process_whatsapp_inbound",
+    soft_time_limit=240,
+    time_limit=300,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=300,
@@ -543,6 +549,8 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
 @celery_app.task(  # type: ignore[untyped-decorator]
     bind=True,
     name="northstar.send_whatsapp_human_reply",
+    soft_time_limit=240,
+    time_limit=300,
     autoretry_for=(Exception,),
     retry_backoff=True,
     retry_backoff_max=300,

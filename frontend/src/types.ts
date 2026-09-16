@@ -128,9 +128,17 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   citations?: Array<{ title: string; url?: string }>;
+  deliveryStatus?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown' | null;
 }
 
 export interface Conversation {
+  whatsappContact?: {
+    phoneNumber: string;
+    waId: string;
+    profileName?: string | null;
+    lastMessageAt?: string | null;
+    lastMessageType?: string | null;
+  } | null;
   purpose?: 'education' | 'support' | 'lead_generation';
   leadId?: string | null;
   leadStatus?: string | null;

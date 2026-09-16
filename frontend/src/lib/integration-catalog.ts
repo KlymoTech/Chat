@@ -1,21 +1,21 @@
-import { Building2, Cloud, Code2, Database, Hash, MessageCircle, Send, Users, Workflow } from 'lucide-react';
-import { Facebook, Instagram } from '@/components/social-icons';
+import { Code2, Database } from 'lucide-react';
+import { Zoho, Salesforce, HubSpot, Dynamics, Pipedrive, Freshsales, Slack, WhatsApp, Messenger, Instagram, Telegram } from '@/components/provider-logo';
 
 export const integrationCategories = ['All integrations', 'CRM', 'Channels', 'Developer'] as const;
 export type IntegrationCategory = typeof integrationCategories[number];
 export const integrationCatalog = [
-  { id: 'zoho', name: 'Zoho CRM', category: 'CRM', icon: Building2, description: 'Keep leads, contacts and customer updates in sync.', accent: 'zoho' },
-  { id: 'salesforce', name: 'Salesforce', category: 'CRM', icon: Cloud, description: 'Connect your sales team and keep lead records up to date.', accent: 'salesforce' },
-  { id: 'hubspot', name: 'HubSpot', category: 'CRM', icon: Users, description: 'Bring new leads and customer contacts into HubSpot.', accent: 'hubspot' },
-  { id: 'dynamics365', name: 'Microsoft Dynamics 365', category: 'CRM', icon: Building2, description: 'Sync leads with your Dynamics 365 organization.', accent: 'dynamics' },
-  { id: 'pipedrive', name: 'Pipedrive', category: 'CRM', icon: Workflow, description: 'Send qualified leads to your sales workspace.', accent: 'pipedrive' },
-  { id: 'freshsales', name: 'Freshsales', category: 'CRM', icon: Users, description: 'Connect your Freshsales account using an API key.', accent: 'freshsales' },
+  { id: 'zoho', name: 'Zoho CRM', category: 'CRM', icon: Zoho, description: 'Keep leads, contacts and customer updates in sync.', accent: 'zoho' },
+  { id: 'salesforce', name: 'Salesforce', category: 'CRM', icon: Salesforce, description: 'Connect your sales team and keep lead records up to date.', accent: 'salesforce' },
+  { id: 'hubspot', name: 'HubSpot', category: 'CRM', icon: HubSpot, description: 'Bring new leads and customer contacts into HubSpot.', accent: 'hubspot' },
+  { id: 'dynamics365', name: 'Microsoft Dynamics 365', category: 'CRM', icon: Dynamics, description: 'Sync leads with your Dynamics 365 organization.', accent: 'dynamics' },
+  { id: 'pipedrive', name: 'Pipedrive', category: 'CRM', icon: Pipedrive, description: 'Send qualified leads to your sales workspace.', accent: 'pipedrive' },
+  { id: 'freshsales', name: 'Freshsales', category: 'CRM', icon: Freshsales, description: 'Connect your Freshsales account using an API key.', accent: 'freshsales' },
   { id: 'widget', name: 'Website widget', category: 'Channels', icon: Code2, description: 'Embed your agent on your website and start conversations.', accent: 'channel' },
-  { id: 'slack', name: 'Slack', category: 'Channels', icon: Hash, description: 'Let your agent answer questions in Slack.', accent: 'channel' },
-  { id: 'whatsapp', name: 'WhatsApp', category: 'Channels', icon: MessageCircle, description: 'Support your WhatsApp Business customers.', accent: 'channel' },
-  { id: 'facebook_messenger', name: 'Facebook Messenger', category: 'Channels', icon: Facebook, description: 'Answer customers in your Facebook Page inbox.', accent: 'channel' },
+  { id: 'slack', name: 'Slack', category: 'Channels', icon: Slack, description: 'Let your agent answer questions in Slack.', accent: 'channel' },
+  { id: 'whatsapp', name: 'WhatsApp', category: 'Channels', icon: WhatsApp, description: 'Support your WhatsApp Business customers.', accent: 'channel' },
+  { id: 'facebook_messenger', name: 'Facebook Messenger', category: 'Channels', icon: Messenger, description: 'Answer customers in your Facebook Page inbox.', accent: 'channel' },
   { id: 'instagram', name: 'Instagram', category: 'Channels', icon: Instagram, description: 'Respond to messages from your professional account.', accent: 'channel' },
-  { id: 'telegram', name: 'Telegram', category: 'Channels', icon: Send, description: 'Connect a Telegram bot to your workspace agent.', accent: 'channel' },
+  { id: 'telegram', name: 'Telegram', category: 'Channels', icon: Telegram, description: 'Connect a Telegram bot to your workspace agent.', accent: 'channel' },
   { id: 'generic_rest', name: 'Custom CRM API', category: 'Developer', icon: Database, description: 'Connect another CRM through its REST API.', accent: 'channel' },
 ] as const;
 export type CatalogIntegration = typeof integrationCatalog[number];
