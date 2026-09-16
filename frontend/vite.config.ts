@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['isolation-unaligned-catalog.ngrok-free.dev'],
       proxy: {
         '/api': { target: process.env.VITE_DEV_API_URL ?? env.VITE_DEV_API_URL ?? 'http://localhost:8000', changeOrigin: true },
+        '/storage': { target: process.env.VITE_DEV_STORAGE_URL ?? env.VITE_DEV_STORAGE_URL ?? 'http://localhost:9010', changeOrigin: true, rewrite: (path) => path.replace(/^\/storage/, '') },
       },
     },
   };

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import html
 import io
 import re
@@ -28,6 +29,13 @@ from northstar_api.models import (
     KnowledgeStatus,
 )
 from northstar_api.services.crawler import crawl_website, take_screenshot
+from northstar_api.services.hybrid_extraction import (
+    PageCheckpoint,
+    configuration,
+    decode_page_checkpoint,
+    encode_page_checkpoint,
+    extract_document,
+)
 from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import object_store
 from northstar_api.services.outbox import enqueue_event
@@ -72,7 +80,7 @@ def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35)
 
                 step = max(1, target_words - overlap_words)
                 for start in range(0, len(paragraph_words), step):
-                    part = paragraph_words[start:start + target_words]
+                    part = paragraph_words[start : start + target_words]
                     if part:
                         chunks.append(" ".join(part).strip())
                 continue
@@ -113,6 +121,69 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
     source.error = None
     await session.commit()
     try:
+        if source.kind == KnowledgeKind.FILE and source.object_key and not source.content:
+            data, _ = await object_store.download(source.object_key)
+            if source.checksum and hashlib.sha256(data).hexdigest() != source.checksum:
+                raise ValueError("Uploaded source checksum does not match the preserved original")
+            if job:
+                job.step = "extracting"
+                job.progress = 30
+                await session.commit()
+            settings = get_settings()
+            version = source.revision or 1
+            source_hash = hashlib.sha256(data).hexdigest()
+            vision_identity = hashlib.sha256(json.dumps(configuration(settings), sort_keys=True).encode()).hexdigest()
+            raw_pages = await object_store.load_extraction_pages(source.tenant_id, source.id, version=version)
+            resume_pages: dict[int, PageCheckpoint] = {}
+            for number in sorted(raw_pages):
+                if number != len(resume_pages) + 1:
+                    raise ValueError("Extraction checkpoints are not a contiguous page prefix")
+                resume_pages[number] = decode_page_checkpoint(
+                    raw_pages[number],
+                    source_sha256=source_hash,
+                    model=vision_identity,
+                    version=version,
+                    page_number=number,
+                )
+
+            async def checkpoint(page: dict, image: bytes, page_issues: list[dict]) -> None:
+                number = int(page["number"])
+                encoded = encode_page_checkpoint(
+                    page,
+                    image,
+                    page_issues,
+                    source_sha256=source_hash,
+                    model=vision_identity,
+                    version=version,
+                )
+                await object_store.put_extraction_page(
+                    source.tenant_id,
+                    source.id,
+                    version=version,
+                    page_number=number,
+                    data=encoded,
+                )
+                if job:
+                    job.step = f"extracted_page_{number}"
+                    job.progress = min(90, 30 + number)
+                    await session.commit()
+
+            package = await extract_document(
+                data, source.name, settings, resume_pages=resume_pages, on_page=checkpoint
+            )
+            package.record["extraction_revision"] = source.revision or 1
+            source.extraction_key = await object_store.put_extraction(
+                source.tenant_id, source.id, package.archive(), version=source.revision or 1
+            )
+            source.extraction_issue_count = len(package.issues)
+            source.status = KnowledgeStatus.NEEDS_REVIEW
+            source.size_label = f"{len(package.record['pages'])} source units"
+            if job:
+                job.status = JobStatus.SUCCEEDED
+                job.step = "needs_review"
+                job.progress = 100
+            await session.commit()
+            return
         content = await _materialize_text(source)
         if not content:
             raise ValueError("Source has no extracted text")
@@ -207,7 +278,6 @@ async def _materialize_text(source: KnowledgeSource) -> str:
             # Use Vision when the page has embedded images
             # or when normal PDF text is missing.
             extracted_characters = 0
-            
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 pdf = fitz.open(stream=data, filetype="pdf")
@@ -219,13 +289,8 @@ async def _materialize_text(source: KnowledgeSource) -> str:
 
                     extracted_characters += len(text)
 
-                    if (
-                        extracted_characters
-                        > settings.knowledge_max_extracted_characters
-                    ):
-                        raise ValueError(
-                            "PDF text exceeds the configured extraction limit"
-                        )
+                    if extracted_characters > settings.knowledge_max_extracted_characters:
+                        raise ValueError("PDF text exceeds the configured extraction limit")
 
                     # 2. Check whether this page contains embedded images.
                     fitz_page = pdf[page_number]
@@ -243,10 +308,7 @@ async def _materialize_text(source: KnowledgeSource) -> str:
                         alpha=False,
                     )
 
-                    image_path = (
-                        Path(temp_dir)
-                        / f"vision_page_{page_number + 1:03d}.png"
-                    )
+                    image_path = Path(temp_dir) / f"vision_page_{page_number + 1:03d}.png"
 
                     pixmap.save(str(image_path))
 
@@ -265,33 +327,24 @@ async def _materialize_text(source: KnowledgeSource) -> str:
 
                     if visual_content:
                         page_parts.append(
-                            f"VISUAL CONTENT FROM PDF PAGE "
-                            f"{page_number + 1}:\n{visual_content}"
+                            f"VISUAL CONTENT FROM PDF PAGE {page_number + 1}:\n{visual_content}"
                         )
 
                     if page_parts:
                         page_content = "\n\n".join(page_parts)
 
-                        extracted_characters += len(
-                            page_content
-                        )
+                        extracted_characters += len(page_content)
 
-                        if (
-                            extracted_characters
-                            > settings.knowledge_max_extracted_characters
-                        ):
-                            raise ValueError(
-                                "PDF text exceeds the configured extraction limit"
-                            )
+                        if extracted_characters > settings.knowledge_max_extracted_characters:
+                            raise ValueError("PDF text exceeds the configured extraction limit")
 
                         pages.append(page_content)
 
                 pdf.close()
 
             return "\n\n".join(
-    f"===PDF_PAGE:{index}===\n{page}"
-    for index, page in enumerate(pages, start=1)
-).strip()
+                f"===PDF_PAGE:{index}===\n{page}" for index, page in enumerate(pages, start=1)
+            ).strip()
         if "wordprocessingml.document" in content_type or source.name.lower().endswith(".docx"):
             settings = get_settings()
 
@@ -402,7 +455,7 @@ async def _materialize_webpage_with_vision(source: KnowledgeSource) -> str:
         pages = await asyncio.to_thread(
             crawl_website,
             final_url,
-            20, 
+            20,
         )
     except Exception as exc:
         logger.warning(

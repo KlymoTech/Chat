@@ -58,6 +58,10 @@ x-api-environment: &api-environment
   KNOWLEDGE_MAX_EXTRACTED_CHARACTERS: ${KNOWLEDGE_MAX_EXTRACTED_CHARACTERS:-2000000}
   KNOWLEDGE_MAX_CHUNKS: ${KNOWLEDGE_MAX_CHUNKS:-2000}
   KNOWLEDGE_MAX_PDF_PAGES: ${KNOWLEDGE_MAX_PDF_PAGES:-500}
+  EXTRACTION_VISION_PROVIDER: ${EXTRACTION_VISION_PROVIDER:-nvidia}
+  EXTRACTION_VISION_MODEL: ${EXTRACTION_VISION_MODEL:-meta/llama-3.2-11b-vision-instruct}
+  EXTRACTION_VISION_TIMEOUT_SECONDS: ${EXTRACTION_VISION_TIMEOUT_SECONDS:-120}
+  EXTRACTION_VISION_MAX_TOKENS: ${EXTRACTION_VISION_MAX_TOKENS:-512}
   KNOWLEDGE_SITEMAP_MAX_URLS: ${KNOWLEDGE_SITEMAP_MAX_URLS:-25}
   KNOWLEDGE_MAX_DOCX_UNCOMPRESSED_BYTES: ${KNOWLEDGE_MAX_DOCX_UNCOMPRESSED_BYTES:-104857600}
   NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
@@ -156,6 +160,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 15s
@@ -164,6 +170,7 @@ services:
       start_period: 10s
     networks:
       - edge
+      - data
     logging: *json-logging
     security_opt:
       - no-new-privileges:true

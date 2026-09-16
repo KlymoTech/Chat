@@ -31,6 +31,9 @@ The current knowledge upload flow supports a small, explicit set of document typ
 - **Microsoft Word DOCX** (`.docx`)
 - **Plain text** (`.txt`)
 - **Markdown** (`.md` or `.markdown`)
+- **PNG image** (`.png`)
+- **JPEG image** (`.jpg` or `.jpeg`)
+- **TIFF image** (`.tif` or `.tiff`)
 
 ## Important limits
 
@@ -41,6 +44,8 @@ The current knowledge upload flow supports a small, explicit set of document typ
 - Maximum uncompressed DOCX content: **100 MB** by default.
 
 These backend values are configurable within guarded ranges, so a specific deployment can intentionally use different limits.
+
+File uploads produce a draft extraction. Review each source page or image frame against its evidence before the source becomes searchable. A failed visual reading blocks verified release, and DOCX remains a draft until a rendered page derivative is available.
 
 ## Troubleshooting
 
