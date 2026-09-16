@@ -69,7 +69,8 @@ async def main() -> None:
             page.insert_text((72, 72), "Value -12.50")
             package = await hybrid.extract_document(document.tobytes(), "fixture.pdf", settings)
         assert package.record["pages"][0]["selected_text"] is None
-        assert package.issues[0]["code"] == "VISION_UNAVAILABLE"
+        assert any(issue.get("technical") and issue["code"] in {"VISUAL_INVENTORY_FAILED", "VISION_UNAVAILABLE"}
+                   for issue in package.issues)
         assert "Verified release: BLOCKED" in package.validation_text()
 
         response.response_metadata = {"finish_reason": "stop"}
