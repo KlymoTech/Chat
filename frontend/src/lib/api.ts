@@ -132,6 +132,40 @@ async function request<T>(path: string, options: ApiRequestInit = {}): Promise<T
   return response.json() as Promise<T>;
 }
 
+async function requestEvidence(path: string, retried = false): Promise<Blob> {
+  const active = session();
+  const workspaceId = activeWorkspaceId();
+  const response = await fetch(`${API_URL}${path}`, {
+    credentials: 'include',
+    headers: {
+      ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}),
+      ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
+    },
+  });
+  if (response.status === 401 && active && !retried) {
+    await refreshSession(active);
+    return requestEvidence(path, true);
+  }
+  if (!response.ok) throw new ApiError(`Evidence request failed (${response.status})`, response.status);
+  return response.blob();
+}
+
+export interface ExtractionPage {
+  number: number;
+  native_text: string;
+  visual_text: string | null;
+  selected_text: string | null;
+  image: string | null;
+  source_unit?: string;
+}
+
+export interface ExtractionRecord {
+  source_sha256: string;
+  review_status: string;
+  pages: ExtractionPage[];
+  issues: Array<{ id: string; page: number; code: string; message: string; status?: string }>;
+}
+
 async function withFallback<T>(remote: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
   if (DEMO_MODE) {
     try { return await remote(); } catch (error) {
@@ -167,6 +201,9 @@ function uploadContentType(file: File): string {
   if (extension === 'pdf') return 'application/pdf';
   if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (extension === 'md' || extension === 'markdown') return 'text/markdown';
+  if (extension === 'png') return 'image/png';
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'tif' || extension === 'tiff') return 'image/tiff';
   return 'text/plain';
 }
 
@@ -300,6 +337,11 @@ export const api = {
   }),
   knowledge: {
     list: (agentId: string) => withFallback(() => request<KnowledgeSource[]>(`/agents/${agentId}/knowledge`), async () => { await pause(); return demoKnowledgeList().filter((item) => item.agentId === agentId); }),
+    extraction: (sourceId: string) => request<ExtractionRecord>(`/knowledge/${sourceId}/extraction`),
+    extractionPage: (sourceId: string, page: number) => requestEvidence(`/knowledge/${sourceId}/extraction/pages/${page}`),
+    extractionArchive: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/archive`),
+    retryExtraction: (sourceId: string) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/retry`, { method: 'POST' }),
+    approveExtraction: (sourceId: string, pages: Array<{ number: number; selectedText: string; reason: string }>) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/approve`, { method: 'POST', body: JSON.stringify({ pages }) }),
     add: (agentId: string, input: { name: string; kind: KnowledgeKind; url?: string; content?: string; file?: File }) => withFallback(async () => {
       const objectKey = input.file ? await uploadKnowledgeFile(input.file) : undefined;
       return request<KnowledgeSource>(`/agents/${agentId}/knowledge`, {

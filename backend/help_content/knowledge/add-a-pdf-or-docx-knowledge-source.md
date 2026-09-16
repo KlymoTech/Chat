@@ -20,7 +20,7 @@ sort_order: 230
 
 # Add a PDF or DOCX knowledge source
 
-Upload a document so Northstar can extract, chunk, embed, and retrieve its content for the selected agent.
+Upload a document so Northstar can extract it for review before its approved text is indexed for the selected agent.
 
 ## Before you start
 
@@ -33,9 +33,10 @@ Workspace **Owner** or **Admin** access is required.
 3. Drop a PDF or DOCX into the upload area, or click to browse.
 4. Confirm the file is **500 MB or smaller**.
 5. Select **Add source**.
-6. Watch the source move through **processing** to **ready**.
+6. Wait for **Needs review**, open the page evidence, and compare the native and visual readings.
+7. Approve each page. Indexing starts only after the required review is complete.
 
-PDF, DOCX, TXT, and Markdown are accepted by the current upload flow. The backend also limits PDF pages and extracted content to protect the ingestion service.
+PDF, DOCX, TXT, Markdown, PNG, JPEG, and TIFF are accepted by the upload flow. DOCX approval is blocked until a rendered page derivative is available. The backend also limits page counts and extracted content to protect the ingestion service.
 
 ## Troubleshooting
 

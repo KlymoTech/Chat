@@ -53,6 +53,19 @@ class Settings(BaseSettings):
     knowledge_max_extracted_characters: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
     knowledge_max_chunks: int = Field(default=2_000, ge=1, le=20_000)
     knowledge_max_pdf_pages: int = Field(default=500, ge=1, le=5_000)
+    extraction_vision_provider: Literal["nvidia"] = "nvidia"
+    extraction_vision_model: Literal["meta/llama-3.2-11b-vision-instruct"] = (
+        "meta/llama-3.2-11b-vision-instruct"
+    )
+    extraction_vision_timeout_seconds: float = Field(default=120, ge=5, le=600)
+    extraction_vision_max_tokens: int = Field(default=512, ge=256, le=32768)
+    extraction_render_dpi: int = Field(default=300, ge=72, le=600)
+    extraction_max_image_pixels: int = Field(default=12_000_000, ge=1_000_000, le=40_000_000)
+    extraction_max_calls_per_page: int = Field(default=96, ge=4, le=256)
+    extraction_region_retries: int = Field(default=3, ge=0, le=3)
+    extraction_max_evidence_bytes: int = Field(default=512 * 1024 * 1024, ge=1048576, le=1073741824)
+    extraction_word_renderer: str = "soffice"
+    extraction_word_timeout_seconds: int = Field(default=120, ge=10, le=600)
     knowledge_sitemap_max_urls: int = Field(default=25, ge=1, le=500)
     knowledge_max_docx_uncompressed_bytes: int = Field(
         default=100 * 1024 * 1024,

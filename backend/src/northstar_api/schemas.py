@@ -256,6 +256,7 @@ class KnowledgeOut(APIModel):
     url: str | None = None
     content: str | None = None
     error: str | None = None
+    extraction_issue_count: int = 0
 
 
 class FactCreate(APIModel):
@@ -304,6 +305,9 @@ class UploadPresignRequest(APIModel):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/plain",
         "text/markdown",
+        "image/png",
+        "image/jpeg",
+        "image/tiff",
     ]
     size_bytes: int = Field(gt=0)
     checksum_sha256: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
@@ -317,9 +321,14 @@ class UploadPresignRequest(APIModel):
             "txt": "text/plain",
             "md": "text/markdown",
             "markdown": "text/markdown",
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "tif": "image/tiff",
+            "tiff": "image/tiff",
         }.get(extension)
         if not expected:
-            raise ValueError("filename must use a supported PDF, DOCX, TXT, or Markdown extension")
+            raise ValueError("filename must use a supported PDF, DOCX, TXT, Markdown, PNG, JPEG, or TIFF extension")
         if self.content_type != expected:
             raise ValueError("contentType does not match the filename extension")
         return self

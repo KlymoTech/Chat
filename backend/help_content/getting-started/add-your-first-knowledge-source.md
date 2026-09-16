@@ -34,9 +34,9 @@ Workspace **Owner** or **Admin** access is required.
 4. Choose **File upload**, **Web page**, **Sitemap**, or **Write text**.
 5. Supply the file, URL, sitemap URL, or text.
 6. Select **Add source**.
-7. Wait for the status to move from **processing** to **ready**.
+7. For a file upload, wait for **Needs review**, inspect each source unit, and approve its text before it becomes **ready**. Web, sitemap, and written text sources follow their existing processing flow.
 
-File uploads currently accept PDF, DOCX, TXT, and Markdown up to 500 MB.
+File uploads accept PDF, DOCX, TXT, Markdown, PNG, JPEG, and TIFF up to 500 MB. DOCX remains a draft until a rendered page derivative is available.
 
 ## What happens next
 

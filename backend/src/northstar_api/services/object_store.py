@@ -29,6 +29,9 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/markdown",
     "text/plain",
+    "image/png",
+    "image/jpeg",
+    "image/tiff",
 }
 
 
@@ -248,20 +251,126 @@ class ObjectStore:
 
         return await asyncio.to_thread(purge)
 
-    async def download(self, key: str) -> tuple[bytes, dict[str, Any]]:
+    async def purge_prefix(self, prefix: str) -> int:
+        """Remove all artifacts and versions below one validated source prefix."""
+        if not prefix.startswith("extractions/") or not prefix.endswith("/"):
+            raise ValueError("Invalid extraction prefix")
+
+        def purge() -> int:
+            client = self._client()
+            bucket = self.settings.s3_bucket
+            versioning = client.get_bucket_versioning(Bucket=bucket)
+            objects: list[dict[str, str]] = []
+            if versioning.get("Status") in {"Enabled", "Suspended"}:
+                pages = client.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=prefix)
+                for page in pages:
+                    for collection in ("Versions", "DeleteMarkers"):
+                        for item in page.get(collection, []):
+                            key = item.get("Key")
+                            version_id = item.get("VersionId")
+                            if (
+                                isinstance(key, str)
+                                and key.startswith(prefix)
+                                and isinstance(version_id, str)
+                            ):
+                                objects.append({"Key": key, "VersionId": version_id})
+            else:
+                pages = client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix)
+                for page in pages:
+                    for item in page.get("Contents", []):
+                        key = item.get("Key")
+                        if isinstance(key, str) and key.startswith(prefix):
+                            objects.append({"Key": key})
+            for start in range(0, len(objects), 1_000):
+                result = client.delete_objects(
+                    Bucket=bucket, Delete={"Objects": objects[start : start + 1_000], "Quiet": True}
+                )
+                if result.get("Errors"):
+                    raise ObjectStoreUnavailable("Object storage could not purge extraction evidence")
+            return len(objects)
+
+        return await asyncio.to_thread(purge)
+
+    async def download(self, key: str, *, limit_bytes: int | None = None) -> tuple[bytes, dict[str, Any]]:
+        limit = limit_bytes or self.settings.upload_max_bytes
+
         def fetch() -> tuple[bytes, dict[str, Any]]:
             client = self._client()
             head = client.head_object(Bucket=self.settings.s3_bucket, Key=key)
             size = int(head.get("ContentLength", 0))
-            if size <= 0 or size > self.settings.upload_max_bytes:
+            if size <= 0 or size > limit:
                 raise ValueError("Uploaded object is empty or exceeds the configured size limit")
             response = client.get_object(Bucket=self.settings.s3_bucket, Key=key)
-            data = response["Body"].read(self.settings.upload_max_bytes + 1)
-            if len(data) != size or len(data) > self.settings.upload_max_bytes:
+            data = response["Body"].read(limit + 1)
+            if len(data) != size or len(data) > limit:
                 raise ValueError("Uploaded object size changed or exceeds the configured limit")
             return data, {"content_type": head.get("ContentType"), "metadata": head.get("Metadata", {})}
 
         return await asyncio.to_thread(fetch)
+
+    async def put_extraction(self, tenant_id: UUID, source_id: UUID, data: bytes, *, version: int) -> str:
+        if version < 1:
+            raise ValueError("Extraction version must be positive")
+        key = f"extractions/{tenant_id}/{source_id}/v{version:04d}.zip"
+
+        def put() -> None:
+            self._client().put_object(
+                Bucket=self.settings.s3_bucket,
+                Key=key,
+                Body=data,
+                ContentType="application/zip",
+            )
+
+        await asyncio.to_thread(put)
+        return key
+
+    async def put_extraction_page(
+        self, tenant_id: UUID, source_id: UUID, *, version: int, page_number: int, data: bytes
+    ) -> str:
+        if version < 1 or page_number < 1 or len(data) > 50 * 1024 * 1024:
+            raise ValueError("Extraction page checkpoint exceeds safe limits")
+        key = f"extractions/{tenant_id}/{source_id}/v{version:04d}/page_{page_number:04d}.zip"
+
+        def put() -> None:
+            self._client().put_object(
+                Bucket=self.settings.s3_bucket, Key=key, Body=data, ContentType="application/zip"
+            )
+
+        await asyncio.to_thread(put)
+        return key
+
+    async def load_extraction_pages(
+        self, tenant_id: UUID, source_id: UUID, *, version: int
+    ) -> dict[int, bytes]:
+        prefix = f"extractions/{tenant_id}/{source_id}/v{version:04d}/"
+
+        def load() -> dict[int, bytes]:
+            client = self._client()
+            entries: list[tuple[int, str, int]] = []
+            paginator = client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.settings.s3_bucket, Prefix=prefix):
+                for item in page.get("Contents", []):
+                    key = str(item.get("Key") or "")
+                    match = re.fullmatch(re.escape(prefix) + r"page_(\d{4}).zip", key)
+                    if match:
+                        size = int(item.get("Size") or 0)
+                        if size <= 0 or size > 50 * 1024 * 1024:
+                            raise ValueError("Extraction checkpoint exceeds safe limits")
+                        entries.append((int(match.group(1)), key, size))
+            if (
+                len(entries) > self.settings.knowledge_max_pdf_pages
+                or sum(entry[2] for entry in entries) > 1024 * 1024 * 1024
+            ):
+                raise ValueError("Extraction checkpoints exceed configured limits")
+            result: dict[int, bytes] = {}
+            for number, key, size in entries:
+                data = client.get_object(Bucket=self.settings.s3_bucket, Key=key)["Body"].read(size + 1)
+                if len(data) != size:
+                    raise ValueError("Extraction checkpoint changed during reading")
+                result[number] = data
+            return result
+
+        return await asyncio.to_thread(load)
 
 
 object_store = ObjectStore()

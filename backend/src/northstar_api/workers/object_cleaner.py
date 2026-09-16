@@ -85,6 +85,12 @@ async def process_cleanup_event(
             return None
 
     deleted = await store.purge_exact(object_key) if object_key is not None else 0
+    extraction_key = event.payload.get("extractionKey")
+    if extraction_key is not None:
+        expected = f"extractions/{event.tenant_id}/{event.payload['sourceId']}/"
+        if not isinstance(extraction_key, str) or not extraction_key.startswith(expected):
+            raise ValueError("event payload extractionKey is outside its source prefix")
+        deleted += await store.purge_prefix(expected)
 
     # Purging is intentionally completed before this insert. If the process exits
     # between the two operations, Kafka redelivers and the idempotent purge repeats.

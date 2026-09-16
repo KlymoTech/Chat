@@ -99,6 +99,7 @@ class KnowledgeKind(str, enum.Enum):
 class KnowledgeStatus(str, enum.Enum):
     READY = "ready"
     PROCESSING = "processing"
+    NEEDS_REVIEW = "needs_review"
     FAILED = "failed"
 
 
@@ -387,6 +388,8 @@ class KnowledgeSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     content: Mapped[str | None] = mapped_column(Text)
     object_key: Mapped[str | None] = mapped_column(String(1000))
     checksum: Mapped[str | None] = mapped_column(String(64), index=True)
+    extraction_key: Mapped[str | None] = mapped_column(String(1000))
+    extraction_issue_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(String(1000))
     revision: Mapped[int] = mapped_column(Integer, default=1)
 
