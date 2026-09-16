@@ -3,24 +3,66 @@ name: Hybrid extraction acceptance
 on:
   push:
     branches: [feature/hybrid-extraction-source-verification]
+  pull_request:
+    paths:
+      - 'backend/src/northstar_api/services/extraction*.py'
+      - 'backend/src/northstar_api/services/hybrid_extraction.py'
+      - 'backend/tests/test_extraction_source_verification.py'
+      - 'frontend/src/**/extraction*'
+      - 'frontend/tests/check-extraction-review-contract.cjs'
+      - '.github/workflows/hybrid-extraction-acceptance.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  source-snapshot:
+  native-and-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Archive tracked source for isolated implementation verification
-        run: git archive --format=tar.gz HEAD -o source-snapshot.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: hybrid-extraction-source-snapshot
-          path: source-snapshot.tar.gz
-          retention-days: 1
-          if-no-files-found: error
+          python-version: '3.12'
+      - name: Install isolated extraction test dependencies
+        run: |
+          python -m pip install 'pydantic>=2.10,<3' 'Pillow>=12,<13' 'pypdf>=5.9,<7' 'PyMuPDF>=1.26,<2' 'python-docx>=1.2,<2' 'lxml>=5,<7' 'pytest>=9,<10'
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libreoffice-writer fontconfig
+      - name: Verify the existing NVIDIA adapter is byte-for-byte unchanged
+        run: test "$(git hash-object backend/src/northstar_api/services/vision.py)" = '08557d6ceff846dc4e7351de9ff40b24657aad7c'
+      - name: Run real native parsing and scripted-vision acceptance tests
+        env:
+          PYTHONPATH: backend/src
+        run: python -m pytest --noconftest -o addopts= -q backend/tests/test_extraction_source_verification.py --junitxml=extraction-results.xml
+      - name: Compile backend source
+        run: python -m compileall -q backend/src
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extraction-acceptance-results
+          path: extraction-results.xml
+          retention-days: 7
+          if-no-files-found: ignore
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
+      - name: Compile and exercise the review wire contract
+        run: |
+          npx tsc src/lib/extraction-review-contract.ts --target ES2022 --module commonjs --strict --outDir "$RUNNER_TEMP/extraction-contract"
+          node tests/check-extraction-review-contract.cjs "$RUNNER_TEMP/extraction-contract/extraction-review-contract.js"
