@@ -34,7 +34,7 @@ The current knowledge upload flow supports a small, explicit set of document typ
 
 ## Important limits
 
-- Maximum uploaded file size: **25 MB** by default.
+- Maximum uploaded file size: **500 MB** by default.
 - Maximum PDF pages: **500** by default.
 - Maximum extracted text: **2,000,000 characters** by default.
 - Maximum generated chunks per source: **2,000** by default.

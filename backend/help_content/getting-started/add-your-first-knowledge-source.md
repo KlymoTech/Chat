@@ -36,7 +36,7 @@ Workspace **Owner** or **Admin** access is required.
 6. Select **Add source**.
 7. Wait for the status to move from **processing** to **ready**.
 
-File uploads currently accept PDF, DOCX, TXT, and Markdown up to 25 MB.
+File uploads currently accept PDF, DOCX, TXT, and Markdown up to 500 MB.
 
 ## What happens next
 

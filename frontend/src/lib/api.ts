@@ -1,3 +1,4 @@
+import { knowledgeFileSizeError } from '@/lib/upload-limits';
 import { demoAgents, demoAnalytics, demoConversations, demoIntegrations, demoKnowledge, demoLeads } from '@/lib/demo-data';
 import { clone, readStorage, writeStorage } from '@/lib/storage';
 import { localizeAgentAppearance } from '@/lib/widget-localization';
@@ -170,6 +171,8 @@ function uploadContentType(file: File): string {
 }
 
 async function uploadKnowledgeFile(file: File): Promise<string> {
+  const sizeError = knowledgeFileSizeError(file);
+  if (sizeError) throw new ApiError(sizeError, 413);
   const contentType = uploadContentType(file);
   const digest = await crypto.subtle.digest('SHA-256', await new Response(file).arrayBuffer());
   const checksumSha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');

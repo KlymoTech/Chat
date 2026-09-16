@@ -26,7 +26,7 @@ Workspace **Owner** or **Admin** access is required.
 
 ## Recovery steps
 
-Confirm PDF/DOCX/TXT/Markdown format, a maximum upload size of 25 MB by default, matching content type/extension, and a healthy object-storage/ingestion backend. Then retry once with a known-good file.
+Confirm PDF/DOCX/TXT/Markdown format, a maximum upload size of 500 MB by default, matching content type/extension, and a healthy object-storage/ingestion backend. Then retry once with a known-good file.
 
 ## If it still fails
 

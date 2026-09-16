@@ -61,7 +61,8 @@ logger = structlog.get_logger(__name__)
 async def presign_upload(payload: UploadPresignRequest, principal: KnowledgeManagePrincipal) -> UploadPresignOut:
     settings = get_settings()
     if payload.size_bytes > settings.upload_max_bytes:
-        raise HTTPException(status_code=413, detail="Upload exceeds the configured size limit")
+        limit_mb = settings.upload_max_bytes / (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"Files must be {limit_mb:g} MB or smaller.")
     try:
         key, url, fields, expires_at = await object_store.presign_post(
             tenant_id=principal.tenant_id,

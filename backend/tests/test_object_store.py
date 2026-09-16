@@ -133,6 +133,24 @@ async def test_presigned_post_is_staged_and_size_constrained(monkeypatch: pytest
     assert key in client.deleted
 
 
+async def test_document_upload_allows_500_mb_and_rejects_one_byte_over(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeS3(b"metadata-only size boundary test")
+    store = ObjectStore(get_settings())
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+    limit = 500 * 1024 * 1024
+    assert store.settings.upload_max_bytes == limit
+    await store.presign_post(
+        tenant_id=uuid4(), filename="large.pdf", content_type="application/pdf",
+        size_bytes=limit, checksum_sha256=client.checksum,
+    )
+    assert ["content-length-range", 1, limit] in client.post_arguments["Conditions"]
+    with pytest.raises(InvalidUpload, match="file size"):
+        await store.presign_post(
+            tenant_id=uuid4(), filename="too-large.pdf", content_type="application/pdf",
+            size_bytes=limit + 1, checksum_sha256=client.checksum,
+        )
+
+
 async def test_promotion_rejects_a_size_different_from_signed_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

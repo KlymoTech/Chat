@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     s3_access_key_id: SecretStr | None = None
     s3_secret_access_key: SecretStr | None = None
     s3_presign_ttl_seconds: int = 900
-    upload_max_bytes: int = 25 * 1024 * 1024
+    upload_max_bytes: int = Field(default=500 * 1024 * 1024, ge=1, le=500 * 1024 * 1024)
     knowledge_max_extracted_characters: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
     knowledge_max_chunks: int = Field(default=2_000, ge=1, le=20_000)
     knowledge_max_pdf_pages: int = Field(default=500, ge=1, le=5_000)

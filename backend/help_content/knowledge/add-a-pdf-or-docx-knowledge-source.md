@@ -31,7 +31,7 @@ Workspace **Owner** or **Admin** access is required.
 1. Open the agent's **Knowledge** tab.
 2. Select **Add source** and keep **File upload** selected.
 3. Drop a PDF or DOCX into the upload area, or click to browse.
-4. Confirm the file is **25 MB or smaller**.
+4. Confirm the file is **500 MB or smaller**.
 5. Select **Add source**.
 6. Watch the source move through **processing** to **ready**.
 
@@ -39,4 +39,4 @@ PDF, DOCX, TXT, and Markdown are accepted by the current upload flow. The backen
 
 ## Troubleshooting
 
-If a DOCX contains unusually large embedded media or a PDF is extremely long, the backend may reject it even when the compressed upload is under 25 MB.
+If a DOCX contains unusually large embedded media or a PDF is extremely long, the backend may reject it even when the compressed upload is under 500 MB.
