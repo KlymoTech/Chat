@@ -2,253 +2,124 @@ import { readStorage, writeStorage } from '@/lib/storage';
 
 export type DnsStatus = 'not-configured' | 'pending' | 'verified';
 export type WorkspaceRole = 'workspace_admin' | 'manager' | 'operator' | 'analyst' | 'viewer';
-
-export interface WorkspacePreferences {
-  timezone: string;
-  defaultLanguage: string;
-  dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD';
-}
-
+export interface WorkspacePreferences { timezone: string; defaultLanguage: string; dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD' }
 export interface WhiteLabelSettings {
-  companyName: string;
-  logoDataUrl: string;
-  faviconDataUrl: string;
-  appIconDataUrl: string;
-  primaryColor: string;
-  secondaryColor: string;
-  supportEmail: string | null;
-  supportUrl: string;
-  browserTitle: string;
-  customDomain: string;
-  dnsStatus: DnsStatus;
-  brandedLogin: boolean;
-  brandedDashboard: boolean;
-  brandedWidget: boolean;
-  brandedEmails: boolean;
-  removePlatformBranding: boolean;
+  companyName: string; logoDataUrl: string; faviconDataUrl: string; appIconDataUrl: string;
+  primaryColor: string; secondaryColor: string; supportEmail: string | null; supportUrl: string;
+  browserTitle: string; customDomain: string; dnsStatus: DnsStatus; brandedLogin: boolean;
+  brandedDashboard: boolean; brandedWidget: boolean; brandedEmails: boolean; removePlatformBranding: boolean;
 }
-
 export interface WorkspaceSettings {
-  id: string;
-  tenantId?: string;
-  tenantName?: string;
-  name: string;
-  slug: string;
-  status?: 'active' | 'archived';
-  role?: WorkspaceRole;
-  permissions?: string[];
-  plan: string;
-  memberCount: number;
-  preferences: WorkspacePreferences;
-  whiteLabel: WhiteLabelSettings;
-  educationCreateUpsellLeads?: boolean;
+  id: string; tenantId?: string; tenantName?: string; name: string; slug: string;
+  status?: 'active' | 'archived'; role?: WorkspaceRole; permissions?: string[];
+  plan: string; memberCount: number; preferences: WorkspacePreferences; whiteLabel: WhiteLabelSettings;
+  brandingPublished?: boolean; brandingWarnings?: string[]; educationCreateUpsellLeads?: boolean;
 }
-
-export interface WorkspaceTeamMember {
-  id: string;
-  name: string;
-  email: string;
-  role: WorkspaceRole;
-  tenantRole: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst';
-  status: 'active';
-}
-
-export interface WorkspaceTeamInvitation {
-  id: string;
-  email: string;
-  role: WorkspaceRole;
-  status: 'invited';
-  expiresAt: string;
-  createdAt: string;
-}
-
-export interface WorkspaceTeam {
-  members: WorkspaceTeamMember[];
-  invitations: WorkspaceTeamInvitation[];
-}
-
+export interface WorkspaceTeamMember { id: string; name: string; email: string; role: WorkspaceRole; tenantRole: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst'; status: 'active' }
+export interface WorkspaceTeamInvitation { id: string; email: string; role: WorkspaceRole; status: 'invited'; expiresAt: string; createdAt: string }
+export interface WorkspaceTeam { members: WorkspaceTeamMember[]; invitations: WorkspaceTeamInvitation[] }
 export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel' | 'educationCreateUpsellLeads'>>;
-export interface WorkspaceCreate {
-  name: string;
-  slug: string;
-  timezone?: string;
-  defaultLanguage?: string;
-  dateFormat?: WorkspacePreferences['dateFormat'];
-}
-
+export interface WorkspaceCreate { name: string; slug: string; timezone?: string; defaultLanguage?: string; dateFormat?: WorkspacePreferences['dateFormat'] }
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 const STORAGE_KEY = 'northstar.workspace';
-const ACTIVE_WORKSPACE_KEY = 'northstar.active-workspace-id';
 const SESSION_KEY = 'northstar.session';
-const LEGACY_MEMBERS_KEY = 'northstar.workspace.members';
 export const WORKSPACE_CHANGED_EVENT = 'northstar:active-workspace-changed';
-
-class WorkspaceRequestError extends Error {
+export class WorkspaceRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'WorkspaceRequestError'; }
 }
-
 const defaults: WorkspaceSettings = {
-  id: 'workspace-demo',
-  name: 'Northstar Workspace',
-  slug: 'northstar',
-  plan: 'business',
-  memberCount: 1,
-  educationCreateUpsellLeads: false,
+  id: 'workspace-demo', name: 'Northstar Workspace', slug: 'northstar', plan: 'business', memberCount: 1,
+  educationCreateUpsellLeads: false, brandingPublished: false,
   preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
-  whiteLabel: {
-    companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
-    primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: 'support@northstar.ai',
-    supportUrl: 'https://northstar.ai/support', browserTitle: 'Northstar AI', customDomain: '',
-    dnsStatus: 'not-configured', brandedLogin: true, brandedDashboard: true, brandedWidget: true,
-    brandedEmails: true, removePlatformBranding: false,
-  },
+  whiteLabel: { companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
+    primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: null, supportUrl: '',
+    browserTitle: 'Northstar AI', customDomain: '', dnsStatus: 'not-configured', brandedLogin: false,
+    brandedDashboard: true, brandedWidget: false, brandedEmails: false, removePlatformBranding: false },
 };
-
 function localWorkspace(): WorkspaceSettings {
   const saved = readStorage<Partial<WorkspaceSettings>>(STORAGE_KEY, {});
-  return {
-    ...defaults,
-    ...saved,
-    preferences: { ...defaults.preferences, ...saved.preferences },
-    whiteLabel: { ...defaults.whiteLabel, ...saved.whiteLabel },
-  };
+  return { ...defaults, ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, whiteLabel: { ...defaults.whiteLabel, ...saved.whiteLabel } };
 }
-
-function bearer(): string | undefined {
-  return readStorage<{ accessToken?: string } | null>(SESSION_KEY, null)?.accessToken;
+function storedSession() { return readStorage<{ accessToken?: string; user?: { id?: string } } | null>(SESSION_KEY, null); }
+export function workspaceSessionScope(): string {
+  const current = storedSession();
+  if (!current?.accessToken) return 'signed-out';
+  // The untrusted claim is a cache namespace only. The server authenticates every request.
+  try {
+    const claims = JSON.parse(atob(current.accessToken.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/'))) as { tid?: unknown };
+    return `${current.user?.id ?? ''}:${typeof claims.tid === 'string' ? claims.tid : 'unknown'}`;
+  } catch { return `${current.user?.id ?? ''}:demo`; }
 }
-
+let memorySelection: { scope: string; id: string } | null = null;
 export function activeWorkspaceId(): string | null {
-  return readStorage<string | null>(ACTIVE_WORKSPACE_KEY, null);
+  const scope = workspaceSessionScope();
+  try { return sessionStorage.getItem(`northstar.active-workspace:${scope}`) ?? (memorySelection?.scope === scope ? memorySelection.id : null); } catch { return memorySelection?.scope === scope ? memorySelection.id : null; }
 }
-
 export function persistActiveWorkspace(workspaceId: string): void {
-  writeStorage(ACTIVE_WORKSPACE_KEY, workspaceId);
+  memorySelection = { scope: workspaceSessionScope(), id: workspaceId };
+  try { sessionStorage.setItem(`northstar.active-workspace:${workspaceSessionScope()}`, workspaceId); } catch { /* A storage-disabled browser can still use its in-memory provider. */ }
   window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: workspaceId }));
 }
-
 async function remote<T>(path: string, method: 'GET' | 'POST' | 'PATCH', body?: unknown, includeWorkspace = true): Promise<T> {
-  const token = bearer();
-  const workspaceId = activeWorkspaceId();
+  const scope = workspaceSessionScope(); const workspaceId = activeWorkspaceId(); const token = storedSession()?.accessToken;
   const response = await fetch(`${API_URL}${path}`, {
-    method,
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(includeWorkspace && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
+    method, credentials: 'include', headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(includeWorkspace && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
+  const payload: unknown = await response.json().catch(() => undefined);
+  if (scope !== workspaceSessionScope() || token !== storedSession()?.accessToken || (includeWorkspace && workspaceId !== activeWorkspaceId())) throw new DOMException('Workspace context changed', 'AbortError');
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: { message?: string }; detail?: string } | null;
-    throw new WorkspaceRequestError(
-      payload?.error?.message ?? payload?.detail ?? `Workspace request failed (${response.status})`,
-      response.status,
-    );
+    const value = payload as { error?: { message?: string }; detail?: unknown } | undefined;
+    throw new WorkspaceRequestError(value?.error?.message ?? (typeof value?.detail === 'string' ? value.detail : `Workspace request failed (${response.status})`), response.status);
   }
-  return response.json() as Promise<T>;
+  if (payload === undefined) throw new WorkspaceRequestError('The server returned an invalid workspace response', 502);
+  return payload as T;
 }
-
-function legacyTeam(): WorkspaceTeam {
-  const legacy = readStorage<Array<{ id: string; name: string; email: string; role: string; status: string }>>(
-    LEGACY_MEMBERS_KEY,
-    [],
-  );
-  return {
-    members: [],
-    invitations: legacy.map((member) => ({
-      id: member.id,
-      email: member.email,
-      role: member.role === 'Admin' ? 'workspace_admin' : member.role === 'Analyst' ? 'analyst' : 'operator',
-      status: 'invited' as const,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-    })),
-  };
+function demoFallback(error: unknown): boolean {
+  if (!DEMO_MODE || (error instanceof DOMException && error.name === 'AbortError')) return false;
+  return !(error instanceof WorkspaceRequestError && [400, 401, 403, 409, 422, 428, 429].includes(error.status));
 }
-
 export const workspaceApi = {
   async get(): Promise<WorkspaceSettings> {
-    try {
-      const value = await remote<WorkspaceSettings>('/workspace', 'GET');
-      writeStorage(STORAGE_KEY, value);
-      return value;
-    } catch {
-      return localWorkspace();
-    }
+    try { return await remote<WorkspaceSettings>('/workspace', 'GET'); }
+    catch (error) { if (demoFallback(error)) return localWorkspace(); throw error; }
   },
   async update(patch: WorkspacePatch): Promise<WorkspaceSettings> {
-    const current = localWorkspace();
-    const optimistic: WorkspaceSettings = {
-      ...current,
-      ...patch,
-      preferences: { ...current.preferences, ...patch.preferences },
-      whiteLabel: { ...current.whiteLabel, ...patch.whiteLabel },
-    };
-    writeStorage(STORAGE_KEY, optimistic);
+    // DNS verification and hostname provisioning are not client-editable branding fields.
+    const body: Record<string, unknown> = { ...patch };
+    if (patch.whiteLabel) {
+      const writable: Partial<WhiteLabelSettings> = { ...patch.whiteLabel };
+      delete writable.dnsStatus; delete writable.customDomain; body.whiteLabel = writable;
+    }
     try {
-      const value = await remote<WorkspaceSettings>('/workspace', 'PATCH', patch);
-      writeStorage(STORAGE_KEY, value);
+      const value = await remote<WorkspaceSettings>('/workspace', 'PATCH', body);
       window.dispatchEvent(new CustomEvent('northstar:workspace-changed', { detail: value }));
       return value;
     } catch (error) {
-      if (error instanceof WorkspaceRequestError && error.status >= 400 && error.status < 500) throw error;
-      window.dispatchEvent(new CustomEvent('northstar:workspace-changed', { detail: optimistic }));
-      return optimistic;
+      if (!demoFallback(error)) throw error;
+      const current = localWorkspace();
+      const value = { ...current, ...patch, preferences: { ...current.preferences, ...patch.preferences }, whiteLabel: { ...current.whiteLabel, ...patch.whiteLabel } };
+      writeStorage(STORAGE_KEY, value);
+      window.dispatchEvent(new CustomEvent('northstar:workspace-changed', { detail: value }));
+      return value;
     }
   },
   async list(): Promise<WorkspaceSettings[]> {
-    try {
-      const values = await remote<WorkspaceSettings[]>('/workspaces', 'GET', undefined, false);
-      if (values.length > 0) return values;
-    } catch {
-      // Keep demo/offline mode usable with its locally persisted workspace.
-    }
-    return [localWorkspace()];
+    try { return await remote<WorkspaceSettings[]>('/workspaces', 'GET', undefined, false); }
+    catch (error) { if (demoFallback(error)) return [localWorkspace()]; throw error; }
   },
   async create(input: WorkspaceCreate): Promise<WorkspaceSettings> {
-    const value = await remote<WorkspaceSettings>('/workspaces', 'POST', input, false);
-    persistActiveWorkspace(value.id);
-    writeStorage(STORAGE_KEY, value);
-    return value;
+    return remote<WorkspaceSettings>('/workspaces', 'POST', input, false);
   },
   async getTeam(): Promise<WorkspaceTeam> {
-    try {
-      return await remote<WorkspaceTeam>('/workspace/team', 'GET');
-    } catch (error) {
-      if (error instanceof WorkspaceRequestError && error.status >= 400 && error.status < 500) throw error;
-      return legacyTeam();
-    }
+    try { return await remote<WorkspaceTeam>('/workspace/team', 'GET'); }
+    catch (error) { if (demoFallback(error)) return { members: [], invitations: [] }; throw error; }
   },
   async inviteMember(email: string, role: WorkspaceRole): Promise<WorkspaceTeam> {
-    try {
-      const value = await remote<WorkspaceTeam>('/workspace/invitations', 'POST', { email, role });
-      writeStorage(LEGACY_MEMBERS_KEY, []);
-      return value;
-    } catch (error) {
-      if (error instanceof WorkspaceRequestError && error.status >= 400 && error.status < 500) throw error;
-      const current = legacyTeam();
-      const invitation: WorkspaceTeamInvitation = {
-        id: crypto.randomUUID(),
-        email,
-        role,
-        status: 'invited',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
-      };
-      const next = { ...current, invitations: [invitation, ...current.invitations] };
-      writeStorage(LEGACY_MEMBERS_KEY, next.invitations.map((item) => ({
-        id: item.id,
-        name: item.email.split('@')[0] ?? item.email,
-        email: item.email,
-        role: item.role === 'workspace_admin' ? 'Admin' : item.role === 'analyst' ? 'Analyst' : 'Member',
-        status: 'Invited',
-      })));
-      return next;
-    }
+    await remote<unknown>('/workspace/invitations', 'POST', { email, role });
+    return this.getTeam();
   },
 };
-
 export const workspaceDefaults = defaults;

@@ -5,6 +5,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { MaterialmAppShell } from '@/components/materialm/MaterialmAppShell';
 import { EducationLayout } from '@/components/materialm/EducationLayout';
 import { useAuth } from '@/components/providers';
+import { OrganizationProfilePage, WorkspaceSetupGate, WorkspaceStarterPanel } from '@/components/WorkspaceSetup';
 
 const AgentBuilderPage = lazy(() => import('@/pages/AgentBuilderPage').then((module) => ({ default: module.AgentBuilderPage })));
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((module) => ({ default: module.AgentsPage })));
@@ -51,7 +52,7 @@ function ProtectedLayout() {
   const { session } = useAuth(); const location = useLocation();
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (session.user.emailVerified === false) return <Navigate to="/verify-email" replace />;
-  return <MaterialmAppShell />;
+  return <WorkspaceSetupGate><MaterialmAppShell /></WorkspaceSetupGate>;
 }
 
 export function App() {
@@ -67,7 +68,8 @@ export function App() {
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
     <Route element={<ProtectedLayout />}>
-      <Route index element={<OverviewPage />} />
+      <Route index element={<><WorkspaceStarterPanel /><OverviewPage /></>} />
+      <Route path="organization/profile" element={<OrganizationProfilePage />} />
       <Route path="agents" element={<AgentsPage />} />
       <Route path="agents/:agentId/:tab?" element={<AgentBuilderPage />} />
       <Route path="education" element={<EducationLayout />}>
