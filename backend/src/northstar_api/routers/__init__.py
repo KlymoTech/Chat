@@ -12,6 +12,9 @@ from northstar_api.routers import (
     channels,
     chat,
     conversations,
+    course_knowledge,
+    course_knowledge_artifacts,
+    course_knowledge_guard,
     crm,
     crm_dead_letters,
     crm_delivery_attempts,
@@ -71,6 +74,9 @@ api_router.include_router(password_reset.router)
 api_router.include_router(mfa.router)
 api_router.include_router(agents.router)
 api_router.include_router(education.router)
+api_router.include_router(course_knowledge.router)
+api_router.include_router(course_knowledge_artifacts.router)
+api_router.include_router(course_knowledge_guard.router)
 api_router.include_router(education_activity.router)
 api_router.include_router(education_batches.router)
 api_router.include_router(education_students.router)
