@@ -43,16 +43,24 @@ export function WorkspaceSetupGate({ children }: { children: ReactNode }) {
     }
   };
   if (demo) return <>{children}</>;
-  if (workspaceError) return <section className="setup-page" role="alert"><h1>Workspaces could not be loaded</h1><p>{workspaceError}</p><Button onClick={() => void refreshWorkspaces().then(refresh).catch(() => undefined)}>Retry</Button><Button variant="secondary" onClick={() => void logout().catch(() => undefined)}>Sign out</Button></section>;
-  if (failure?.key === key) return <section className="setup-page" role="alert"><h1>Workspace setup needs attention</h1><p>{failure.message}</p>
+  if (workspaceError) return <section className="setup-page" role="alert"><h1>Workspaces could not be loaded</h1><p>{workspaceError}</p><OrganizationRecoveryLinks /><Button onClick={() => void refreshWorkspaces().then(refresh).catch(() => undefined)}>Retry</Button><Button variant="secondary" onClick={() => void logout().catch(() => undefined)}>Sign out</Button></section>;
+  if (failure?.key === key) return <section className="setup-page" role="alert"><h1>Workspace setup needs attention</h1><p>{failure.message}</p><OrganizationRecoveryLinks />
     <div className="setup-actions"><Button onClick={refresh}>Retry</Button><Button variant="secondary" onClick={() => void logout().catch(() => undefined)}>Sign out</Button></div></section>;
   if (!data || loading) return <section className="setup-page" role="status">Loading your authorized workspace…</section>;
+  if (!activeWorkspace) return <section className="setup-page"><h1>No accessible workspace</h1>
+    <p>You are signed in, but this organization has no operational workspace you can currently access. Choose another organization or ask an administrator for an invitation.</p>
+    <OrganizationRecoveryLinks /><Button onClick={() => void refreshWorkspaces().then(refresh).catch(() => undefined)}>Check access again</Button>
+    <Button variant="secondary" onClick={() => void logout().catch(() => undefined)}>Sign out</Button></section>;
   const editable = data.capabilities.organization.includes('organization.profile.update');
   if (data.onboarding.profileRequired && !data.onboarding.profileComplete) {
     return editable ? <OrganizationProfileWizard key={data.organization.id} initial={data.onboarding} onSaved={updateOnboarding} /> :
-      <section className="setup-page"><h1>Organization setup is in progress</h1><p>An organization administrator must complete the profile before workspace resources become available.</p><Button onClick={refresh}>Check again</Button></section>;
+      <section className="setup-page"><h1>Organization setup is in progress</h1><p>An organization administrator must complete the profile before workspace resources become available.</p><OrganizationRecoveryLinks /><Button onClick={refresh}>Check again</Button></section>;
   }
   return <SetupContext.Provider value={{ data, refresh, updateOnboarding }}><WorkspaceBrandEffects />{children}<WhiteLabelChoiceDialog /></SetupContext.Provider>;
+}
+
+function OrganizationRecoveryLinks() {
+  return <div className="setup-actions"><Link to="/organizations">Switch organization</Link><Link to="/organization/billing">Organization billing</Link></div>;
 }
 
 function WhiteLabelChoiceDialog() {
@@ -92,7 +100,7 @@ export function WorkspaceStarterPanel() {
       <span>Staff: {data.usage.members} / {limit(data.plan.memberLimit)}</span><span>Monthly tokens: {data.usage.tokensMonthly.toLocaleString()} / {limit(data.plan.monthlyTokenLimit)}</span></div> : null}
     <div className="setup-grid">{data.starterContent.map((item) => <article className="setup-resource" key={`${item.id}:${item.version}`}>
       <small>Free starter {item.kind} · version {item.version}</small><h3>{item.title}</h3><p>{item.content}</p></article>)}</div>
-    <div className="setup-actions"><Link to="/help">Open Help Center</Link>{canCustomize ? <Link to="/workspace/white-label">Customize appearance</Link> : null}</div>
+    <div className="setup-actions"><Link to="/help">Open Help Center</Link><Link to="/organizations">Switch organization</Link><Link to="/organization/billing">Organization billing</Link>{canCustomize ? <Link to="/workspace/white-label">Customize appearance</Link> : null}</div>
     {!data.onboarding.profileComplete && data.capabilities.organization.includes('organization.profile.update') ? <p>Your existing organization can continue working. Complete your <Link to="/organization/profile">organization profile</Link> when ready.</p> : null}
   </section>;
 }

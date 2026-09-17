@@ -61,6 +61,11 @@ export function persistActiveWorkspace(workspaceId: string): void {
   try { sessionStorage.setItem(`northstar.active-workspace:${workspaceSessionScope()}`, workspaceId); } catch { /* A storage-disabled browser can still use its in-memory provider. */ }
   window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: workspaceId }));
 }
+export function clearActiveWorkspaceSelection(): void {
+  memorySelection = null;
+  try { sessionStorage.removeItem(`northstar.active-workspace:${workspaceSessionScope()}`); } catch { /* Memory state is still cleared. */ }
+  window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: null }));
+}
 async function remote<T>(path: string, method: 'GET' | 'POST' | 'PATCH', body?: unknown, includeWorkspace = true): Promise<T> {
   const scope = workspaceSessionScope(); const workspaceId = activeWorkspaceId(); const token = storedSession()?.accessToken;
   const response = await fetch(`${API_URL}${path}`, {

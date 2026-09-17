@@ -10,13 +10,14 @@ from northstar_api.routers import (
     education_enrollment_events, education_enrollments, education_lms_import, education_sales_settings,
     education_student_detail, education_student_identities, education_student_import, education_students,
     education_upsell, email_verification, help, integration_audit, integrations, knowledge, lead_layout,
-    leads, mfa, notifications, onboarding, password_reset, platform_admin, qualification, slack_webhooks,
+    leads, mfa, notifications, onboarding, organization_sessions, password_reset, platform_admin, qualification, slack_webhooks,
     whatsapp, whatsapp_accounts, widget, workspace, workspace_api_keys, workspace_invitations,
 )
 from northstar_api.services.entitlement_guard import enforce_plan_entitlements
 
 api_router = APIRouter(dependencies=[Depends(enforce_plan_entitlements)])
 api_router.include_router(auth.router)
+api_router.include_router(organization_sessions.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
