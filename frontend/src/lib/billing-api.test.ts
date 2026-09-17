@@ -2,202 +2,123 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { billingApi } from '@/lib/billing-api';
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
-
 const subscription = {
-  id: 'subscription-1',
-  tenantId: 'tenant-1',
-  plan: 'business',
-  status: 'active',
-  provider: null,
-  trialEndsAt: null,
-  currentPeriodStart: null,
-  currentPeriodEnd: null,
-  cancelAtPeriodEnd: false,
-  pastDueAt: null,
-  suspendedAt: null,
-  cancelledAt: null,
-  createdAt: '2026-09-11T00:00:00Z',
-  updatedAt: '2026-09-11T00:00:00Z',
+  id: 'subscription-1', tenantId: 'tenant-1', plan: 'business', status: 'active', provider: null,
+  trialEndsAt: null, currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false,
+  pastDueAt: null, suspendedAt: null, cancelledAt: null,
+  createdAt: '2026-09-11T00:00:00Z', updatedAt: '2026-09-11T00:00:00Z',
 };
-
 const entitlements = {
-  plan: 'business',
-  subscriptionStatus: 'active',
-  limits: {
-    workspaces: 10,
-    agents: 10,
-    members: 20,
-    conversationsMonthly: 5000,
-    tokensMonthly: 5_000_000,
-    storageBytes: 20 * 1024 ** 3,
-  },
-  usage: {
-    workspaces: 2,
-    agents: 4,
-    members: 6,
-    pendingMemberSeats: 1,
-    conversationsMonthly: 100,
-    tokensMonthly: 20_000,
-    storageBytes: 1024,
-  },
-  features: {
-    allowedChannels: ['widget', 'api', 'whatsapp'],
-    crm: true,
-    api: true,
-    whiteLabel: true,
-  },
+  plan: 'business', subscriptionStatus: 'active',
+  limits: { workspaces: 10, agents: 10, members: 20, conversationsMonthly: 5000, tokensMonthly: 5_000_000, storageBytes: 20 * 1024 ** 3 },
+  usage: { workspaces: 2, agents: 4, members: 6, pendingMemberSeats: 1, conversationsMonthly: 100, tokensMonthly: 20_000, storageBytes: 1024 },
+  features: { allowedChannels: ['widget', 'api', 'whatsapp'], crm: true, api: true, whiteLabel: true },
 };
 
-describe('billingApi', () => {
+describe('billingApi uses authoritative organization state', () => {
   const fetchMock = vi.fn<typeof fetch>();
-
   beforeEach(() => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'session-token' }));
     localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
     vi.stubGlobal('fetch', fetchMock);
   });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.clearAllMocks();
-    localStorage.clear();
+    vi.unstubAllGlobals(); vi.resetAllMocks(); localStorage.clear();
   });
 
-  it('loads subscription and entitlements through the active authenticated workspace', async () => {
+  it('loads the real subscription and entitlements without operational workspace authority', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(subscription));
-    const subscriptionResult = await billingApi.getSubscription('starter');
-    expect(subscriptionResult).toEqual(subscription);
+    await expect(billingApi.getSubscription('free')).resolves.toEqual(subscription);
     expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/subscription', expect.objectContaining({
-      credentials: 'include',
-      headers: expect.objectContaining({
-        Authorization: 'Bearer session-token',
-        'X-Workspace-ID': 'workspace-1',
-      }),
+      credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json', Authorization: 'Bearer session-token' },
     }));
-
     fetchMock.mockResolvedValueOnce(jsonResponse(entitlements));
-    const entitlementResult = await billingApi.getEntitlements('starter');
-    expect(entitlementResult).toEqual(entitlements);
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/entitlements', expect.objectContaining({
-      credentials: 'include',
-      headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
-    }));
+    await expect(billingApi.getEntitlements('free')).resolves.toEqual(entitlements);
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).not.toHaveProperty('X-Workspace-ID');
   });
 
-  it('creates hosted checkout and portal redirects only through authenticated backend mutations', async () => {
+  it('creates hosted checkout and portal redirects through authenticated backend mutations', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://checkout.stripe.com/c/pay/test' }));
-    await expect(billingApi.createCheckout('professional')).resolves.toEqual({
-      url: 'https://checkout.stripe.com/c/pay/test',
-    });
+    await expect(billingApi.createCheckout('professional')).resolves.toEqual({ url: 'https://checkout.stripe.com/c/pay/test' });
     expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/checkout', expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-      body: JSON.stringify({ plan: 'professional' }),
-      headers: expect.objectContaining({
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer session-token',
-        'X-Workspace-ID': 'workspace-1',
-      }),
+      method: 'POST', credentials: 'include', body: JSON.stringify({ plan: 'professional' }),
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: 'Bearer session-token' },
     }));
-
     fetchMock.mockResolvedValueOnce(jsonResponse({ url: 'https://billing.stripe.com/p/session/test' }));
-    await expect(billingApi.createPortal()).resolves.toEqual({
-      url: 'https://billing.stripe.com/p/session/test',
-    });
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/portal', expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-      headers: expect.objectContaining({
-        Authorization: 'Bearer session-token',
-        'X-Workspace-ID': 'workspace-1',
-      }),
-    }));
+    await expect(billingApi.createPortal()).resolves.toEqual({ url: 'https://billing.stripe.com/p/session/test' });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/portal', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('cancels and reactivates only through authenticated backend mutations', async () => {
-    const cancelled = {
-      ...subscription,
-      status: 'cancelled',
-      cancelledAt: '2026-09-11T12:00:00Z',
-    };
+  it('cancels and reactivates only after backend acknowledgement', async () => {
+    const cancelled = { ...subscription, status: 'cancelled', cancelledAt: '2026-09-11T12:00:00Z' };
     fetchMock.mockResolvedValueOnce(jsonResponse(cancelled));
-
     await expect(billingApi.cancelSubscription()).resolves.toEqual(cancelled);
     expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/cancel', expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-      body: JSON.stringify({ confirmation: 'CANCEL' }),
-      headers: expect.objectContaining({
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer session-token',
-        'X-Workspace-ID': 'workspace-1',
-      }),
+      method: 'POST', body: JSON.stringify({ confirmation: 'CANCEL' }),
     }));
-
     fetchMock.mockResolvedValueOnce(jsonResponse(subscription));
     await expect(billingApi.reactivateSubscription()).resolves.toEqual(subscription);
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/reactivate', expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-      headers: expect.objectContaining({
-        Authorization: 'Bearer session-token',
-        'X-Workspace-ID': 'workspace-1',
-      }),
-    }));
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/v1/billing/reactivate', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('never invents a successful billing mutation when the backend rejects or is offline', async () => {
+  it('never invents a successful mutation or automatically resends one', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Provider workflow required' } }, 409));
     await expect(billingApi.cancelSubscription()).rejects.toThrow('Provider workflow required');
-
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
     await expect(billingApi.reactivateSubscription()).rejects.toThrow('Network unavailable');
-
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
     await expect(billingApi.createCheckout('professional')).rejects.toThrow('Network unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('does not hide authorization errors behind demo billing state', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Insufficient permission' } }, 403));
-    await expect(billingApi.getSubscription('starter')).rejects.toThrow('Insufficient permission');
-
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Insufficient permission' } }, 403));
-    await expect(billingApi.getEntitlements('starter')).rejects.toThrow('Insufficient permission');
+  it.each([401, 403, 409, 429, 500, 502, 503])('surfaces HTTP %i for reads instead of fabricating billing data', async (status) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Billing unavailable' } }, status));
+    await expect(billingApi.getSubscription('business')).rejects.toMatchObject({ status, message: 'Billing unavailable' });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'Entitlements unavailable' }, status));
+    await expect(billingApi.getEntitlements('legacy_custom_contract')).rejects.toMatchObject({ status, message: 'Entitlements unavailable' });
   });
 
-  it('preserves offline/demo billing and entitlement behavior when the backend is unavailable', async () => {
+  it.each(['free', 'business', 'legacy_custom_contract'])('does not turn an outage into a plan named %s', async (plan) => {
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
-    const subscriptionResult = await billingApi.getSubscription('business');
-    expect(subscriptionResult.plan).toBe('business');
-    expect(subscriptionResult.status).toBe('active');
-    expect(subscriptionResult.id).toBe('subscription-demo');
-
+    await expect(billingApi.getSubscription(plan)).rejects.toThrow('Network unavailable');
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
-    const entitlementResult = await billingApi.getEntitlements('business');
-    expect(entitlementResult.plan).toBe('business');
-    expect(entitlementResult.limits.agents).toBe(10);
-    expect(entitlementResult.limits.members).toBe(20);
-    expect(entitlementResult.limits.conversationsMonthly).toBe(5000);
-    expect(entitlementResult.features.allowedChannels).toContain('whatsapp');
+    await expect(billingApi.getEntitlements(plan)).rejects.toThrow('Network unavailable');
   });
 
-  it('keeps unknown legacy plans unlimited in offline fallback mode', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
-    const result = await billingApi.getEntitlements('legacy_custom_contract');
+  it('requires an interactive credential rather than sending an unauthenticated request', async () => {
+    localStorage.removeItem('northstar.session');
+    await expect(billingApi.getSubscription()).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
-    expect(result.plan).toBe('legacy_custom_contract');
-    expect(result.limits.workspaces).toBeNull();
-    expect(result.limits.agents).toBeNull();
-    expect(result.limits.members).toBeNull();
-    expect(result.features.crm).toBe(true);
-    expect(result.features.whiteLabel).toBe(true);
-    expect(result.features.allowedChannels).toContain('whatsapp');
+  it('discards a response after account change without repeating the mutation', async () => {
+    fetchMock.mockImplementationOnce(async () => {
+      localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'other-account' }));
+      return jsonResponse(subscription);
+    });
+    await expect(billingApi.cancelSubscription()).rejects.toMatchObject({ status: 409 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks account context again after reading a delayed response body', async () => {
+    const response = jsonResponse(subscription);
+    vi.spyOn(response, 'json').mockImplementationOnce(async () => {
+      localStorage.removeItem('northstar.session');
+      return subscription;
+    });
+    fetchMock.mockResolvedValueOnce(response);
+    await expect(billingApi.getSubscription()).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('rejects malformed success bodies instead of presenting them as a subscription', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('<html>Proxy failure</html>', { status: 200 }));
+    await expect(billingApi.getSubscription()).rejects.toMatchObject({ status: 502 });
+  });
+
+  it.each(['javascript:alert(1)', 'http://billing.example.test', '//billing.example.test', 'https://user:pass@billing.example.test', 'not-a-url'])('rejects unsafe redirect %s', async (url) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ url }));
+    await expect(billingApi.createPortal()).rejects.toMatchObject({ status: 502 });
   });
 });
