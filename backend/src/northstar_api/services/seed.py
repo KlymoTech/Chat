@@ -39,7 +39,7 @@ async def seed_from_environment(session: AsyncSession, settings: Settings) -> No
     if existing:
         return
     base_slug = _slug(settings.seed_tenant_name)
-    tenant = Tenant(name=settings.seed_tenant_name, slug=base_slug)
+    tenant = Tenant(name=settings.seed_tenant_name, slug=base_slug, plan=settings.seed_tenant_plan)
     user = User(
         email=email,
         name=settings.seed_admin_name,

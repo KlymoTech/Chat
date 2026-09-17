@@ -47,6 +47,8 @@ class EducationScopedRetrieval(RetrievalService):
         revision: int,
         query: str,
         education_scope: EducationRetrievalScope | None = None,
+        rerank_candidates: int | None = None,
+        final_context_chunks: int | None = None,
     ) -> list[Evidence]:
         agent = await session.scalar(
             select(Agent).where(
@@ -74,6 +76,8 @@ class EducationScopedRetrieval(RetrievalService):
             revision=revision,
             query=query,
             education_scope=scope,
+            rerank_candidates=rerank_candidates,
+            final_context_chunks=final_context_chunks,
         )
 
 

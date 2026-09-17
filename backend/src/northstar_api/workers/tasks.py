@@ -26,9 +26,9 @@ from northstar_api.models import (
     WhatsAppOutboundDelivery,
 )
 from northstar_api.schemas import ChatStreamRequest
-from northstar_api.services.chat import chat_coordinator
+from northstar_api.services.chat import FAILED_RESPONSE_PLACEHOLDER, chat_coordinator
 from northstar_api.services.entitlements import EntitlementError, require_capacity
-from northstar_api.services.ingestion import ingest_source_async
+from northstar_api.services.ingestion import ExtractionYield, ingest_source_async
 from northstar_api.services.whatsapp import (
     WhatsAppGraphError,
     split_whatsapp_text,
@@ -51,6 +51,14 @@ def whatsapp_thread_lock_key(connection_id: UUID, recipient_wa_id: str) -> str:
     """Serialize AI and human sends for one WhatsApp customer thread."""
 
     return f"whatsapp-thread:{connection_id}:{recipient_wa_id}"
+
+
+def deliverable_whatsapp_answer(answer: str) -> str:
+    """Reject internal failure state before it reaches the WhatsApp provider."""
+
+    if not answer.strip() or answer.strip() == FAILED_RESPONSE_PLACEHOLDER:
+        raise RuntimeError("Refusing to deliver an incomplete assistant response")
+    return answer
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
@@ -103,7 +111,11 @@ def ingest_source(_task: object, source_id: str) -> None:
         finally:
             await engine.dispose()
 
-    asyncio.run(execute())
+    try:
+        asyncio.run(execute())
+    except ExtractionYield:
+        # Continuations are successful bounded batches, not failed document retries.
+        _task.apply_async(args=[source_id], countdown=1)
 
 
 async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
@@ -296,6 +308,7 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 ),
                 channel=Channel.WHATSAPP,
             )
+            deliverable_whatsapp_answer(prepared.answer)
             conversation = await session.get(Conversation, prepared.conversation_id)
             if conversation and receipt.conversation_id is None:
                 if receipt.sender_name:

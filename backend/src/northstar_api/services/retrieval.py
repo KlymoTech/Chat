@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +27,7 @@ class Evidence:
     url: str | None
     text: str
     score: float
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +57,8 @@ class RetrievalService:
         revision: int,
         query: str,
         education_scope: EducationRetrievalScope | None = None,
+        rerank_candidates: int | None = None,
+        final_context_chunks: int | None = None,
     ) -> list[Evidence]:
         started = time.perf_counter()
         query_embedding = await self.model.embed_query(query)
@@ -68,6 +71,7 @@ class RetrievalService:
                 query=query,
                 vector=query_embedding,
                 education_scope=education_scope,
+                candidate_limit=rerank_candidates,
             )
         else:
             evidence = await self._portable_retrieve(
@@ -78,8 +82,13 @@ class RetrievalService:
                 query=query,
                 vector=query_embedding,
                 education_scope=education_scope,
+                candidate_limit=rerank_candidates,
             )
-        evidence = evidence[: self.settings.retrieval_context_limit]
+        evidence = _rerank(
+            evidence,
+            query,
+            final_context_chunks or self.settings.retrieval_context_limit,
+        )
         RETRIEVAL_DURATION.observe(time.perf_counter() - started)
         RETRIEVAL_EVIDENCE.observe(len(evidence))
         return evidence
@@ -139,8 +148,9 @@ class RetrievalService:
         query: str,
         vector: list[float],
         education_scope: EducationRetrievalScope | None,
+        candidate_limit: int | None,
     ) -> list[Evidence]:
-        limit = self.settings.retrieval_candidate_limit
+        limit = candidate_limit or self.settings.retrieval_candidate_limit
         fact_filters = [
             KnowledgeFact.tenant_id == tenant_id,
             KnowledgeFact.agent_id == agent_id,
@@ -211,6 +221,7 @@ class RetrievalService:
                     url=url,
                     text=text,
                     score=max(0.0, 1.0 - float(distance)),
+                    metadata=(entity.metadata_json if kind == "chunk" else entity.source_span) or {},
                 )
 
         ts_query = func.websearch_to_tsquery("simple", query)
@@ -258,6 +269,7 @@ class RetrievalService:
                         url=url,
                         text=text,
                         score=float(lexical_score),
+                        metadata=(entity.metadata_json if kind == "chunk" else entity.source_span) or {},
                     )
         ordered = sorted(
             candidates.values(),
@@ -278,6 +290,7 @@ class RetrievalService:
         query: str,
         vector: list[float],
         education_scope: EducationRetrievalScope | None,
+        candidate_limit: int | None,
     ) -> list[Evidence]:
         fact_filters = [
             KnowledgeFact.tenant_id == tenant_id,
@@ -314,12 +327,13 @@ class RetrievalService:
                 ]
             )
 
+        candidate_limit = candidate_limit or 500
         fact_rows = (
             await session.execute(
                 select(KnowledgeFact, KnowledgeSource.name, KnowledgeSource.url)
                 .outerjoin(KnowledgeSource, KnowledgeSource.id == KnowledgeFact.source_id)
                 .where(*fact_filters)
-                .limit(500)
+                .limit(candidate_limit)
             )
         ).all()
         chunk_rows = (
@@ -327,7 +341,7 @@ class RetrievalService:
                 select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url)
                 .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
                 .where(*chunk_filters)
-                .limit(500)
+                .limit(candidate_limit)
             )
         ).all()
         query_words = set(re.findall(r"\w+", query.casefold()))
@@ -349,6 +363,7 @@ class RetrievalService:
                             url=url,
                             text=text,
                             score=score,
+                            metadata=(entity.metadata_json if kind == "chunk" else entity.source_span) or {},
                         )
                     )
         return sorted(candidates, key=lambda item: item.score, reverse=True)
@@ -361,6 +376,43 @@ def _cosine(left: list[float], right: list[float]) -> float:
     norm_left = math.sqrt(sum(value * value for value in left))
     norm_right = math.sqrt(sum(value * value for value in right))
     return dot / (norm_left * norm_right) if norm_left and norm_right else 0.0
+
+
+def _rerank(evidence: list[Evidence], query: str, limit: int) -> list[Evidence]:
+    """Cheap deterministic reranking after vector/lexical fusion.
+
+    Exact terms and critical qualifiers receive a small boost. This improves
+    latency versus a second model call while keeping numbers and NOT/EXCEPT
+    visible to the ranking decision.
+    """
+    query_terms = set(re.findall(r"\w+", query.casefold()))
+    critical = set(re.findall(r"\b(?:not|except|least|most|incorrect)\b", query.casefold()))
+    scored: list[tuple[float, Evidence]] = []
+    seen_sources: set[str] = set()
+    for item in evidence:
+        terms = set(re.findall(r"\w+", item.text.casefold()))
+        overlap = len(query_terms & terms) / max(1, len(query_terms))
+        critical_overlap = len(critical & terms) / max(1, len(critical)) if critical else 0.0
+        diversity_bonus = 0.015 if item.source_id not in seen_sources else 0.0
+        score = item.score + (0.08 * overlap) + (0.30 * critical_overlap) + diversity_bonus
+        scored.append((score, item))
+        if item.source_id:
+            seen_sources.add(item.source_id)
+    scored.sort(key=lambda value: value[0], reverse=True)
+    return [replace_evidence(item, score) for score, item in scored[: max(1, limit)]]
+
+
+def replace_evidence(item: Evidence, score: float) -> Evidence:
+    return Evidence(
+        kind=item.kind,
+        entity_id=item.entity_id,
+        source_id=item.source_id,
+        title=item.title,
+        url=item.url,
+        text=item.text,
+        score=score,
+        metadata=item.metadata,
+    )
 
 
 retrieval_service = RetrievalService()

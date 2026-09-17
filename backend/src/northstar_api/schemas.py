@@ -155,6 +155,8 @@ class AgentModelProfile(APIModel):
     max_tokens: int = Field(default=16_384, ge=64, le=32_768)
     enable_thinking: bool = True
     citation_mode: Literal["always", "when-available", "off"] = "when-available"
+    rerank_candidates: int = Field(default=60, ge=10, le=100)
+    final_context_chunks: int = Field(default=8, ge=2, le=20)
 
 
 class AgentSecurity(APIModel):
@@ -163,6 +165,9 @@ class AgentSecurity(APIModel):
     collect_email: bool = False
     mask_sensitive_data: bool = True
     retention_days: int = Field(default=90, ge=1, le=3650)
+    web_fallback: Literal["off", "related_only", "public"] = "off"
+    web_allowed_domains: list[str] = Field(default_factory=list, max_length=50)
+    blocked_topics: list[str] = Field(default_factory=list, max_length=50)
 
     @field_validator("allowed_domains")
     @classmethod
@@ -174,6 +179,22 @@ class AgentSecurity(APIModel):
                 raise ValueError("invalid allowed domain")
             domains.append(value)
         return sorted(set(domains))
+
+    @field_validator("web_allowed_domains")
+    @classmethod
+    def normalize_web_domains(cls, values: list[str]) -> list[str]:
+        domains: list[str] = []
+        for raw in values:
+            value = raw.lower().strip().removeprefix("https://").removeprefix("http://").split("/")[0]
+            if not value or any(character.isspace() for character in value):
+                raise ValueError("invalid web fallback domain")
+            domains.append(value)
+        return sorted(set(domains))
+
+    @field_validator("blocked_topics")
+    @classmethod
+    def normalize_blocked_topics(cls, values: list[str]) -> list[str]:
+        return sorted({value.strip() for value in values if value.strip()})
 
 
 class AgentCreate(APIModel):
@@ -257,6 +278,7 @@ class KnowledgeOut(APIModel):
     content: str | None = None
     error: str | None = None
     extraction_issue_count: int = 0
+    extraction_available: bool = False
 
 
 class FactCreate(APIModel):

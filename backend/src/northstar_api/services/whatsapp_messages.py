@@ -17,6 +17,9 @@ def format_whatsapp_reply(agent: Agent, message: str) -> str:
             part = re.sub(r"^#{1,6}[ \t]+(.+)$", r"*\1*", part, flags=re.MULTILINE)
             parts[index] = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", r"\1: \2", part)
     body = "".join(parts)
+    # Citations remain persisted on the assistant message for audit and UI use,
+    # but raw model source markers are not meaningful in a WhatsApp message.
+    body = re.sub(r"(?:\s*\[S\d+\])+", "", body, flags=re.IGNORECASE).strip()
     settings = (agent.appearance or {}).get("whatsapp") or {}
     template = settings.get("replyTemplate") or "{message}"
     # Only substitute placeholders in the template, never in model/user content.

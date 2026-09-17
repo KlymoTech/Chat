@@ -9,8 +9,20 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 BlockKind = Literal[
-    "heading", "paragraph", "list", "table", "equation", "question", "answer_key",
-    "figure", "caption", "footnote", "header", "footer", "annotation", "unknown",
+    "heading",
+    "paragraph",
+    "list",
+    "table",
+    "equation",
+    "question",
+    "answer_key",
+    "figure",
+    "caption",
+    "footnote",
+    "header",
+    "footer",
+    "annotation",
+    "unknown",
 ]
 
 
@@ -48,15 +60,36 @@ class Inventory(StrictModel):
 
 
 class Cell(StrictModel):
+    cell_id: str | None = None
     row: int = Field(ge=0, le=1000)
     column: int = Field(ge=0, le=1000)
     row_span: int = Field(default=1, ge=1, le=1000)
     column_span: int = Field(default=1, ge=1, le=1000)
     text: str = Field(max_length=20000)
-    state: Literal["VALUE", "BLANK", "UNREADABLE", "AMBIGUOUS", "COVERED_BY_MERGE", "STRUCTURE_UNKNOWN"] = "VALUE"
+    state: Literal["VALUE", "BLANK", "UNREADABLE", "AMBIGUOUS", "COVERED_BY_MERGE", "STRUCTURE_UNKNOWN"] = (
+        "VALUE"
+    )
     header: bool = False
     header_refs: list[str] = Field(default_factory=list, max_length=100)
     unit: str | None = None
+
+
+class SourceRelationship(StrictModel):
+    kind: Literal[
+        "continuation",
+        "caption_of",
+        "illustrates",
+        "shared_passage",
+        "answer_for",
+        "footnote_for",
+        "parent_section",
+    ]
+    target_id: str = Field(min_length=1, max_length=100)
+
+
+class QuestionPart(StrictModel):
+    label: str
+    text: str
 
 
 class Reading(StrictModel):
@@ -77,6 +110,11 @@ class Reading(StrictModel):
     printed_answer: str | None = None
     continues_from_previous: bool = False
     continues_on_next: bool = False
+    question_parts: list[QuestionPart] = Field(default_factory=list, max_length=100)
+    options: list[QuestionPart] = Field(default_factory=list, max_length=100)
+    marks: str | None = None
+    instructions: str | None = None
+    relationships: list[SourceRelationship] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def meaningful(self) -> Reading:

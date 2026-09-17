@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from northstar_api.agent_purpose import AgentPurpose
 from northstar_api.config import get_settings
 from northstar_api.database import SessionFactory
 from northstar_api.education_conversation_context import EducationConversationContext
@@ -26,6 +27,7 @@ from northstar_api.models import (
     Message,
 )
 from northstar_api.schemas import ChatStreamRequest
+from northstar_api.services import education_chat
 from northstar_api.services.education_chat import (
     EducationAwareChatCoordinator,
     EducationScopedRetrieval,
@@ -53,6 +55,46 @@ class FakeRedis:
     async def check_rate_limit(self, *args, **kwargs):
         del args, kwargs
         return SimpleNamespace(allowed=True, retry_after=0)
+
+
+@pytest.mark.asyncio
+async def test_education_retrieval_forwards_ranking_limits(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    class BaseRetrieval:
+        model = object()
+        settings = object()
+
+        async def retrieve(self, session, **kwargs):
+            del session
+            observed.update(kwargs)
+            return []
+
+    agent = SimpleNamespace(id=uuid.uuid4(), workspace_id=uuid.uuid4())
+
+    class Session:
+        async def scalar(self, statement):
+            del statement
+            return agent
+
+    async def support_purpose(*args, **kwargs):
+        del args, kwargs
+        return AgentPurpose.SUPPORT
+
+    monkeypatch.setattr(education_chat, "get_agent_purpose", support_purpose)
+    retrieval = EducationScopedRetrieval(BaseRetrieval())  # type: ignore[arg-type]
+    await retrieval.retrieve(
+        Session(),  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        agent_id=agent.id,
+        revision=3,
+        query="What is CMA?",
+        rerank_candidates=25,
+        final_context_chunks=4,
+    )
+
+    assert observed["rerank_candidates"] == 25
+    assert observed["final_context_chunks"] == 4
 
 
 async def _workspace_headers(

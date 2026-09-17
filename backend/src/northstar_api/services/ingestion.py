@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import html
 import io
+import json
 import re
 import tempfile
 import zipfile
@@ -30,6 +30,7 @@ from northstar_api.models import (
 )
 from northstar_api.services.crawler import crawl_website, take_screenshot
 from northstar_api.services.hybrid_extraction import (
+    ExtractionPackage,
     PageCheckpoint,
     configuration,
     decode_page_checkpoint,
@@ -43,6 +44,10 @@ from northstar_api.services.safe_fetch import fetch_public_text
 from northstar_api.services.vision import extract_vision_text
 
 logger = structlog.get_logger(__name__)
+
+
+class ExtractionYield(Exception):
+    """A durable page batch completed; resume in a fresh worker delivery."""
 
 
 def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35) -> list[str]:
@@ -101,6 +106,50 @@ def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35)
     return [chunk for chunk in chunks if chunk]
 
 
+def approved_extraction_chunks(record: dict) -> list[tuple[str, dict[str, object]]]:
+    """Project approved physical regions into searchable chunks with provenance."""
+    result: list[tuple[str, dict[str, object]]] = []
+    section_path: list[str] = []
+    for page in record.get("pages", []):
+        blocks = [item for item in page.get("blocks", []) if item.get("status") != "split"]
+        for block_ordinal, block in enumerate(blocks):
+            text = str(block.get("selected_text") or "").strip()
+            if not text:
+                continue
+            block_type = str(block.get("type", "unknown"))
+            if block_type == "heading":
+                section_path = (section_path[:1] + [text[:240]])[-4:]
+            if block_type in {"table", "equation", "question", "answer_key", "figure", "caption"}:
+                parts = [text] if len(text.split()) <= 440 else semantic_chunks(text, target_words=220, overlap_words=50)
+            else:
+                parts = semantic_chunks(text)
+            block_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            for part_index, part in enumerate(parts):
+                result.append(
+                    (
+                        part,
+                        {
+                            "chunk_type": block_type,
+                            "block_ordinal": block_ordinal,
+                            "block_text_hash": block_hash,
+                            "part_count": len(parts),
+                            "section_path": list(section_path),
+                            "page_number": page.get("number"),
+                            "printed_page_label": page.get("printed_page_label"),
+                            "block_id": block.get("id"),
+                            "bbox_px": block.get("bbox_px"),
+                            "source_artifact": block.get("crop"),
+                            "part_index": part_index,
+                            "extraction_revision": record.get("extraction_revision"),
+                            "canonical_chunk_id": hashlib.sha256(
+                                f"{record.get('source_sha256')}:{record.get('extraction_revision')}:{block.get('id')}:{part_index}:{part}".encode()
+                            ).hexdigest(),
+                        },
+                    )
+                )
+    return result
+
+
 async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
     source = await session.scalar(select(KnowledgeSource).where(KnowledgeSource.id == source_id))
     if not source:
@@ -121,8 +170,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
     source.error = None
     await session.commit()
     try:
-        if source.kind == KnowledgeKind.FILE and source.object_key and not source.content:
-            data, _ = await object_store.download(source.object_key)
+        if source.kind == KnowledgeKind.FILE and source.object_key and source.content is None:
+            data, metadata = await object_store.download(source.object_key)
             if source.checksum and hashlib.sha256(data).hexdigest() != source.checksum:
                 raise ValueError("Uploaded source checksum does not match the preserved original")
             if job:
@@ -132,7 +181,9 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             settings = get_settings()
             version = source.revision or 1
             source_hash = hashlib.sha256(data).hexdigest()
-            vision_identity = hashlib.sha256(json.dumps(configuration(settings), sort_keys=True).encode()).hexdigest()
+            vision_identity = hashlib.sha256(
+                json.dumps(configuration(settings), sort_keys=True).encode()
+            ).hexdigest()
             raw_pages = await object_store.load_extraction_pages(source.tenant_id, source.id, version=version)
             resume_pages: dict[int, PageCheckpoint] = {}
             for number in sorted(raw_pages):
@@ -148,6 +199,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
 
             async def checkpoint(page: dict, image: bytes, page_issues: list[dict]) -> None:
                 number = int(page["number"])
+                if number in resume_pages:
+                    return
                 encoded = encode_page_checkpoint(
                     page,
                     image,
@@ -167,10 +220,31 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                     job.step = f"extracted_page_{number}"
                     job.progress = min(90, 30 + number)
                     await session.commit()
+                if (
+                    settings.background_dispatch_enabled
+                    and number - len(resume_pages) >= settings.extraction_pages_per_task
+                ):
+                    raise ExtractionYield()
 
-            package = await extract_document(
-                data, source.name, settings, resume_pages=resume_pages, on_page=checkpoint
+            suffixes = {
+                "application/pdf": "pdf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+                "text/plain": "txt",
+                "text/markdown": "md",
+                "image/png": "png",
+                "image/jpeg": "jpg",
+                "image/tiff": "tiff",
+            }
+            suffix = suffixes.get(
+                str(metadata.get("content_type", "")).lower(), source.object_key.rsplit(".", 1)[-1]
             )
+            filename = (
+                source.name if source.name.lower().endswith("." + suffix) else source.name + "." + suffix
+            )
+            package = await extract_document(
+                data, filename, settings, resume_pages=resume_pages, on_page=checkpoint
+            )
+            package.record["source_display_name"] = source.name
             package.record["extraction_revision"] = source.revision or 1
             source.extraction_key = await object_store.put_extraction(
                 source.tenant_id, source.id, package.archive(), version=source.revision or 1
@@ -184,14 +258,41 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 job.progress = 100
             await session.commit()
             return
-        content = await _materialize_text(source)
-        if not content:
+        if source.kind == KnowledgeKind.FILE:
+            if not source.extraction_key or not source.extraction_key.startswith(
+                f"extractions/{source.tenant_id}/{source.id}/"
+            ):
+                raise ValueError("File has no reviewed extraction evidence")
+            evidence, _ = await object_store.download(source.extraction_key, limit_bytes=1024**3)
+            approved = ExtractionPackage.from_archive(
+                evidence, source_sha256=source.checksum, revision=source.revision
+            )
+            if (
+                approved.record["review_status"] != "verified_release"
+                or not approved.record["release_eligible"]
+            ):
+                raise ValueError("File evidence has not passed verified release")
+            content = "\n\n".join(
+                f"===PDF_PAGE:{p['number']}===\n{p['selected_text']}"
+                if p.get("source_unit") == "pdf_page"
+                else p["selected_text"]
+                for p in approved.record["pages"]
+            )
+            if source.content != content:
+                raise ValueError("Indexing text differs from verified source records")
+        else:
+            content = await _materialize_text(source)
+        if not content and source.kind != KnowledgeKind.FILE:
             raise ValueError("Source has no extracted text")
         settings = get_settings()
         if len(content) > settings.knowledge_max_extracted_characters:
             raise ValueError("Source text exceeds the configured extraction limit")
-        chunks = semantic_chunks(content)
-        if not chunks:
+        structured_chunks = approved_extraction_chunks(approved.record) if source.kind == KnowledgeKind.FILE else []
+        chunks_with_metadata = structured_chunks or [
+            (chunk, {"chunk_type": "text"}) for chunk in semantic_chunks(content)
+        ]
+        chunks = [chunk for chunk, _ in chunks_with_metadata]
+        if not chunks and source.kind != KnowledgeKind.FILE:
             raise ValueError("Source produced no usable chunks")
         if len(chunks) > settings.knowledge_max_chunks:
             raise ValueError("Source produced more chunks than the configured limit")
@@ -205,6 +306,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             vectors.extend(await nvidia_adapter.embed_documents(chunks[start : start + batch_size]))
         await session.execute(delete(DocumentChunk).where(DocumentChunk.source_id == source.id))
         for ordinal, (content_chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
+            chunk_metadata = dict(chunks_with_metadata[ordinal][1])
+            chunk_metadata["content_hash"] = hashlib.sha256(content_chunk.encode("utf-8")).hexdigest()
             session.add(
                 DocumentChunk(
                     tenant_id=source.tenant_id,
@@ -218,7 +321,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                     revision=source.revision,
                     embedding_model=get_settings().nvidia_embedding_model,
                     embedding=vector,
-                    metadata_json={"checksum": hashlib.sha256(content_chunk.encode()).hexdigest()},
+                    metadata_json=chunk_metadata,
                 )
             )
         source.status = KnowledgeStatus.READY
@@ -237,6 +340,12 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             payload={"sourceId": str(source.id), "agentId": str(source.agent_id), "chunks": len(chunks)},
         )
         await session.commit()
+    except ExtractionYield:
+        if job:
+            job.status = JobStatus.QUEUED
+            job.step = "extraction_checkpointed"
+        await session.commit()
+        raise
     except Exception as exc:
         source.status = KnowledgeStatus.FAILED
         source.error = "Ingestion failed; inspect the job log."

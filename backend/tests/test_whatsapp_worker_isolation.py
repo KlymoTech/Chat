@@ -1,7 +1,15 @@
 from pathlib import Path
 
+import pytest
+
+from northstar_api.services.chat import FAILED_RESPONSE_PLACEHOLDER
 from northstar_api.workers.celery_app import celery_app
-from northstar_api.workers.tasks import ingest_source, process_whatsapp_inbound, send_whatsapp_human_reply
+from northstar_api.workers.tasks import (
+    deliverable_whatsapp_answer,
+    ingest_source,
+    process_whatsapp_inbound,
+    send_whatsapp_human_reply,
+)
 
 
 def test_task_deadlines_do_not_reach_the_broker_acknowledgement_timeout():
@@ -32,3 +40,13 @@ def test_whatsapp_task_routes_match_the_dedicated_queue_subscriptions():
     assert celery_app.conf.task_routes[process_whatsapp_inbound.name]['queue'] == 'whatsapp.inbound'
     assert celery_app.conf.task_routes[send_whatsapp_human_reply.name]['queue'] == 'whatsapp.outbound'
     assert celery_app.conf.worker_prefetch_multiplier == 1
+
+
+@pytest.mark.parametrize("answer", ["", "   ", FAILED_RESPONSE_PLACEHOLDER])
+def test_whatsapp_never_delivers_failed_assistant_placeholders(answer: str) -> None:
+    with pytest.raises(RuntimeError, match="incomplete assistant response"):
+        deliverable_whatsapp_answer(answer)
+
+
+def test_whatsapp_delivers_completed_answers() -> None:
+    assert deliverable_whatsapp_answer("A grounded answer") == "A grounded answer"

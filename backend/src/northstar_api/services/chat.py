@@ -22,6 +22,7 @@ from northstar_api.models import (
     MessageRole,
 )
 from northstar_api.schemas import ChatStreamRequest
+from northstar_api.services.grounding import blocked_topic, validate_answer
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
 from northstar_api.services.localization import (
     localized_appearance,
@@ -33,7 +34,10 @@ from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.retrieval import Evidence, RetrievalService, retrieval_service
+from northstar_api.services.web_fallback import related_web_evidence
 from northstar_api.services.whatsapp_messages import format_whatsapp_reply
+
+FAILED_RESPONSE_PLACEHOLDER = "The assistant could not complete this response."
 
 
 def whatsapp_welcome(agent: Agent, message: str) -> str | None:
@@ -103,6 +107,9 @@ class ChatCoordinator:
         message = (
             mask_sensitive_text(raw_message) if agent.security.get("maskSensitiveData", True) else raw_message
         )
+        blocked = blocked_topic(raw_message, (agent.security or {}).get("blockedTopics", []))
+        if blocked:
+            raise HTTPException(status_code=422, detail=f"This agent does not answer questions about {blocked}.")
         rate_limit = int(agent.security.get("rateLimitPerMinute", 30))
         global_limiter = await self.redis.check_rate_limit(
             f"tenant:{tenant_id}:agent:{agent.id}:global",
@@ -138,7 +145,8 @@ class ChatCoordinator:
             message_fingerprint=message_fingerprint,
             show_citations=show_citations,
         )
-        welcome = whatsapp_welcome(agent, raw_message) if channel == Channel.WHATSAPP else None
+        configured_greeting = whatsapp_welcome(agent, raw_message)
+        welcome = configured_greeting if channel == Channel.WHATSAPP else None
         display_question = raw_message if welcome else await self._display_question(agent, raw_message)
         if isinstance(reservation, PreparedChat):
             return replace(reservation, display_question=display_question)
@@ -161,6 +169,8 @@ class ChatCoordinator:
                     agent_id=agent.id,
                     revision=conversation.knowledge_revision,
                     query=retrieval_query,
+                    rerank_candidates=int((agent.model_profile or {}).get("rerankCandidates", 60)),
+                    final_context_chunks=int((agent.model_profile or {}).get("finalContextChunks", 8)),
                 )
             except ModelUnavailableError:
                 await session.rollback()
@@ -169,12 +179,26 @@ class ChatCoordinator:
                 ) from None
             # Retrieval is read-only; release its transaction before provider I/O.
             await session.commit()
+            web_evidence = False
+            web_policy = (agent.security or {}).get("webFallback", "public")
+            if not evidence and configured_greeting is None and web_policy in {"related_only", "public"}:
+                evidence = await related_web_evidence(
+                    retrieval_query,
+                    list((agent.security or {}).get("webAllowedDomains", [])),
+                    allow_public=web_policy == "public",
+                )
+                web_evidence = bool(evidence)
             if not evidence:
-                answer = localized_no_evidence(agent.language)
-                CHAT_REQUESTS.labels("refused_no_evidence").inc()
+                if web_policy == "public":
+                    answer = await self._general_answer(agent, message, conversation_history)
+                    CHAT_REQUESTS.labels("general_knowledge").inc()
+                else:
+                    answer = localized_no_evidence(agent.language)
+                    CHAT_REQUESTS.labels("refused_no_evidence").inc()
             else:
                 evidence_block = "\n\n".join(
-                    f"[S{index}] {item.text}" for index, item in enumerate(evidence, start=1)
+                    f"[S{index} | {item.title} | page={item.metadata.get('page_number', 'unknown')} | type={item.metadata.get('chunk_type', item.kind)}]\n{item.text}"
+                    for index, item in enumerate(evidence, start=1)
                 )
                 try:
                     generated = await self.model.generate_grounded(
@@ -185,9 +209,20 @@ class ChatCoordinator:
                         language=agent.language,
                         tone=agent.tone.value,
                         model_profile=agent.model_profile,
+                        allow_external_evidence=web_evidence,
                     )
                     answer = generated.content
-                    CHAT_REQUESTS.labels("generated").inc()
+                    grounding = validate_answer(answer, evidence)
+                    if not grounding.allowed:
+                        if web_policy == "public":
+                            answer = await self._general_answer(agent, message, conversation_history)
+                            evidence = []
+                            CHAT_REQUESTS.labels("general_knowledge").inc()
+                        else:
+                            answer = localized_no_evidence(agent.language)
+                            CHAT_REQUESTS.labels("blocked_ungrounded").inc()
+                    else:
+                        CHAT_REQUESTS.labels("generated").inc()
                 except ModelUnavailableError:
                     # The deterministic cited fallback is development-only. Production
                     # makes an upstream failure explicit when REQUIRE_NVIDIA is enabled.
@@ -234,6 +269,25 @@ class ChatCoordinator:
             return str(translated)
         except ModelUnavailableError:
             return localized_question_fallback(question, agent.language)
+
+    async def _general_answer(self, agent: Agent, question: str, conversation_history: str) -> str:
+        generator = getattr(self.model, "generate_general", None)
+        if generator is None:
+            return localized_no_evidence(agent.language)
+        try:
+            generated = await generator(
+                instructions=agent.instructions,
+                question=question,
+                conversation_history=conversation_history,
+                language=agent.language,
+                tone=agent.tone.value,
+                model_profile=agent.model_profile,
+            )
+        except ModelUnavailableError:
+            if getattr(getattr(self.model, "settings", None), "require_nvidia", False):
+                raise
+            return localized_no_evidence(agent.language)
+        return str(generated.content)
 
     async def _reserve_exchange(
         self,
@@ -598,7 +652,10 @@ class ChatCoordinator:
                 )
             )
             if assistant and assistant.model_request_id == reservation.lease_id:
-                assistant.content = "The assistant could not complete this response."
+                # Failure is transport state, not an assistant answer. Keeping this
+                # empty lets idempotent channel retries reacquire the reservation
+                # without exposing an internal placeholder to the customer.
+                assistant.content = ""
                 assistant.finish_reason = "failed"
                 assistant.processing_started_at = None
                 await session.commit()

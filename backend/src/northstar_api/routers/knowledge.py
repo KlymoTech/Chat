@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
-import json
 import zipfile
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -51,9 +49,9 @@ from northstar_api.services.education_knowledge import (
     replace_source_scopes,
     require_education_agent,
 )
-from northstar_api.services.hybrid_extraction import ExtractionPackage
 from northstar_api.services.extraction_review import apply_review
 from northstar_api.services.extraction_schema import Reading
+from northstar_api.services.hybrid_extraction import ExtractionPackage
 from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
@@ -110,6 +108,7 @@ def source_response(source: KnowledgeSource) -> KnowledgeOut:
         content=source.content if source.kind == KnowledgeKind.TEXT else None,
         error=source.error,
         extraction_issue_count=source.extraction_issue_count,
+        extraction_available=bool(source.extraction_key),
     )
 
 
@@ -141,8 +140,10 @@ async def add_knowledge(
         raise HTTPException(status_code=422, detail="Text sources require content")
     if payload.kind in (KnowledgeKind.URL, KnowledgeKind.SITEMAP) and not payload.url:
         raise HTTPException(status_code=422, detail="URL and sitemap sources require a URL")
-    if payload.kind == KnowledgeKind.FILE and not (payload.object_key or payload.content):
+    if payload.kind == KnowledgeKind.FILE and not payload.object_key:
         raise HTTPException(status_code=422, detail="File sources require an uploaded object key")
+    if payload.kind == KnowledgeKind.FILE and payload.content is not None:
+        raise HTTPException(status_code=422, detail="Uploaded files must pass source extraction and review")
     if payload.object_key and payload.kind != KnowledgeKind.FILE:
         raise HTTPException(status_code=422, detail="Only file sources can reference an uploaded object")
 
@@ -245,7 +246,9 @@ async def _scoped_source(
 
 async def _review_source(source_id: UUID, principal: Principal, session: AsyncSession) -> KnowledgeSource:
     source = await session.scalar(
-        select(KnowledgeSource).with_for_update().where(
+        select(KnowledgeSource)
+        .with_for_update()
+        .where(
             KnowledgeSource.id == source_id,
             KnowledgeSource.tenant_id == principal.tenant_id,
             KnowledgeSource.workspace_id == principal.workspace_id,
@@ -263,35 +266,10 @@ async def _load_extraction(source: KnowledgeSource) -> ExtractionPackage:
     ):
         raise HTTPException(status_code=404, detail="Extraction evidence is not available")
     blob, _ = await object_store.download(source.extraction_key, limit_bytes=1024 * 1024 * 1024)
-    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
-        members = archive.infolist()
-        if len(members) > 200_000 or sum(item.file_size for item in members) > 2 * 1024 * 1024 * 1024:
-            raise HTTPException(status_code=409, detail="Extraction evidence exceeds safe archive limits")
-        manifest = json.loads(archive.read("manifest.json"))
-        names = [m.filename for m in members]
-        if len(set(names)) != len(names) or set(names) != set(manifest.get("artifacts", {})) | {"manifest.json"}:
-            raise HTTPException(status_code=409, detail="Evidence manifest does not account for every artifact")
-        for name, expected in manifest.get("artifacts", {}).items():
-            if hashlib.sha256(archive.read(name)).hexdigest() != expected:
-                raise HTTPException(status_code=409, detail="Extraction evidence checksum failed")
-        record = json.loads(archive.read("extracted.json"))
-        images = {name: archive.read(name) for name in archive.namelist() if name not in {"manifest.json", "extracted.json", "extracted_review.txt", "validation_report.txt", "correction_history.json"}}
-    if (
-        record.get("source_sha256") != source.checksum
-        or manifest.get("source_sha256") != source.checksum
-        or record.get("expected_units") != len(record.get("pages", []))
-        or (
-            record.get("extraction_revision") is not None and record["extraction_revision"] != source.revision
-        )
-    ):
-        raise HTTPException(status_code=409, detail="Extraction evidence does not match this source")
-    for page in record["pages"]:
-        path = page.get("image")
-        if path and (
-            path not in images or hashlib.sha256(images[path]).hexdigest() != page.get("image_sha256")
-        ):
-            raise HTTPException(status_code=409, detail="Source page image checksum failed")
-    return ExtractionPackage(record=record, images=images)
+    try:
+        return ExtractionPackage.from_archive(blob, source_sha256=source.checksum, revision=source.revision)
+    except (ValueError, KeyError, TypeError, zipfile.BadZipFile):
+        raise HTTPException(status_code=409, detail="Extraction evidence is invalid or changed") from None
 
 
 @router.get("/knowledge/{source_id}/extraction")
@@ -312,6 +290,23 @@ async def get_extraction_page(
     if path not in package.images:
         raise HTTPException(status_code=404, detail="Page image not found")
     return Response(content=package.images[path], media_type="image/png")
+
+
+@router.get("/knowledge/{source_id}/extraction/regions/{block_id}")
+async def get_extraction_region(
+    source_id: UUID,
+    block_id: str,
+    principal: KnowledgeViewPrincipal,
+    session: DB,
+) -> Response:
+    source = await _review_source(source_id, principal, session)
+    package = await _load_extraction(source)
+    block = next(
+        (b for p in package.record["pages"] for b in p.get("blocks", []) if b["id"] == block_id), None
+    )
+    if not block or block.get("crop") not in package.images:
+        raise HTTPException(status_code=404, detail="Source region not found")
+    return Response(content=package.images[block["crop"]], media_type="image/png")
 
 
 @router.get("/knowledge/{source_id}/extraction/report")
@@ -401,16 +396,20 @@ async def approve_extraction(
     package = await _load_extraction(source)
     if payload.extraction_revision != source.revision:
         raise HTTPException(status_code=409, detail="Evidence changed; reload before reviewing")
-    pages = package.record["pages"]
     settings = get_settings()
     if sum(len(item.selected_text) for item in payload.pages) > settings.knowledge_max_extracted_characters:
         raise HTTPException(status_code=413, detail="Reviewed text exceeds the extraction limit")
     try:
-        apply_review(package.record, [p.model_dump() for p in payload.pages],
-                     [r.model_dump() for r in payload.issue_resolutions], str(principal.user_id))
+        apply_review(
+            package.record,
+            [p.model_dump() for p in payload.pages],
+            [r.model_dump() for r in payload.issue_resolutions],
+            str(principal.user_id),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     package.refresh()
+    pages = package.record["pages"]
     released = package.record["release_eligible"]
     package.record["review_status"] = "verified_release" if released else "needs_review"
     selected = [page["selected_text"] for page in pages]
@@ -427,7 +426,7 @@ async def approve_extraction(
         await session.commit()
         return source_response(source)
     source.content = "\n\n".join(
-        f"===PDF_PAGE:{page['number']}===\n{value}" if source.name.lower().endswith(".pdf") else value
+        f"===PDF_PAGE:{page['number']}===\n{value}" if page.get("source_unit") == "pdf_page" else value
         for page, value in zip(pages, selected, strict=True)
     )
     source.extraction_issue_count = 0

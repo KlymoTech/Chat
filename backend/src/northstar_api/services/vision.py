@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
+import secrets
 from typing import Any
 
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
+from PIL import Image, ImageDraw, ImageFont
 
 from northstar_api.config import Settings, get_settings
 
@@ -73,6 +77,33 @@ async def read_evidence(image: bytes, settings: Settings, prompt: str) -> dict[s
         "usage": response.usage_metadata,
         "model": VISION_MODEL,
     }
+
+
+async def verify_image_capability(settings: Settings) -> tuple[dict[str, Any], bytes]:
+    """The answer exists only in the pixels, never in the model instruction."""
+    challenge = secrets.token_hex(4).upper()
+    image = Image.new("RGB", (640, 160), "white")
+    ImageDraw.Draw(image).text((25, 40), challenge, fill="black", font=ImageFont.load_default(size=64))
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    pixels = output.getvalue()
+    result: dict[str, Any] = {
+        "model": VISION_MODEL,
+        "image_sha256": hashlib.sha256(pixels).hexdigest(),
+        "expected": challenge,
+        "status": "FAILED",
+        "purpose": "image_transport_probe",
+    }
+    try:
+        response = await read_evidence(
+            pixels, settings, "Return only the characters printed in this image, exactly."
+        )
+        result.update(response)
+        if response.get("finish_reason") == "stop" and response.get("raw", "").strip() == challenge:
+            result["status"] = "PASSED"
+    except Exception as exc:
+        result["error"] = type(exc).__name__
+    return result, pixels
 
 
 def image_to_base64(image_path: str) -> str:

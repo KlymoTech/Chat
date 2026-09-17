@@ -72,6 +72,8 @@ export interface AgentModel {
   maxTokens: number;
   enableThinking: boolean;
   citationMode: 'always' | 'when-available' | 'off';
+  rerankCandidates?: number;
+  finalContextChunks?: number;
 }
 
 export interface AgentSecurity {
@@ -80,6 +82,9 @@ export interface AgentSecurity {
   collectEmail: boolean;
   maskSensitiveData: boolean;
   retentionDays: number;
+  webFallback?: 'off' | 'related_only' | 'public';
+  webAllowedDomains?: string[];
+  blockedTopics?: string[];
 }
 
 export interface Agent {
@@ -119,6 +124,7 @@ export interface KnowledgeSource {
   content?: string;
   error?: string;
   extractionIssueCount?: number;
+  extractionAvailable?: boolean;
 }
 
 export type ConversationState = 'open' | 'resolved' | 'escalated';

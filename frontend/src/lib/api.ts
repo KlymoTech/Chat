@@ -150,6 +150,29 @@ async function requestEvidence(path: string, retried = false): Promise<Blob> {
   return response.blob();
 }
 
+export interface ExtractionReading {
+  kind: string;
+  text: string;
+  complete: boolean;
+  blank?: boolean;
+  uncertain?: boolean;
+  cells?: Array<{ row: number; column: number; text: string; row_span?: number; column_span?: number; state?: string; header?: boolean; header_refs?: string[]; unit?: string | null }>;
+  [key: string]: unknown;
+}
+
+export interface ExtractionBlock {
+  id: string;
+  type: string;
+  status: string;
+  native_text: string;
+  selected_text: string | null;
+  visual: ExtractionReading | null;
+  reviewed_structure?: ExtractionReading;
+  related_block_ids?: string[];
+  bbox_px?: number[];
+  crop?: string;
+}
+
 export interface ExtractionPage {
   number: number;
   native_text: string;
@@ -157,13 +180,30 @@ export interface ExtractionPage {
   selected_text: string | null;
   image: string | null;
   source_unit?: string;
+  printed_page_label?: string | null;
+  blocks: ExtractionBlock[];
+  requires_second_review?: boolean;
+  primary_review?: { reviewer: string; reviewed_at: string };
+  second_review?: { reviewer: string; reviewed_at: string };
 }
 
 export interface ExtractionRecord {
+  schema_version: number;
+  extraction_revision: number;
   source_sha256: string;
   review_status: string;
   pages: ExtractionPage[];
-  issues: Array<{ id: string; page: number; code: string; message: string; status?: string }>;
+  issues: Array<{ id: string; page: number; code: string; message: string; status?: string; technical?: boolean; block_id?: string | null }>;
+  checks: Array<{ name: string; status: string; details: string[] }>;
+  release_blockers: string[];
+  word?: { blocks: unknown[]; channels: unknown[] };
+}
+
+export interface ExtractionReviewSubmission {
+  extractionRevision: number;
+  pages: Array<{ number: number; selectedText: string; reason: string; structureConfirmed: boolean; blankConfirmed: boolean;
+    blocks: Array<{ id: string; selectedText: string; structure: ExtractionReading; relatedBlockIds: string[] }> }>;
+  issueResolutions: Array<{ id: string; action: 'source_verified' | 'source_anomaly' | 'unresolved'; reason: string }>;
 }
 
 async function withFallback<T>(remote: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
@@ -339,9 +379,10 @@ export const api = {
     list: (agentId: string) => withFallback(() => request<KnowledgeSource[]>(`/agents/${agentId}/knowledge`), async () => { await pause(); return demoKnowledgeList().filter((item) => item.agentId === agentId); }),
     extraction: (sourceId: string) => request<ExtractionRecord>(`/knowledge/${sourceId}/extraction`),
     extractionPage: (sourceId: string, page: number) => requestEvidence(`/knowledge/${sourceId}/extraction/pages/${page}`),
+    extractionRegion: (sourceId: string, blockId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/regions/${encodeURIComponent(blockId)}`),
     extractionArchive: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/archive`),
     retryExtraction: (sourceId: string) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/retry`, { method: 'POST' }),
-    approveExtraction: (sourceId: string, pages: Array<{ number: number; selectedText: string; reason: string }>) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/approve`, { method: 'POST', body: JSON.stringify({ pages }) }),
+    approveExtraction: (sourceId: string, submission: ExtractionReviewSubmission) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/approve`, { method: 'POST', body: JSON.stringify(submission) }),
     add: (agentId: string, input: { name: string; kind: KnowledgeKind; url?: string; content?: string; file?: File }) => withFallback(async () => {
       const objectKey = input.file ? await uploadKnowledgeFile(input.file) : undefined;
       return request<KnowledgeSource>(`/agents/${agentId}/knowledge`, {

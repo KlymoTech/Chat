@@ -74,6 +74,14 @@ def test_reply_structure_uses_whatsapp_markers_without_replacing_answer_tokens()
     )
 
 
+def test_whatsapp_hides_internal_source_markers() -> None:
+    agent = SimpleNamespace(name="CMA", appearance={})
+    assert (
+        format_whatsapp_reply(agent, "CMA USA is administered by IMA [S1][S2].")
+        == "CMA USA is administered by IMA."
+    )
+
+
 @pytest.mark.parametrize(
     "template", ["missing answer", "{message}{message}", "{message}\n{email}", "{{message}}"]
 )

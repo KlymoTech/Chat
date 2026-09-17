@@ -22,6 +22,7 @@ from northstar_api.models import (
     KnowledgeSource,
     WhatsAppConnection,
     default_appearance,
+    default_security,
 )
 from northstar_api.schemas import (
     AgentAppearance,
@@ -316,6 +317,8 @@ async def _create_agent(payload, principal, session, connection=None) -> AgentOu
         payload.deployment_channel if payload.deployment_channel in LEGACY_APPEARANCE_CHANNELS else "website"
     )
     instructions = _starter_instructions(payload, purpose)
+    security = default_security()
+    security["webFallback"] = "off" if purpose == AgentPurpose.EDUCATION else "public"
     # Education Agents cannot be made live before the enrollment authorization
     # layer exists. Creating them in draft prevents private knowledge from being
     # exposed through the existing generic runtime while Education is provisioned.
@@ -334,6 +337,7 @@ async def _create_agent(payload, principal, session, connection=None) -> AgentOu
         tone=payload.tone,
         language=payload.language,
         appearance=appearance,
+        security=security,
     )
     session.add(agent)
     try:

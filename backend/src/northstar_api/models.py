@@ -315,6 +315,8 @@ def default_model_profile() -> dict[str, Any]:
         "maxTokens": settings.nvidia_max_tokens,
         "enableThinking": settings.nvidia_enable_thinking,
         "citationMode": "when-available",
+        "rerankCandidates": 60,
+        "finalContextChunks": 8,
     }
 
 
@@ -325,6 +327,9 @@ def default_security() -> dict[str, Any]:
         "collectEmail": False,
         "maskSensitiveData": True,
         "retentionDays": 90,
+        "webFallback": "off",
+        "webAllowedDomains": [],
+        "blockedTopics": [],
     }
 
 

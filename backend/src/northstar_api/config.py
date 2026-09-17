@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     extraction_max_evidence_bytes: int = Field(default=512 * 1024 * 1024, ge=1048576, le=1073741824)
     extraction_word_renderer: str = "soffice"
     extraction_word_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    extraction_page_timeout_seconds: int = Field(default=450, ge=10, le=600)
+    extraction_pages_per_task: int = Field(default=2, ge=1, le=2)
     knowledge_sitemap_max_urls: int = Field(default=25, ge=1, le=500)
     knowledge_max_docx_uncompressed_bytes: int = Field(
         default=100 * 1024 * 1024,
@@ -142,6 +144,7 @@ class Settings(BaseSettings):
     seed_admin_password: SecretStr | None = None
     seed_admin_name: str = "Workspace Owner"
     seed_tenant_name: str = "Northstar Workspace"
+    seed_tenant_plan: str = "starter"
     seed_demo_agent: bool = False
     allow_production_seed: bool = False
 

@@ -1,100 +1,77 @@
-# Hybrid document extraction
+﻿# Hybrid source extraction
 
-The [complete extraction design](HYBRID_EXTRACTION_PLAN.md) preserves all 15 sections
-of the supplied specification with the NVIDIA-only model selection. This page
-documents current behavior and the remaining implementation gaps.
+The workflow in [HYBRID_EXTRACTION_PLAN.md](HYBRID_EXTRACTION_PLAN.md) is implemented using the existing NVIDIA provider, native parsers, durable worker checkpoints, and a source-based review gate. It preserves source mistakes and never generates answers during extraction. Extraction is separate from the existing indexing pipeline; only a verified release can enter indexing.
 
-Uploaded PDF, DOCX, TXT, Markdown, PNG, JPEG, and TIFF sources enter a review stage before indexing. The
-original upload remains in object storage. The worker writes a versioned extraction archive under
-`extractions/<tenant>/<source>/vNNNN.zip`, sets the source to `needs_review`, and stops.
-The frontend shows the source pages, native text, independent vision reading, conflicts,
-and editable approved text. A reviewer must confirm every source unit. Approval records
-the reviewer, selected-text checksum, page-image checksum, time, and reason. Only the
-approved text is then sent through the existing chunking and embedding pipeline.
+## Processing and evidence
 
-## Evidence package
+- PDF: pypdf native text and page labels; PyMuPDF text spans, word geometry, tables, images, annotations, form fields, rotation and page rendering. Every page receives an independent visual inventory and bounded region transcription.
+- DOCX: ordered OOXML inventory, stable logical IDs, nested tables, merged-cell metadata, equations, numbering, relationships, text boxes, content controls, notes, comments, hidden content and revisions. Deleted and hidden content remain separately labeled. A field-frozen derivative is rendered with LibreOffice, recording version, fonts, locale and revision policy. External render dependencies, macros and embedded objects block rendering. Ambiguous logical-to-rendered mappings require review.
+- Images: original bytes and every supported PNG/JPEG/TIFF frame are preserved, with EXIF orientation and resizing recorded. Captions, labels, annotations, observed relationships and derived descriptions occupy separate fields.
+- Text/Markdown: strict UTF-8, or BOM-declared UTF-16/32, preserves exact characters, original bytes, line endings and line byte ranges. Unsupported encodings remain blocked with their original source available. Text has no invented physical pagination.
 
-The archive contains `extracted.json`, `extracted_review.txt`,
-`validation_report.txt`, `manifest.json`, and PDF page images. The manifest records
-SHA-256 hashes for all artifacts. Page records retain native and visual candidates,
-source page indexes, PDF page labels, image frame indexes, render dimensions, native block coordinates,
-and issue IDs. Text files retain exact decoded characters and byte offsets. The TXT
-reports are generated from the structured record. A source with unresolved issues is
-reported as blocked and is never indexed automatically.
+The archive contains the preserved original, `extracted.json`, readable `extracted_review.txt`, `validation_report.txt`, `correction_history.json`, page images, region crops, raw/parsed NVIDIA attempts, Word derivatives where available, and a SHA-256 manifest. TXT includes a readable projection and JSON-escaped canonical records; it is never rewritten by a model. Archive members and ZIP timestamps are ordered deterministically for the same record. Random capability challenges and human timestamps intentionally differ between runs.
 
-## NVIDIA-only vision configuration
+PDF/image coordinates are explicitly identified as rendered pixels, with source dimensions, rotation, scale and transform IDs. Inventory coordinates remain in raw/parsed call evidence. Table cells have stable IDs, spans, states, header links, units and source table references. Physical fragments remain separate; reviewed continuation links assemble logical groups. Captions and printed answer keys require explicit source-based relationships.
 
-The only vision provider is NVIDIA's hosted `meta/llama-3.2-11b-vision-instruct`
-through `langchain_nvidia_ai_endpoints.ChatNVIDIA`. Both the hybrid document reader
-and the website screenshot reader use this shared client. Other provider/model
-settings are rejected; there is no local-model fallback.
+## NVIDIA only
 
-```python
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
+All vision calls use `langchain_nvidia_ai_endpoints.ChatNVIDIA` with `meta/llama-3.2-11b-vision-instruct`. Both reading and dispute review use this same NVIDIA model; repeat calls are not independent model corroboration. Existing NVIDIA chat and embedding selections are preserved. Provider/model overrides for vision are rejected.
 
-client = ChatNVIDIA(
-    model="meta/llama-3.2-11b-vision-instruct",
-    # Reads NVIDIA_API_KEY from the environment.
-    temperature=1,
-    top_p=1,
-    max_completion_tokens=512,
-)
+Before reading a new visual source, a random value present only in image pixels probes actual image-reading capability. Failure blocks visual extraction. The independent inventory/transcription prompts never receive the native transcript. Raw responses, termination status, parse failures, prompt/model identity and image checksums are retained; reasoning is not source text.
+
+Incomplete JSON or truncated completions trigger bounded crop subdivision. At most three additional calls per inventory/region recovery are allowed, with a separate per-page call and elapsed-time cap. Split boundaries require human review. Disputed regions may receive one expanded-context crop through the same NVIDIA model, when this supplies different source pixels. Competing candidates remain unresolved until source review; no majority vote or model confidence score approves a value.
+
+## Review and release
+
+The Knowledge screen opens a review panel with full-resolution page evidence, native/visual candidates, editable region text and structure, table-cell projections, related source IDs, issue decisions, checks and blockers. Reviewers can save one page at a time. Structured details include cell states/spans/header relationships, equations, question options/subparts, figure labels, captions and typed relationships. Blank source units need explicit confirmation.
+
+Each save checks the current extraction revision, writes a new evidence archive and records reviewer, reason, source/image/content hashes and the before/after correction history. Updates are transactional; rejected reviews do not mutate the record. Content or relationship changes invalidate previous acceptance. Technical failures require reprocessing, and uncertain/incomplete regions cannot be approved.
+
+Every source unit needs a source-based human review. Numerical, mathematical, table and question/answer content requires a second **different user** on the identical reviewed version. Ten explicit check groups cover source/render integrity, identity, coverage, text, tables/numbers, educational structure, visual audit, continuity, export consistency and human acceptance. Unresolved issues block release even when other checks pass. `NOT_MEASURED` remains the accuracy value without labeled ground truth.
+
+The indexing worker independently verifies the archive, its checks, release status, revision and exact selected content. Uploading a file with supplied text cannot bypass review. Draft exports remain available while blocked, including when the model or Word renderer is unavailable.
+
+## Deployment and recovery
+
+Set `NVIDIA_API_KEY` in the deployment environment. No key is committed. The backend container installs LibreOffice Writer, fontconfig and DejaVu/Noto fonts. A host installation needs `soffice` on PATH, or an explicit `EXTRACTION_WORD_RENDERER`. Its recorded font environment determines Word pagination; inspect substituted fonts against the original presentation.
+
+Relevant settings are documented in `backend/.env.example`:
+
+| Setting | Default |
+| --- | --- |
+| `EXTRACTION_VISION_MAX_TOKENS` | 512 |
+| `EXTRACTION_VISION_TIMEOUT_SECONDS` | 120 |
+| `EXTRACTION_RENDER_DPI` | 300 |
+| `EXTRACTION_MAX_IMAGE_PIXELS` | 12,000,000 |
+| `EXTRACTION_MAX_CALLS_PER_PAGE` | 96 |
+| `EXTRACTION_REGION_RETRIES` | 3 |
+| `EXTRACTION_PAGE_TIMEOUT_SECONDS` | 450 |
+| `EXTRACTION_PAGES_PER_TASK` | 2 |
+| `EXTRACTION_MAX_EVIDENCE_BYTES` | 512 MiB |
+| `EXTRACTION_WORD_TIMEOUT_SECONDS` | 120 |
+
+Background workers save each completed page before publishing a continuation after two new pages. Continuations do not consume the failed-task retry budget. Source/config/prompt/revision/checksum identities protect resume; completed pages are not reread. Word rendering uses a private process profile with frozen fields and without provider credentials in its environment. Existing worker processes isolate native parser execution; rendering is sequential within each job, not threaded across PDF pages.
+
+Limits fail closed. Documents requiring more evidence, clearer pixels, larger regional output budgets, unsupported native structures, or unavailable fonts/models remain drafts. Resource limits and human review are acceptance gates, not an assertion that arbitrary textbooks have been benchmarked. The archive is bounded and assembled in memory; size settings must fit worker memory. Human-adjudicated educational benchmarks and live NVIDIA/renderer checks are deployment gates.
+
+## Verification
+
+From `backend`:
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/test_hybrid_extraction.py tests/test_extraction_api.py tests/test_ingestion.py tests/test_config.py tests/test_object_store.py -q
+.venv/Scripts/python.exe tests/check_nvidia_vision_runtime.py
+.venv/Scripts/python.exe tests/check_local_vision_runtime.py
 ```
 
-Set `NVIDIA_API_KEY` in the local or deployment environment; never commit it.
-`EXTRACTION_VISION_TIMEOUT_SECONDS` defaults to 120 and
-`EXTRACTION_VISION_MAX_TOKENS` defaults to 512. The provider and model settings are
-restricted to the values above. The completion parameter follows the
-[ChatNVIDIA API](https://reference.langchain.com/python/langchain-nvidia-ai-endpoints/chat_models/ChatNVIDIA/max_tokens).
+The last command is a live NVIDIA check and requires credentials. The regression tests use synthetic source fixtures and controlled model responses. They inject missing paragraphs/options, numeric sign and critical-word changes, truncated outputs, duplicate/missing pages, missing crops, broken relationships, altered originals, stale revisions and unauthorized indexing text. An adjudicated reference also detects errors shared by both extraction channels.
 
-Send actual page/crop pixels in an `image_url` data URL alongside the extraction
-instruction. The independent reading does not receive the native transcript.
-Only `response.content` is a transcription candidate; `reasoning_content` must
-never enter source text. Empty responses, missing completion status, refusals,
-and output-limit termination fail the visual pass. With a 512-token limit, dense
-pages may fail until region splitting is implemented; never shorten the extraction
-to make it fit or mark a partial response as verified.
+From `frontend`, run `npm test -- src/components/extraction-review-modal.test.tsx src/lib/api.test.ts` and `npm run typecheck`.
 
-Run `python tests/check_local_vision_runtime.py` from `backend` with the API key
-in the environment to probe actual image transport. This is a manual deployment
-check, not an automatic per-document gate. A failed document visual pass creates
-`VISION_UNAVAILABLE` and stays in review; native text is never silently promoted as verified.
-After the model is available, reviewers can retry visual reading without reuploading the source.
+For an actual labeled benchmark:
 
-## Extraction plan with the selected model
+```powershell
+python -m northstar_api.services.extraction_benchmark reference.json extracted.json
+```
 
-Keep the source-verification workflow from the specification:
-
-1. Preserve the original and inventory every page, logical part, or image frame.
-2. Extract native text and structure, and render paginated sources with coordinate mappings.
-3. Use the NVIDIA model for independent visual inventory and bounded region transcription.
-4. Reconcile native and visual candidates by source location; retain disagreements.
-5. Validate coverage, text, tables, numbers, equations, question structure, and continuity.
-6. Retry disputed regions with better source crops, at most three attempts per issue,
-   using the same NVIDIA model; require human review for unresolved evidence.
-7. Generate deterministic TXT/JSON, image evidence, manifest checksums, and correction history.
-8. Release only after required checks and source-based reviews are complete.
-
-Both `VISION_PRIMARY` and `VISION_REVIEW` in the original plan refer to this same
-NVIDIA model. A second call is not independent model verification. Strict approval
-still calls for a separate human reviewer for critical educational content.
-The original Qwen/local-endpoint recommendation is superseded. Native parsers remain
-part of the workflow. Remaining implementation gaps are listed below.
-
-## Current acceptance boundary
-
-PDF pages receive a native pass and a rendered visual pass. Exact agreement after
-whitespace normalization selects the native candidate, but human review is still
-required. Conflicts require source inspection. Image frames receive a visual reading
-and always require source-based review. A failed visual reading blocks verified release.
-TXT and Markdown use strict UTF-8
-decoding and source bytes as primary evidence. DOCX native paragraphs and tables are
-exported as a draft, but approval is blocked until a controlled visual page derivative
-is available. No accuracy percentage is claimed without a labeled benchmark.
-
-PDF and image pages write durable checkpoints under the extraction revision and can
-resume from a verified contiguous page prefix after a worker retry. Large documents
-still need streaming archive access, targeted crop retries, DOCX rendering,
-specialist table/equation validation, and an
-independent second review for critical educational content. The current worker has a
-25-minute hard limit, so long textbooks are not yet an accepted processing class.
+A reference specifies `source_sha256`, `adjudicated_by`, and `pages` with `number`, exact `text`, and source-aligned `blocks` (`id`, `text`, optional `cells`, `latex`, `relationships`, `options`). The evaluator reports text exact matches, character alignment errors, block recall, order, cell values/spans, header associations, critical tokens, equations, options and relationships separately. Character alignment error uses difflib alignment, not minimum-edit-distance CER. No benchmark score is substituted for source-based release checks.
