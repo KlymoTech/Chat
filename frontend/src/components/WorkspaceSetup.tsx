@@ -4,7 +4,8 @@ import { useAuth, useWorkspace } from '@/components/providers';
 import { Button, Modal } from '@/components/ui';
 import { WorkspaceBrandEffects } from '@/components/WorkspaceBrandEffects';
 import { OrganizationProfileWizard } from '@/components/OrganizationProfileWizard';
-import { setupApi, type BrandingChoice, type OnboardingState, type SetupBootstrap } from '@/lib/setup-api';
+import { setupApi, SetupRequestError, type BrandingChoice, type OnboardingState, type SetupBootstrap } from '@/lib/setup-api';
+import { workspacePresentationKey } from '@/lib/workspace-api';
 import './workspace-setup.css';
 
 interface SetupContextValue { data: SetupBootstrap; refresh: () => void; updateOnboarding: (state: OnboardingState) => void }
@@ -18,23 +19,27 @@ export function useWorkspaceSetup(): SetupContextValue {
 /** Blocks only new accounts with incomplete profiles; migrated organizations keep their access. */
 export function WorkspaceSetupGate({ children }: { children: ReactNode }) {
   const { session, logout } = useAuth();
-  const { activeWorkspace, loading, error: workspaceError, refreshWorkspaces } = useWorkspace();
+  const { activeWorkspace, loading, error: workspaceError, refreshError, refreshWorkspaces } = useWorkspace();
   const [snapshot, setSnapshot] = useState<{ key: string; data: SetupBootstrap } | null>(null);
-  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
+  const [failure, setFailure] = useState<{ key: string; message: string; retryable: boolean } | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const demo = import.meta.env.VITE_DEMO_MODE === 'true' && !!session?.accessToken.startsWith('demo');
-  const key = `${session?.accessToken ?? ''}:${activeWorkspace?.id ?? ''}:${attempt}`;
+  const accessToken = session?.accessToken;
+  const demo = import.meta.env.VITE_DEMO_MODE === 'true' && !!accessToken?.startsWith('demo');
+  const key = `${workspacePresentationKey()}:${activeWorkspace?.id ?? ''}`;
   const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   useEffect(() => {
-    if (!session || loading || demo) return;
+    if (!accessToken || loading || demo) return;
     const controller = new AbortController();
     void setupApi.bootstrap(controller.signal).then((data) => {
       if (!controller.signal.aborted) { setSnapshot({ key, data }); setFailure(null); }
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setFailure({ key, message: reason instanceof Error ? reason.message : 'Workspace setup could not be loaded' });
+      if (!controller.signal.aborted && !(reason instanceof DOMException && reason.name === 'AbortError')) {
+        setFailure({ key, message: reason instanceof Error ? reason.message : 'Workspace setup could not be loaded',
+          retryable: reason instanceof SetupRequestError ? reason.status >= 500 : reason instanceof TypeError });
+      }
     });
     return () => controller.abort();
-  }, [session, loading, key, demo]);
+  }, [accessToken, loading, key, demo, attempt]);
   const data = snapshot?.key === key ? snapshot.data : null;
   const updateOnboarding = (state: OnboardingState) => {
     setSnapshot((old) => old?.key === key ? { key, data: { ...old.data, onboarding: state } } : old);
@@ -44,7 +49,7 @@ export function WorkspaceSetupGate({ children }: { children: ReactNode }) {
   };
   if (demo) return <>{children}</>;
   if (workspaceError) return <section className="setup-page" role="alert"><h1>Workspaces could not be loaded</h1><p>{workspaceError}</p><OrganizationRecoveryLinks /><Button onClick={() => void refreshWorkspaces().then(refresh).catch(() => undefined)}>Retry</Button><Button variant="secondary" onClick={() => void logout().catch(() => undefined)}>Sign out</Button></section>;
-  if (failure?.key === key) return <section className="setup-page" role="alert"><h1>Workspace setup needs attention</h1><p>{failure.message}</p><OrganizationRecoveryLinks />
+  if (failure?.key === key && (!data || !failure.retryable)) return <section className="setup-page" role="alert"><h1>Workspace setup needs attention</h1><p>{failure.message}</p><OrganizationRecoveryLinks />
     <div className="setup-actions"><Button onClick={refresh}>Retry</Button><Button variant="secondary" onClick={() => void logout().catch(() => undefined)}>Sign out</Button></div></section>;
   if (!data || loading) return <section className="setup-page" role="status">Loading your authorized workspace…</section>;
   if (!activeWorkspace) return <section className="setup-page"><h1>No accessible workspace</h1>
@@ -56,7 +61,10 @@ export function WorkspaceSetupGate({ children }: { children: ReactNode }) {
     return editable ? <OrganizationProfileWizard key={data.organization.id} initial={data.onboarding} onSaved={updateOnboarding} /> :
       <section className="setup-page"><h1>Organization setup is in progress</h1><p>An organization administrator must complete the profile before workspace resources become available.</p><OrganizationRecoveryLinks /><Button onClick={refresh}>Check again</Button></section>;
   }
-  return <SetupContext.Provider value={{ data, refresh, updateOnboarding }}><WorkspaceBrandEffects />{children}<WhiteLabelChoiceDialog /></SetupContext.Provider>;
+  const refreshWarning = refreshError ?? (failure?.key === key && failure.retryable ? failure.message : null);
+  return <SetupContext.Provider value={{ data, refresh, updateOnboarding }}><WorkspaceBrandEffects />
+    {refreshWarning ? <section className="setup-starter" role="status"><p>Workspace information could not refresh: {refreshWarning}. Your current view is retained; the server still checks every action.</p><Button variant="secondary" onClick={() => void refreshWorkspaces().then(refresh).catch(() => undefined)}>Retry refresh</Button></section> : null}
+    {children}<WhiteLabelChoiceDialog /></SetupContext.Provider>;
 }
 
 function OrganizationRecoveryLinks() {

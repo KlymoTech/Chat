@@ -3,38 +3,47 @@
 Branch: `feature/workspace-platform-consolidated-20260917`.
 Pull request: #114, draft. This is an implementation checkpoint, not a completed release.
 
-## Latest continuation: organization chooser and account-level recovery
+## Latest continuation: workspace refresh and editor-state preservation
 
-Based on `d2ad73382cde96445df85262e9d9571f1504556f`. The frontend and backend organization-selection path is now implemented, not merely an unpushed overlay contract.
+Based on `c052fe67e2174f7f7ce7fc0a2f28a0cfce9d9eb7`. This is an independent frontend continuation using the existing workspace APIs, provider and setup gate; it does not require new database tables or migrations.
 
-- `/organizations` lists real memberships and selects a destination using `GET /me/organizations` and `POST /auth/select-organization` under the existing API prefix. The current database membership supplies the new role; no workspace membership is fabricated.
-- Verified interactive identity and matching refresh-cookie proof are required. API keys, malformed/revoked/stale credentials, unverified users and foreign memberships are denied. A removed old-organization membership does not prevent recovery into a still-authorized organization.
-- Redis atomically transfers the exact refresh proof to a new family with access-token revocation checking. Losing requests do not revoke the winner. Database audit/outbox work is transactional; failure compensates by conditionally revoking only the undelivered new token family.
-- Client selection handles duplicate clicks, stale account responses, invalid output and ambiguous network outcomes without silently replaying the mutation. Refresh credentials are never retained in browser storage. Reopening an organization clears a removed workspace selection.
-- `/organization/billing` is outside the workspace/profile bootstrap and reuses existing billing endpoints and server-side authorization. Missing-workspace/error/profile-waiting screens and the normal dashboard expose organization recovery links.
-- No new database migration, model-provider change, worker rewrite, deployment or main-branch update is part of this continuation.
+- Ordinary access-token rotation no longer serves as the workspace presentation identity. User/organization, role, credential-version and verification changes still invalidate it. These browser keys only partition UI state; the backend remains authoritative.
+- The provider cancels superseded workspace-list requests and retains generation/context fences. Same-context background refreshes no longer replace an already loaded editor with the initial loading screen.
+- GET requests may retry once only after an external same-context token refresh, using the original selected workspace. POST/PATCH requests are not replayed; uncertain outcomes require reload.
+- Transient same-context background outages show a retry warning without discarding the loaded form. Initial-load errors and authorization/context failures do not fall back to stale private account state.
+- The setup gate uses stable context keys and does not turn cancelled bootstrap requests into account errors.
 
-See [organization selection operations and evidence](operations/organization-selection.md) for contracts, session behavior, the outbox topic and release requirements.
+Executed: 31 Node transport checks against actual source with storage/fetch fixtures; strict TypeScript transport/storage checking using TypeScript 5.8.3; syntax checks for five changed TypeScript/TSX source/test files. Six normal transport Vitest regressions and six normal React/Testing Library regressions were added but not executed here. Full project lint/types/build, actual browser/cookie concurrency and current-source CI are still required.
 
-### Evidence actually executed for this continuation
+See [workspace refresh operations and verification](operations/workspace-refresh.md).
 
-22 isolated Python claim/transfer tests; 23 actual-router ASGI checks in a minimal SQLAlchemy/SQLite host with substituted host/Redis adapters; 26 Node module checks with actual organization/workspace transport source and in-memory browser primitives; strict TypeScript transport checking with the extracted existing Session contract; syntax checking of seven changed TypeScript/TSX files; Python compilation.
+### Blocked publication implementation
 
-Eight normal backend API regressions and seven normal Vitest regressions were added for the real repository pipeline, but were not executed in the restricted local source environment. None of the isolated counts represents the complete application, real Redis Lua, PostgreSQL/RLS, React browser rendering, real cookies, cross-tab races, broker/provider integration or production acceptance. All existing quality gates remain required.
+The repository tool blocked a separate attempted branding-model/migration tree write. No branch ref was changed by that blocked operation, and it was not retried through an alternate route. Its locally prepared versioned-branding code passed 44 isolated backend/SQLite checks and 23 Node client-module checks, but those are NOT tests of this branch head. The new publication tables, migration, endpoints, observer and versioned editor are NOT committed. The original basic branding path remains intact. No imports or routes reference the unpushed files.
+
+## Prior continuation: organization chooser and account-level recovery
+
+Implemented in `c052fe67e2174f7f7ce7fc0a2f28a0cfce9d9eb7`, based on `d2ad73382cde96445df85262e9d9571f1504556f`.
+
+- `/organizations` lists real memberships and selects a destination using `GET /me/organizations` and `POST /auth/select-organization`. Current database membership supplies the new role; no workspace membership is fabricated.
+- Verified interactive identity and matching refresh-cookie proof are required. API keys, malformed/revoked/stale credentials, unverified users and foreign memberships are denied. A removed old membership does not prevent recovery into a still-authorized organization.
+- Redis transfers refresh proof to a new family. Database audit/outbox work is transactional; failure compensates by conditionally revoking the undelivered family. This is not a PostgreSQL/Redis distributed transaction guarantee.
+- Organization selection handles duplicate clicks, stale responses and ambiguous network outcomes without replay. Refresh credentials are not stored in browser storage.
+- `/organization/billing` remains outside the workspace/profile bootstrap and reuses server-authorized billing endpoints. Recovery links remain on error/waiting screens and the dashboard.
+
+Historical verification for that commit: 22 isolated Python claim/transfer tests; 23 actual-router ASGI checks in a minimal SQLite host with substituted host/Redis adapters; 26 Node module checks; targeted strict TypeScript and seven-file syntax checks. Eight backend API regressions and seven Vitest regressions were added but not executed in the restricted environment. This is not full React/browser, real Redis Lua, PostgreSQL/RLS or broker/provider acceptance. See [organization selection operations](operations/organization-selection.md).
 
 ## Earlier committed checkpoints retained
 
-- `0044_merge_workspace_extraction` joins the existing onboarding and hybrid-extraction histories without data-changing junction operations. Future workspace migrations must descend from it; the historical PostgreSQL chain still requires runtime acceptance.
-- Scoped access request contracts and resource-grant validators are committed, but full custom-role/team service and UI enforcement are not yet integrated.
-- The existing billing transport no longer fabricates active subscriptions or unlimited legacy entitlements during an outage. It retains the existing checkout, portal, cancellation and reactivation endpoints and rejects unsafe redirects and stale-account responses.
-- The earlier onboarding/profile/Free-plan/basic-branding implementation and independent PDF-extraction work remain preserved.
+- `0044_merge_workspace_extraction` joins the existing onboarding and hybrid-extraction histories without data-changing junction operations. Future migrations must descend from it; the full historical PostgreSQL chain still requires acceptance.
+- Scoped access contracts/resource-grant validators are committed; complete custom-role/team services and UI enforcement are not integrated.
+- Billing transport no longer fabricates active subscriptions or unlimited legacy entitlements during an outage. Existing checkout, portal, cancellation and reactivation endpoints remain.
+- Earlier onboarding/profile/Free-plan/basic-branding and independent PDF-extraction changes remain preserved.
 
-Historical evidence: 22 access/junction tests and 26 billing module checks passed at their respective earlier checkpoint. The larger older local overlay had separate unit/service checks, but it is not wholly committed; those counts are not tests of this branch's complete current source.
+Historical evidence: 22 access/junction tests and 26 billing module checks passed at their respective checkpoints. Older larger overlays have separate tests but are not wholly committed. Their counts are not evidence for this branch's complete current source.
 
 ## Remaining implementation and release gates
 
-The full specification still requires the larger custom-role/team integration and resource matrix; immutable whole-application branding and its actual auth/widget/email/report surfaces; verified domain/TLS/sender workflows; workspace lifecycle/export/deletion and retention; usage reservations/budgets; organization ownership/security governance; durable signup-email processing; complete Education/CRM and provider/worker acceptance; production-like migrations, accessibility, load, backup/restore and full frontend/backend quality gates.
+The full specification still requires custom-role/team runtime and complete resource authorization; immutable whole-application branding and actual auth/widget/email/report surfaces; organization inheritance and asset storage; verified domains/TLS/senders; workspace archive/export/deletion/retention; authoritative usage reservations/budgets; ownership/security governance; durable signup email; the complete starter catalog/playground; Education/CRM/provider/worker acceptance; production migrations, accessibility, load, backup/restore and all frontend/backend quality gates.
 
-The previously blocked access-model/access-migration writes were not part of this continuation and were not bypassed. This continuation adds organization recovery using existing identity and membership models.
-
-Keep this PR in draft until the complete implementation and its acceptance gates pass. Do not weaken or skip existing CI gates to obtain a green status. No merge into main has been performed.
+Previously blocked access-model/access-migration operations were not bypassed. This continuation does not modify another branch, main, deployment settings, model providers, production databases or worker topology. Keep PR #114 in draft until implementation and acceptance are complete. No existing CI gate is weakened or skipped, and no merge into main is performed.

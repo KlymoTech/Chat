@@ -3,7 +3,7 @@ import { CheckCircle2, CircleAlert, Info, X } from 'lucide-react';
 import { api, AUTH_SESSION_EVENT } from '@/lib/api';
 import { isMFAChallenge, mfaApi, type LoginResult, type MFAFactor } from '@/lib/mfa-api';
 import { signupApi, type SignupInput } from '@/lib/signup-api';
-import { activeWorkspaceId, persistActiveWorkspace, workspaceApi, workspaceSessionScope, type WorkspaceCreate, type WorkspaceSettings } from '@/lib/workspace-api';
+import { activeWorkspaceId, persistActiveWorkspace, workspaceApi, workspacePresentationKey, retryableWorkspaceRead, type WorkspaceCreate, type WorkspaceSettings } from '@/lib/workspace-api';
 import type { Session } from '@/types';
 
 interface AuthContextValue {
@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth(): AuthContextValue { const value = useContext(AuthContext); if (!value) throw new Error('useAuth must be used inside AuthProvider'); return value; }
 
 interface WorkspaceContextValue {
-  workspaces: WorkspaceSettings[]; activeWorkspace: WorkspaceSettings | null; loading: boolean; error: string | null;
+  workspaces: WorkspaceSettings[]; activeWorkspace: WorkspaceSettings | null; loading: boolean; error: string | null; refreshing?: boolean; refreshError?: string | null;
   selectWorkspace: (workspaceId: string) => void; refreshWorkspaces: () => Promise<void>;
   createWorkspace: (input: WorkspaceCreate) => Promise<WorkspaceSettings>;
 }
@@ -45,34 +45,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadedFor, setLoadedFor] = useState('');
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const acceptedContext = useRef('');
+  const requestController = useRef<AbortController | null>(null);
   const generation = useRef(0);
-  const scope = workspaceSessionScope();
+  const scope = workspacePresentationKey();
   const verified = !!session && session.user.emailVerified !== false;
   const load = useCallback(async () => {
-    const serial = ++generation.current; const requestedScope = workspaceSessionScope();
-    if (!session || session.user.emailVerified === false) {
-      setWorkspaces([]); setActiveWorkspace(null); setPending(false); setError(null); setLoadedFor(requestedScope); return;
+    const serial = ++generation.current; const requestedScope = workspacePresentationKey();
+    requestController.current?.abort();
+    if (!verified || scope !== requestedScope) {
+      setWorkspaces([]); setActiveWorkspace(null); setPending(false); setError(null); setLoadedFor(requestedScope); setRefreshError(null); acceptedContext.current = requestedScope; return;
     }
-    setPending(true); setError(null);
+    const controller = new AbortController(); requestController.current = controller;
+    setPending(true); setError(null); setRefreshError(null);
     try {
-      const values = await workspaceApi.list();
-      if (serial !== generation.current || requestedScope !== workspaceSessionScope()) return;
+      const values = await workspaceApi.list(controller.signal);
+      if (serial !== generation.current || requestedScope !== workspacePresentationKey()) return;
       const selected = values.find((item) => item.id === activeWorkspaceId()) ?? values[0] ?? null;
       if (selected) persistActiveWorkspace(selected.id);
+      acceptedContext.current = requestedScope;
       setWorkspaces(values); setActiveWorkspace(selected); setLoadedFor(requestedScope);
     } catch (reason) {
-      if (serial === generation.current && requestedScope === workspaceSessionScope()) {
-        setWorkspaces([]); setActiveWorkspace(null); setLoadedFor(requestedScope);
-        setError(reason instanceof Error ? reason.message : 'Workspaces could not be loaded');
+      if (serial === generation.current && requestedScope === workspacePresentationKey()) {
+        const message = reason instanceof Error ? reason.message : 'Workspaces could not be loaded';
+        if (acceptedContext.current === requestedScope && retryableWorkspaceRead(reason)) {
+          setRefreshError(message); // Keep the currently authorized view during a transient background outage.
+        } else {
+          acceptedContext.current = '';
+          setWorkspaces([]); setActiveWorkspace(null); setLoadedFor(requestedScope); setError(message);
+        }
       }
       throw reason;
     } finally { if (serial === generation.current) setPending(false); }
-  }, [session]);
-  useEffect(() => { void load().catch(() => undefined); return () => { generation.current += 1; }; }, [load]);
+  }, [scope, verified]);
+  useEffect(() => { void load().catch(() => undefined); return () => { generation.current += 1; requestController.current?.abort(); }; }, [load]);
   useEffect(() => {
     const changed = (event: Event) => {
       const value = (event as CustomEvent<WorkspaceSettings>).detail;
-      if (loadedFor !== workspaceSessionScope() || !value?.id) return;
+      if (loadedFor !== workspacePresentationKey() || !value?.id) return;
       setWorkspaces((old) => old.map((item) => item.id === value.id && item.tenantId === value.tenantId ? value : item));
       setActiveWorkspace((old) => old?.id === value.id && old.tenantId === value.tenantId ? value : old);
     };
@@ -80,24 +91,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('northstar:workspace-changed', changed);
   }, [loadedFor]);
   const selectWorkspace = useCallback((workspaceId: string) => {
-    if (loadedFor !== workspaceSessionScope()) return;
+    if (loadedFor !== workspacePresentationKey()) return;
     const selected = workspaces.find((item) => item.id === workspaceId);
     if (!selected || selected.id === activeWorkspace?.id) return;
-    generation.current += 1; persistActiveWorkspace(selected.id); setActiveWorkspace(selected); setPending(false); setError(null);
+    generation.current += 1; requestController.current?.abort(); setRefreshError(null); persistActiveWorkspace(selected.id); setActiveWorkspace(selected); setPending(false); setError(null);
   }, [activeWorkspace?.id, workspaces, loadedFor]);
   const createWorkspace = useCallback(async (input: WorkspaceCreate) => {
-    const serial = generation.current; const requestedScope = workspaceSessionScope();
+    const serial = generation.current; const requestedScope = workspacePresentationKey();
     const created = await workspaceApi.create(input);
-    if (serial !== generation.current || requestedScope !== workspaceSessionScope()) throw new DOMException('Workspace context changed', 'AbortError');
+    if (serial !== generation.current || requestedScope !== workspacePresentationKey()) throw new DOMException('Workspace context changed', 'AbortError');
+    setRefreshError(null);
     persistActiveWorkspace(created.id); setWorkspaces((old) => [...old.filter((item) => item.id !== created.id), created]); setActiveWorkspace(created);
     return created;
   }, []);
   const visible = verified && loadedFor === scope;
   const value = useMemo(() => ({
     workspaces: visible ? workspaces : [], activeWorkspace: visible ? activeWorkspace : null,
-    loading: verified && (pending || loadedFor !== scope), error: visible ? error : null,
+    loading: verified && (loadedFor !== scope || (pending && activeWorkspace === null)), error: visible ? error : null,
+    refreshing: visible && pending, refreshError: visible ? refreshError : null,
     selectWorkspace, refreshWorkspaces: load, createWorkspace,
-  }), [visible, verified, pending, loadedFor, scope, workspaces, activeWorkspace, error, selectWorkspace, load, createWorkspace]);
+  }), [visible, verified, pending, loadedFor, scope, workspaces, activeWorkspace, error, refreshError, selectWorkspace, load, createWorkspace]);
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 export function useWorkspace(): WorkspaceContextValue { const value = useContext(WorkspaceContext); if (!value) throw new Error('useWorkspace must be used inside WorkspaceProvider'); return value; }

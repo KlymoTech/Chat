@@ -41,7 +41,7 @@ function localWorkspace(): WorkspaceSettings {
   const saved = readStorage<Partial<WorkspaceSettings>>(STORAGE_KEY, {});
   return { ...defaults, ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, whiteLabel: { ...defaults.whiteLabel, ...saved.whiteLabel } };
 }
-function storedSession() { return readStorage<{ accessToken?: string; user?: { id?: string } } | null>(SESSION_KEY, null); }
+function storedSession() { return readStorage<{ accessToken?: string; user?: { id?: string; role?: string; emailVerified?: boolean } } | null>(SESSION_KEY, null); }
 export function workspaceSessionScope(): string {
   const current = storedSession();
   if (!current?.accessToken) return 'signed-out';
@@ -51,6 +51,24 @@ export function workspaceSessionScope(): string {
     return `${current.user?.id ?? ''}:${typeof claims.tid === 'string' ? claims.tid : 'unknown'}`;
   } catch { return `${current.user?.id ?? ''}:demo`; }
 }
+/** A cache/UI identity, never authorization. Ordinary token rotation keeps this key
+ * stable; organization, role, credential-version and verification changes do not.
+ */
+export function workspacePresentationKey(): string {
+  const current = storedSession();
+  if (!current?.accessToken) return 'signed-out';
+  let credentialVersion = 0;
+  try {
+    const claims = JSON.parse(atob(current.accessToken.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/'))) as { cv?: unknown };
+    if (typeof claims.cv === 'number' && Number.isSafeInteger(claims.cv) && claims.cv >= 0) credentialVersion = claims.cv;
+  } catch { /* Malformed tokens still have to pass server authentication. */ }
+  return JSON.stringify([workspaceSessionScope(), current.user?.role ?? '', credentialVersion, current.user?.emailVerified !== false]);
+}
+
+export function retryableWorkspaceRead(error: unknown): boolean {
+  return error instanceof WorkspaceRequestError ? error.status >= 500 : error instanceof TypeError;
+}
+
 let memorySelection: { scope: string; id: string } | null = null;
 export function activeWorkspaceId(): string | null {
   const scope = workspaceSessionScope();
@@ -66,21 +84,39 @@ export function clearActiveWorkspaceSelection(): void {
   try { sessionStorage.removeItem(`northstar.active-workspace:${workspaceSessionScope()}`); } catch { /* Memory state is still cleared. */ }
   window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: null }));
 }
-async function remote<T>(path: string, method: 'GET' | 'POST' | 'PATCH', body?: unknown, includeWorkspace = true): Promise<T> {
-  const scope = workspaceSessionScope(); const workspaceId = activeWorkspaceId(); const token = storedSession()?.accessToken;
-  const response = await fetch(`${API_URL}${path}`, {
-    method, credentials: 'include', headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(includeWorkspace && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const payload: unknown = await response.json().catch(() => undefined);
-  if (scope !== workspaceSessionScope() || token !== storedSession()?.accessToken || (includeWorkspace && workspaceId !== activeWorkspaceId())) throw new DOMException('Workspace context changed', 'AbortError');
-  if (!response.ok) {
-    const value = payload as { error?: { message?: string }; detail?: unknown } | undefined;
-    throw new WorkspaceRequestError(value?.error?.message ?? (typeof value?.detail === 'string' ? value.detail : `Workspace request failed (${response.status})`), response.status);
+async function remote<T>(path: string, method: 'GET' | 'POST' | 'PATCH', body?: unknown, includeWorkspace = true, signal?: AbortSignal): Promise<T> {
+  const identity = workspacePresentationKey();
+  const workspaceId = activeWorkspaceId();
+  const checkContext = () => {
+    if (signal?.aborted || identity !== workspacePresentationKey() || (includeWorkspace && workspaceId !== activeWorkspaceId())) {
+      throw new DOMException('Workspace context changed', 'AbortError');
+    }
+  };
+  // Retry a read once only when another request has already refreshed the same
+  // identity. Never obtain a new session here or replay a write of uncertain outcome.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    checkContext();
+    const token = storedSession()?.accessToken;
+    const response = await fetch(`${API_URL}${path}`, {
+      method, signal, cache: 'no-store', credentials: 'include',
+      headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(includeWorkspace && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const payload: unknown = await response.json().catch(() => undefined);
+    checkContext();
+    if (token !== storedSession()?.accessToken) {
+      if (method === 'GET' && attempt === 0) continue;
+      throw new DOMException('Session changed during the request. Reload to verify its outcome before retrying.', 'AbortError');
+    }
+    if (!response.ok) {
+      const value = payload as { error?: { message?: string }; detail?: unknown } | undefined;
+      throw new WorkspaceRequestError(value?.error?.message ?? (typeof value?.detail === 'string' ? value.detail : `Workspace request failed (${response.status})`), response.status);
+    }
+    if (payload === undefined) throw new WorkspaceRequestError('The server returned an invalid workspace response', 502);
+    return payload as T;
   }
-  if (payload === undefined) throw new WorkspaceRequestError('The server returned an invalid workspace response', 502);
-  return payload as T;
+  throw new DOMException('Session changed repeatedly; reload your workspace', 'AbortError');
 }
 function demoFallback(error: unknown): boolean {
   if (!DEMO_MODE || (error instanceof DOMException && error.name === 'AbortError')) return false;
@@ -111,8 +147,8 @@ export const workspaceApi = {
       return value;
     }
   },
-  async list(): Promise<WorkspaceSettings[]> {
-    try { return await remote<WorkspaceSettings[]>('/workspaces', 'GET', undefined, false); }
+  async list(signal?: AbortSignal): Promise<WorkspaceSettings[]> {
+    try { return await remote<WorkspaceSettings[]>('/workspaces', 'GET', undefined, false, signal); }
     catch (error) { if (demoFallback(error)) return [localWorkspace()]; throw error; }
   },
   async create(input: WorkspaceCreate): Promise<WorkspaceSettings> {
