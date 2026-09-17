@@ -13,6 +13,7 @@ const AuditPage = lazy(() => import('@/pages/AuditPage').then((module) => ({ def
 const BatchesPage = lazy(() => import('@/pages/BatchesPage').then((module) => ({ default: module.BatchesPage })));
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((module) => ({ default: module.ConversationsPage })));
 const CoursesPage = lazy(() => import('@/pages/CoursesPage').then((module) => ({ default: module.CoursesPage })));
+const CourseKnowledgePage = lazy(() => import('@/pages/CourseKnowledgePage').then((module) => ({ default: module.CourseKnowledgePage })));
 const CRMWorkflowPage = lazy(() => import('@/pages/CRMWorkflowPage').then((module) => ({ default: module.CRMWorkflowPage })));
 const DeployPage = lazy(() => import('@/pages/DeployPage').then((module) => ({ default: module.DeployPage })));
 const EducationAccessRecoveryPage = lazy(() => import('@/pages/EducationAccessRecoveryPage').then((module) => ({ default: module.EducationAccessRecoveryPage })));
@@ -73,6 +74,7 @@ export function App() {
       <Route path="education" element={<EducationLayout />}>
         <Route index element={<EducationHubPage />} />
         <Route path="courses" element={<CoursesPage />} />
+        <Route path="knowledge" element={<CourseKnowledgePage />} />
         <Route path="batches" element={<BatchesPage />} />
         <Route path="students" element={<StudentsPage />} />
         <Route path="enrollments" element={<EducationEnrollmentsPage />} />

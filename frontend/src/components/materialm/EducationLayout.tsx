@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { ChevronRight, GraduationCap } from 'lucide-react';
+import { BookOpen, ChevronRight, GraduationCap } from 'lucide-react';
 import { useAuth, useWorkspace } from '@/components/providers';
 import { educationNavigation, educationPage, hasNavigationPermission, visibleNavigation } from '@/lib/materialm-navigation';
 import { navigationIcons } from './navigation-icons';
@@ -9,7 +9,8 @@ export function EducationLayout() {
   const { session } = useAuth();
   const { pathname } = useLocation();
   const scope = { role: session?.user.role, permissions: activeWorkspace?.permissions };
-  const selected = educationPage(pathname);
+  const knowledgePage = pathname.startsWith('/education/knowledge');
+  const selected = knowledgePage ? { to: '/education/knowledge', label: 'Course knowledge', permission: 'knowledge.view' } : educationPage(pathname);
   if (loading && !activeWorkspace) return <div className="mm-empty" role="status">Loading education workspace…</div>;
   if (!activeWorkspace) return <div className="mm-empty">Select an authorized workspace to open Education.</div>;
   if (!hasNavigationPermission(scope, 'education.view') || (selected && !hasNavigationPermission(scope, selected.permission))) {
@@ -31,6 +32,7 @@ export function EducationLayout() {
           <Icon aria-hidden="true" /><span>{item.label}</span>
         </Link>;
       })}
+      {hasNavigationPermission(scope, 'knowledge.view') && <Link to="/education/knowledge" aria-current={knowledgePage ? 'page' : undefined} className={knowledgePage ? 'is-active' : undefined}><BookOpen aria-hidden="true" /><span>Course knowledge</span></Link>}
     </nav>
     <div className="mm-education__content"><Outlet /></div>
   </div>;

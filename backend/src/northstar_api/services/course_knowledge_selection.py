@@ -35,7 +35,10 @@ async def resolve_study_selection(session: AsyncSession, boundary: Boundary, ide
     if state is None:
         state = CourseStudySelection(**boundary.values(), identity_id=identity_id, menu_ids=[], menu_open=False)
         session.add(state)
-    if str(state.enrollment_id) not in valid_by_id:
+    # A first-use course menu has no selected enrollment yet. Preserve that menu
+    # so its numeric reply can be checked against the current authorized IDs.
+    # Only clear an actual remembered enrollment that is no longer valid.
+    if state.enrollment_id is not None and str(state.enrollment_id) not in valid_by_id:
         state.enrollment_id = None
         state.menu_ids = []
         state.menu_open = False
