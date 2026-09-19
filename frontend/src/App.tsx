@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react';
 import { PageErrorBoundary } from '@/components/PageErrorBoundary';
 import { PageLoader } from '@/components/ui';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { MaterialmAppShell } from '@/components/materialm/MaterialmAppShell';
 import { EducationLayout } from '@/components/materialm/EducationLayout';
 import { useAuth } from '@/components/providers';
+import { OrganizationProfilePage, WorkspaceSetupGate, WorkspaceStarterPanel } from '@/components/WorkspaceSetup';
 
 const AgentBuilderPage = lazy(() => import('@/pages/AgentBuilderPage').then((module) => ({ default: module.AgentBuilderPage })));
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((module) => ({ default: module.AgentsPage })));
@@ -47,11 +48,24 @@ const WorkspaceInvitationPage = lazy(() => import('@/pages/WorkspaceInvitationPa
 const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
 const WidgetDemoPage = lazy(() => import('@/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
+const OrganizationsPage = lazy(() => import('@/pages/OrganizationsPage').then((module) => ({ default: module.OrganizationsPage })));
+const OrganizationBillingPage = lazy(() => import('@/pages/OrganizationBillingPage').then((module) => ({ default: module.OrganizationBillingPage })));
+
+function OrganizationLayout() {
+  const { session } = useAuth();
+  const location = useLocation();
+  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (session.user.emailVerified === false) return <Navigate to="/verify-email" replace />;
+  // Remount account-level views after any credential change; never show the
+  // previous identity's organization list or billing response during reload.
+  return <Outlet key={session.accessToken} />;
+}
+
 function ProtectedLayout() {
   const { session } = useAuth(); const location = useLocation();
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (session.user.emailVerified === false) return <Navigate to="/verify-email" replace />;
-  return <MaterialmAppShell />;
+  return <WorkspaceSetupGate><MaterialmAppShell /></WorkspaceSetupGate>;
 }
 
 export function App() {
@@ -66,8 +80,13 @@ export function App() {
     <Route path="/education-access-recovery" element={<EducationAccessRecoveryPage />} />
     <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
     <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
+    <Route element={<OrganizationLayout />}>
+      <Route path="organizations" element={<OrganizationsPage />} />
+      <Route path="organization/billing" element={<OrganizationBillingPage />} />
+    </Route>
     <Route element={<ProtectedLayout />}>
-      <Route index element={<OverviewPage />} />
+      <Route index element={<><WorkspaceStarterPanel /><OverviewPage /></>} />
+      <Route path="organization/profile" element={<OrganizationProfilePage />} />
       <Route path="agents" element={<AgentsPage />} />
       <Route path="agents/:agentId/:tab?" element={<AgentBuilderPage />} />
       <Route path="education" element={<EducationLayout />}>

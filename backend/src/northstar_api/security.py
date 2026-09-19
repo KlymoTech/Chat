@@ -12,92 +12,15 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from jwt import InvalidTokenError
 
+from northstar_api.access_policy import ORGANIZATION_GRANTS, WORKSPACE_GRANTS, permits
 from northstar_api.config import Settings, get_settings
 from northstar_api.models import Role, WorkspaceRole
 
 WORKSPACE_ROLE_PERMISSIONS: dict[WorkspaceRole, frozenset[str]] = {
-    WorkspaceRole.ADMIN: frozenset({"*"}),
-    WorkspaceRole.MANAGER: frozenset(
-        {
-            "workspace.view",
-            "members.view",
-            "agents.view",
-            "agents.create",
-            "agents.update",
-            "agents.deploy",
-            "knowledge.view",
-            "knowledge.manage",
-            "conversations.view",
-            "conversations.reply",
-            "conversations.resolve",
-            "conversations.assign",
-            "leads.view",
-            "leads.update",
-            "leads.export",
-            "integrations.view",
-            "crm.view",
-            "analytics.view",
-            "education.view",
-            "education.manage",
-            "settings.view",
-        }
-    ),
-    WorkspaceRole.OPERATOR: frozenset(
-        {
-            "workspace.view",
-            "agents.view",
-            "knowledge.view",
-            "conversations.view",
-            "conversations.reply",
-            "conversations.resolve",
-            "conversations.assign",
-            "leads.view",
-            "leads.update",
-            "education.view",
-        }
-    ),
-    WorkspaceRole.ANALYST: frozenset(
-        {
-            "workspace.view",
-            "agents.view",
-            "knowledge.view",
-            "conversations.view",
-            "leads.view",
-            "leads.export",
-            "analytics.view",
-            "integrations.view",
-            "crm.view",
-            "education.view",
-        }
-    ),
-    WorkspaceRole.VIEWER: frozenset(
-        {
-            "workspace.view",
-            "agents.view",
-            "knowledge.view",
-            "conversations.view",
-            "leads.view",
-            "analytics.view",
-            "education.view",
-        }
-    ),
+    role: WORKSPACE_GRANTS[role.value] for role in WorkspaceRole
 }
-
 TENANT_ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
-    Role.OWNER: frozenset({"*"}),
-    Role.ADMIN: frozenset({"*"}),
-    Role.BILLING_ADMIN: frozenset({"workspace.view", "billing.view", "billing.manage", "usage.view"}),
-    Role.SECURITY_ADMIN: frozenset(
-        {
-            "workspace.view",
-            "members.view",
-            "security.view",
-            "security.manage",
-            "audit.view",
-        }
-    ),
-    Role.MEMBER: frozenset(),
-    Role.ANALYST: frozenset(),
+    role: ORGANIZATION_GRANTS[role.value] for role in Role
 }
 
 password_hasher = PasswordHasher(time_cost=3, memory_cost=65_536, parallelism=4, hash_len=32, salt_len=16)
@@ -116,7 +39,7 @@ class Principal:
     agent_ids: frozenset[UUID] | None = None
 
     def can(self, permission: str) -> bool:
-        return "*" in self.permissions or permission in self.permissions
+        return permits(permission, self.role.value, self.permissions, has_workspace=self.workspace_id is not None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,11 +98,8 @@ def create_access_token(
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
-        str(user_id),
-        "access",
-        timedelta(minutes=config.jwt_access_ttl_minutes),
-        {"tid": str(tenant_id), "role": role.value, "cv": credential_version},
-        config,
+        str(user_id), "access", timedelta(minutes=config.jwt_access_ttl_minutes),
+        {"tid": str(tenant_id), "role": role.value, "cv": credential_version}, config,
     )
 
 
@@ -194,16 +114,9 @@ def create_refresh_token(
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
-        str(user_id),
-        "refresh",
-        timedelta(days=config.jwt_refresh_ttl_days),
-        {
-            "tid": str(tenant_id),
-            "role": role.value,
-            "fid": family_id or secrets.token_urlsafe(18),
-            "cv": credential_version,
-        },
-        config,
+        str(user_id), "refresh", timedelta(days=config.jwt_refresh_ttl_days),
+        {"tid": str(tenant_id), "role": role.value, "fid": family_id or secrets.token_urlsafe(18),
+         "cv": credential_version}, config,
     )
 
 
@@ -217,11 +130,8 @@ def create_mfa_challenge_token(
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
-        str(user_id),
-        "mfa_challenge",
-        timedelta(minutes=5),
-        {"tid": str(tenant_id), "role": role.value, "cv": credential_version},
-        config,
+        str(user_id), "mfa_challenge", timedelta(minutes=5),
+        {"tid": str(tenant_id), "role": role.value, "cv": credential_version}, config,
     )
 
 
@@ -234,11 +144,8 @@ def create_widget_token(
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
-        str(conversation_id),
-        "widget",
-        timedelta(hours=12),
-        {"tid": str(tenant_id), "aid": str(agent_id), "origin": origin},
-        config,
+        str(conversation_id), "widget", timedelta(hours=12),
+        {"tid": str(tenant_id), "aid": str(agent_id), "origin": origin}, config,
     )
 
 
@@ -249,11 +156,8 @@ def create_whatsapp_signup_token(
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
-        str(user_id),
-        "whatsapp_signup",
-        timedelta(seconds=config.meta_signup_session_ttl_seconds),
-        {"tid": str(tenant_id)},
-        config,
+        str(user_id), "whatsapp_signup", timedelta(seconds=config.meta_signup_session_ttl_seconds),
+        {"tid": str(tenant_id)}, config,
     )
 
 
@@ -261,11 +165,8 @@ def decode_token(token: str, expected_type: str, settings: Settings | None = Non
     config = settings or get_settings()
     try:
         payload = jwt.decode(
-            token,
-            config.jwt_secret.get_secret_value(),
-            algorithms=[config.jwt_algorithm],
-            issuer=config.jwt_issuer,
-            audience=config.jwt_audience,
+            token, config.jwt_secret.get_secret_value(), algorithms=[config.jwt_algorithm],
+            issuer=config.jwt_issuer, audience=config.jwt_audience,
             options={"require": ["exp", "iat", "nbf", "iss", "aud", "sub", "jti", "type"]},
         )
     except InvalidTokenError as exc:

@@ -1,71 +1,24 @@
 from fastapi import APIRouter, Depends
 
 from northstar_api.routers import (
-    agents,
-    analytics,
-    auth,
-    billing,
-    channel_deliveries,
-    channel_health_history,
-    channel_operations,
-    channel_webhook_events,
-    channels,
-    chat,
-    conversations,
-    crm,
-    crm_dead_letters,
-    crm_delivery_attempts,
-    crm_health_history,
-    crm_oauth,
-    crm_one_click,
-    crm_operations,
-    crm_route_admin,
-    crm_schema,
-    crm_scoped,
-    crm_webhook_events,
-    crm_webhooks,
-    crm_workflow,
-    crm_workspace_settings,
-    crm_zoho_one_click,
-    education,
-    education_access_recovery,
-    education_access_requests,
-    education_activity,
-    education_batches,
-    education_conversations,
-    education_enrollment_events,
-    education_enrollments,
-    education_lms_import,
-    education_sales_settings,
-    education_student_detail,
-    education_student_identities,
-    education_student_import,
-    education_students,
-    education_upsell,
-    email_verification,
-    help,
-    integration_audit,
-    integrations,
-    knowledge,
-    lead_layout,
-    leads,
-    mfa,
-    notifications,
-    password_reset,
-    platform_admin,
-    qualification,
-    slack_webhooks,
-    whatsapp,
-    whatsapp_accounts,
-    widget,
-    workspace,
-    workspace_api_keys,
-    workspace_invitations,
+    agents, analytics, auth, billing, channel_deliveries, channel_health_history,
+    channel_operations, channel_webhook_events, channels, chat, conversations, crm,
+    crm_dead_letters, crm_delivery_attempts, crm_health_history, crm_oauth, crm_one_click,
+    crm_operations, crm_route_admin, crm_schema, crm_scoped, crm_webhook_events, crm_webhooks,
+    crm_workflow, crm_workspace_settings, crm_zoho_one_click, education, education_access_recovery,
+    education_access_requests, education_activity, education_batches, education_conversations,
+    education_enrollment_events, education_enrollments, education_lms_import, education_sales_settings,
+    education_student_detail, education_student_identities, education_student_import, education_students,
+    education_upsell, email_verification, help, integration_audit, integrations, knowledge, lead_layout,
+    leads, mfa, notifications, onboarding, organization_sessions, password_reset, platform_admin, qualification, slack_webhooks,
+    whatsapp, whatsapp_accounts, widget, workspace, workspace_api_keys, workspace_invitations,
 )
 from northstar_api.services.entitlement_guard import enforce_plan_entitlements
 
 api_router = APIRouter(dependencies=[Depends(enforce_plan_entitlements)])
 api_router.include_router(auth.router)
+api_router.include_router(organization_sessions.router)
+api_router.include_router(onboarding.router)
 api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
 api_router.include_router(mfa.router)
@@ -90,8 +43,6 @@ api_router.include_router(conversations.router)
 api_router.include_router(lead_layout.router)
 api_router.include_router(leads.router)
 api_router.include_router(qualification.router)
-# Workspace-aware CRM routes are registered before their legacy-compatible
-# implementations so identical HTTP paths enforce the active workspace boundary.
 api_router.include_router(crm_scoped.router)
 api_router.include_router(crm_workspace_settings.router)
 api_router.include_router(crm_delivery_attempts.router)
@@ -107,7 +58,6 @@ api_router.include_router(crm.router)
 api_router.include_router(crm_route_admin.router)
 api_router.include_router(crm_schema.router)
 api_router.include_router(crm_webhooks.router)
-# Slack's URL-verification path must precede the provider-parameterized route.
 api_router.include_router(slack_webhooks.router)
 api_router.include_router(channel_operations.router)
 api_router.include_router(channel_deliveries.router)
@@ -115,7 +65,6 @@ api_router.include_router(channel_health_history.router)
 api_router.include_router(channel_webhook_events.router)
 api_router.include_router(channels.router)
 api_router.include_router(analytics.router)
-# Preserve the historical integration audit endpoint and add the broader SaaS audit API.
 api_router.include_router(integration_audit.router)
 api_router.include_router(integration_audit.audit_router)
 api_router.include_router(notifications.router)

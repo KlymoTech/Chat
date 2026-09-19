@@ -19,6 +19,8 @@ from northstar_api.models import (
     WorkspaceMembership,
     WorkspaceRole,
 )
+from northstar_api.onboarding_contract import STARTER_CATALOG
+from northstar_api.onboarding_models import OrganizationSetup
 from northstar_api.security import hash_password
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +49,7 @@ async def seed_from_environment(session: AsyncSession, settings: Settings) -> No
     )
     session.add_all([tenant, user])
     await session.flush()
+    await set_tenant_context(session, tenant.id)
     workspace = Workspace(
         tenant_id=tenant.id,
         name=settings.seed_tenant_name,
@@ -65,8 +68,24 @@ async def seed_from_environment(session: AsyncSession, settings: Settings) -> No
             all_agents_access=True,
         )
     )
+    session.add(
+        OrganizationSetup(
+            tenant_id=tenant.id,
+            required=False,
+            profile_complete=False,
+            revision=0,
+            profile_json={"displayName": tenant.name},
+            draft_json={
+                "displayName": tenant.name,
+                "workspaceName": workspace.name,
+                "contactName": user.name,
+                "contactEmail": user.email,
+            },
+            branding_choice="unseen",
+            catalog_grants=[str(item["id"]) for item in STARTER_CATALOG],
+        )
+    )
     if settings.seed_demo_agent:
-        await set_tenant_context(session, tenant.id)
         session.add(
             Agent(
                 tenant_id=tenant.id,
