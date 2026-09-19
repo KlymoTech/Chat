@@ -3,7 +3,21 @@
 Branch: `feature/workspace-platform-consolidated-20260917`.
 Pull request: #114, draft. This is an implementation checkpoint, not a completed release.
 
-## Latest continuation: workspace refresh and editor-state preservation
+## Current continuation: starter-copy modules saved; integration blocked
+
+Baseline: `ba4d4f9a4b1b78b7d456b4115617f9ca4b04b062`. This checkpoint saves standalone source and tests. **Starter copying is NOT available through the running application at this head.** The router is not registered, the dashboard component is not mounted, the bootstrap/catalog still uses its previous output, and Alembic model metadata registration is not updated.
+
+The repository tool blocked the batch updating `routers/__init__.py`, `routers/onboarding.py` and `migrations/env.py`. That batch was not retried through another route. Its edits, the dashboard wiring and the normal endpoint integration tests remain in the separate local review bundle. They must not be counted as committed or runtime-tested.
+
+The saved source includes the approved support-template contract, scoped receipt model and migration, transactional clone service, unregistered clone/result router, client recovery transport and unmounted confirmation/result component. It creates only a Support/Website draft from the existing approved recipe; does not copy private knowledge/credentials/people/conversations; checks membership/profile/grants and existing quota/channel policy; saves agent, receipt, audit/outbox together; returns an existing copy on a same-key retry; and never recreates a deleted result. These behaviors were exercised in isolated hosts, not in the full deployed application.
+
+Executed checks: 34 contract/SQLite receipt-migration tests; 35 checks of the actual new router/service in a minimal sync-SQLite host with recording quota/channel/audit/outbox adapters; 36 checks of the actual client transport with browser/storage/network fixtures; strict TypeScript 5.8.3 checking of the transport and unchanged workspace/storage modules; syntax checking and Python compilation. The seven added Vitest and five React/Testing Library tests were NOT executed here. No full-project lint/types/build, real authentication, async database driver, PostgreSQL/RLS/lock race, browser/cookie, provider/broker or production acceptance is claimed.
+
+The new receipt migration descends from the existing migration junction and is committed as source. It has NOT been run on a production database. It can create a currently unused receipt table when a future controlled migration is run; it is not evidence of active endpoints. Downgrade preserves copied agents but loses receipt history, so clone writes must be disabled before rollback once the feature is activated.
+
+The existing dashboard/routes, ordinary workspace registration, refresh behavior and model/provider configuration remain unchanged by this checkpoint. See [starter copy implementation and delivery boundary](operations/starter-template-copies.md). Keep this PR in draft; do not merge or enable the feature from this partial integration state.
+
+## Prior continuation: workspace refresh and editor-state preservation
 
 Based on `c052fe67e2174f7f7ce7fc0a2f28a0cfce9d9eb7`. This is an independent frontend continuation using the existing workspace APIs, provider and setup gate; it does not require new database tables or migrations.
 
