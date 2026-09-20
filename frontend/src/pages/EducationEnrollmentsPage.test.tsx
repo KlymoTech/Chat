@@ -161,4 +161,28 @@ describe('EducationEnrollmentsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByRole('dialog', { name: 'Enrollment manager' })).toHaveTextContent('Managing Asha Student');
   });
+
+  it('groups one student’s multiple courses and shows the complete course count', async () => {
+    mocks.enrollmentList.mockResolvedValue([
+      enrollments[0],
+      {
+        ...enrollments[0],
+        id: 'enrollment-3',
+        courseId: 'course-2',
+        batchId: 'batch-2',
+        agentId: 'agent-2',
+        updatedAt: '2026-09-13T04:00:00Z',
+      },
+      enrollments[1],
+    ]);
+
+    render(<MemoryRouter><EducationEnrollmentsPage /></MemoryRouter>);
+
+    const student = await screen.findByText('Asha Student');
+    const studentCell = student.closest('td');
+    expect(studentCell).not.toBeNull();
+    expect(studentCell).toHaveAttribute('rowspan', '2');
+    expect(within(studentCell!).getByText('2 courses')).toHaveAttribute('title', 'CPA Program, CMA Program');
+    expect(screen.getAllByRole('button', { name: 'Manage access' })).toHaveLength(2);
+  });
 });

@@ -45,6 +45,7 @@ from northstar_api.routers import (
     education_student_identities,
     education_student_import,
     education_students,
+    education_tutor,
     education_upsell,
     email_verification,
     help,
@@ -86,6 +87,7 @@ api_router.include_router(education_activity.router)
 api_router.include_router(education_batches.router)
 api_router.include_router(education_catalog.router)
 api_router.include_router(education_students.router)
+api_router.include_router(education_tutor.router)
 api_router.include_router(education_student_detail.router)
 api_router.include_router(education_student_identities.router)
 api_router.include_router(education_student_import.router)

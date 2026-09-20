@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, useWorkspace } from '@/components/providers';
 import { api } from '@/lib/api';
-import { knowledgeBlob, knowledgePath, knowledgeRequest, saveKnowledgeBlob, stageCourseFile, type KnowledgeCatalog, type KnowledgeRecord, type KnowledgeStatus, type StudentPreview, type VersionDetail } from '@/lib/course-knowledge-api';
+import { knowledgeBlob, knowledgePath, knowledgeRequest, saveKnowledgeBlob, stageCourseFile, type AcademicReview, type KnowledgeCatalog, type KnowledgeRecord, type KnowledgeStatus, type StudentPreview, type TutorContext, type TutorProgress, type VersionDetail } from '@/lib/course-knowledge-api';
 import './CourseKnowledgePage.css';
 
 const emptyCatalog: KnowledgeCatalog = { courses: [], batches: [], curricula: [], papers: [], batchCurricula: [] };
@@ -21,6 +21,10 @@ function KnowledgeWorkspace() {
   const [params] = useSearchParams();
   const [catalog, setCatalog] = useState(emptyCatalog);
   const [status, setStatus] = useState(emptyStatus);
+  const [progress, setProgress] = useState<TutorProgress[]>([]);
+  const [contexts, setContexts] = useState<TutorContext[]>([]);
+  const [reviews, setReviews] = useState<AcademicReview[]>([]);
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [agents, setAgents] = useState<KnowledgeRecord[]>([]);
   const [agent, setAgent] = useState(params.get('agentId') ?? '');
   const [course, setCourse] = useState(params.get('courseId') ?? '');
@@ -71,7 +75,15 @@ function KnowledgeWorkspace() {
   async function load() {
     const next = await knowledgeRequest<KnowledgeCatalog>('/education/knowledge/catalog');
     setCatalog(next);
-    if (agent) setStatus(await knowledgeRequest<KnowledgeStatus>(knowledgePath(agent, '/status')));
+    if (agent) {
+      const [nextStatus, nextProgress, nextContexts, nextReviews] = await Promise.all([
+        knowledgeRequest<KnowledgeStatus>(knowledgePath(agent, '/status')),
+        knowledgeRequest<TutorProgress[]>(`/education/progress?agent_id=${encodeURIComponent(agent)}`),
+        knowledgeRequest<TutorContext[]>(`/education/tutor-contexts?agent_id=${encodeURIComponent(agent)}`),
+        knowledgeRequest<AcademicReview[]>(`/education/academic-reviews?agent_id=${encodeURIComponent(agent)}`),
+      ]);
+      setStatus(nextStatus); setProgress(nextProgress); setContexts(nextContexts); setReviews(nextReviews);
+    }
   }
   async function action(work: () => Promise<unknown>, message: string) {
     if (busy) return;
@@ -88,10 +100,14 @@ function KnowledgeWorkspace() {
     return () => { live = false; };
   }, []);
   useEffect(() => {
-    setStatus(emptyStatus); setDetail(null); setBlocks([]); setEditing(null); setPreview(null); setEnrollment(''); setSelectedAssignments([]); setSelectedArtifacts([]);
     if (!agent) return;
     let live = true;
-    const reload = () => void knowledgeRequest<KnowledgeStatus>(knowledgePath(agent, '/status')).then(value => { if (live) setStatus(value); }).catch(e => { if (live) setError(String(e)); });
+    const reload = () => void Promise.all([
+      knowledgeRequest<KnowledgeStatus>(knowledgePath(agent, '/status')),
+      knowledgeRequest<TutorProgress[]>(`/education/progress?agent_id=${encodeURIComponent(agent)}`),
+      knowledgeRequest<TutorContext[]>(`/education/tutor-contexts?agent_id=${encodeURIComponent(agent)}`),
+      knowledgeRequest<AcademicReview[]>(`/education/academic-reviews?agent_id=${encodeURIComponent(agent)}`),
+    ]).then(([nextStatus, nextProgress, nextContexts, nextReviews]) => { if (live) { setStatus(nextStatus); setProgress(nextProgress); setContexts(nextContexts); setReviews(nextReviews); } }).catch(e => { if (live) setError(String(e)); });
     reload(); const timer = setInterval(reload, 10000);
     return () => { live = false; clearInterval(timer); };
   }, [agent]);
@@ -103,6 +119,10 @@ function KnowledgeWorkspace() {
     setDetail(value); setBlocks([]); setEditing(null); setOriginalImage('');
   }
   function selectCourse(value: string) { setCourse(value); setCurriculum(''); setPaper(''); setBatch(''); setSelectedAssignments([]); setSelectedArtifacts([]); setPreview(null); setArtifactReview(null); }
+  function selectAgent(value: string) {
+    setAgent(value); setStatus(emptyStatus); setProgress([]); setContexts([]); setReviews([]); setReviewNotes({});
+    setDetail(null); setBlocks([]); setEditing(null); setPreview(null); setEnrollment(''); setSelectedAssignments([]); setSelectedArtifacts([]);
+  }
   async function upload(event: FormEvent) {
     event.preventDefault();
     await action(async () => {
@@ -136,13 +156,30 @@ function KnowledgeWorkspace() {
     await action(() => knowledgeRequest(knowledgePath(agent, `/releases/${release.id}/publish`), 'POST', { expectedEpoch: head?.epoch ?? 0 }), 'Knowledge release activated.');
   }
   function selectEnrollment(id: string) { setEnrollment(id); setPreview(null); setAllowedPapers(status.access.find(a => a.enrollmentId === id)?.paperIds ?? []); }
+  function enrollmentLabel(id: string | null) {
+    if (!id) return 'No course selected';
+    const row = status.enrollments.find(item => item.id === id);
+    const courseLabel = name(catalog.courses.find(item => item.id === row?.courseId));
+    const batchLabel = name(catalog.batches.find(item => item.id === row?.batchId));
+    return row ? `${courseLabel || 'Course'}${batchLabel ? ` · ${batchLabel}` : ''}` : `Enrollment ${id.slice(0, 8)}`;
+  }
+  function paperLabel(id: string | null) { return id ? name(catalog.papers.find(item => item.id === id)) || `Paper ${id.slice(0, 8)}` : 'Course overview'; }
+  function reviewNote(id: string) { return reviewNotes[id]?.trim() ?? ''; }
+  async function resolveAcademicReview(review: AcademicReview, outcome: 'confirmed' | 'corrected') {
+    const resolution = reviewNote(review.id);
+    if (!resolution) return;
+    await action(() => knowledgeRequest(`/education/academic-reviews/${review.id}/resolve`, 'POST', {
+      outcome, resolution, requestCorrectionDelivery: outcome === 'corrected',
+    }), outcome === 'corrected' ? 'Correction recorded for policy-checked delivery.' : 'Reviewed answer confirmed.');
+    setReviewNotes(current => { const next = { ...current }; delete next[review.id]; return next; });
+  }
   const previewBody = { enrollmentId: enrollment, query, selectedPaperId: ['overview', 'mixed', ''].includes(paper) ? null : paper };
 
   return <div className="ck-page">
     <header><h2>Course knowledge</h2><p>Prepare once per source version. Approve explicit audiences. Students select published knowledge, not a new model.</p></header>
     {error && <p role="alert" className="ck-error">{error}</p>}{notice && <p role="status" className="ck-notice">{notice}</p>}
     <section className="ck-panel ck-grid" aria-label="Knowledge destination">
-      <label>Education Agent<select value={agent} onChange={e => setAgent(e.target.value)}><option value="">Select agent</option>{agents.map(a => <option key={a.id} value={a.id}>{name(a)}</option>)}</select></label>
+      <label>Education Agent<select value={agent} onChange={e => selectAgent(e.target.value)}><option value="">Select agent</option>{agents.map(a => <option key={a.id} value={a.id}>{name(a)}</option>)}</select></label>
       <label>Course<select value={course} onChange={e => selectCourse(e.target.value)}><option value="">Select course</option>{catalog.courses.map(c => <option key={c.id} value={c.id}>{name(c)}</option>)}</select></label>
       <label>Curriculum<select value={curriculum} onChange={e => { setCurriculum(e.target.value); setPaper(''); setSelectedAssignments([]); }}><option value="">Select curriculum</option>{curricula.map(c => <option key={c.id} value={c.id}>{name(c)}</option>)}</select></label>
       <label>Paper<select value={paper} onChange={e => { setPaper(e.target.value); setPreview(null); }}><option value="">Select paper mode</option><option value="overview">Course overview only</option><option value="mixed">Mixed papers (upload only)</option>{papers.map(p => <option key={p.id} value={p.id}>{name(p)}</option>)}</select></label>
@@ -188,6 +225,8 @@ function KnowledgeWorkspace() {
     <section className="ck-panel"><h3>5. Preview as an enrolled student</h3><label>Enrollment<select value={enrollment} onChange={e => selectEnrollment(e.target.value)}><option value="">Select enrollment</option>{status.enrollments.filter(e => e.courseId === course).map(e => <option key={e.id} value={e.id}>{e.studentId} / {e.status}</option>)}</select></label><label>Question<input value={query} onChange={e => setQuery(e.target.value)} /></label><button disabled={busy || !enrollment || !query} onClick={() => void action(async () => setPreview(await knowledgeRequest<StudentPreview>(knowledgePath(agent, '/preview'), 'POST', previewBody)), 'Student authorization preview completed.')}>Run the real student filter</button>
       {preview && <><p>{preview.notice}</p>{preview.evidence.map(e => <article key={e.entity_id} className="ck-block"><h4>{e.title}</h4><pre>{e.text}</pre><small>{JSON.stringify(e.metadata)}</small>{e.kind === 'course_chunk' && <button onClick={() => void action(async () => saveKnowledgeBlob(await knowledgeBlob(knowledgePath(agent, `/preview/excerpts/${e.entity_id}`), 'POST', previewBody), 'authorized-excerpt.txt'), 'Scoped excerpt downloaded.')}>Download only this authorized excerpt</button>}</article>)}</>}
     </section>
-    <section className="ck-panel"><h3>Teacher review queue</h3>{status.academicReviews.map(r => <div className="ck-block" key={r.id}><p>{r.question}</p><small>{r.reason} / {r.status}</small><button disabled={!canManage || busy} onClick={() => void action(() => knowledgeRequest(knowledgePath(agent, `/academic-reviews/${r.id}`), 'PATCH', { status: 'reviewed' }), 'Review recorded without automatically modifying course knowledge.')}>Mark reviewed</button></div>)}</section>
+    <section className="ck-panel"><h3>Teacher review queue</h3><p>Low-confidence and ungrounded answers appear here. Resolving a review does not publish or alter course material.</p>{reviews.length === 0 && <p className="ck-empty">No academic reviews for this agent.</p>}{reviews.map(r => { const open = ['pending', 'open', 'assigned'].includes(r.status); return <article className="ck-block" key={r.id}><div className="ck-record-heading"><strong>{enrollmentLabel(r.enrollmentId)} · {paperLabel(r.paperId)}</strong><span className={`ck-state ck-state--${open ? 'attention' : 'complete'}`}>{r.status}</span></div><p><strong>Student question:</strong> {r.question}</p><details><summary>Answer and evidence</summary><p>{r.answer || 'No answer was delivered.'}</p><small>Reason: {r.reason} · Internal sources: {r.internalEvidence.length} · External sources: {r.externalEvidence.length}</small></details>{r.resolution && <p><strong>Resolution:</strong> {r.resolution}</p>}{open && <><label>Teacher resolution<textarea rows={3} value={reviewNotes[r.id] ?? ''} onChange={e => setReviewNotes(current => ({ ...current, [r.id]: e.target.value }))} placeholder="Record what was checked and the approved conclusion." /></label><div className="ck-actions"><button disabled={!canManage || busy || !reviewNote(r.id)} onClick={() => void resolveAcademicReview(r, 'confirmed')}>Confirm answer</button><button disabled={!canManage || busy || !reviewNote(r.id)} onClick={() => void resolveAcademicReview(r, 'corrected')}>Record correction</button></div></>}</article>; })}</section>
+    <section className="ck-panel"><h3>Learning progress</h3><p>Activity indicators only; these values are not an exam-readiness score.</p>{progress.length === 0 && <p className="ck-empty">No paper practice has been recorded for this agent.</p>}{progress.map(item => { const percentage = item.objectiveAnswersGraded ? Math.round(item.objectiveAnswersCorrect / item.objectiveAnswersGraded * 100) : null; return <div className="ck-row ck-progress-row" key={item.id}><span><strong>{enrollmentLabel(item.enrollmentId)} · {paperLabel(item.paperId)}</strong><small>Student {item.studentId.slice(0, 8)} · {item.learningStatus.replaceAll('_', ' ')}</small></span><span className="ck-metrics"><strong>{percentage === null ? '—' : `${percentage}%`}</strong><small>{item.objectiveAnswersCorrect}/{item.objectiveAnswersGraded} graded correct · {item.practiceAttempts} attempts · {item.questionsAsked} questions</small></span></div>; })}</section>
+    <section className="ck-panel"><h3>Tutor context diagnostics</h3><p>Resetting context clears remembered course and menu state; it does not change enrollment permission.</p>{contexts.length === 0 && <p className="ck-empty">No student has created tutor context for this agent.</p>}{contexts.map(item => <article className="ck-block" key={`${item.identityId}-${item.agentId}`}><div className="ck-record-heading"><strong>{enrollmentLabel(item.enrollmentId)}</strong><span className={`ck-state ck-state--${item.interactionState === 'ready_for_question' ? 'complete' : 'attention'}`}>{item.interactionState.replaceAll('_', ' ')}</span></div><small>Identity {item.identityId.slice(0, 8)} · revision {item.selectionRevision}{item.menuExpiresAt ? ` · menu expires ${new Date(item.menuExpiresAt).toLocaleString()}` : ''}</small>{item.pendingQuestion && <p><strong>Pending question:</strong> {item.pendingQuestion}</p>}<button disabled={!canManage || busy} onClick={() => { if (window.confirm('Reset this student’s remembered course and pending menu? Enrollment permissions will remain unchanged.')) void action(() => knowledgeRequest(`/education/tutor-contexts/${item.identityId}/${item.agentId}`, 'DELETE'), 'Tutor selection reset; authorization records were unchanged.'); }}>Reset remembered selection</button></article>)}</section>
   </div>;
 }

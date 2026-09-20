@@ -83,6 +83,56 @@ export interface StudentPreview {
   context: unknown;
 }
 
+export interface TutorProgress {
+  id: string;
+  agentId: string;
+  studentId: string;
+  enrollmentId: string;
+  paperId: string;
+  questionsAsked: number;
+  practiceAttempts: number;
+  objectiveAnswersCorrect: number;
+  objectiveAnswersGraded: number;
+  learningStatus: 'not_started' | 'practicing' | 'review_needed';
+  lastActivityAt: string | null;
+}
+
+export interface TutorContext {
+  identityId: string;
+  agentId: string;
+  enrollmentId: string | null;
+  interactionState: 'awaiting_course_selection' | 'awaiting_paper_selection' | 'awaiting_quiz_answer' | 'ready_for_question';
+  menuId: string | null;
+  menuOptions: string[];
+  menuCreatedAt: string | null;
+  menuExpiresAt: string | null;
+  selectionRevision: number;
+  pendingQuestion: string | null;
+}
+
+export interface AcademicReview {
+  id: string;
+  agentId: string;
+  studentId: string | null;
+  enrollmentId: string;
+  courseId: string | null;
+  curriculumId: string | null;
+  paperId: string | null;
+  batchId: string | null;
+  messageId: string;
+  question: string;
+  answer: string;
+  reason: string;
+  internalEvidence: Array<Record<string, unknown>>;
+  externalEvidence: Array<Record<string, unknown>>;
+  status: string;
+  assignedReviewer: string | null;
+  resolution: string | null;
+  correctionDeliveryStatus: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 function headers(json: boolean): Record<string, string> {
   const token = readStorage<{ accessToken?: string } | null>('northstar.session', null)?.accessToken;
   const workspace = activeWorkspaceId();

@@ -24,6 +24,7 @@ from northstar_api.services.workspace_dates import workspace_today
 
 class EducationAccessReason(str, enum.Enum):
     AUTHORIZED = "authorized"
+    FEATURE_DISABLED = "feature_disabled"
     UNSUPPORTED_CHANNEL = "unsupported_channel"
     UNTRUSTED_CHANNEL = "untrusted_channel"
     CHANNEL_SCOPE_MISMATCH = "channel_scope_mismatch"
@@ -469,7 +470,11 @@ async def education_course_menu(
         for index, enrollment_id in enumerate(enrollment_ids, start=1)
         if enrollment_id in names
     ]
-    return "Welcome back. Your active courses are:\n\n" + "\n".join(options) + "\n\nReply with a number or course name."
+    return (
+        "Welcome back. Your active courses are:\n\n"
+        + "\n".join(options)
+        + "\n\nReply with a number or course name."
+    )
 
 
 async def consume_pending_education_question(

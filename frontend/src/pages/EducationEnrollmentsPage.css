@@ -145,6 +145,29 @@
   background: var(--surface-subtle, #fafafa);
 }
 
+.education-enrollment-table tbody tr.education-enrollment-group-start:not(:first-child) td {
+  border-top: 2px solid var(--border, #dfe3ea);
+}
+
+.education-enrollment-student-cell,
+.education-enrollment-action-cell {
+  vertical-align: middle !important;
+}
+
+.education-multi-course {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eeeafd;
+  color: #5140a8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .education-enrollment-table td strong,
 .education-enrollment-table td small,
 .education-enrollment-table td a {

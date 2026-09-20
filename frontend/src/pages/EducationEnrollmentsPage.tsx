@@ -104,6 +104,39 @@ export function EducationEnrollmentsPage() {
     ),
     [agentId, agents.data, batchId, batches.data, courseId, courses.data, enrollments.data, search, status, students.data],
   );
+  const recordGroups = useMemo(() => {
+    const grouped = new Map<string, EducationEnrollment[]>();
+    for (const enrollment of records) {
+      const current = grouped.get(enrollment.studentId) ?? [];
+      current.push(enrollment);
+      grouped.set(enrollment.studentId, current);
+    }
+    return [...grouped.entries()]
+      .map(([studentId, items]) => ({
+        studentId,
+        items: [...items].sort((left, right) => {
+          const leftCourse = courseById.get(left.courseId)?.name ?? left.courseId;
+          const rightCourse = courseById.get(right.courseId)?.name ?? right.courseId;
+          return leftCourse.localeCompare(rightCourse) || right.updatedAt.localeCompare(left.updatedAt);
+        }),
+      }))
+      .sort((left, right) => {
+        const leftStudent = studentById.get(left.studentId);
+        const rightStudent = studentById.get(right.studentId);
+        return (leftStudent?.name ?? left.studentId).localeCompare(rightStudent?.name ?? right.studentId)
+          || (leftStudent?.studentNumber ?? '').localeCompare(rightStudent?.studentNumber ?? '');
+      });
+  }, [courseById, records, studentById]);
+  const courseAccessByStudent = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    for (const enrollment of enrollments.data ?? []) {
+      if (!['pending', 'active', 'suspended'].includes(enrollment.status)) continue;
+      const coursesForStudent = result.get(enrollment.studentId) ?? new Set<string>();
+      coursesForStudent.add(enrollment.courseId);
+      result.set(enrollment.studentId, coursesForStudent);
+    }
+    return result;
+  }, [enrollments.data]);
   const activeStudents = useMemo(
     () => activeStudentsForEnrollment(students.data ?? [], pickerSearch),
     [pickerSearch, students.data],
@@ -226,21 +259,24 @@ export function EducationEnrollmentsPage() {
 
       {records.length ? <div className="education-enrollment-table-wrap"><table className="education-enrollment-table">
         <thead><tr><th>Student</th><th>Course / Batch</th><th>Education Agent</th><th>Validity</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead>
-        <tbody>{records.map((enrollment: EducationEnrollment) => {
-          const student = studentById.get(enrollment.studentId);
+        <tbody>{recordGroups.flatMap((group) => group.items.map((enrollment, index) => {
+          const student = studentById.get(group.studentId);
           const course = courseById.get(enrollment.courseId);
           const batch = batchById.get(enrollment.batchId);
           const agent = agentById.get(enrollment.agentId);
-          return <tr key={enrollment.id}>
-            <td>{student ? <><Link to={`/education/students/${student.id}`}>{student.name}</Link><small>{student.studentNumber}{student.email ? ` · ${student.email}` : ''}</small></> : <code>{enrollment.studentId}</code>}</td>
+          const studentCourses = courseAccessByStudent.get(group.studentId) ?? new Set<string>();
+          const courseCount = studentCourses.size;
+          const courseNames = [...studentCourses].map(id => courseById.get(id)?.name ?? id).join(', ');
+          return <tr key={enrollment.id} className={index === 0 ? 'education-enrollment-group-start' : undefined}>
+            {index === 0 && <td rowSpan={group.items.length} className="education-enrollment-student-cell">{student ? <><Link to={`/education/students/${student.id}`}>{student.name}</Link><small>{student.studentNumber}{student.email ? ` · ${student.email}` : ''}</small>{courseCount > 1 && <span className="education-multi-course" title={courseNames}>{courseCount} courses</span>}</> : <code>{enrollment.studentId}</code>}</td>}
             <td><strong>{course?.name ?? enrollment.courseId}</strong><small>{course?.code ?? 'Course'} · {batch ? `${batch.code} · ${batch.name}` : enrollment.batchId}</small></td>
             <td><strong>{agent?.name ?? enrollment.agentId}</strong><small>{agent?.whatsappNumber || agent?.publicId || 'Education Agent'}</small></td>
             <td><span>{dateLabel(enrollment.startsOn)} → {dateLabel(enrollment.endsOn)}</span></td>
             <td><Badge tone={statusTone(enrollment.status)}>{statusLabels[enrollment.status]}</Badge></td>
             <td><time dateTime={enrollment.updatedAt}>{relativeTime(enrollment.updatedAt)}</time></td>
-            <td>{student ? <Button variant="secondary" size="sm" onClick={() => setManagedStudent(student)}>Manage access</Button> : null}</td>
+            {index === 0 && <td rowSpan={group.items.length} className="education-enrollment-action-cell">{student ? <Button variant="secondary" size="sm" aria-label="Manage access" onClick={() => setManagedStudent(student)}>Manage all access</Button> : null}</td>}
           </tr>;
-        })}</tbody>
+        }))}</tbody>
       </table></div> : <EmptyState
         icon={GraduationCap}
         title={summary.total ? 'No matching enrollments' : 'No enrollment access yet'}
