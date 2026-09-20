@@ -64,12 +64,29 @@ class BotWorkflowStep(APIModel):
     condition: WorkflowCondition | None = None
     true_step_id: str | None = Field(default=None, max_length=80)
     false_step_id: str | None = Field(default=None, max_length=80)
+    bot_behavior: Literal["complete", "wait_for_next_trigger"] = "complete"
+    waiting_message: str = Field(default="Please choose an option or send the next command.", max_length=1024)
+    wait_repeat_count: int = Field(default=0, ge=0, le=10)
+    repeat_policy: Literal[
+        "every_match", "once_per_conversation", "once_per_24_hours", "once_per_calendar_day"
+    ] = "every_match"
+    max_sends: int | None = Field(default=None, ge=1, le=100)
+    cooldown_minutes: int = Field(default=0, ge=0, le=43_200)
+    calendar_timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)
     enabled: bool = True
 
     @model_validator(mode="after")
     def validate_format(self) -> BotWorkflowStep:
         if self.message_format == "buttons" and len(self.message) > 1024:
             raise ValueError("WhatsApp button message bodies cannot exceed 1024 characters")
+        if self.bot_behavior == "wait_for_next_trigger" and not self.waiting_message.strip():
+            raise ValueError("A waiting message is required while the bot remains active")
+        try:
+            from zoneinfo import ZoneInfo
+
+            ZoneInfo(self.calendar_timezone)
+        except (KeyError, ValueError):
+            raise ValueError("calendar_timezone must be a valid IANA timezone") from None
         return self
 
 

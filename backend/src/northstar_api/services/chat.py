@@ -159,6 +159,7 @@ class ChatCoordinator:
                 tenant_id=tenant_id,
                 workspace_id=agent.workspace_id,
                 agent_id=agent.id,
+                conversation_id=reservation.conversation_id,
                 message=raw_message,
                 channel=channel.value,
             )
