@@ -1,11 +1,49 @@
 from itertools import product
+from uuid import uuid4
 
 import pytest
 
 from northstar_api.access_policy import (
-    ORGANIZATION_GRANTS, ORGANIZATION_PERMISSIONS, WORKSPACE_GRANTS, WORKSPACE_PERMISSIONS,
-    effective_permissions, permits, validate_delegated_permissions,
+    ORGANIZATION_GRANTS,
+    ORGANIZATION_PERMISSIONS,
+    WORKSPACE_GRANTS,
+    WORKSPACE_PERMISSIONS,
+    effective_permissions,
+    permits,
+    validate_delegated_permissions,
 )
+from northstar_api.models import Role, WorkspaceRole
+from northstar_api.routers import knowledge
+from northstar_api.security import Principal
+
+
+class ScopeChecked(Exception):
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", [knowledge.list_knowledge, knowledge.create_fact])
+async def test_agent_scoped_knowledge_routes_forward_principal_restrictions(
+    route, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    allowed_agent = uuid4()
+    principal = Principal(
+        user_id=uuid4(), tenant_id=uuid4(), role=Role.MEMBER, token_id=uuid4().hex,
+        workspace_id=uuid4(), workspace_role=WorkspaceRole.OPERATOR,
+        permissions=frozenset({"knowledge.view", "knowledge.manage"}),
+        agent_ids=frozenset({allowed_agent}),
+    )
+
+    async def checked(*_args, **kwargs):
+        assert kwargs["allowed_agent_ids"] == principal.agent_ids
+        raise ScopeChecked
+
+    monkeypatch.setattr(knowledge, "scoped_agent", checked)
+    with pytest.raises(ScopeChecked):
+        if route is knowledge.list_knowledge:
+            await route(allowed_agent, principal, object())
+        else:
+            await route(allowed_agent, object(), principal, object())
 
 @pytest.mark.parametrize("role", WORKSPACE_GRANTS)
 @pytest.mark.parametrize("permission", sorted(ORGANIZATION_PERMISSIONS - {"organization.view"}))

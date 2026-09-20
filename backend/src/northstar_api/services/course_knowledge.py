@@ -576,7 +576,7 @@ def authorized_entries(boundary: Boundary, context: KnowledgeContext) -> Any:
 
 
 def entry_evidence(entry: CourseIndexEntry, assignment: CourseMaterialAssignment, source: CourseSourceVersion, context: KnowledgeContext, score: float) -> Any:
-    from northstar_api.services.retrieval import Evidence
+    from northstar_api.modules.knowledge.retrieval import Evidence
 
     if entry.content_hash != fingerprint(entry.content) or not set(entry.block_ids) <= set(assignment.block_ids):
         raise KnowledgePolicyError("Retrieved course evidence failed integrity validation")
@@ -599,8 +599,8 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
     import re
 
     from northstar_api.config import get_settings
+    from northstar_api.modules.knowledge.retrieval import _cosine, _rerank
     from northstar_api.services.llm import nvidia_adapter
-    from northstar_api.services.retrieval import _cosine, _rerank
 
     if context.release_id is None:
         return []
@@ -660,7 +660,7 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
         words = set(re.findall(r"\w+", artifact.content.casefold()))
         score = len(terms & words) / max(1, len(terms | words))
         if score >= settings.retrieval_min_score:
-            from northstar_api.services.retrieval import Evidence
+            from northstar_api.modules.knowledge.retrieval import Evidence
             evidence.append(Evidence("course_artifact", str(artifact.id), None, f"Teacher-reviewed {artifact.artifact_type}", None, artifact.content, score, {"context_fingerprint": context.context_fingerprint, "release_id": str(context.release_id), "artifact_fingerprint": artifact_digest(artifact), "assignment_ids": artifact.assignment_ids, "source_version_ids": artifact.source_version_ids, "source_block_ids": artifact.source_block_ids, "answer_key_validated": artifact.answer_key_validated}))
     return _rerank(evidence, query, result_limit)
 

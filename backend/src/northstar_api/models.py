@@ -479,6 +479,48 @@ class IngestionJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     next_dispatch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class KnowledgeSnapshot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Immutable identity for the knowledge revision used by a conversation."""
+
+    __tablename__ = "knowledge_snapshots"
+    __table_args__ = (UniqueConstraint("agent_id", "revision"),)
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), index=True
+    )
+    revision: Mapped[int] = mapped_column(Integer)
+    manifest: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+
+
+class KnowledgeAnswerAudit(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Persist the policy and evidence decision behind each completed answer."""
+
+    __tablename__ = "knowledge_answer_audits"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), index=True
+    )
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL")
+    )
+    snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("knowledge_snapshots.id", ondelete="SET NULL")
+    )
+    details: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+
+
 class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "conversations"
     __table_args__ = (

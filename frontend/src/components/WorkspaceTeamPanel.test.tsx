@@ -54,6 +54,7 @@ const workspace: WorkspaceSettings = {
     defaultLanguage: 'English',
     dateFormat: 'DD/MM/YYYY',
   },
+  security: { sensitiveDataMasking: true, securityContact: null },
   whiteLabel: {
     companyName: 'Northstar Academy',
     logoDataUrl: '',

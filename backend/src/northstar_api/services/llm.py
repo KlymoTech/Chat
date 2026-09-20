@@ -27,6 +27,30 @@ class GeneratedAnswer:
     model: str
 
 
+def validate_embedding_vector(vector: list[float], dimension: int) -> list[float]:
+    """Return a normalized numeric representation only for publishable vectors."""
+    converted = [float(value) for value in vector]
+    if len(converted) != dimension:
+        raise ModelUnavailableError(
+            f"embedding dimension mismatch: expected {dimension}, got {len(converted)}"
+        )
+    if not all(math.isfinite(value) for value in converted):
+        raise ModelUnavailableError("embedding contains a non-finite value")
+    if not any(value != 0 for value in converted):
+        raise ModelUnavailableError("embedding is a zero vector")
+    return converted
+
+
+def validate_embedding_vectors(
+    vectors: list[list[float]], expected_count: int, dimension: int
+) -> list[list[float]]:
+    if len(vectors) != expected_count:
+        raise ModelUnavailableError(
+            f"embedding count mismatch: expected {expected_count}, got {len(vectors)}"
+        )
+    return [validate_embedding_vector(vector, dimension) for vector in vectors]
+
+
 def _chunk_text(chunk: Any) -> str:
     content = getattr(chunk, "content", "")
     if isinstance(content, str):
@@ -101,29 +125,33 @@ class NvidiaModelAdapter:
                 model=self.settings.nvidia_embedding_model,
                 api_key=self._api_key(),
                 base_url=self.settings.nvidia_base_url,
-                truncate="END",
+                # Silent tail truncation can discard the answer-bearing part of
+                # a document. Oversized inputs must fail and return to review.
+                truncate="NONE",
             )
         return self._embeddings
 
     async def embed_query(self, text: str) -> list[float]:
         if not self.configured:
             if self.settings.allow_deterministic_embeddings:
-                return deterministic_embedding(text, self.settings.embedding_dimension)
+                return validate_embedding_vector(
+                    deterministic_embedding(text, self.settings.embedding_dimension),
+                    self.settings.embedding_dimension,
+                )
             raise ModelUnavailableError("NVIDIA embeddings are unavailable")
         try:
             async with self._request_slots:
                 async with asyncio.timeout(45):
                     vector = await self._embedding_client().aembed_query(text)
-            if len(vector) != self.settings.embedding_dimension:
-                raise ModelUnavailableError(
-                    f"embedding dimension mismatch: expected {self.settings.embedding_dimension}, got {len(vector)}"
-                )
-            return [float(value) for value in vector]
+            return validate_embedding_vector(vector, self.settings.embedding_dimension)
         except Exception as exc:
             MODEL_ERRORS.labels("embedding").inc()
             logger.warning("nvidia_embedding_failed", error=type(exc).__name__)
             if self.settings.allow_deterministic_embeddings and not self.settings.is_production:
-                return deterministic_embedding(text, self.settings.embedding_dimension)
+                return validate_embedding_vector(
+                    deterministic_embedding(text, self.settings.embedding_dimension),
+                    self.settings.embedding_dimension,
+                )
             raise ModelUnavailableError("NVIDIA embedding request failed") from exc
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -131,20 +159,28 @@ class NvidiaModelAdapter:
             return []
         if not self.configured:
             if self.settings.allow_deterministic_embeddings:
-                return [deterministic_embedding(text, self.settings.embedding_dimension) for text in texts]
+                return validate_embedding_vectors(
+                    [deterministic_embedding(text, self.settings.embedding_dimension) for text in texts],
+                    len(texts),
+                    self.settings.embedding_dimension,
+                )
             raise ModelUnavailableError("NVIDIA embeddings are unavailable")
         try:
             async with self._request_slots:
                 async with asyncio.timeout(90):
                     vectors = await self._embedding_client().aembed_documents(texts)
-            if any(len(vector) != self.settings.embedding_dimension for vector in vectors):
-                raise ModelUnavailableError("embedding dimension mismatch")
-            return [[float(value) for value in vector] for vector in vectors]
+            return validate_embedding_vectors(
+                vectors, len(texts), self.settings.embedding_dimension
+            )
         except Exception as exc:
             MODEL_ERRORS.labels("embedding").inc()
             logger.warning("nvidia_document_embedding_failed", error=type(exc).__name__)
             if self.settings.allow_deterministic_embeddings and not self.settings.is_production:
-                return [deterministic_embedding(text, self.settings.embedding_dimension) for text in texts]
+                return validate_embedding_vectors(
+                    [deterministic_embedding(text, self.settings.embedding_dimension) for text in texts],
+                    len(texts),
+                    self.settings.embedding_dimension,
+                )
             raise ModelUnavailableError("NVIDIA embedding request failed") from exc
 
     async def generate_grounded(

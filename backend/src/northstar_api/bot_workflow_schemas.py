@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
@@ -114,6 +116,7 @@ class BotWorkflowSave(APIModel):
             return self
         ids = {step.id for step in self.steps if step.enabled}
         optional_body = {"audio", "sticker", "location", "contact", "product", "product_list", "catalog"}
+        edges: dict[str, list[str]] = {step_id: [] for step_id in ids}
         for step in self.steps:
             if not step.enabled:
                 continue
@@ -122,9 +125,16 @@ class BotWorkflowSave(APIModel):
             if step.trigger_type == "condition":
                 if not step.condition or not step.true_step_id or step.true_step_id not in ids:
                     raise ValueError(f"{step.name}: condition requires a valid true branch")
+                if step.false_step_id and step.false_step_id not in ids:
+                    raise ValueError(f"{step.name}: false branch must reference an enabled workflow step")
+                edges[step.id].extend(
+                    target for target in (step.true_step_id, step.false_step_id) if target
+                )
                 continue
             if step.next_step_id and step.next_step_id not in ids:
                 raise ValueError(f"{step.name}: next step must reference an enabled workflow step")
+            if step.next_step_id:
+                edges[step.id].append(step.next_step_id)
             if step.message_format not in optional_body and not step.message.strip():
                 raise ValueError(f"{step.name}: response message is required")
             if step.message_format == "buttons" and not step.buttons:
@@ -138,7 +148,53 @@ class BotWorkflowSave(APIModel):
                 raise ValueError(f"{step.name}: table requires matching columns and rows")
             if step.message_format == "template" and not step.template:
                 raise ValueError(f"{step.name}: select an approved template")
+            self._validate_delivery_config(step)
+        self._reject_cycles(edges)
         return self
+
+    @staticmethod
+    def _validate_delivery_config(step: BotWorkflowStep) -> None:
+        config = step.config
+        if step.message_format in {"image", "video", "audio", "document", "sticker"}:
+            media_id = config.get("mediaId")
+            url = config.get("url")
+            valid_url = isinstance(url, str) and urlsplit(url).scheme == "https" and bool(urlsplit(url).hostname)
+            if not (isinstance(media_id, str) and media_id.strip()) and not valid_url:
+                raise ValueError(f"{step.name}: media requires a mediaId or HTTPS URL")
+        elif step.message_format == "location":
+            latitude, longitude = config.get("latitude"), config.get("longitude")
+            coordinates = (latitude, longitude)
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in coordinates):
+                raise ValueError(f"{step.name}: location requires numeric latitude and longitude")
+            if not all(math.isfinite(float(value)) for value in coordinates):
+                raise ValueError(f"{step.name}: location coordinates must be finite")
+            if not -90 <= float(latitude) <= 90 or not -180 <= float(longitude) <= 180:
+                raise ValueError(f"{step.name}: location coordinates are outside valid ranges")
+        elif step.message_format == "contact":
+            if not isinstance(config.get("contact"), dict) or not config["contact"]:
+                raise ValueError(f"{step.name}: contact requires a non-empty contact payload")
+        elif step.message_format in {"list", "cta_url", "flow", "product", "product_list", "catalog"}:
+            if not isinstance(config.get("action"), dict) or not config["action"]:
+                raise ValueError(f"{step.name}: {step.message_format} requires a non-empty action payload")
+
+    @staticmethod
+    def _reject_cycles(edges: dict[str, list[str]]) -> None:
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(node: str) -> None:
+            if node in visiting:
+                raise ValueError("Workflow branches must not contain cycles")
+            if node in visited:
+                return
+            visiting.add(node)
+            for target in edges[node]:
+                visit(target)
+            visiting.remove(node)
+            visited.add(node)
+
+        for node in edges:
+            visit(node)
 
 
 class BotWorkflowOut(BotWorkflowSave):

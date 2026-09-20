@@ -20,8 +20,6 @@ export function WorkspacePage() {
   const section = params.get('section') ?? 'workspace';
   const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
   const [saving, setSaving] = useState(false);
-  const [masking, setMasking] = useState(true);
-  const [digest, setDigest] = useState(true);
 
   useEffect(() => {
     void workspaceApi.get().then(setWorkspace);
@@ -42,6 +40,17 @@ export function WorkspacePage() {
       setWorkspace(saved); pushToast('Workspace settings saved');
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
+    } finally { setSaving(false); }
+  }
+
+  async function saveSecurity() {
+    if (!workspace) return;
+    setSaving(true);
+    try {
+      const saved = await workspaceApi.update({ security: workspace.security });
+      setWorkspace(saved); pushToast('Security settings saved');
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Security settings could not be saved', 'error');
     } finally { setSaving(false); }
   }
 
@@ -76,11 +85,11 @@ export function WorkspacePage() {
 
         {section === 'security' ? <Card className="workspace-panel"><PanelHeading icon={ShieldCheck} title="Security controls" description="Apply workspace-wide protection and manage your own sign-in security." />
           <div className="workspace-panel__body">
-            <Switch checked={masking} onChange={setMasking} label="Sensitive data masking" description="Redact credentials, payment details, and government IDs from logs." />
+            <Switch checked={workspace.security.sensitiveDataMasking} onChange={(value) => setWorkspace({ ...workspace, security: { ...workspace.security, sensitiveDataMasking: value } })} label="Sensitive data masking" description="Redact credentials, payment details, and government IDs before chat persistence and model use." />
             <Switch checked={false} onChange={() => undefined} disabled label="Require MFA for all workspace members" description="Workspace-wide MFA enforcement is a separate policy feature. Configure your own account MFA below." />
-            <Switch checked={digest} onChange={setDigest} label="Weekly security digest" description="Email workspace owners about access and configuration changes." />
-            <Field label="Security contact"><div className="icon-input"><Mail /><input defaultValue={session?.user.email} /></div></Field>
-            <div className="workspace-panel__actions"><Button onClick={() => pushToast('Security settings saved')}>Save security</Button></div>
+            <Switch checked={false} onChange={() => undefined} disabled label="Weekly security digest" description="Digest delivery is not enabled in this deployment." />
+            <Field label="Security contact"><div className="icon-input"><Mail /><input type="email" value={workspace.security.securityContact ?? ''} placeholder={session?.user.email} onChange={(event) => setWorkspace({ ...workspace, security: { ...workspace.security, securityContact: event.target.value || null } })} /></div></Field>
+            <div className="workspace-panel__actions"><Button onClick={() => void saveSecurity()} disabled={saving}>{saving ? 'Saving…' : 'Save security'}</Button></div>
             <MFASecurityPanel />
           </div>
         </Card> : null}

@@ -14,12 +14,26 @@ from northstar_api.branding_validation import normalize_raster
 from northstar_api.dependencies import CurrentPrincipal, DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.lead_crm.audit import record_audit_event
-from northstar_api.models import Role, Tenant, TenantMembership, User, Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus
+from northstar_api.models import (
+    Role,
+    Tenant,
+    TenantMembership,
+    User,
+    Workspace,
+    WorkspaceMembership,
+    WorkspaceRole,
+    WorkspaceStatus,
+)
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
-from northstar_api.services.workspace_invitations import WorkspaceInvitationError, issue_workspace_invitation, send_workspace_invitation_email
-from northstar_api.workspace_contract import WhiteLabelSettings, WhiteLabelWrite, WorkspacePreferences, safe_legacy_read
+from northstar_api.workspace_contract import (
+    WhiteLabelSettings,
+    WhiteLabelWrite,
+    WorkspacePreferences,
+    WorkspaceSecurityPolicy,
+    safe_legacy_read,
+)
 from northstar_api.workspace_invitations import WorkspaceInvitation
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -27,7 +41,6 @@ collection_router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 WorkspaceViewPrincipal = Annotated[Principal, Depends(require_permissions("workspace.view"))]
 WorkspaceUpdatePrincipal = Annotated[Principal, Depends(require_permissions("workspace.update"))]
 WorkspaceMembersViewPrincipal = Annotated[Principal, Depends(require_permissions("members.view"))]
-WorkspaceMembersManagePrincipal = Annotated[Principal, Depends(require_permissions("members.manage"))]
 _image_slots = asyncio.Semaphore(2)
 
 
@@ -47,6 +60,7 @@ class WorkspaceOut(APIModel):
     branding_published: bool = False
     branding_warnings: list[str] = Field(default_factory=list)
     education_create_upsell_leads: bool = False
+    security: WorkspaceSecurityPolicy
 
 
 class WorkspacePatch(APIModel):
@@ -55,6 +69,7 @@ class WorkspacePatch(APIModel):
     preferences: WorkspacePreferences | None = None
     white_label: WhiteLabelWrite | None = None
     education_create_upsell_leads: bool | None = None
+    security: WorkspaceSecurityPolicy | None = None
 
 
 class WorkspaceCreate(WorkspacePreferences):
@@ -85,11 +100,6 @@ class WorkspaceTeamOut(APIModel):
     invitations: list[WorkspaceInvitationOut]
 
 
-class WorkspaceInvite(APIModel):
-    email: EmailStr
-    role: WorkspaceRole = WorkspaceRole.OPERATOR
-
-
 def _workspace_response(
     tenant: Tenant, workspace: Workspace, membership: WorkspaceMembership,
     member_count: int, tenant_role: Role = Role.MEMBER,
@@ -104,6 +114,7 @@ def _workspace_response(
         "dateFormat": workspace.date_format, **settings.get("preferences", {}),
     }, warnings)
     safe_brand = safe_legacy_read(WhiteLabelSettings, {"companyName": tenant.name, **brand}, warnings)
+    security = safe_legacy_read(WorkspaceSecurityPolicy, settings.get("security", {}), warnings)
     return WorkspaceOut(
         id=str(workspace.id), tenant_id=str(tenant.id), tenant_name=tenant.name,
         name=workspace.name, slug=workspace.slug, status=workspace.status, role=membership.role,
@@ -113,6 +124,7 @@ def _workspace_response(
         white_label=WhiteLabelSettings.model_validate(safe_brand.model_dump()),
         branding_published=bool(workspace.branding_json), branding_warnings=warnings,
         education_create_upsell_leads=False,
+        security=security,
     )
 
 
@@ -200,6 +212,27 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
         raise HTTPException(status_code=409, detail="Education chats stay separate from leads")
     if payload.education_create_upsell_leads is not None:
         settings["educationCreateUpsellLeads"] = False
+    if payload.security is not None:
+        settings["security"] = payload.security.model_dump(by_alias=True, mode="json")
+        record_audit_event(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace.id,
+            actor_user_id=principal.user_id,
+            action="workspace.security.updated",
+            entity_type="workspace",
+            entity_id=str(workspace.id),
+            category="security",
+            metadata={"fields": sorted(payload.security.model_fields_set)},
+        )
+        enqueue_event(
+            session,
+            tenant_id=principal.tenant_id,
+            aggregate_type="workspace",
+            aggregate_id=workspace.id,
+            event_type="workspace.security.updated.v1",
+            payload={"workspaceId": str(workspace.id)},
+        )
     workspace.settings_json = settings
     await session.commit()
     await session.refresh(workspace)
@@ -209,25 +242,6 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
 @router.get("/team", response_model=WorkspaceTeamOut)
 async def get_workspace_team(principal: WorkspaceMembersViewPrincipal, session: DBSession) -> WorkspaceTeamOut:
     _, workspace, _, _ = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
-    return await _team_response(principal.tenant_id, workspace.id, session)
-
-
-@router.post("/invitations", response_model=WorkspaceTeamOut, status_code=201)
-async def invite_workspace_member(payload: WorkspaceInvite, principal: WorkspaceMembersManagePrincipal, session: DBSession) -> WorkspaceTeamOut:
-    _, workspace, _, _ = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
-    issued = await issue_workspace_invitation(session, tenant_id=principal.tenant_id, workspace_id=workspace.id,
-        email=str(payload.email).strip().lower(), role=payload.role, invited_by_user_id=principal.user_id,
-        all_agents_access=True, agent_ids=[])
-    try:
-        await send_workspace_invitation_email(recipient_email=issued.invitation.email, workspace_name=workspace.name,
-            tenant_name=workspace.name, role=issued.invitation.role, raw_token=issued.token)
-    except WorkspaceInvitationError as exc:
-        await session.rollback()
-        raise HTTPException(status_code=503, detail=str(exc)) from None
-    except Exception:
-        await session.rollback()
-        raise HTTPException(status_code=502, detail="Workspace invitation email could not be delivered") from None
-    await session.commit()
     return await _team_response(principal.tenant_id, workspace.id, session)
 
 

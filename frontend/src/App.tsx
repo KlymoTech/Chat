@@ -15,7 +15,7 @@ const BatchesPage = lazy(() => import('@/pages/BatchesPage').then((module) => ({
 const BotWorkflowBuilderPage = lazy(() => import('@/pages/BotWorkflowBuilderPage').then((module) => ({ default: module.BotWorkflowBuilderPage })));
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((module) => ({ default: module.ConversationsPage })));
 const CoursesPage = lazy(() => import('@/pages/CoursesPage').then((module) => ({ default: module.CoursesPage })));
-const CourseKnowledgePage = lazy(() => import('@/pages/CourseKnowledgePage').then((module) => ({ default: module.CourseKnowledgePage })));
+const CourseKnowledgePage = lazy(() => import('@/features/knowledge').then((module) => ({ default: module.CourseKnowledgePage })));
 const CRMWorkflowPage = lazy(() => import('@/pages/CRMWorkflowPage').then((module) => ({ default: module.CRMWorkflowPage })));
 const DeployPage = lazy(() => import('@/pages/DeployPage').then((module) => ({ default: module.DeployPage })));
 const EducationAccessRecoveryPage = lazy(() => import('@/pages/EducationAccessRecoveryPage').then((module) => ({ default: module.EducationAccessRecoveryPage })));

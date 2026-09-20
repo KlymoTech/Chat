@@ -14,7 +14,7 @@ from northstar_api.education_enrollments import EducationEnrollment, EnrollmentS
 from northstar_api.education_papers import EducationPaper, PaperStatus
 from northstar_api.education_students import EducationStudent, StudentStatus
 from northstar_api.models import Agent, AgentStatus
-from northstar_api.services.retrieval import EducationRetrievalScope
+from northstar_api.modules.knowledge.retrieval import EducationRetrievalScope
 from northstar_api.services.workspace_dates import workspace_today
 
 

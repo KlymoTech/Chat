@@ -3,6 +3,7 @@ import { readStorage, writeStorage } from '@/lib/storage';
 export type DnsStatus = 'not-configured' | 'pending' | 'verified';
 export type WorkspaceRole = 'workspace_admin' | 'manager' | 'operator' | 'analyst' | 'viewer';
 export interface WorkspacePreferences { timezone: string; defaultLanguage: string; dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD' }
+export interface WorkspaceSecurityPolicy { sensitiveDataMasking: boolean; securityContact: string | null }
 export interface WhiteLabelSettings {
   companyName: string; logoDataUrl: string; faviconDataUrl: string; appIconDataUrl: string;
   primaryColor: string; secondaryColor: string; supportEmail: string | null; supportUrl: string;
@@ -13,12 +14,13 @@ export interface WorkspaceSettings {
   id: string; tenantId?: string; tenantName?: string; name: string; slug: string;
   status?: 'active' | 'archived'; role?: WorkspaceRole; permissions?: string[];
   plan: string; memberCount: number; preferences: WorkspacePreferences; whiteLabel: WhiteLabelSettings;
+  security: WorkspaceSecurityPolicy;
   brandingPublished?: boolean; brandingWarnings?: string[]; educationCreateUpsellLeads?: boolean;
 }
 export interface WorkspaceTeamMember { id: string; name: string; email: string; role: WorkspaceRole; tenantRole: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst'; status: 'active' }
 export interface WorkspaceTeamInvitation { id: string; email: string; role: WorkspaceRole; status: 'invited'; expiresAt: string; createdAt: string }
 export interface WorkspaceTeam { members: WorkspaceTeamMember[]; invitations: WorkspaceTeamInvitation[] }
-export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel' | 'educationCreateUpsellLeads'>>;
+export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel' | 'educationCreateUpsellLeads' | 'security'>>;
 export interface WorkspaceCreate { name: string; slug: string; timezone?: string; defaultLanguage?: string; dateFormat?: WorkspacePreferences['dateFormat'] }
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
@@ -32,6 +34,7 @@ const defaults: WorkspaceSettings = {
   id: 'workspace-demo', name: 'Northstar Workspace', slug: 'northstar', plan: 'business', memberCount: 1,
   educationCreateUpsellLeads: false, brandingPublished: false,
   preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
+  security: { sensitiveDataMasking: true, securityContact: null },
   whiteLabel: { companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
     primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: null, supportUrl: '',
     browserTitle: 'Northstar AI', customDomain: '', dnsStatus: 'not-configured', brandedLogin: false,
@@ -39,7 +42,7 @@ const defaults: WorkspaceSettings = {
 };
 function localWorkspace(): WorkspaceSettings {
   const saved = readStorage<Partial<WorkspaceSettings>>(STORAGE_KEY, {});
-  return { ...defaults, ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, whiteLabel: { ...defaults.whiteLabel, ...saved.whiteLabel } };
+  return { ...defaults, ...saved, preferences: { ...defaults.preferences, ...saved.preferences }, security: { ...defaults.security, ...saved.security }, whiteLabel: { ...defaults.whiteLabel, ...saved.whiteLabel } };
 }
 function storedSession() { return readStorage<{ accessToken?: string; user?: { id?: string; role?: string; emailVerified?: boolean } } | null>(SESSION_KEY, null); }
 export function workspaceSessionScope(): string {
@@ -141,7 +144,7 @@ export const workspaceApi = {
     } catch (error) {
       if (!demoFallback(error)) throw error;
       const current = localWorkspace();
-      const value = { ...current, ...patch, preferences: { ...current.preferences, ...patch.preferences }, whiteLabel: { ...current.whiteLabel, ...patch.whiteLabel } };
+      const value = { ...current, ...patch, preferences: { ...current.preferences, ...patch.preferences }, security: { ...current.security, ...patch.security }, whiteLabel: { ...current.whiteLabel, ...patch.whiteLabel } };
       writeStorage(STORAGE_KEY, value);
       window.dispatchEvent(new CustomEvent('northstar:workspace-changed', { detail: value }));
       return value;
@@ -157,10 +160,6 @@ export const workspaceApi = {
   async getTeam(): Promise<WorkspaceTeam> {
     try { return await remote<WorkspaceTeam>('/workspace/team', 'GET'); }
     catch (error) { if (demoFallback(error)) return { members: [], invitations: [] }; throw error; }
-  },
-  async inviteMember(email: string, role: WorkspaceRole): Promise<WorkspaceTeam> {
-    await remote<unknown>('/workspace/invitations', 'POST', { email, role });
-    return this.getTeam();
   },
 };
 export const workspaceDefaults = defaults;

@@ -18,13 +18,17 @@ from northstar_api.models import (
     Agent,
     Channel,
     Conversation,
+    KnowledgeAnswerAudit,
+    KnowledgeSnapshot,
     Message,
     MessageCitation,
     MessageRole,
+    Workspace,
 )
+from northstar_api.modules.knowledge.grounding import blocked_topic, validate_answer
+from northstar_api.modules.knowledge.retrieval import Evidence, RetrievalService, retrieval_service
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
-from northstar_api.services.grounding import blocked_topic, validate_answer
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
 from northstar_api.services.localization import (
     localized_appearance,
@@ -35,7 +39,6 @@ from northstar_api.services.localization import (
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
-from northstar_api.services.retrieval import Evidence, RetrievalService, retrieval_service
 from northstar_api.services.web_fallback import related_web_evidence
 from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
@@ -107,8 +110,18 @@ class ChatCoordinator:
         )
         raw_message = request.message.strip()
         message_fingerprint = hashlib.sha256(raw_message.encode("utf-8")).hexdigest()
+        workspace_settings = await session.scalar(
+            select(Workspace.settings_json).where(
+                Workspace.id == agent.workspace_id,
+                Workspace.tenant_id == tenant_id,
+            )
+        )
+        workspace_security = dict((workspace_settings or {}).get("security", {}))
+        workspace_masking = workspace_security.get("sensitiveDataMasking", True) is not False
         message = (
-            mask_sensitive_text(raw_message) if agent.security.get("maskSensitiveData", True) else raw_message
+            mask_sensitive_text(raw_message)
+            if workspace_masking and agent.security.get("maskSensitiveData", True)
+            else raw_message
         )
         blocked = blocked_topic(raw_message, (agent.security or {}).get("blockedTopics", []))
         if blocked:
@@ -169,6 +182,7 @@ class ChatCoordinator:
                     question=message, answer=workflow_reply.content, evidence=[],
                     latency_ms=round((time.perf_counter() - started) * 1000), show_citations=False,
                     message_format=workflow_reply.message_format,
+                    answer_mode="workflow",
                 )
                 CHAT_REQUESTS.labels("workflow").inc()
                 CHAT_DURATION.observe(time.perf_counter() - started)
@@ -178,6 +192,7 @@ class ChatCoordinator:
                     session, tenant_id=tenant_id, agent=agent, reservation=reservation,
                     question=message, answer=welcome, evidence=[],
                     latency_ms=round((time.perf_counter() - started) * 1000), show_citations=False,
+                    answer_mode="welcome",
                 )
                 CHAT_REQUESTS.labels("welcome").inc()
                 CHAT_DURATION.observe(time.perf_counter() - started)
@@ -202,6 +217,7 @@ class ChatCoordinator:
             # Retrieval is read-only; release its transaction before provider I/O.
             await session.commit()
             web_evidence = False
+            answer_mode = "abstained"
             web_policy = (agent.security or {}).get("webFallback", "public")
             if not evidence and configured_greeting is None and web_policy in {"related_only", "public"}:
                 evidence = await related_web_evidence(
@@ -213,11 +229,13 @@ class ChatCoordinator:
             if not evidence:
                 if web_policy == "public":
                     answer = await self._general_answer(agent, message, conversation_history)
+                    answer_mode = "general_assistance"
                     CHAT_REQUESTS.labels("general_knowledge").inc()
                 else:
                     answer = localized_no_evidence(agent.language)
                     CHAT_REQUESTS.labels("refused_no_evidence").inc()
             else:
+                answer_mode = "approved_public_evidence" if web_evidence else "approved_knowledge"
                 evidence_block = "\n\n".join(
                     f"[S{index} | {item.title} | page={item.metadata.get('page_number', 'unknown')} | type={item.metadata.get('chunk_type', item.kind)}]\n{item.text}"
                     for index, item in enumerate(evidence, start=1)
@@ -236,13 +254,12 @@ class ChatCoordinator:
                     answer = generated.content
                     grounding = validate_answer(answer, evidence)
                     if not grounding.allowed:
-                        if web_policy == "public":
-                            answer = await self._general_answer(agent, message, conversation_history)
-                            evidence = []
-                            CHAT_REQUESTS.labels("general_knowledge").inc()
-                        else:
-                            answer = localized_no_evidence(agent.language)
-                            CHAT_REQUESTS.labels("blocked_ungrounded").inc()
+                        # Grounding failure must not silently widen the answer
+                        # from retrieved evidence to uncited model knowledge.
+                        answer = localized_no_evidence(agent.language)
+                        evidence = []
+                        answer_mode = "abstained"
+                        CHAT_REQUESTS.labels("blocked_ungrounded").inc()
                     else:
                         CHAT_REQUESTS.labels("generated").inc()
                 except ModelUnavailableError:
@@ -272,6 +289,7 @@ class ChatCoordinator:
                 evidence=evidence,
                 latency_ms=latency_ms,
                 show_citations=show_citations,
+                answer_mode=answer_mode,
             )
         except Exception:
             await session.rollback()
@@ -467,6 +485,7 @@ class ChatCoordinator:
         latency_ms: int,
         show_citations: bool,
         message_format: dict[str, Any] | None = None,
+        answer_mode: str = "non_knowledge",
     ) -> PreparedChat:
         assistant = await session.scalar(
             select(Message)
@@ -514,6 +533,36 @@ class ChatCoordinator:
                     url=item.url,
                 )
             )
+        conversation_revision = await session.scalar(
+            select(Conversation.knowledge_revision).where(
+                Conversation.id == reservation.conversation_id,
+                Conversation.tenant_id == tenant_id,
+            )
+        )
+        snapshot = await session.scalar(
+            select(KnowledgeSnapshot).where(
+                KnowledgeSnapshot.tenant_id == tenant_id,
+                KnowledgeSnapshot.agent_id == agent.id,
+                KnowledgeSnapshot.revision == conversation_revision,
+            )
+        )
+        session.add(
+            KnowledgeAnswerAudit(
+                tenant_id=tenant_id,
+                workspace_id=agent.workspace_id,
+                agent_id=agent.id,
+                message_id=assistant.id,
+                snapshot_id=snapshot.id if snapshot else None,
+                details={
+                    "answerMode": answer_mode,
+                    "knowledgeRevision": conversation_revision,
+                    "evidenceCount": len(evidence),
+                    "sourceIds": sorted({item.source_id for item in evidence if item.source_id}),
+                    "groundingAccepted": bool(evidence),
+                    "policyRevision": 1,
+                },
+            )
+        )
         enqueue_event(
             session,
             tenant_id=tenant_id,

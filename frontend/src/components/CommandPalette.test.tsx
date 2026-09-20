@@ -15,6 +15,7 @@ const workspace = (id: string, name: string, slug: string): WorkspaceSettings =>
   role: 'workspace_admin',
   permissions: ['*'],
   preferences: { timezone: 'UTC', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
+  security: { sensitiveDataMasking: true, securityContact: null },
   whiteLabel: {
     companyName: name,
     logoDataUrl: '',

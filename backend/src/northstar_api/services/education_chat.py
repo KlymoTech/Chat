@@ -9,10 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.models import Agent
+from northstar_api.modules.knowledge.retrieval import (
+    EducationRetrievalScope,
+    Evidence,
+    RetrievalService,
+)
 from northstar_api.services.course_knowledge import Boundary, resolve_context, retrieve_course_evidence
 from northstar_api.services.course_knowledge_chat import CourseKnowledgeChatCoordinator
 from northstar_api.services.education_rag import EducationRagAccessDenied
-from northstar_api.services.retrieval import EducationRetrievalScope, Evidence, RetrievalService
 
 _education_scope: ContextVar[EducationRetrievalScope | None] = ContextVar("education_retrieval_scope", default=None)
 

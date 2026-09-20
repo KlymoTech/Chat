@@ -64,6 +64,7 @@ from northstar_api.education import EducationCourse
 from northstar_api.education_batches import EducationBatch
 from northstar_api.education_enrollments import EducationEnrollment
 from northstar_api.models import IngestionJob, JobStatus, KnowledgeKind, KnowledgeSource, KnowledgeStatus
+from northstar_api.modules.knowledge.ingestion import ingest_source_async
 from northstar_api.routers.agents import scoped_agent
 from northstar_api.security import Principal
 from northstar_api.services.course_knowledge import (
@@ -96,7 +97,6 @@ from northstar_api.services.course_knowledge_policy import (
     fingerprint,
     selected_blocks,
 )
-from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
 from northstar_api.services.outbox import enqueue_event
 

@@ -42,6 +42,7 @@ from northstar_api.models import (
     KnowledgeSource,
     KnowledgeStatus,
 )
+from northstar_api.modules.knowledge.ingestion import ingest_source_async
 from northstar_api.routers.agents import scoped_agent
 from northstar_api.schemas import (
     APIModel,
@@ -67,7 +68,6 @@ from northstar_api.services.education_knowledge import (
 from northstar_api.services.extraction_review import apply_review
 from northstar_api.services.extraction_schema import Reading
 from northstar_api.services.hybrid_extraction import ExtractionPackage
-from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
 from northstar_api.services.outbox import enqueue_event
@@ -131,7 +131,10 @@ def source_response(source: KnowledgeSource) -> KnowledgeOut:
 async def list_knowledge(
     agent_id: UUID, principal: KnowledgeViewPrincipal, session: DB
 ) -> list[KnowledgeOut]:
-    await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     sources = (
         await session.scalars(
             select(KnowledgeSource)
@@ -150,7 +153,10 @@ async def list_knowledge(
 async def add_knowledge(
     agent_id: UUID, payload: KnowledgeCreate, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeOut:
-    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    agent = await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     if payload.kind == KnowledgeKind.TEXT and not payload.content:
         raise HTTPException(status_code=422, detail="Text sources require content")
     if payload.kind in (KnowledgeKind.URL, KnowledgeKind.SITEMAP) and not payload.url:
@@ -302,6 +308,7 @@ async def _scoped_source(
         principal.tenant_id,
         source.agent_id,
         workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
     )
     await require_education_agent(
         session,
@@ -324,7 +331,10 @@ async def _review_source(source_id: UUID, principal: Principal, session: AsyncSe
     )
     if source is None:
         raise HTTPException(status_code=404, detail="Knowledge source not found")
-    await scoped_agent(session, principal.tenant_id, source.agent_id, workspace_id=principal.workspace_id)
+    await scoped_agent(
+        session, principal.tenant_id, source.agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     return source
 
 
@@ -912,7 +922,10 @@ async def list_facts(
     session: DB,
     fact_status: FactStatus | None = None,
 ) -> list[KnowledgeFact]:
-    await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     query = select(KnowledgeFact).where(
         KnowledgeFact.tenant_id == principal.tenant_id,
         KnowledgeFact.workspace_id == principal.workspace_id,
@@ -927,7 +940,10 @@ async def list_facts(
 async def create_fact(
     agent_id: UUID, payload: FactCreate, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeFact:
-    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    agent = await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     vector = await nvidia_adapter.embed_query(f"{payload.question}\n{payload.answer}")
     fact = KnowledgeFact(
         tenant_id=principal.tenant_id,
@@ -977,6 +993,7 @@ async def _scoped_fact(
         principal.tenant_id,
         fact.agent_id,
         workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
     )
     await require_education_agent(
         session,

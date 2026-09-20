@@ -10,6 +10,7 @@ import type { WorkspaceSettings } from '@/lib/workspace-api';
 const workspace: WorkspaceSettings = {
   id: 'workspace-test', name: 'Test Workspace', slug: 'test', plan: 'business', memberCount: 1,
   preferences: { timezone: 'UTC', defaultLanguage: 'English', dateFormat: 'YYYY-MM-DD' },
+  security: { sensitiveDataMasking: true, securityContact: null },
   whiteLabel: {
     companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
     primaryColor: '#146cf6', secondaryColor: '#705cf6', supportEmail: 'support@example.com',

@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import httpx
 from bs4 import BeautifulSoup
 
-from northstar_api.services.retrieval import Evidence
+from northstar_api.modules.knowledge.retrieval import Evidence
 from northstar_api.services.safe_fetch import fetch_public_text
 
 _SEARCH_URL = "https://api.duckduckgo.com/?format=json&no_html=1&no_redirect=1&q="

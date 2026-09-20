@@ -25,10 +25,10 @@ from northstar_api.models import (
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
+from northstar_api.modules.knowledge.ingestion import ExtractionYield, ingest_source_async
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.chat import FAILED_RESPONSE_PLACEHOLDER, chat_coordinator
 from northstar_api.services.entitlements import EntitlementError, require_capacity
-from northstar_api.services.ingestion import ExtractionYield, ingest_source_async
 from northstar_api.services.whatsapp import (
     WhatsAppGraphError,
     split_whatsapp_text,

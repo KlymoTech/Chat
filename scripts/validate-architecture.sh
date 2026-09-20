@@ -7,6 +7,7 @@ required_paths=(
   "backend/pyproject.toml"
   "backend/Dockerfile"
   "backend/src/northstar_api"
+  "backend/src/northstar_api/modules/knowledge"
   "backend/migrations"
   "database/postgres"
   "docker/README.md"
@@ -17,6 +18,7 @@ required_paths=(
   "kubernetes/base/kustomization.yaml"
   "kubernetes/overlays/production/kustomization.yaml"
   "compose.yaml"
+  "frontend/src/features/knowledge/index.ts"
 )
 
 for path in "${required_paths[@]}"; do
@@ -25,6 +27,20 @@ for path in "${required_paths[@]}"; do
     exit 1
   fi
 done
+
+# New production consumers use the feature-owned knowledge boundary. The three
+# legacy implementation files remain callable only as compatibility adapters.
+violations="$(
+  grep -R -n -E 'northstar_api\.services\.(ingestion|retrieval|grounding)' \
+    backend/src/northstar_api --include='*.py' \
+    | grep -v -E '/services/(ingestion|retrieval|grounding)\.py:|/modules/knowledge/' \
+    || true
+)"
+if [[ -n "$violations" ]]; then
+  echo "$violations"
+  echo "Architecture contract violation: production code bypasses modules/knowledge." >&2
+  exit 1
+fi
 
 # These obsolete umbrella roots duplicate canonical application and
 # infrastructure boundaries and previously produced confusing empty folders.

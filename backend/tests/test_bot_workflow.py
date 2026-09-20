@@ -56,6 +56,56 @@ def test_active_workflow_rejects_a_connection_to_a_missing_node() -> None:
         ])
 
 
+def test_active_location_accepts_zero_coordinates_and_rejects_missing_coordinates() -> None:
+    valid = BotWorkflowSave(name="Zero location", purpose="support", status="active", steps=[
+        BotWorkflowStep(
+            id="origin", name="Origin", triggerType="command", triggerValue="/origin",
+            messageFormat="location", config={"latitude": 0, "longitude": 0},
+        )
+    ])
+    assert valid.steps[0].config["latitude"] == 0
+    with pytest.raises(ValidationError, match="numeric latitude and longitude"):
+        BotWorkflowSave(name="Bad location", purpose="support", status="active", steps=[
+            BotWorkflowStep(
+                id="bad", name="Bad", triggerType="command", triggerValue="/bad",
+                messageFormat="location", config={"latitude": 10},
+            )
+        ])
+
+
+def test_active_workflow_rejects_invalid_false_branch_and_cycles() -> None:
+    with pytest.raises(ValidationError, match="false branch"):
+        BotWorkflowSave(name="Bad branch", purpose="support", status="active", steps=[
+            BotWorkflowStep(
+                id="route", name="Route", triggerType="condition",
+                condition={"field": "channel", "operator": "equals", "value": "web"},
+                trueStepId="answer", falseStepId="missing",
+            ),
+            BotWorkflowStep(id="answer", name="Answer", triggerType="fallback", message="Hello"),
+        ])
+    with pytest.raises(ValidationError, match="must not contain cycles"):
+        BotWorkflowSave(name="Cycle", purpose="support", status="active", steps=[
+            BotWorkflowStep(
+                id="one", name="One", triggerType="command", triggerValue="/one",
+                message="One", nextStepId="two",
+            ),
+            BotWorkflowStep(
+                id="two", name="Two", triggerType="contains", triggerValue="two",
+                message="Two", nextStepId="one",
+            ),
+        ])
+
+
+def test_active_rich_message_requires_delivery_payload() -> None:
+    with pytest.raises(ValidationError, match="mediaId or HTTPS URL"):
+        BotWorkflowSave(name="Bad media", purpose="support", status="active", steps=[
+            BotWorkflowStep(
+                id="image", name="Image", triggerType="command", triggerValue="/image",
+                messageFormat="image", message="Image", config={},
+            )
+        ])
+
+
 def test_enrolled_student_template_is_backend_owned_and_calendar_scoped() -> None:
     workflow = enrolled_student_tutor()
     assert workflow.purpose.value == "education"

@@ -318,7 +318,9 @@ async def _create_agent(payload, principal, session, connection=None) -> AgentOu
     )
     instructions = _starter_instructions(payload, purpose)
     security = default_security()
-    security["webFallback"] = "off" if purpose == AgentPurpose.EDUCATION else "public"
+    # Grounded knowledge is the safe default. Web evidence remains an explicit
+    # owner choice instead of silently widening a newly created bot's scope.
+    security["webFallback"] = "off"
     # Education Agents cannot be made live before the enrollment authorization
     # layer exists. Creating them in draft prevents private knowledge from being
     # exposed through the existing generic runtime while Education is provisioned.
@@ -422,6 +424,7 @@ async def update_agent_channel(
         principal.tenant_id,
         agent_id,
         workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
     )
     binding = await _channel_binding(session, agent)
     binding.channel_type = payload.channel_type
@@ -456,7 +459,10 @@ async def duplicate_agent(
     principal: AgentsCreatePrincipal,
     session: DB,
 ) -> AgentOutWithPurpose:
-    source = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    source = await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     source_purpose = await get_agent_purpose(
         session,
         tenant_id=source.tenant_id,
@@ -522,7 +528,10 @@ async def update_agent(
     principal: AgentsUpdatePrincipal,
     session: DB,
 ) -> AgentOutWithPurpose:
-    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    agent = await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     current_purpose = await get_agent_purpose(
         session,
         tenant_id=agent.tenant_id,
@@ -645,7 +654,10 @@ async def update_agent(
 async def delete_agent(agent_id: UUID, principal: AgentsDeletePrincipal, session: DB) -> Response:
     from datetime import UTC, datetime
 
-    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    agent = await scoped_agent(
+        session, principal.tenant_id, agent_id,
+        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+    )
     if await has_non_terminal_enrollment(
         session,
         tenant_id=agent.tenant_id,

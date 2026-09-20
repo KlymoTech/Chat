@@ -4,7 +4,18 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from northstar_api.database import SessionFactory
+from northstar_api.routers import workspace, workspace_invitations
 from northstar_api.workspace_invitations import WorkspaceInvitation
+
+
+def test_workspace_invitation_create_route_is_registered_once() -> None:
+    matches = [
+        route
+        for route in [*workspace.router.routes, *workspace_invitations.router.routes]
+        if getattr(route, "path", None) == "/workspace/invitations"
+        and "POST" in getattr(route, "methods", set())
+    ]
+    assert len(matches) == 1
 
 
 async def _workspace_id(client: AsyncClient, auth_headers: dict[str, str]) -> str:

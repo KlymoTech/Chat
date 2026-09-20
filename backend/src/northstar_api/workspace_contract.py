@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -25,6 +25,11 @@ class WorkspacePreferences(SetupContract):
         except (ValueError, ZoneInfoNotFoundError) as exc:
             raise ValueError("Choose a valid IANA timezone") from exc
         return value
+
+
+class WorkspaceSecurityPolicy(SetupContract):
+    sensitive_data_masking: bool = True
+    security_contact: EmailStr | None = None
 
 
 class WhiteLabelWrite(SetupContract):
@@ -72,10 +77,7 @@ class WhiteLabelSettings(WhiteLabelWrite):
     dns_status: Literal["not-configured"] = "not-configured"
 
 
-ModelT = TypeVar("ModelT", bound=BaseModel)
-
-
-def safe_legacy_read(model: type[ModelT], raw: dict[str, Any], warnings: list[str]) -> ModelT:
+def safe_legacy_read[ModelT: BaseModel](model: type[ModelT], raw: dict[str, Any], warnings: list[str]) -> ModelT:
     """Return safe values without changing the database or accepting invalid writes."""
     aliases = {field.alias or name: name for name, field in model.model_fields.items()}
     values = {key: value for key, value in raw.items() if key in aliases or key in model.model_fields}

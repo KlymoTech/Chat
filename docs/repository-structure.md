@@ -4,6 +4,8 @@
 frontend/                      React/Vite frontend and Nginx runtime
 backend/                       FastAPI domain/API and shared worker image
   src/northstar_api/
+    modules/                   feature-owned business capabilities
+      knowledge/               ingestion, retrieval, and grounding boundary
     routers/                   HTTP transport
     services/                  domain and provider integrations
     workers/                   independently runnable processes
@@ -19,6 +21,12 @@ docs/                          architecture, security, and operations guides
 compose.yaml                   local topology entrypoint
 start.bat                      Windows one-click launcher
 ```
+
+Frontend feature entrypoints live under `frontend/src/features/`. During the
+incremental migration, an entrypoint may re-export a legacy page or API client;
+new route consumers import the feature boundary. Backend production consumers
+follow the same rule through `northstar_api.modules`. Compatibility paths remain
+until worker/task and rolling-deployment contracts can be removed safely.
 
 `frontend/` and `backend/` are the two application roots. There is deliberately
 no additional `apps/` wrapper. Likewise, `infrastructure/` and `kubernetes/`
