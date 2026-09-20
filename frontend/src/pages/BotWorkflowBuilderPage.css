@@ -9,6 +9,7 @@
 .workflow-scope-card > p svg { width: 16px; }
 .workflow-starter { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:16px 18px; border:1px solid #c9bfff; border-radius:14px; background:linear-gradient(110deg,#f8f5ff,#effaff); }
 .workflow-starter div { display:grid; gap:4px; } .workflow-starter span { color:var(--muted); font-size:13px; }
+.workflow-template-discovery { border-color:#9cc8ff;background:linear-gradient(110deg,#f5f9ff,#f5fff9); }.workflow-template-discovery .eyebrow { color:#146cd1;font-size:10px;font-weight:800;letter-spacing:.08em; }.workflow-template-discovery strong { font-size:17px; }
 .workflow-studio { overflow:hidden; border:1px solid var(--line); border-radius:14px; background:#fff; box-shadow:0 10px 30px rgb(25 39 58 / .06); }
 .workflow-studio-toolbar { min-height:64px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 14px; border-bottom:1px solid var(--line); background:#fff; }
 .workflow-studio-toolbar > div { display:flex; align-items:center; gap:9px; }.workflow-studio-toolbar > div:first-child > button { color:#146cd1;text-decoration:underline; }.workflow-studio-toolbar > div:first-child > span { color:var(--muted);font-size:12px; }
