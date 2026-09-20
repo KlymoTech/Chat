@@ -35,6 +35,7 @@ from northstar_api.services.whatsapp import (
     token_expiry_is_current,
 )
 from northstar_api.services.whatsapp_accounts import connection_client
+from northstar_api.services.whatsapp_templates import build_template
 from northstar_api.workers.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
@@ -179,7 +180,9 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             if customer_message_at.tzinfo is None:
                 customer_message_at = customer_message_at.replace(tzinfo=UTC)
             now = datetime.now(UTC)
-            if customer_message_at < now - timedelta(hours=24) or customer_message_at > now + timedelta(minutes=5):
+            if customer_message_at < now - timedelta(hours=24) or customer_message_at > now + timedelta(
+                minutes=5
+            ):
                 receipt.status = "rejected"
                 receipt.last_error = "24-hour customer-service window is closed"
                 await session.commit()
@@ -200,9 +203,12 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             coordinator = chat_coordinator
             from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 
-            education_mode = await get_agent_purpose(
-                session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
-            ) is AgentPurpose.EDUCATION
+            education_mode = (
+                await get_agent_purpose(
+                    session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
+                )
+                is AgentPurpose.EDUCATION
+            )
             if education_mode:
                 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalSender
                 from northstar_api.lead_crm.domain import ChannelProvider
@@ -241,7 +247,12 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 receipt.status = "rejected"
                 receipt.last_error = f"plan entitlement: {exc.code}"[:500]
                 await session.commit()
-                logger.info("whatsapp_plan_entitlement_rejected", tenant_id=str(receipt.tenant_id), event_id=str(receipt.id), code=exc.code)
+                logger.info(
+                    "whatsapp_plan_entitlement_rejected",
+                    tenant_id=str(receipt.tenant_id),
+                    event_id=str(receipt.id),
+                    code=exc.code,
+                )
                 return
             prepared = await coordinator.prepare(
                 session,
@@ -270,28 +281,88 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 await session.commit()
 
             provider_client, access_token = await connection_client(session, connection)
+            workflow_format = prepared.message_format or {}
+            workflow_type = str(workflow_format.get("type") or "text")
             workflow_buttons = (
-                prepared.message_format.get("buttons") or []
-                if prepared.message_format and prepared.message_format.get("type") == "buttons"
-                else []
+                prepared.message_format.get("buttons") or [] if workflow_type == "buttons" else []
             )
-            chunks = [prepared.answer] if workflow_buttons else split_whatsapp_text(prepared.answer)
+            advanced_types = {
+                "list",
+                "image",
+                "video",
+                "audio",
+                "document",
+                "sticker",
+                "location",
+                "contact",
+                "cta_url",
+                "flow",
+                "product",
+                "product_list",
+                "catalog",
+            }
+            chunks = (
+                [prepared.answer]
+                if workflow_buttons or workflow_type in advanced_types or workflow_type == "template"
+                else split_whatsapp_text(prepared.answer)
+            )
             sent_ids = list(receipt.outbound_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
                 if education_mode:
                     from northstar_api.services.course_whatsapp import validate_whatsapp_study_reply
-                    await validate_whatsapp_study_reply(session, agent=agent, receipt=receipt, prepared=prepared)
-                provider_id = (
-                    await provider_client.send_reply_buttons(
-                        access_token, phone_number_id=connection.phone_number_id,
-                        to=receipt.sender_wa_id, body=chunk, buttons=workflow_buttons,
+
+                    await validate_whatsapp_study_reply(
+                        session, agent=agent, receipt=receipt, prepared=prepared
                     )
-                    if workflow_buttons
-                    else await provider_client.send_text(
-                        access_token, phone_number_id=connection.phone_number_id,
-                        to=receipt.sender_wa_id, text=chunk,
+                if workflow_type == "template":
+                    selection = workflow_format.get("template") or {}
+                    available = await provider_client.list_templates(access_token, waba_id=connection.waba_id)
+                    selected = next(
+                        (
+                            item
+                            for item in available
+                            if item.get("name") == selection.get("name")
+                            and item.get("language") == selection.get("language")
+                        ),
+                        None,
                     )
-                )
+                    if not selected:
+                        raise RuntimeError("The selected WhatsApp template is no longer approved")
+                    template_payload, _ = build_template(
+                        selected, list((workflow_format.get("config") or {}).get("parameters") or [])
+                    )
+                    provider_id = await provider_client.send_template(
+                        access_token,
+                        phone_number_id=connection.phone_number_id,
+                        to=receipt.sender_wa_id,
+                        template=template_payload,
+                    )
+                elif workflow_type in advanced_types:
+                    provider_id = await provider_client.send_workflow_message(
+                        access_token,
+                        phone_number_id=connection.phone_number_id,
+                        to=receipt.sender_wa_id,
+                        message_type=workflow_type,
+                        body=chunk,
+                        config=dict(workflow_format.get("config") or {}),
+                    )
+                else:
+                    provider_id = (
+                        await provider_client.send_reply_buttons(
+                            access_token,
+                            phone_number_id=connection.phone_number_id,
+                            to=receipt.sender_wa_id,
+                            body=chunk,
+                            buttons=workflow_buttons,
+                        )
+                        if workflow_buttons
+                        else await provider_client.send_text(
+                            access_token,
+                            phone_number_id=connection.phone_number_id,
+                            to=receipt.sender_wa_id,
+                            text=chunk,
+                        )
+                    )
                 sent_ids.append(provider_id)
                 receipt.outbound_message_ids = list(sent_ids)
                 receipt.outbound_message_id = provider_id
@@ -442,7 +513,11 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
             provider_client, access_token = await connection_client(session, connection)
             message_format = message.content_json or {}
             is_buttons = message_format.get("type") == "buttons"
-            chunks = [message.content] if delivery.template_payload or is_buttons else split_whatsapp_text(message.content)
+            chunks = (
+                [message.content]
+                if delivery.template_payload or is_buttons
+                else split_whatsapp_text(message.content)
+            )
             sent_ids = list(delivery.provider_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
                 provider_id = (

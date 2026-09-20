@@ -31,6 +31,7 @@ def _render(step: dict[str, Any]) -> WorkflowReply:
     kind = str(step.get("messageFormat") or step.get("message_format") or "text")
     body = str(step.get("message") or "").strip()
     payload: dict[str, Any] = {"type": kind, "workflowStepId": step.get("id")}
+    payload["config"] = step.get("config") or {}
     if kind == "buttons":
         buttons = list(step.get("buttons") or [])
         payload["buttons"] = buttons
@@ -47,27 +48,58 @@ def _render(step: dict[str, Any]) -> WorkflowReply:
         payload["template"] = step.get("template")
         payload["type"] = "template"
         return WorkflowReply(body, payload)
-    payload["type"] = "text"
-    return WorkflowReply(body, payload)
+    payload["type"] = kind
+    return WorkflowReply(body or f"[{kind.replace('_', ' ')}]", payload)
 
 
 async def match_bot_workflow(
-    session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID, agent_id: UUID, message: str
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    agent_id: UUID,
+    message: str,
+    channel: str = "widget",
 ) -> WorkflowReply | None:
-    workflow = await session.scalar(select(BotWorkflow).where(
-        BotWorkflow.tenant_id == tenant_id,
-        BotWorkflow.workspace_id == workspace_id,
-        BotWorkflow.agent_id == agent_id,
-        BotWorkflow.status == "active",
-    ))
+    workflow = await session.scalar(
+        select(BotWorkflow).where(
+            BotWorkflow.tenant_id == tenant_id,
+            BotWorkflow.workspace_id == workspace_id,
+            BotWorkflow.agent_id == agent_id,
+            BotWorkflow.status == "active",
+        )
+    )
     if not workflow:
         return None
     enabled = [step for step in (workflow.steps_json or []) if step.get("enabled", True)]
     fallback = None
+    by_id = {str(step.get("id")): step for step in enabled}
     for step in enabled:
         kind = step.get("triggerType") or step.get("trigger_type")
         if kind == "fallback":
             fallback = step
+        elif kind == "condition":
+            condition = step.get("condition") or {}
+            actual = channel if condition.get("field") == "channel" else message
+            expected = str(condition.get("value") or "").casefold()
+            actual_normalized = actual.casefold()
+            operator = condition.get("operator")
+            matched = (
+                actual_normalized == expected
+                if operator == "equals"
+                else actual_normalized.startswith(expected)
+                if operator == "starts_with"
+                else expected not in actual_normalized
+                if operator == "not_contains"
+                else expected in actual_normalized
+            )
+            target = (
+                step.get("trueStepId") or step.get("true_step_id")
+                if matched
+                else step.get("falseStepId") or step.get("false_step_id")
+            )
+            if target and str(target) in by_id:
+                return _render(by_id[str(target)])
         elif _matches(step, message):
             return _render(step)
     return _render(fallback) if fallback else None

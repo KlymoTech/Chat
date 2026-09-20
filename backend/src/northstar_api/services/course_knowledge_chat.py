@@ -206,7 +206,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
         try:
             workflow_reply = await match_bot_workflow(
                 session, tenant_id=tenant_id, workspace_id=agent.workspace_id,
-                agent_id=agent.id, message=raw_message,
+                agent_id=agent.id, message=raw_message, channel=channel.value,
             )
             welcome = whatsapp_welcome(agent, raw_message) if channel is Channel.WHATSAPP else None
             evidence: list[Evidence] = []

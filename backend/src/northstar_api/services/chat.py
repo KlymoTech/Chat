@@ -160,6 +160,7 @@ class ChatCoordinator:
                 workspace_id=agent.workspace_id,
                 agent_id=agent.id,
                 message=raw_message,
+                channel=channel.value,
             )
             if workflow_reply:
                 prepared = await self._complete_exchange(

@@ -440,6 +440,75 @@ class WhatsAppCloudClient:
             raise WhatsAppGraphError("interactive message delivery")
         return message_id
 
+    async def send_workflow_message(
+        self,
+        access_token: str,
+        *,
+        phone_number_id: str,
+        to: str,
+        message_type: str,
+        body: str,
+        config: dict[str, Any],
+    ) -> str:
+        media_types = {"image", "video", "audio", "document", "sticker"}
+        if message_type in media_types:
+            source = {"id": config["mediaId"]} if config.get("mediaId") else {"link": config.get("url")}
+            if message_type in {"image", "video", "document"} and body:
+                source["caption"] = body
+            if message_type == "document" and config.get("filename"):
+                source["filename"] = config["filename"]
+            provider_payload: dict[str, Any] = {"type": message_type, message_type: source}
+        elif message_type == "location":
+            provider_payload = {
+                "type": "location",
+                "location": {
+                    key: config.get(key)
+                    for key in ("latitude", "longitude", "name", "address")
+                    if config.get(key) not in (None, "")
+                },
+            }
+        elif message_type == "contact":
+            provider_payload = {"type": "contacts", "contacts": [config.get("contact") or {}]}
+        else:
+            interactive_type = {
+                "cta_url": "cta_url",
+                "flow": "flow",
+                "product": "product",
+                "product_list": "product_list",
+                "catalog": "catalog_message",
+            }.get(message_type, "list")
+            interactive: dict[str, Any] = {
+                "type": interactive_type,
+                "body": {"text": body},
+                "action": config.get("action") or {},
+            }
+            if config.get("header"):
+                interactive["header"] = {"type": "text", "text": config["header"]}
+            if config.get("footer"):
+                interactive["footer"] = {"text": config["footer"]}
+            provider_payload = {"type": "interactive", "interactive": interactive}
+        payload = await self._request(
+            "POST",
+            f"{phone_number_id}/messages",
+            operation="workflow message delivery",
+            access_token=access_token,
+            json={
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to,
+                **provider_payload,
+            },
+        )
+        messages = payload.get("messages")
+        message_id = (
+            messages[0].get("id")
+            if isinstance(messages, list) and messages and isinstance(messages[0], dict)
+            else None
+        )
+        if not isinstance(message_id, str) or not message_id:
+            raise WhatsAppGraphError("workflow message delivery")
+        return message_id
+
     async def send_text_chunks(
         self, access_token: str, *, phone_number_id: str, to: str, text: str
     ) -> list[str]:
@@ -464,7 +533,11 @@ def split_whatsapp_text(value: str) -> list[str]:
     while len(remaining) > MAX_WHATSAPP_TEXT_LENGTH:
         # Reserve room to close a monospace block and reopen it in the next
         # message. Each provider message must contain its own formatting pair.
-        limit = MAX_WHATSAPP_TEXT_LENGTH - 3 if "```" in remaining[:MAX_WHATSAPP_TEXT_LENGTH + 3] else MAX_WHATSAPP_TEXT_LENGTH
+        limit = (
+            MAX_WHATSAPP_TEXT_LENGTH - 3
+            if "```" in remaining[: MAX_WHATSAPP_TEXT_LENGTH + 3]
+            else MAX_WHATSAPP_TEXT_LENGTH
+        )
         boundary = remaining.rfind("\n", 0, limit + 1)
         if boundary < MAX_WHATSAPP_TEXT_LENGTH // 2:
             boundary = remaining.rfind(" ", 0, limit + 1)

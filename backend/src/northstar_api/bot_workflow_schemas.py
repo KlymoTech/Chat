@@ -26,33 +26,50 @@ class WorkflowTemplate(APIModel):
     preview: str = Field(default="", max_length=12_000)
 
 
+class WorkflowCondition(APIModel):
+    field: Literal["message", "channel"] = "message"
+    operator: Literal["equals", "contains", "not_contains", "starts_with"] = "contains"
+    value: str = Field(min_length=1, max_length=240)
+
+
 class BotWorkflowStep(APIModel):
     id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=1, max_length=120)
-    trigger_type: Literal["command", "contains", "fallback"]
+    trigger_type: Literal["command", "contains", "condition", "fallback"]
     trigger_value: str = Field(default="", max_length=240)
-    message_format: Literal["text", "buttons", "table", "template"] = "text"
-    message: str = Field(min_length=1, max_length=12_000)
+    message_format: Literal[
+        "text",
+        "buttons",
+        "list",
+        "table",
+        "image",
+        "video",
+        "audio",
+        "document",
+        "sticker",
+        "location",
+        "contact",
+        "cta_url",
+        "flow",
+        "product",
+        "product_list",
+        "catalog",
+        "template",
+    ] = "text"
+    message: str = Field(default="", max_length=12_000)
     buttons: list[WorkflowButton] = Field(default_factory=list, max_length=3)
     table: WorkflowTable | None = None
     template: WorkflowTemplate | None = None
+    config: dict[str, object] = Field(default_factory=dict)
+    condition: WorkflowCondition | None = None
+    true_step_id: str | None = Field(default=None, max_length=80)
+    false_step_id: str | None = Field(default=None, max_length=80)
     enabled: bool = True
 
     @model_validator(mode="after")
     def validate_format(self) -> BotWorkflowStep:
-        if self.trigger_type != "fallback" and not self.trigger_value.strip():
-            raise ValueError("Command and keyword triggers require a value")
-        if self.message_format == "buttons" and not self.buttons:
-            raise ValueError("Button steps require at least one button")
         if self.message_format == "buttons" and len(self.message) > 1024:
             raise ValueError("WhatsApp button message bodies cannot exceed 1024 characters")
-        if self.message_format == "table" and (
-            not self.table or not self.table.columns or not self.table.rows
-            or any(len(row) != len(self.table.columns) for row in self.table.rows)
-        ):
-            raise ValueError("Table steps require matching columns and rows")
-        if self.message_format == "template" and not self.template:
-            raise ValueError("Template steps require an approved template selection")
         return self
 
 
@@ -70,6 +87,36 @@ class BotWorkflowSave(APIModel):
         if sum(step.trigger_type == "fallback" and step.enabled for step in steps) > 1:
             raise ValueError("Only one enabled fallback step is allowed")
         return steps
+
+    @model_validator(mode="after")
+    def validate_active_steps(self) -> BotWorkflowSave:
+        if self.status != "active":
+            return self
+        ids = {step.id for step in self.steps if step.enabled}
+        optional_body = {"audio", "sticker", "location", "contact", "product", "product_list", "catalog"}
+        for step in self.steps:
+            if not step.enabled:
+                continue
+            if step.trigger_type not in {"fallback", "condition"} and not step.trigger_value.strip():
+                raise ValueError(f"{step.name}: command and keyword triggers require a value")
+            if step.trigger_type == "condition":
+                if not step.condition or not step.true_step_id or step.true_step_id not in ids:
+                    raise ValueError(f"{step.name}: condition requires a valid true branch")
+                continue
+            if step.message_format not in optional_body and not step.message.strip():
+                raise ValueError(f"{step.name}: response message is required")
+            if step.message_format == "buttons" and not step.buttons:
+                raise ValueError(f"{step.name}: add at least one button")
+            if step.message_format == "table" and (
+                not step.table
+                or not step.table.columns
+                or not step.table.rows
+                or any(len(row) != len(step.table.columns) for row in step.table.rows)
+            ):
+                raise ValueError(f"{step.name}: table requires matching columns and rows")
+            if step.message_format == "template" and not step.template:
+                raise ValueError(f"{step.name}: select an approved template")
+        return self
 
 
 class BotWorkflowOut(BotWorkflowSave):
