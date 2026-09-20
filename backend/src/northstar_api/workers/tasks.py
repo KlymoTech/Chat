@@ -179,9 +179,7 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             if customer_message_at.tzinfo is None:
                 customer_message_at = customer_message_at.replace(tzinfo=UTC)
             now = datetime.now(UTC)
-            if customer_message_at < now - timedelta(hours=24) or customer_message_at > now + timedelta(
-                minutes=5
-            ):
+            if customer_message_at < now - timedelta(hours=24) or customer_message_at > now + timedelta(minutes=5):
                 receipt.status = "rejected"
                 receipt.last_error = "24-hour customer-service window is closed"
                 await session.commit()
@@ -199,83 +197,24 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 .order_by(Conversation.updated_at.desc())
                 .limit(1)
             )
-            try:
-                await require_capacity(session, tenant_id=receipt.tenant_id, resource="tokens")
-                if conversation is None:
-                    await require_capacity(
-                        session,
-                        tenant_id=receipt.tenant_id,
-                        resource="conversations",
-                    )
-            except EntitlementError as exc:
-                receipt.status = "rejected"
-                receipt.last_error = f"plan entitlement: {exc.code}"[:500]
-                await session.commit()
-                logger.info(
-                    "whatsapp_plan_entitlement_rejected",
-                    tenant_id=str(receipt.tenant_id),
-                    event_id=str(receipt.id),
-                    code=exc.code,
-                )
-                return
             coordinator = chat_coordinator
             from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 
-            if (
-                await get_agent_purpose(
-                    session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
-                )
-                is AgentPurpose.EDUCATION
-            ):
-                from northstar_api.education_student_identities import StudentIdentityType
+            education_mode = await get_agent_purpose(
+                session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
+            ) is AgentPurpose.EDUCATION
+            if education_mode:
+                from northstar_api.services.course_whatsapp import authorize_whatsapp_study
                 from northstar_api.services.education_chat import education_chat_coordinator
-                from northstar_api.services.education_runtime_authorization import (
-                    EducationIdentityCandidate,
-                    authorize_education_access,
-                )
-                from northstar_api.services.outbox import enqueue_event
-
-                decision = await authorize_education_access(
-                    session,
-                    tenant_id=agent.tenant_id,
-                    workspace_id=agent.workspace_id,
-                    agent=agent,
-                    identity=EducationIdentityCandidate(
-                        StudentIdentityType.WHATSAPP, "+" + receipt.sender_wa_id.lstrip("+")
-                    ),
-                )
-                enqueue_event(
-                    session,
-                    tenant_id=agent.tenant_id,
-                    aggregate_type="agent",
-                    aggregate_id=agent.id,
-                    event_type="education.access.authorized.v1"
-                    if decision.authorized
-                    else "education.access.denied.v1",
-                    payload={
-                        **decision.event_payload(),
-                        "provider": "whatsapp",
-                        "receiptId": str(receipt.id),
-                    },
-                )
-                if not decision.authorized:
-                    provider_client, access_token = await connection_client(session, connection)
-                    if not receipt.outbound_message_id:
-                        receipt.outbound_message_id = await provider_client.send_text(
-                            access_token,
-                            phone_number_id=connection.phone_number_id,
-                            to=receipt.sender_wa_id,
-                            text="Your course access is not active for this WhatsApp number. Please contact your institute to verify your number and enrollment.",
-                        )
-                        receipt.outbound_message_ids = [receipt.outbound_message_id]
-                    receipt.status = "rejected"
-                    receipt.last_error = "Education access: " + decision.reason.value
-                    await session.commit()
-                    return
                 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalSender
                 from northstar_api.lead_crm.domain import ChannelProvider
                 from northstar_api.workers.channel_event_consumer import _get_or_create_education_conversation
 
+                decision, menu_handled = await authorize_whatsapp_study(
+                    session, agent=agent, receipt=receipt, connection=connection
+                )
+                if menu_handled:
+                    return
                 event = CanonicalInboundEvent(
                     event_id=receipt.id,
                     tenant_id=receipt.tenant_id,
@@ -293,6 +232,17 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 )
                 await session.commit()
                 coordinator = education_chat_coordinator
+            try:
+                # Selection menus do not consume AI token or conversation capacity.
+                await require_capacity(session, tenant_id=receipt.tenant_id, resource="tokens")
+                if conversation is None:
+                    await require_capacity(session, tenant_id=receipt.tenant_id, resource="conversations")
+            except EntitlementError as exc:
+                receipt.status = "rejected"
+                receipt.last_error = f"plan entitlement: {exc.code}"[:500]
+                await session.commit()
+                logger.info("whatsapp_plan_entitlement_rejected", tenant_id=str(receipt.tenant_id), event_id=str(receipt.id), code=exc.code)
+                return
             prepared = await coordinator.prepare(
                 session,
                 tenant_id=receipt.tenant_id,
@@ -302,9 +252,7 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                     message=receipt.message_text,
                     conversation_id=conversation.id if conversation else None,
                     visitor_id=conversation.visitor_id if conversation else receipt.sender_wa_id,
-                    idempotency_key=(
-                        "wa:" + hashlib.sha256(receipt.provider_message_id.encode()).hexdigest()
-                    ),
+                    idempotency_key="wa:" + hashlib.sha256(receipt.provider_message_id.encode()).hexdigest(),
                 ),
                 channel=Channel.WHATSAPP,
             )
@@ -325,6 +273,9 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             chunks = split_whatsapp_text(prepared.answer)
             sent_ids = list(receipt.outbound_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
+                if education_mode:
+                    from northstar_api.services.course_whatsapp import validate_whatsapp_study_reply
+                    await validate_whatsapp_study_reply(session, agent=agent, receipt=receipt, prepared=prepared)
                 provider_id = await provider_client.send_text(
                     access_token,
                     phone_number_id=connection.phone_number_id,

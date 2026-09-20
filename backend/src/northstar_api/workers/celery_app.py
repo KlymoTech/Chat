@@ -14,6 +14,7 @@ celery_app = Celery(
     broker=settings.rabbitmq_url,
     include=[
         "northstar_api.workers.tasks",
+        "northstar_api.workers.course_knowledge_tasks",
         "northstar_api.workers.telegram_tasks",
         "northstar_api.workers.instagram_tasks",
         "northstar_api.workers.facebook_messenger_tasks",
@@ -144,6 +145,7 @@ celery_app.conf.update(
     ),
     task_routes={
         "northstar.ingest_source": {"queue": "ingest.source", "routing_key": "ingest.source"},
+        "northstar.prepare_course_assignment": {"queue": "ingest.source", "routing_key": "ingest.source"},
         "northstar.process_whatsapp_inbound": {
             "queue": "whatsapp.inbound",
             "routing_key": "whatsapp.inbound",
