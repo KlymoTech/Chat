@@ -255,10 +255,12 @@ export function InteractiveChannelWorkspace({
   agentId,
   channel,
   language,
+  testOnly = false,
 }: {
   agentId: string;
   channel: DeploymentChannel;
   language?: string;
+  testOnly?: boolean;
 }) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [mode, setMode] = useState<PreviewMode>('test');
@@ -499,10 +501,10 @@ export function InteractiveChannelWorkspace({
           <strong>{agent?.name ?? 'Northstar agent'}</strong>
           <small>{channelNames[channel]} · {status}</small>
         </div>
-        <div className="device-toggle" aria-label="Channel preview mode" style={{ flex: '0 0 auto' }}>
+        {!testOnly ? <div className="device-toggle" aria-label="Channel preview mode" style={{ flex: '0 0 auto' }}>
           <button type="button" className={mode === 'test' ? 'is-active' : ''} onClick={() => setMode('test')}>{copy.test}</button>
           <button type="button" className={mode === 'live' ? 'is-active' : ''} onClick={() => setMode('live')}>{copy.live}</button>
-        </div>
+        </div> : <small className="channel-knowledge-test-label">Trained knowledge test</small>}
         <span aria-hidden="true" style={{ color: accent }}><ChannelIcon channel={channel} /></span>
         <MoreVertical />
       </header>
