@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from northstar_api.config import Settings, get_settings
+from northstar_api.education_knowledge_lifecycle import (
+    EducationKnowledgeRelease,
+    EducationReleaseAssignment,
+)
 from northstar_api.education_knowledge_scope import EducationKnowledgeScope
 from northstar_api.metrics import RETRIEVAL_DURATION, RETRIEVAL_EVIDENCE
 from northstar_api.models import DocumentChunk, FactStatus, KnowledgeFact, KnowledgeSource
@@ -37,6 +41,8 @@ class EducationRetrievalScope:
     enrollment_id: UUID
     course_id: UUID
     batch_id: UUID
+    curriculum_id: UUID | None = None
+    paper_id: UUID | None = None
 
 
 class RetrievalService:
@@ -84,6 +90,14 @@ class RetrievalService:
                 education_scope=education_scope,
                 candidate_limit=rerank_candidates,
             )
+        if education_scope is not None:
+            evidence = await self._filter_assignment_blocks(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                scope=education_scope,
+                evidence=evidence,
+            )
         evidence = _rerank(
             evidence,
             query,
@@ -94,6 +108,106 @@ class RetrievalService:
         return evidence
 
     @staticmethod
+    def _active_release_filter(scope: EducationRetrievalScope) -> ColumnElement[bool]:
+        membership = exists(
+            select(EducationReleaseAssignment.id)
+            .join(
+                EducationKnowledgeRelease,
+                EducationKnowledgeRelease.id == EducationReleaseAssignment.release_id,
+            )
+            .where(
+                EducationReleaseAssignment.assignment_id == EducationKnowledgeScope.id,
+                EducationReleaseAssignment.assignment_revision
+                == EducationKnowledgeScope.assignment_revision,
+                EducationKnowledgeRelease.workspace_id == scope.workspace_id,
+                EducationKnowledgeRelease.course_id == scope.course_id,
+                EducationKnowledgeRelease.curriculum_id == scope.curriculum_id,
+                EducationKnowledgeRelease.status == "active",
+                EducationKnowledgeRelease.index_verified.is_(True),
+            )
+        )
+        return or_(EducationKnowledgeScope.requires_release.is_(False), membership)
+
+    @staticmethod
+    async def _filter_assignment_blocks(
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        scope: EducationRetrievalScope,
+        evidence: list[Evidence],
+    ) -> list[Evidence]:
+        """Enforce section-level grants before evidence enters model context.
+
+        The search backend applies the coarse tuple filter.  This second,
+        authoritative gate is needed for a source that contains independently
+        permissioned blocks. Missing block provenance fails closed.
+        """
+        if not evidence:
+            return []
+        conditions: list[ColumnElement[bool]] = [
+            EducationKnowledgeScope.tenant_id == tenant_id,
+            EducationKnowledgeScope.workspace_id == scope.workspace_id,
+            EducationKnowledgeScope.agent_id == agent_id,
+            EducationKnowledgeScope.course_id == scope.course_id,
+            EducationKnowledgeScope.approval_status == "published",
+            EducationKnowledgeScope.withdrawn_at.is_(None),
+            RetrievalService._active_release_filter(scope),
+            or_(
+                EducationKnowledgeScope.batch_id.is_(None),
+                EducationKnowledgeScope.batch_id == scope.batch_id,
+            ),
+        ]
+        if scope.curriculum_id is not None:
+            conditions.append(
+                or_(
+                    EducationKnowledgeScope.curriculum_id == scope.curriculum_id,
+                    (
+                        EducationKnowledgeScope.curriculum_id.is_(None)
+                        & (EducationKnowledgeScope.batch_id == scope.batch_id)
+                    ),
+                )
+            )
+        if scope.paper_id is None:
+            conditions.append(EducationKnowledgeScope.paper_id.is_(None))
+        else:
+            conditions.append(
+                or_(
+                    EducationKnowledgeScope.paper_id.is_(None),
+                    EducationKnowledgeScope.paper_id == scope.paper_id,
+                )
+            )
+        assignments = (await session.scalars(select(EducationKnowledgeScope).where(*conditions))).all()
+        by_source: dict[str, list[EducationKnowledgeScope]] = {}
+        by_fact: dict[str, list[EducationKnowledgeScope]] = {}
+        for assignment in assignments:
+            if assignment.source_id is not None:
+                by_source.setdefault(str(assignment.source_id), []).append(assignment)
+            if assignment.fact_id is not None:
+                by_fact.setdefault(str(assignment.fact_id), []).append(assignment)
+
+        allowed: list[Evidence] = []
+        for item in evidence:
+            grants = list(by_fact.get(item.entity_id, ()))
+            if item.source_id:
+                grants.extend(by_source.get(item.source_id, ()))
+            block_id = next(
+                (
+                    str(item.metadata[key])
+                    for key in ("blockId", "block_id", "sourceBlockId", "source_block_id")
+                    if item.metadata.get(key) is not None
+                ),
+                None,
+            )
+            if any(
+                not grant.selected_block_ids
+                or (block_id is not None and block_id in grant.selected_block_ids)
+                for grant in grants
+            ):
+                allowed.append(item)
+        return allowed
+
+    @staticmethod
     def _source_scope_filter(
         *,
         tenant_id: UUID,
@@ -101,16 +215,43 @@ class RetrievalService:
         source_id: Any,
         scope: EducationRetrievalScope,
     ) -> ColumnElement[bool]:
-        return exists(
-            select(EducationKnowledgeScope.id).where(
-                EducationKnowledgeScope.tenant_id == tenant_id,
-                EducationKnowledgeScope.workspace_id == scope.workspace_id,
-                EducationKnowledgeScope.agent_id == agent_id,
-                EducationKnowledgeScope.source_id == source_id,
-                EducationKnowledgeScope.course_id == scope.course_id,
+        conditions: list[ColumnElement[bool]] = [
+            EducationKnowledgeScope.tenant_id == tenant_id,
+            EducationKnowledgeScope.workspace_id == scope.workspace_id,
+            EducationKnowledgeScope.agent_id == agent_id,
+            EducationKnowledgeScope.source_id == source_id,
+            EducationKnowledgeScope.course_id == scope.course_id,
+            EducationKnowledgeScope.approval_status == "published",
+            EducationKnowledgeScope.withdrawn_at.is_(None),
+            RetrievalService._active_release_filter(scope),
+            or_(
+                EducationKnowledgeScope.batch_id.is_(None),
                 EducationKnowledgeScope.batch_id == scope.batch_id,
+            ),
+        ]
+        if scope.curriculum_id is not None:
+            conditions.append(
+                or_(
+                    EducationKnowledgeScope.curriculum_id == scope.curriculum_id,
+                    (
+                        EducationKnowledgeScope.curriculum_id.is_(None)
+                        & (EducationKnowledgeScope.batch_id == scope.batch_id)
+                    ),
+                )
             )
-        )
+        if scope.paper_id is not None:
+            conditions.append(
+                or_(
+                    EducationKnowledgeScope.paper_id.is_(None),
+                    EducationKnowledgeScope.paper_id == scope.paper_id,
+                )
+            )
+        else:
+            # A missing paper selection is deliberately *not* an "all papers"
+            # wildcard.  Only explicitly course-wide overview material is safe
+            # until the learner selects (or the tutor resolves) a paper.
+            conditions.append(EducationKnowledgeScope.paper_id.is_(None))
+        return exists(select(EducationKnowledgeScope.id).where(*conditions))
 
     @classmethod
     def _fact_scope_filter(
@@ -120,16 +261,40 @@ class RetrievalService:
         agent_id: UUID,
         scope: EducationRetrievalScope,
     ) -> ColumnElement[bool]:
-        direct = exists(
-            select(EducationKnowledgeScope.id).where(
-                EducationKnowledgeScope.tenant_id == tenant_id,
-                EducationKnowledgeScope.workspace_id == scope.workspace_id,
-                EducationKnowledgeScope.agent_id == agent_id,
-                EducationKnowledgeScope.fact_id == KnowledgeFact.id,
-                EducationKnowledgeScope.course_id == scope.course_id,
+        direct_conditions: list[ColumnElement[bool]] = [
+            EducationKnowledgeScope.tenant_id == tenant_id,
+            EducationKnowledgeScope.workspace_id == scope.workspace_id,
+            EducationKnowledgeScope.agent_id == agent_id,
+            EducationKnowledgeScope.fact_id == KnowledgeFact.id,
+            EducationKnowledgeScope.course_id == scope.course_id,
+            EducationKnowledgeScope.approval_status == "published",
+            EducationKnowledgeScope.withdrawn_at.is_(None),
+            cls._active_release_filter(scope),
+            or_(
+                EducationKnowledgeScope.batch_id.is_(None),
                 EducationKnowledgeScope.batch_id == scope.batch_id,
+            ),
+        ]
+        if scope.curriculum_id is not None:
+            direct_conditions.append(
+                or_(
+                    EducationKnowledgeScope.curriculum_id == scope.curriculum_id,
+                    (
+                        EducationKnowledgeScope.curriculum_id.is_(None)
+                        & (EducationKnowledgeScope.batch_id == scope.batch_id)
+                    ),
+                )
             )
-        )
+        if scope.paper_id is not None:
+            direct_conditions.append(
+                or_(
+                    EducationKnowledgeScope.paper_id.is_(None),
+                    EducationKnowledgeScope.paper_id == scope.paper_id,
+                )
+            )
+        else:
+            direct_conditions.append(EducationKnowledgeScope.paper_id.is_(None))
+        direct = exists(select(EducationKnowledgeScope.id).where(*direct_conditions))
         inherited = cls._source_scope_filter(
             tenant_id=tenant_id,
             agent_id=agent_id,

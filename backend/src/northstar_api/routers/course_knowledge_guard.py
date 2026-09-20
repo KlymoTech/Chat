@@ -20,6 +20,15 @@ async def education_upload_guard(agent_id: UUID, payload: KnowledgeCreate, princ
     if principal.agent_ids is not None and agent_id not in principal.agent_ids:
         raise HTTPException(404, "Agent not found")
     agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
-    if await get_agent_purpose(session, tenant_id=principal.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id) is AgentPurpose.EDUCATION:
+    if (
+        await get_agent_purpose(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
+        )
+        is AgentPurpose.EDUCATION
+        and payload.education_destination is None
+    ):
         raise HTTPException(409, "Select course and curriculum first: use /agents/{agent_id}/education-knowledge/uploads")
     return await add_knowledge(agent_id, payload, principal, session)

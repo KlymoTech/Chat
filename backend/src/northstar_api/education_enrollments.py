@@ -4,7 +4,19 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
@@ -80,12 +92,18 @@ class EducationEnrollment(Base):
     course_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("education_courses.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    curriculum_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("education_curricula.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("education_batches.id", ondelete="CASCADE"), index=True, nullable=False
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    all_papers: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    paper_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    authorization_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=EnrollmentStatus.PENDING.value)

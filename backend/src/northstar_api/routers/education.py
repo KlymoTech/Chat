@@ -140,6 +140,9 @@ async def create_course(
         workspace_id=workspace_id,
         code=payload.code,
         name=payload.name,
+        awarding_body=payload.awarding_body,
+        jurisdiction=payload.jurisdiction,
+        aliases=payload.aliases,
         description=payload.description,
         status=CourseStatus.ACTIVE.value,
     )

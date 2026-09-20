@@ -16,6 +16,7 @@ from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_enrollment_schemas import EnrollmentCreate, EnrollmentOut, EnrollmentPatch
 from northstar_api.education_enrollments import EducationEnrollment, EnrollmentStatus
+from northstar_api.education_papers import EducationPaper, PaperStatus
 from northstar_api.education_students import EducationStudent, StudentStatus
 from northstar_api.models import Agent
 from northstar_api.security import Principal
@@ -219,6 +220,44 @@ async def _validate_assignment(
     return student, course, batch, agent
 
 
+async def _validate_paper_access(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    course_id: UUID,
+    batch: EducationBatch,
+    curriculum_id: UUID | None,
+    all_papers: bool,
+    paper_ids: list[UUID],
+) -> UUID:
+    selected_curriculum_id = curriculum_id or batch.curriculum_id
+    if selected_curriculum_id is None or batch.curriculum_id != selected_curriculum_id:
+        raise HTTPException(status_code=422, detail="Enrollment Curriculum must match the selected Batch")
+    if all_papers and paper_ids:
+        raise HTTPException(status_code=422, detail="Choose all Papers or explicit Paper grants, not both")
+    if not all_papers and not paper_ids:
+        raise HTTPException(status_code=422, detail="Explicit Paper access requires at least one Paper")
+    if len(set(paper_ids)) != len(paper_ids):
+        raise HTTPException(status_code=422, detail="Enrollment Paper grants must be unique")
+    if paper_ids:
+        valid_ids = set(
+            await session.scalars(
+                select(EducationPaper.id).where(
+                    EducationPaper.id.in_(paper_ids),
+                    EducationPaper.tenant_id == tenant_id,
+                    EducationPaper.workspace_id == workspace_id,
+                    EducationPaper.course_id == course_id,
+                    EducationPaper.curriculum_id == selected_curriculum_id,
+                    EducationPaper.status == PaperStatus.ACTIVE.value,
+                )
+            )
+        )
+        if valid_ids != set(paper_ids):
+            raise HTTPException(status_code=422, detail="Every granted Paper must belong to the Enrollment Curriculum")
+    return selected_curriculum_id
+
+
 @router.get("", response_model=list[EnrollmentOut])
 async def list_enrollments(
     principal: EducationViewPrincipal,
@@ -261,7 +300,7 @@ async def create_enrollment(
     session: DB,
 ) -> EnrollmentOut:
     workspace_id = _workspace_id(principal)
-    await _validate_assignment(
+    _, _, batch, _ = await _validate_assignment(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
@@ -271,14 +310,27 @@ async def create_enrollment(
         agent_id=payload.agent_id,
         require_active_domain=True,
     )
+    curriculum_id = await _validate_paper_access(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        course_id=payload.course_id,
+        batch=batch,
+        curriculum_id=payload.curriculum_id,
+        all_papers=payload.all_papers,
+        paper_ids=payload.paper_ids,
+    )
     _validate_date_range(payload.starts_on, payload.ends_on)
     enrollment = EducationEnrollment(
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
         student_id=payload.student_id,
         course_id=payload.course_id,
+        curriculum_id=curriculum_id,
         batch_id=payload.batch_id,
         agent_id=payload.agent_id,
+        all_papers=payload.all_papers,
+        paper_ids=[str(item) for item in payload.paper_ids],
         starts_on=payload.starts_on,
         ends_on=payload.ends_on,
         status=payload.status.value,
@@ -353,7 +405,7 @@ async def update_enrollment(
     next_status = payload.status or current_status
     _validate_transition(current_status, next_status)
 
-    assignment_fields = {"course_id", "batch_id", "agent_id"}
+    assignment_fields = {"course_id", "curriculum_id", "batch_id", "agent_id"}
     assignment_changed = any(
         field_name in payload.model_fields_set
         and getattr(payload, field_name) is not None
@@ -369,12 +421,25 @@ async def update_enrollment(
     next_course_id = payload.course_id or enrollment.course_id
     next_batch_id = payload.batch_id or enrollment.batch_id
     next_agent_id = payload.agent_id or enrollment.agent_id
+    next_curriculum_id = (
+        payload.curriculum_id
+        if payload.curriculum_id is not None
+        else None
+        if assignment_changed
+        else enrollment.curriculum_id
+    )
+    next_all_papers = payload.all_papers if payload.all_papers is not None else enrollment.all_papers
+    next_paper_ids = (
+        payload.paper_ids
+        if payload.paper_ids is not None
+        else [UUID(value) for value in enrollment.paper_ids]
+    )
     next_starts_on = payload.starts_on if "starts_on" in payload.model_fields_set else enrollment.starts_on
     next_ends_on = payload.ends_on if "ends_on" in payload.model_fields_set else enrollment.ends_on
     _validate_date_range(next_starts_on, next_ends_on)
 
     if next_status in _NON_TERMINAL or assignment_changed:
-        await _validate_assignment(
+        _, _, next_batch, _ = await _validate_assignment(
             session,
             tenant_id=principal.tenant_id,
             workspace_id=workspace_id,
@@ -383,6 +448,16 @@ async def update_enrollment(
             batch_id=next_batch_id,
             agent_id=next_agent_id,
             require_active_domain=next_status in _NON_TERMINAL,
+        )
+        next_curriculum_id = await _validate_paper_access(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            course_id=next_course_id,
+            batch=next_batch,
+            curriculum_id=next_curriculum_id,
+            all_papers=next_all_papers,
+            paper_ids=next_paper_ids,
         )
 
     changed_fields: list[str] = []
@@ -394,13 +469,22 @@ async def update_enrollment(
             if value is None:
                 continue
             value = value.value
+        elif field_name == "paper_ids":
+            value = [str(item) for item in (value or [])]
         if getattr(enrollment, field_name) == value:
             continue
         setattr(enrollment, field_name, value)
         changed_fields.append(field_name)
 
+    if enrollment.curriculum_id != next_curriculum_id:
+        enrollment.curriculum_id = next_curriculum_id
+        if "curriculum_id" not in changed_fields:
+            changed_fields.append("curriculum_id")
+
     if not changed_fields:
         return _enrollment_out(enrollment)
+
+    enrollment.authorization_revision += 1
 
     status_changed = enrollment.status != current_status.value
     event_type = (

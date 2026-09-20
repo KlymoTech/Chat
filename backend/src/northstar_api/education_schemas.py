@@ -26,9 +26,27 @@ def _normalize_name(value: str) -> str:
     return normalized
 
 
+def _normalize_aliases(values: list[str]) -> list[str]:
+    aliases: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = " ".join(raw.strip().split())
+        if not value:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        aliases.append(value)
+    return aliases
+
+
 class CourseCreate(APIModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=2, max_length=160)
+    awarding_body: str = Field(default="", max_length=160)
+    jurisdiction: str = Field(default="", max_length=80)
+    aliases: list[str] = Field(default_factory=list, max_length=30)
     description: str = Field(default="", max_length=2000)
 
     @field_validator("code")
@@ -46,10 +64,23 @@ class CourseCreate(APIModel):
     def normalize_description(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("awarding_body", "jurisdiction")
+    @classmethod
+    def normalize_optional_text(cls, value: str) -> str:
+        return " ".join(value.strip().split())
+
+    @field_validator("aliases")
+    @classmethod
+    def normalize_aliases(cls, values: list[str]) -> list[str]:
+        return _normalize_aliases(values)
+
 
 class CoursePatch(APIModel):
     code: str | None = Field(default=None, min_length=1, max_length=40)
     name: str | None = Field(default=None, min_length=2, max_length=160)
+    awarding_body: str | None = Field(default=None, max_length=160)
+    jurisdiction: str | None = Field(default=None, max_length=80)
+    aliases: list[str] | None = Field(default=None, max_length=30)
     description: str | None = Field(default=None, max_length=2000)
     status: CourseStatus | None = None
 
@@ -68,6 +99,16 @@ class CoursePatch(APIModel):
     def normalize_description(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else None
 
+    @field_validator("awarding_body", "jurisdiction")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        return " ".join(value.strip().split()) if value is not None else None
+
+    @field_validator("aliases")
+    @classmethod
+    def normalize_aliases(cls, values: list[str] | None) -> list[str] | None:
+        return _normalize_aliases(values) if values is not None else None
+
 
 class CourseOut(APIModel):
     id: UUID
@@ -75,6 +116,9 @@ class CourseOut(APIModel):
     workspace_id: UUID
     code: str
     name: str
+    awarding_body: str
+    jurisdiction: str
+    aliases: list[str]
     description: str
     status: CourseStatus
     created_at: datetime

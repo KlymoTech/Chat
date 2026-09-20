@@ -51,6 +51,7 @@ class StudentCreate(APIModel):
     email: EmailStr | None = None
     whatsapp_number: str | None = Field(default=None, max_length=40)
     whatsapp_verified: bool = False
+    preferred_language: str = Field(default="English", min_length=2, max_length=80)
 
     @field_validator("whatsapp_number")
     @classmethod
@@ -86,10 +87,16 @@ class StudentCreate(APIModel):
     def valid_custom_fields(cls, value: dict[str, Any]) -> dict[str, Any]:
         return _normalize_custom_fields(value)
 
+    @field_validator("preferred_language")
+    @classmethod
+    def normalize_language(cls, value: str) -> str:
+        return " ".join(value.strip().split())
+
 
 class StudentPatch(APIModel):
     whatsapp_number: str | None = Field(default=None, max_length=40)
     whatsapp_verified: bool = False
+    preferred_language: str | None = Field(default=None, min_length=2, max_length=80)
     valid_whatsapp = field_validator("whatsapp_number")(StudentCreate.valid_whatsapp.__func__)
 
     student_number: str | None = Field(default=None, min_length=1, max_length=80)
@@ -118,6 +125,11 @@ class StudentPatch(APIModel):
     def valid_custom_fields(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
         return _normalize_custom_fields(value) if value is not None else None
 
+    @field_validator("preferred_language")
+    @classmethod
+    def normalize_language(cls, value: str | None) -> str | None:
+        return " ".join(value.strip().split()) if value is not None else None
+
 
 class StudentOut(APIModel):
     whatsapp_number: str | None = None
@@ -128,6 +140,7 @@ class StudentOut(APIModel):
     student_number: str
     name: str
     email: EmailStr | None
+    preferred_language: str
     custom_fields: dict[str, Any]
     status: StudentStatus
     created_at: datetime

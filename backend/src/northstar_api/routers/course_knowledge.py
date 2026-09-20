@@ -9,9 +9,10 @@ import hashlib
 import io
 import json
 import zipfile
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import Annotated, Any, Callable
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -25,16 +26,37 @@ from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.course_knowledge_dispatch import CourseIndexDispatch
 from northstar_api.course_knowledge_models import (
-    CourseAcademicReview, CourseBatchCurriculum, CourseCurriculum,
-    CourseDerivedArtifact, CourseEnrollmentAccess, CourseIndexEntry,
-    CourseKnowledgeRelease, CourseMaterialAssignment, CoursePaper,
-    CourseReleaseHead, CourseSourceVersion, CourseStudySelection, CourseUploadIntent,
+    CourseAcademicReview,
+    CourseBatchCurriculum,
+    CourseCurriculum,
+    CourseDerivedArtifact,
+    CourseEnrollmentAccess,
+    CourseIndexEntry,
+    CourseKnowledgeRelease,
+    CourseMaterialAssignment,
+    CoursePaper,
+    CourseReleaseHead,
+    CourseSourceVersion,
+    CourseStudySelection,
+    CourseUploadIntent,
 )
 from northstar_api.course_knowledge_schemas import (
-    AcademicReviewResolution, Approval, ArtifactGenerate, ArtifactReview,
-    AssignmentSave, BatchCurriculum, CurriculumCreate, EnrollmentAccess,
-    IndexRequest, PaperCreate, PreviewRequest, PublishRequest, ReleaseCreate,
-    UploadCreate, Withdrawal, camel,
+    AcademicReviewResolution,
+    Approval,
+    ArtifactGenerate,
+    ArtifactReview,
+    AssignmentSave,
+    BatchCurriculum,
+    CurriculumCreate,
+    EnrollmentAccess,
+    IndexRequest,
+    PaperCreate,
+    PreviewRequest,
+    PublishRequest,
+    ReleaseCreate,
+    UploadCreate,
+    Withdrawal,
+    camel,
 )
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
@@ -45,15 +67,34 @@ from northstar_api.models import IngestionJob, JobStatus, KnowledgeKind, Knowled
 from northstar_api.routers.agents import scoped_agent
 from northstar_api.security import Principal
 from northstar_api.services.course_knowledge import (
-    Boundary, _serialize, approve_assignment, artifact_digest, assignment_audience,
-    assignment_digest, authorized_entries, candidate_release, entry_evidence,
-    invalidate_head, prepare_assignment_index, publish_release, release_head,
-    resolve_context, retrieve_course_evidence, save_assignment, scoped_row,
-    snapshot_source, validate_destination, withdraw_assignment, withdraw_source,
+    Boundary,
+    _serialize,
+    approve_assignment,
+    artifact_digest,
+    assignment_audience,
+    assignment_digest,
+    authorized_entries,
+    candidate_release,
+    entry_evidence,
+    prepare_assignment_index,
+    publish_release,
+    release_head,
+    resolve_context,
+    retrieve_course_evidence,
+    save_assignment,
+    scoped_row,
+    snapshot_source,
+    validate_destination,
+    withdraw_assignment,
+    withdraw_source,
 )
 from northstar_api.services.course_knowledge_policy import (
-    KnowledgePolicyError, audience_intersection, canonical_blocks, extraction_text,
-    fingerprint, selected_blocks,
+    KnowledgePolicyError,
+    audience_intersection,
+    canonical_blocks,
+    extraction_text,
+    fingerprint,
+    selected_blocks,
 )
 from northstar_api.services.ingestion import ingest_source_async
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store

@@ -276,6 +276,102 @@ async def test_education_knowledge_scope_api_validates_course_batch_and_agent_pu
     assert rejected.status_code == 409, rejected.text
 
 
+async def test_course_aware_upload_requires_approved_active_release(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    workspace_id, headers = await _workspace_headers(client, auth_headers)
+    seed = uuid.uuid4().hex[:8].upper()
+    course, batch = await _course_batch(client, headers, seed)
+    agent = await _education_agent(client, headers, seed)
+
+    created = await client.post(
+        f"/api/v1/agents/{agent['id']}/knowledge",
+        headers=headers,
+        json={
+            "name": f"Course-aware source {seed}",
+            "kind": "text",
+            "content": "alpha release-gated education evidence",
+            "educationDestination": {
+                "courseId": course["id"],
+                "curriculumId": batch["curriculumId"],
+                "batchId": batch["id"],
+                "materialType": "notes",
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    source_id = created.json()["id"]
+
+    scopes = await client.get(
+        f"/api/v1/knowledge/{source_id}/education-scopes",
+        headers=headers,
+    )
+    assert scopes.status_code == 200, scopes.text
+    assignment = scopes.json()[0]
+    assert assignment["approvalStatus"] == "draft"
+    assert assignment["requiresRelease"] is True
+    assert assignment["sourceVersionId"] is not None
+
+    stale = await client.post(
+        f"/api/v1/knowledge/education-assignments/{assignment['id']}/approve",
+        headers=headers,
+        json={"extractionRevision": 2, "mappingRevision": 1},
+    )
+    assert stale.status_code == 409, stale.text
+
+    approved = await client.post(
+        f"/api/v1/knowledge/education-assignments/{assignment['id']}/approve",
+        headers=headers,
+        json={"extractionRevision": 1, "mappingRevision": 1},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["approvalStatus"] == "approved"
+
+    release = await client.post(
+        "/api/v1/education/knowledge/releases",
+        headers=headers,
+        json={
+            "agentId": agent["id"],
+            "courseId": course["id"],
+            "curriculumId": batch["curriculumId"],
+            "assignmentIds": [assignment["id"]],
+        },
+    )
+    assert release.status_code == 201, release.text
+    assert release.json()["status"] == "candidate"
+
+    activated = await client.post(
+        f"/api/v1/education/knowledge/releases/{release.json()['id']}/activate",
+        headers=headers,
+        json={"indexVerified": True},
+    )
+    assert activated.status_code == 200, activated.text
+    assert activated.json()["status"] == "active"
+
+    async with SessionFactory() as session:
+        agent_model = await session.scalar(select(Agent).where(Agent.id == uuid.UUID(agent["id"])))
+        assert agent_model is not None
+        results = await RetrievalService(
+            model=FakeEmbeddingModel(), settings=get_settings()  # type: ignore[arg-type]
+        ).retrieve(
+            session,
+            tenant_id=agent_model.tenant_id,
+            agent_id=agent_model.id,
+            revision=1,
+            query="alpha",
+            education_scope=EducationRetrievalScope(
+                workspace_id=uuid.UUID(workspace_id),
+                student_id=uuid.uuid4(),
+                enrollment_id=uuid.uuid4(),
+                course_id=uuid.UUID(course["id"]),
+                batch_id=uuid.UUID(batch["id"]),
+                curriculum_id=uuid.UUID(batch["curriculumId"]),
+            ),
+        )
+    assert source_id in {item.source_id for item in results}
+
+
 async def test_existing_retrieval_filters_chunks_and_facts_by_education_scope(
     client: AsyncClient,
     auth_headers: dict[str, str],

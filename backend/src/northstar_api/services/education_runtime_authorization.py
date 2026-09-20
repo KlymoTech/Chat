@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_enrollments import EducationEnrollment, EnrollmentStatus
 from northstar_api.education_student_identities import StudentIdentityType
+from northstar_api.education_tutor import EducationTutorContext
 from northstar_api.lead_crm.channels import CanonicalInboundEvent
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.models import Agent, AgentStatus
@@ -33,6 +35,8 @@ class EducationAccessReason(str, enum.Enum):
     AGENT_NOT_EDUCATION = "agent_not_education"
     ENROLLMENT_NOT_FOUND = "enrollment_not_found"
     ENROLLMENT_AMBIGUOUS = "enrollment_ambiguous"
+    ENROLLMENT_CONFIGURATION_CONFLICT = "enrollment_configuration_conflict"
+    COURSE_NOT_ENROLLED = "course_not_enrolled"
     ENROLLMENT_PENDING = "enrollment_pending"
     ENROLLMENT_SUSPENDED = "enrollment_suspended"
     ENROLLMENT_EXPIRED = "enrollment_expired"
@@ -201,6 +205,7 @@ async def authorize_education_access(
     workspace_id: UUID,
     agent: Agent,
     identity: EducationIdentityCandidate,
+    message: str | None = None,
     as_of: date | None = None,
 ) -> EducationAccessDecision:
     """Resolve a verified Student and one currently valid Enrollment for an Agent."""
@@ -295,7 +300,115 @@ async def authorize_education_access(
         if first_denial is None:
             first_denial = (enrollment, reason)
 
+    context = await session.scalar(
+        select(EducationTutorContext).where(
+            EducationTutorContext.tenant_id == tenant_id,
+            EducationTutorContext.workspace_id == workspace_id,
+            EducationTutorContext.agent_id == agent.id,
+            EducationTutorContext.student_id == student_identity.student_id,
+        )
+    )
+    if context is None:
+        context = EducationTutorContext(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            agent_id=agent.id,
+            student_id=student_identity.student_id,
+        )
+        session.add(context)
+        await session.flush()
+
+    if len({item.course_id for item in valid}) != len(valid):
+        return _decision(
+            authorized=False,
+            reason=EducationAccessReason.ENROLLMENT_CONFIGURATION_CONFLICT,
+            agent=agent,
+            identity_id=student_identity.id,
+            student_id=student_identity.student_id,
+        )
+
+    selected: EducationEnrollment | None = None
+    normalized_message = " ".join((message or "").casefold().split())
+
+    # A number is meaningful only while a persisted course menu is active.
+    if normalized_message.isdigit() and context.pending_enrollment_ids:
+        option = int(normalized_message)
+        if 1 <= option <= len(context.pending_enrollment_ids):
+            selected_id = UUID(context.pending_enrollment_ids[option - 1])
+            selected = next((item for item in valid if item.id == selected_id), None)
+
+    courses = (
+        await session.scalars(
+            select(EducationCourse).where(
+                EducationCourse.tenant_id == tenant_id,
+                EducationCourse.workspace_id == workspace_id,
+                EducationCourse.status == CourseStatus.ACTIVE.value,
+            )
+        )
+    ).all()
+    requested_course: EducationCourse | None = None
+    if normalized_message and selected is None:
+        matches: list[EducationCourse] = []
+        for course in courses:
+            aliases = {course.code.casefold(), course.name.casefold()}
+            aliases.update(str(alias).casefold().strip() for alias in course.aliases)
+            for alias in sorted((value for value in aliases if value), key=len, reverse=True):
+                match = re.search(rf"(?<![\w-]){re.escape(alias)}(?![\w-])", normalized_message)
+                if match is not None and not re.search(r"\bnot\s+$", normalized_message[: match.start()]):
+                    matches.append(course)
+                    break
+        unique_matches = {item.id: item for item in matches}
+        if len(unique_matches) == 1:
+            requested_course = next(iter(unique_matches.values()))
+            matching_enrollments = [item for item in valid if item.course_id == requested_course.id]
+            if len(matching_enrollments) > 1:
+                return _decision(
+                    authorized=False,
+                    reason=EducationAccessReason.ENROLLMENT_CONFIGURATION_CONFLICT,
+                    agent=agent,
+                    identity_id=student_identity.id,
+                    student_id=student_identity.student_id,
+                )
+            selected = matching_enrollments[0] if matching_enrollments else None
+            if not matching_enrollments:
+                context.pending_enrollment_ids = []
+                return _decision(
+                    authorized=False,
+                    reason=EducationAccessReason.COURSE_NOT_ENROLLED,
+                    agent=agent,
+                    identity_id=student_identity.id,
+                    student_id=student_identity.student_id,
+                )
+
+    if selected is None and len(valid) == 1:
+        selected = valid[0]
+    force_course_menu = normalized_message in {"courses", "switch course", "switch courses"}
+    if selected is None and context.active_enrollment_id is not None and not force_course_menu:
+        selected = next((item for item in valid if item.id == context.active_enrollment_id), None)
+    if selected is not None:
+        if context.active_enrollment_id != selected.id:
+            context.active_paper_id = None
+        context.active_enrollment_id = selected.id
+        context.pending_enrollment_ids = []
+        context.interaction_state = "ready_for_question"
+        context.selection_revision += 1
+        context.selected_at = datetime.now(UTC)
+        await session.flush()
+        return _decision(
+            authorized=True,
+            reason=EducationAccessReason.AUTHORIZED,
+            agent=agent,
+            identity_id=student_identity.id,
+            student_id=student_identity.student_id,
+            enrollment=selected,
+        )
+
     if len(valid) > 1:
+        context.pending_enrollment_ids = [str(item.id) for item in valid]
+        context.interaction_state = "awaiting_course_selection"
+        if normalized_message not in {"courses", "switch course", "switch courses"}:
+            context.pending_question = message
+        await session.flush()
         return _decision(
             authorized=False,
             reason=EducationAccessReason.ENROLLMENT_AMBIGUOUS,
@@ -303,17 +416,6 @@ async def authorize_education_access(
             identity_id=student_identity.id,
             student_id=student_identity.student_id,
         )
-    if len(valid) == 1:
-        enrollment = valid[0]
-        return _decision(
-            authorized=True,
-            reason=EducationAccessReason.AUTHORIZED,
-            agent=agent,
-            identity_id=student_identity.id,
-            student_id=student_identity.student_id,
-            enrollment=enrollment,
-        )
-
     enrollment, reason = first_denial or (
         enrollments[0],
         EducationAccessReason.ENROLLMENT_NOT_FOUND,
@@ -326,3 +428,71 @@ async def authorize_education_access(
         student_id=student_identity.student_id,
         enrollment=enrollment,
     )
+
+
+async def education_course_menu(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    agent_id: UUID,
+    student_id: UUID,
+) -> str:
+    """Render the persisted menu snapshot without rebuilding its option ordering."""
+    context = await session.scalar(
+        select(EducationTutorContext).where(
+            EducationTutorContext.tenant_id == tenant_id,
+            EducationTutorContext.workspace_id == workspace_id,
+            EducationTutorContext.agent_id == agent_id,
+            EducationTutorContext.student_id == student_id,
+        )
+    )
+    if context is None or not context.pending_enrollment_ids:
+        return "Your course list changed. Send “courses” to refresh it."
+    enrollment_ids = [UUID(value) for value in context.pending_enrollment_ids]
+    rows = (
+        await session.execute(
+            select(EducationEnrollment.id, EducationCourse.name)
+            .join(EducationCourse, EducationCourse.id == EducationEnrollment.course_id)
+            .where(
+                EducationEnrollment.id.in_(enrollment_ids),
+                EducationEnrollment.tenant_id == tenant_id,
+                EducationEnrollment.workspace_id == workspace_id,
+                EducationEnrollment.agent_id == agent_id,
+                EducationEnrollment.student_id == student_id,
+            )
+        )
+    ).all()
+    names = {enrollment_id: name for enrollment_id, name in rows}
+    options = [
+        f"{index}. {names[enrollment_id]}"
+        for index, enrollment_id in enumerate(enrollment_ids, start=1)
+        if enrollment_id in names
+    ]
+    return "Welcome back. Your active courses are:\n\n" + "\n".join(options) + "\n\nReply with a number or course name."
+
+
+async def consume_pending_education_question(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    agent_id: UUID,
+    student_id: UUID,
+) -> str | None:
+    context = await session.scalar(
+        select(EducationTutorContext)
+        .where(
+            EducationTutorContext.tenant_id == tenant_id,
+            EducationTutorContext.workspace_id == workspace_id,
+            EducationTutorContext.agent_id == agent_id,
+            EducationTutorContext.student_id == student_id,
+        )
+        .with_for_update()
+    )
+    if context is None or context.pending_question is None:
+        return None
+    question = context.pending_question.strip()
+    context.pending_question = None
+    await session.flush()
+    return question or None

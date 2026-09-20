@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from northstar_api.education_enrollments import EnrollmentStatus
 from northstar_api.schemas import APIModel
@@ -14,6 +14,9 @@ class EnrollmentCreate(APIModel):
     course_id: UUID
     batch_id: UUID
     agent_id: UUID
+    curriculum_id: UUID | None = None
+    all_papers: bool = True
+    paper_ids: list[UUID] = Field(default_factory=list)
     starts_on: date | None = None
     ends_on: date | None = None
     status: EnrollmentStatus = EnrollmentStatus.PENDING
@@ -29,6 +32,9 @@ class EnrollmentPatch(APIModel):
     course_id: UUID | None = None
     batch_id: UUID | None = None
     agent_id: UUID | None = None
+    curriculum_id: UUID | None = None
+    all_papers: bool | None = None
+    paper_ids: list[UUID] | None = None
     starts_on: date | None = None
     ends_on: date | None = None
     status: EnrollmentStatus | None = None
@@ -40,8 +46,12 @@ class EnrollmentOut(APIModel):
     workspace_id: UUID
     student_id: UUID
     course_id: UUID
+    curriculum_id: UUID | None
     batch_id: UUID
     agent_id: UUID
+    all_papers: bool
+    paper_ids: list[UUID]
+    authorization_revision: int
     starts_on: date | None
     ends_on: date | None
     status: EnrollmentStatus

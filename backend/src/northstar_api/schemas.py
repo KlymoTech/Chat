@@ -249,12 +249,23 @@ class AgentOut(APIModel):
     security: AgentSecurity
 
 
+class EducationKnowledgeDestination(APIModel):
+    course_id: UUID
+    curriculum_id: UUID
+    paper_id: UUID | None = None
+    batch_id: UUID | None = None
+    material_type: str = Field(default="notes", min_length=1, max_length=40)
+    language: str = Field(default="English", min_length=1, max_length=80)
+
+
 class KnowledgeCreate(APIModel):
     name: str = Field(min_length=1, max_length=240)
     kind: KnowledgeKind
     url: HttpUrl | None = None
     content: str | None = Field(default=None, max_length=2_000_000)
     object_key: str | None = Field(default=None, max_length=1000)
+    education_destination: EducationKnowledgeDestination | None = None
+    unassigned_inbox: bool = False
 
     @field_validator("content")
     @classmethod

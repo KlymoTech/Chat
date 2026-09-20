@@ -58,6 +58,11 @@ class EducationBatch(Base):
     course_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("education_courses.id", ondelete="RESTRICT"), index=True, nullable=False
     )
+    # Nullable only for backward compatibility with direct legacy fixtures. All
+    # API-created batches are attached to a curriculum.
+    curriculum_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("education_curricula.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     code: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")

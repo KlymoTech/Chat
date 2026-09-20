@@ -16,6 +16,7 @@ from northstar_api.services.education_runtime_authorization import (
     EducationAccessReason,
     EducationIdentityCandidate,
     authorize_education_access,
+    consume_pending_education_question,
     identity_candidate_for_event,
 )
 
@@ -453,8 +454,60 @@ async def test_enrollment_statuses_and_ambiguity_fail_closed(
             workspace_id=uuid.UUID(workspace_id),
             agent=agent_model,
             identity=EducationIdentityCandidate(StudentIdentityType.WEBSITE_LOGIN, "student.auth3001"),
+            message="Explain revenue recognition",
             as_of=date(2026, 9, 10),
         )
+        await session.commit()
     assert ambiguous.authorized is False
     assert ambiguous.reason is EducationAccessReason.ENROLLMENT_AMBIGUOUS
     assert ambiguous.enrollment_id is None
+
+    async with SessionFactory() as session:
+        selected = await authorize_education_access(
+            session,
+            tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id),
+            agent=agent_model,
+            identity=EducationIdentityCandidate(StudentIdentityType.WEBSITE_LOGIN, "student.auth3001"),
+            message="AUTH-STATUS-2",
+            as_of=date(2026, 9, 10),
+        )
+        await session.commit()
+        pending_question = await consume_pending_education_question(
+            session,
+            tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id),
+            agent_id=agent_model.id,
+            student_id=selected.student_id,
+        )
+        await session.commit()
+    assert selected.authorized is True
+    assert selected.enrollment_id == uuid.UUID(second["id"])
+    assert pending_question == "Explain revenue recognition"
+
+    async with SessionFactory() as session:
+        remembered = await authorize_education_access(
+            session,
+            tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id),
+            agent=agent_model,
+            identity=EducationIdentityCandidate(StudentIdentityType.WEBSITE_LOGIN, "student.auth3001"),
+            message="Explain this more simply",
+            as_of=date(2026, 9, 10),
+        )
+    assert remembered.authorized is True
+    assert remembered.enrollment_id == selected.enrollment_id
+
+    course_three = await _create_course(client, headers, "AUTH-NOT-ENROLLED")
+    async with SessionFactory() as session:
+        denied_course = await authorize_education_access(
+            session,
+            tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id),
+            agent=agent_model,
+            identity=EducationIdentityCandidate(StudentIdentityType.WEBSITE_LOGIN, "student.auth3001"),
+            message=course_three["code"],
+            as_of=date(2026, 9, 10),
+        )
+    assert denied_course.authorized is False
+    assert denied_course.reason is EducationAccessReason.COURSE_NOT_ENROLLED

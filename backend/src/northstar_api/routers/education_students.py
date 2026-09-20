@@ -184,6 +184,7 @@ async def create_student(
         student_number=payload.student_number,
         name=payload.name,
         email=str(payload.email) if payload.email is not None else None,
+        preferred_language=payload.preferred_language,
         custom_fields=payload.custom_fields,
         status=StudentStatus.ACTIVE.value,
     )

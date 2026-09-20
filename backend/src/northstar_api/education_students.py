@@ -51,6 +51,7 @@ class EducationStudent(Base):
     student_number: Mapped[str] = mapped_column(String(80), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    preferred_language: Mapped[str] = mapped_column(String(80), nullable=False, default="English")
     custom_fields: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=StudentStatus.ACTIVE.value)
     created_at: Mapped[datetime] = mapped_column(

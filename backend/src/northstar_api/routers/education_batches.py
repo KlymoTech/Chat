@@ -14,7 +14,9 @@ from northstar_api.dependencies import require_permissions
 from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batch_schemas import BatchCreate, BatchOut, BatchPatch
 from northstar_api.education_batches import BatchStatus, EducationBatch
+from northstar_api.education_curricula import CurriculumStatus, EducationCurriculum
 from northstar_api.security import Principal
+from northstar_api.services.education_catalog import ensure_default_curriculum
 from northstar_api.services.education_enrollment import has_non_terminal_enrollment
 from northstar_api.services.outbox import enqueue_event
 
@@ -69,6 +71,38 @@ async def _scoped_batch(
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch not found")
     return batch
+
+
+async def _resolve_curriculum(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    course_id: UUID,
+    curriculum_id: UUID | None,
+) -> EducationCurriculum:
+    if curriculum_id is None:
+        return await ensure_default_curriculum(
+            session,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            course_id=course_id,
+        )
+    curriculum = await session.scalar(
+        select(EducationCurriculum).where(
+            EducationCurriculum.id == curriculum_id,
+            EducationCurriculum.tenant_id == tenant_id,
+            EducationCurriculum.workspace_id == workspace_id,
+            EducationCurriculum.course_id == course_id,
+            EducationCurriculum.status == CurriculumStatus.ACTIVE.value,
+        )
+    )
+    if curriculum is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Curriculum must be active and belong to the selected Course",
+        )
+    return curriculum
 
 
 async def _ensure_batch_has_no_live_enrollments(
@@ -149,10 +183,18 @@ async def create_batch(
         course_id=payload.course_id,
         require_active=True,
     )
+    curriculum = await _resolve_curriculum(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        course_id=payload.course_id,
+        curriculum_id=payload.curriculum_id,
+    )
     batch = EducationBatch(
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
         course_id=payload.course_id,
+        curriculum_id=curriculum.id,
         code=payload.code,
         name=payload.name,
         description=payload.description,
@@ -179,6 +221,7 @@ async def create_batch(
             "batchId": str(batch.id),
             "workspaceId": str(workspace_id),
             "courseId": str(batch.course_id),
+            "curriculumId": str(batch.curriculum_id),
             "code": batch.code,
             "name": batch.name,
         },

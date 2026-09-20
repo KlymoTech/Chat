@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_enabled: bool = False
     background_dispatch_enabled: bool = False
+    education_multi_course_enabled: bool = True
 
     s3_endpoint_url: str | None = None
     s3_public_endpoint_url: str | None = None

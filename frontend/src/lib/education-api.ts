@@ -21,6 +21,7 @@ export interface EducationBatch {
   tenantId: string;
   workspaceId: string;
   courseId: string;
+  curriculumId?: string | null;
   code: string;
   name: string;
   description: string;

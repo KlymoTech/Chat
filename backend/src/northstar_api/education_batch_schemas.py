@@ -28,6 +28,7 @@ def _normalize_name(value: str) -> str:
 
 class BatchCreate(APIModel):
     course_id: UUID
+    curriculum_id: UUID | None = None
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(min_length=2, max_length=160)
     description: str = Field(default="", max_length=2000)
@@ -85,6 +86,7 @@ class BatchOut(APIModel):
     tenant_id: UUID
     workspace_id: UUID
     course_id: UUID
+    curriculum_id: UUID | None
     code: str
     name: str
     description: str

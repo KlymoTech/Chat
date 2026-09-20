@@ -9,7 +9,9 @@ from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_conversation_context import EducationConversationContext
+from northstar_api.education_curricula import CurriculumStatus, EducationCurriculum
 from northstar_api.education_enrollments import EducationEnrollment, EnrollmentStatus
+from northstar_api.education_papers import EducationPaper, PaperStatus
 from northstar_api.education_students import EducationStudent, StudentStatus
 from northstar_api.models import Agent, AgentStatus
 from northstar_api.services.retrieval import EducationRetrievalScope
@@ -109,6 +111,37 @@ async def authorized_education_retrieval_scope(
     if batch is None:
         raise EducationRagAccessDenied("batch_inactive")
 
+    curriculum_id = context.curriculum_id or batch.curriculum_id
+    if enrollment.curriculum_id is not None and curriculum_id != enrollment.curriculum_id:
+        raise EducationRagAccessDenied("curriculum_not_authorized")
+    if curriculum_id is not None:
+        curriculum = await session.scalar(
+            select(EducationCurriculum).where(
+                EducationCurriculum.id == curriculum_id,
+                EducationCurriculum.tenant_id == tenant_id,
+                EducationCurriculum.workspace_id == workspace_id,
+                EducationCurriculum.course_id == context.course_id,
+                EducationCurriculum.status == CurriculumStatus.ACTIVE.value,
+            )
+        )
+        if curriculum is None:
+            raise EducationRagAccessDenied("curriculum_inactive")
+    if context.paper_id is not None:
+        paper = await session.scalar(
+            select(EducationPaper).where(
+                EducationPaper.id == context.paper_id,
+                EducationPaper.tenant_id == tenant_id,
+                EducationPaper.workspace_id == workspace_id,
+                EducationPaper.course_id == context.course_id,
+                EducationPaper.curriculum_id == curriculum_id,
+                EducationPaper.status == PaperStatus.ACTIVE.value,
+            )
+        )
+        if paper is None:
+            raise EducationRagAccessDenied("paper_inactive")
+        if not enrollment.all_papers and str(context.paper_id) not in enrollment.paper_ids:
+            raise EducationRagAccessDenied("paper_not_authorized")
+
     today = await workspace_today(session, tenant_id=tenant_id, workspace_id=workspace_id)
     if batch.starts_on is not None and today < batch.starts_on:
         raise EducationRagAccessDenied("batch_not_started")
@@ -125,4 +158,6 @@ async def authorized_education_retrieval_scope(
         enrollment_id=context.enrollment_id,
         course_id=context.course_id,
         batch_id=context.batch_id,
+        curriculum_id=curriculum_id,
+        paper_id=context.paper_id,
     )

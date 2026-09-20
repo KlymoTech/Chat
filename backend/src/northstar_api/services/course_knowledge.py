@@ -15,15 +15,31 @@ from sqlalchemy import Float, bindparam, func, or_, select, text, type_coerce, u
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.course_knowledge_models import (
-    CourseAcademicReview, CourseBatchCurriculum, CourseCurriculum,
-    CourseDerivedArtifact, CourseEnrollmentAccess, CourseIndexEntry,
-    CourseKnowledgeRelease, CourseMaterialAssignment, CoursePaper,
-    CourseReleaseHead, CourseReleaseMember, CourseSourceVersion,
+    CourseBatchCurriculum,
+    CourseCurriculum,
+    CourseDerivedArtifact,
+    CourseEnrollmentAccess,
+    CourseIndexEntry,
+    CourseKnowledgeRelease,
+    CourseMaterialAssignment,
+    CoursePaper,
+    CourseReleaseHead,
+    CourseReleaseMember,
+    CourseSourceVersion,
 )
 from northstar_api.services.course_knowledge_policy import (
-    Audience, KnowledgePolicyError, LearnerScope, audience_intersection,
-    canonical_blocks, fingerprint, mapping_fingerprint, mismatch_warnings,
-    scoped_chunks, selected_blocks, text_record, validate_vectors,
+    Audience,
+    KnowledgePolicyError,
+    LearnerScope,
+    audience_intersection,
+    canonical_blocks,
+    fingerprint,
+    mapping_fingerprint,
+    mismatch_warnings,
+    scoped_chunks,
+    selected_blocks,
+    text_record,
+    validate_vectors,
 )
 
 
@@ -580,10 +596,11 @@ def entry_evidence(entry: CourseIndexEntry, assignment: CourseMaterialAssignment
 
 
 async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, query: str, *, model: Any = None, candidate_limit: int = 60, result_limit: int = 8) -> list[Any]:
+    import re
+
     from northstar_api.config import get_settings
     from northstar_api.services.llm import nvidia_adapter
     from northstar_api.services.retrieval import _cosine, _rerank
-    import re
 
     if context.release_id is None:
         return []

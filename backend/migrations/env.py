@@ -16,12 +16,16 @@ from northstar_api import (
     education_access_requests,  # noqa: F401
     education_batches,  # noqa: F401
     education_conversation_context,  # noqa: F401
+    education_curricula,  # noqa: F401
     education_enrollment_events,  # noqa: F401
     education_enrollments,  # noqa: F401
+    education_knowledge_lifecycle,  # noqa: F401
     education_knowledge_scope,  # noqa: F401
+    education_papers,  # noqa: F401
     education_student_activity,  # noqa: F401
     education_student_identities,  # noqa: F401
     education_students,  # noqa: F401
+    education_tutor,  # noqa: F401
     email_verification,  # noqa: F401
     help_models,  # noqa: F401
     mfa,  # noqa: F401

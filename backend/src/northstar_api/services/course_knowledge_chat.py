@@ -16,7 +16,13 @@ from northstar_api.education_conversation_context import EducationConversationCo
 from northstar_api.models import Agent, Channel, ConversationState, Message, MessageRole
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.chat import ChatCoordinator, PreparedChat, ReservedChat, whatsapp_welcome
-from northstar_api.services.course_knowledge import Boundary, KnowledgeContext, resolve_context, retrieve_course_evidence, revalidate_evidence
+from northstar_api.services.course_knowledge import (
+    Boundary,
+    KnowledgeContext,
+    resolve_context,
+    retrieve_course_evidence,
+    revalidate_evidence,
+)
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError
 from northstar_api.services.grounding import blocked_topic, validate_answer
 from northstar_api.services.llm import ModelUnavailableError

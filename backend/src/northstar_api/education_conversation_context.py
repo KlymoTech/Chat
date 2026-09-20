@@ -54,6 +54,12 @@ class EducationConversationContext(Base):
     course_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("education_courses.id", ondelete="RESTRICT"), index=True, nullable=False
     )
+    curriculum_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("education_curricula.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    paper_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("education_papers.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("education_batches.id", ondelete="RESTRICT"), index=True, nullable=False
     )

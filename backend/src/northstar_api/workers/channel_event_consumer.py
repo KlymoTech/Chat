@@ -307,6 +307,7 @@ async def _process_education_message(
                 workspace_id=agent.workspace_id,
                 agent=agent,
                 identity=identity,
+                message=canonical.message.text if canonical.message else None,
             )
 
     conversation: Conversation | None = None

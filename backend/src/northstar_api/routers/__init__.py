@@ -35,6 +35,7 @@ from northstar_api.routers import (
     education_access_requests,
     education_activity,
     education_batches,
+    education_catalog,
     education_conversations,
     education_enrollment_events,
     education_enrollments,
@@ -83,6 +84,7 @@ api_router.include_router(course_knowledge_artifacts.router)
 api_router.include_router(course_knowledge_guard.router)
 api_router.include_router(education_activity.router)
 api_router.include_router(education_batches.router)
+api_router.include_router(education_catalog.router)
 api_router.include_router(education_students.router)
 api_router.include_router(education_student_detail.router)
 api_router.include_router(education_student_identities.router)

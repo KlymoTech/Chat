@@ -3,7 +3,12 @@ import { activeWorkspaceId } from '@/lib/workspace-api';
 
 export interface EducationKnowledgeScopeRef {
   courseId: string;
-  batchId: string;
+  curriculumId?: string;
+  paperId?: string | null;
+  batchId?: string | null;
+  selectedBlockIds?: string[];
+  topicIds?: string[];
+  materialType?: string;
 }
 
 export interface EducationKnowledgeScope extends EducationKnowledgeScopeRef {
@@ -12,6 +17,11 @@ export interface EducationKnowledgeScope extends EducationKnowledgeScopeRef {
   factId: string | null;
   agentId: string;
   workspaceId: string;
+  extractionRevision?: number;
+  mappingRevision?: number;
+  assignmentRevision?: number;
+  requiresRelease?: boolean;
+  approvalStatus?: 'draft' | 'approved' | 'published' | 'withdrawn';
   createdAt: string;
   updatedAt: string;
 }
@@ -32,7 +42,7 @@ function sessionToken(): string | undefined {
   return readStorage<{ accessToken?: string } | null>(SESSION_KEY, null)?.accessToken;
 }
 
-async function remote<T>(path: string, method: 'GET' | 'PUT', body?: unknown): Promise<T> {
+async function remote<T>(path: string, method: 'GET' | 'PUT' | 'POST', body?: unknown): Promise<T> {
   const token = sessionToken();
   const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
@@ -80,7 +90,17 @@ function replaceLocalSourceScopes(
     agentId,
     workspaceId,
     courseId: scope.courseId,
+    curriculumId: scope.curriculumId,
+    paperId: scope.paperId ?? null,
     batchId: scope.batchId,
+    selectedBlockIds: scope.selectedBlockIds ?? [],
+    topicIds: scope.topicIds ?? [],
+    materialType: scope.materialType ?? 'notes',
+    extractionRevision: 1,
+    mappingRevision: 1,
+    assignmentRevision: 1,
+    requiresRelease: true,
+    approvalStatus: 'draft' as const,
     createdAt: now,
     updatedAt: now,
   }));
@@ -110,11 +130,20 @@ export const educationKnowledgeApi = {
     agentId: string,
     scopes: EducationKnowledgeScopeRef[],
   ): Promise<EducationKnowledgeScope[]> {
-    const unique = new Set(scopes.map((scope) => `${scope.courseId}:${scope.batchId}`));
-    if (unique.size !== scopes.length) throw new Error('Each Course and Batch pair can only be selected once.');
+    const unique = new Set(scopes.map((scope) => `${scope.courseId}:${scope.curriculumId}:${scope.paperId ?? ''}:${scope.batchId ?? ''}`));
+    if (unique.size !== scopes.length) throw new Error('Each course audience tuple can only be selected once.');
     return withFallback(
       () => remote<EducationKnowledgeScope[]>(`/knowledge/${sourceId}/education-scopes`, 'PUT', { scopes }),
       async () => replaceLocalSourceScopes(sourceId, agentId, scopes),
     );
+  },
+  approve(assignment: EducationKnowledgeScope): Promise<EducationKnowledgeScope> {
+    return remote(`/knowledge/education-assignments/${assignment.id}/approve`, 'POST', {
+      extractionRevision: assignment.extractionRevision ?? 1,
+      mappingRevision: assignment.mappingRevision ?? 1,
+    });
+  },
+  withdraw(assignmentId: string): Promise<EducationKnowledgeScope> {
+    return remote(`/knowledge/education-assignments/${assignmentId}/withdraw`, 'POST');
   },
 };

@@ -10,15 +10,28 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
+from northstar_api.education_knowledge_lifecycle import (
+    EducationDerivedLearningArtifact,
+    EducationKnowledgeRelease,
+    EducationReleaseAssignment,
+    EducationSourceVersion,
+)
 from northstar_api.education_knowledge_schemas import (
     EducationKnowledgeScopeOut,
+    EducationKnowledgeScopeRef,
     EducationKnowledgeScopeReplace,
+)
+from northstar_api.education_knowledge_scope import EducationKnowledgeScope
+from northstar_api.education_release_schemas import (
+    EducationReleaseActivate,
+    EducationReleaseCreate,
+    EducationReleaseOut,
 )
 from northstar_api.models import (
     FactStatus,
@@ -48,6 +61,7 @@ from northstar_api.services.education_knowledge import (
     replace_fact_scopes,
     replace_source_scopes,
     require_education_agent,
+    validate_scope_pairs,
 )
 from northstar_api.services.extraction_review import apply_review
 from northstar_api.services.extraction_schema import Reading
@@ -135,7 +149,7 @@ async def list_knowledge(
 async def add_knowledge(
     agent_id: UUID, payload: KnowledgeCreate, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeOut:
-    await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
+    agent = await scoped_agent(session, principal.tenant_id, agent_id, workspace_id=principal.workspace_id)
     if payload.kind == KnowledgeKind.TEXT and not payload.content:
         raise HTTPException(status_code=422, detail="Text sources require content")
     if payload.kind in (KnowledgeKind.URL, KnowledgeKind.SITEMAP) and not payload.url:
@@ -146,6 +160,15 @@ async def add_knowledge(
         raise HTTPException(status_code=422, detail="Uploaded files must pass source extraction and review")
     if payload.object_key and payload.kind != KnowledgeKind.FILE:
         raise HTTPException(status_code=422, detail="Only file sources can reference an uploaded object")
+    if payload.education_destination is not None and payload.unassigned_inbox:
+        raise HTTPException(status_code=422, detail="Choose an Education destination or the unassigned inbox")
+    if payload.education_destination is not None:
+        await require_education_agent(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            agent=agent,
+        )
 
     object_key = payload.object_key
     uploaded_checksum: str | None = None
@@ -176,6 +199,50 @@ async def add_knowledge(
     )
     session.add(source)
     await session.flush()
+    source_version = EducationSourceVersion(
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        source_id=source.id,
+        version=source.revision,
+        checksum=source.checksum or "",
+        processing_configuration={"pipeline": "existing", "sourceKind": source.kind.value},
+        state="processing",
+    )
+    session.add(source_version)
+    await session.flush()
+    if payload.education_destination is not None:
+        destination = payload.education_destination
+        normalized = await validate_scope_pairs(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            pairs=[
+                EducationKnowledgeScopeRef(
+                    course_id=destination.course_id,
+                    curriculum_id=destination.curriculum_id,
+                    paper_id=destination.paper_id,
+                    batch_id=destination.batch_id,
+                    material_type=destination.material_type,
+                )
+            ],
+        )
+        selected = normalized[0]
+        session.add(
+            EducationKnowledgeScope(
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                agent_id=agent.id,
+                source_id=source.id,
+                source_version_id=source_version.id,
+                course_id=selected.course_id,
+                curriculum_id=selected.curriculum_id,
+                paper_id=selected.paper_id,
+                batch_id=selected.batch_id,
+                material_type=selected.material_type,
+                approval_status="draft",
+                requires_release=True,
+            )
+        )
     job = IngestionJob(
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
@@ -509,6 +576,260 @@ async def set_source_education_scopes(
     )
     await session.commit()
     return list(scopes)
+
+
+class EducationMaterialApproval(APIModel):
+    extraction_revision: int = Field(ge=1)
+    mapping_revision: int = Field(ge=1)
+
+
+async def _scoped_assignment(
+    assignment_id: UUID, *, principal: Principal, session: AsyncSession, lock: bool = False
+) -> EducationKnowledgeScope:
+    query = select(EducationKnowledgeScope).where(
+        EducationKnowledgeScope.id == assignment_id,
+        EducationKnowledgeScope.tenant_id == principal.tenant_id,
+        EducationKnowledgeScope.workspace_id == principal.workspace_id,
+    )
+    assignment = await session.scalar(query.with_for_update() if lock else query)
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Education material assignment not found")
+    return assignment
+
+
+@router.post(
+    "/knowledge/education-assignments/{assignment_id}/approve",
+    response_model=EducationKnowledgeScopeOut,
+)
+async def approve_education_assignment(
+    assignment_id: UUID,
+    payload: EducationMaterialApproval,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> EducationKnowledgeScopeOut:
+    assignment = await _scoped_assignment(assignment_id, principal=principal, session=session, lock=True)
+    if assignment.withdrawn_at is not None:
+        raise HTTPException(status_code=409, detail="Withdrawn material cannot be approved")
+    if (
+        assignment.extraction_revision != payload.extraction_revision
+        or assignment.mapping_revision != payload.mapping_revision
+    ):
+        raise HTTPException(status_code=409, detail="Content or mapping changed; review the latest revision")
+    assignment.approval_status = "approved"
+    assignment.approved_by = principal.user_id
+    assignment.approved_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(assignment)
+    return EducationKnowledgeScopeOut.model_validate(assignment)
+
+
+@router.post(
+    "/knowledge/education-assignments/{assignment_id}/publish",
+    response_model=EducationKnowledgeScopeOut,
+)
+async def publish_education_assignment(
+    assignment_id: UUID,
+    payload: EducationMaterialApproval,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> EducationKnowledgeScopeOut:
+    assignment = await _scoped_assignment(assignment_id, principal=principal, session=session, lock=True)
+    if assignment.approval_status != "approved":
+        raise HTTPException(status_code=409, detail="Material must be approved before publication")
+    if (
+        assignment.extraction_revision != payload.extraction_revision
+        or assignment.mapping_revision != payload.mapping_revision
+    ):
+        raise HTTPException(status_code=409, detail="Content or mapping changed; approval is no longer valid")
+    if assignment.source_id is not None:
+        source = await session.scalar(
+            select(KnowledgeSource).where(
+                KnowledgeSource.id == assignment.source_id,
+                KnowledgeSource.status == KnowledgeStatus.READY,
+            )
+        )
+        if source is None:
+            raise HTTPException(status_code=409, detail="Source processing and indexing are not complete")
+    assignment.approval_status = "published"
+    assignment.published_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(assignment)
+    return EducationKnowledgeScopeOut.model_validate(assignment)
+
+
+@router.post(
+    "/knowledge/education-assignments/{assignment_id}/withdraw",
+    response_model=EducationKnowledgeScopeOut,
+)
+async def withdraw_education_assignment(
+    assignment_id: UUID,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> EducationKnowledgeScopeOut:
+    assignment = await _scoped_assignment(assignment_id, principal=principal, session=session, lock=True)
+    assignment.approval_status = "withdrawn"
+    assignment.withdrawn_at = datetime.now(UTC)
+    artifacts = (
+        await session.scalars(
+            select(EducationDerivedLearningArtifact).where(
+                EducationDerivedLearningArtifact.tenant_id == principal.tenant_id,
+                EducationDerivedLearningArtifact.workspace_id == principal.workspace_id,
+                EducationDerivedLearningArtifact.agent_id == assignment.agent_id,
+                EducationDerivedLearningArtifact.publication_status != "withdrawn",
+            )
+        )
+    ).all()
+    assignment_key = str(assignment.id)
+    for artifact in artifacts:
+        if assignment_key in artifact.course_assignment_ids:
+            artifact.publication_status = "withdrawn"
+    await session.commit()
+    await session.refresh(assignment)
+    return EducationKnowledgeScopeOut.model_validate(assignment)
+
+
+@router.post(
+    "/education/knowledge/releases",
+    response_model=EducationReleaseOut,
+    status_code=201,
+)
+async def create_education_release(
+    payload: EducationReleaseCreate,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> EducationReleaseOut:
+    if len(set(payload.assignment_ids)) != len(payload.assignment_ids):
+        raise HTTPException(status_code=422, detail="Release assignments must be unique")
+    assignments = (
+        await session.scalars(
+            select(EducationKnowledgeScope).where(
+                EducationKnowledgeScope.id.in_(payload.assignment_ids),
+                EducationKnowledgeScope.tenant_id == principal.tenant_id,
+                EducationKnowledgeScope.workspace_id == principal.workspace_id,
+            )
+        )
+    ).all()
+    if len(assignments) != len(payload.assignment_ids):
+        raise HTTPException(status_code=422, detail="One or more assignments are unavailable")
+    if any(
+        item.agent_id != payload.agent_id
+        or item.course_id != payload.course_id
+        or item.curriculum_id != payload.curriculum_id
+        for item in assignments
+    ):
+        raise HTTPException(status_code=422, detail="Every assignment must match the release tuple")
+    if any(
+        item.approval_status not in {"approved", "published"} or item.withdrawn_at is not None
+        for item in assignments
+    ):
+        raise HTTPException(status_code=409, detail="Every release assignment must be approved and active")
+
+    latest = await session.scalar(
+        select(func.max(EducationKnowledgeRelease.revision)).where(
+            EducationKnowledgeRelease.tenant_id == principal.tenant_id,
+            EducationKnowledgeRelease.workspace_id == principal.workspace_id,
+            EducationKnowledgeRelease.agent_id == payload.agent_id,
+            EducationKnowledgeRelease.course_id == payload.course_id,
+            EducationKnowledgeRelease.curriculum_id == payload.curriculum_id,
+        )
+    )
+    release = EducationKnowledgeRelease(
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        agent_id=payload.agent_id,
+        course_id=payload.course_id,
+        curriculum_id=payload.curriculum_id,
+        revision=int(latest or 0) + 1,
+        status="candidate",
+        manifest={
+            "assignments": [
+                {"id": str(item.id), "revision": item.assignment_revision}
+                for item in assignments
+            ]
+        },
+    )
+    session.add(release)
+    await session.flush()
+    session.add_all(
+        EducationReleaseAssignment(
+            release_id=release.id,
+            assignment_id=item.id,
+            assignment_revision=item.assignment_revision,
+        )
+        for item in assignments
+    )
+    await session.commit()
+    await session.refresh(release)
+    return EducationReleaseOut.model_validate(release)
+
+
+@router.post(
+    "/education/knowledge/releases/{release_id}/activate",
+    response_model=EducationReleaseOut,
+)
+async def activate_education_release(
+    release_id: UUID,
+    payload: EducationReleaseActivate,
+    principal: KnowledgeManagePrincipal,
+    session: DB,
+) -> EducationReleaseOut:
+    release = await session.scalar(
+        select(EducationKnowledgeRelease)
+        .with_for_update()
+        .where(
+            EducationKnowledgeRelease.id == release_id,
+            EducationKnowledgeRelease.tenant_id == principal.tenant_id,
+            EducationKnowledgeRelease.workspace_id == principal.workspace_id,
+        )
+    )
+    if release is None:
+        raise HTTPException(status_code=404, detail="Knowledge release not found")
+    if release.status != "candidate":
+        raise HTTPException(status_code=409, detail="Only a candidate release can be activated")
+    if not payload.index_verified:
+        raise HTTPException(status_code=409, detail="Index verification must pass before activation")
+    members = (
+        await session.execute(
+            select(EducationReleaseAssignment, EducationKnowledgeScope)
+            .join(
+                EducationKnowledgeScope,
+                EducationKnowledgeScope.id == EducationReleaseAssignment.assignment_id,
+            )
+            .where(EducationReleaseAssignment.release_id == release.id)
+        )
+    ).all()
+    if not members or any(
+        assignment.approval_status not in {"approved", "published"}
+        or assignment.withdrawn_at is not None
+        or assignment.assignment_revision != membership.assignment_revision
+        for membership, assignment in members
+    ):
+        raise HTTPException(status_code=409, detail="Release contents changed or are no longer approved")
+
+    await session.execute(
+        update(EducationKnowledgeRelease)
+        .where(
+            EducationKnowledgeRelease.id != release.id,
+            EducationKnowledgeRelease.tenant_id == release.tenant_id,
+            EducationKnowledgeRelease.workspace_id == release.workspace_id,
+            EducationKnowledgeRelease.agent_id == release.agent_id,
+            EducationKnowledgeRelease.course_id == release.course_id,
+            EducationKnowledgeRelease.curriculum_id == release.curriculum_id,
+            EducationKnowledgeRelease.status == "active",
+        )
+        .values(status="superseded")
+    )
+    now = datetime.now(UTC)
+    for _, assignment in members:
+        assignment.approval_status = "published"
+        assignment.published_at = now
+    release.status = "active"
+    release.index_verified = True
+    release.activated_by = principal.user_id
+    release.activated_at = now
+    await session.commit()
+    await session.refresh(release)
+    return EducationReleaseOut.model_validate(release)
 
 
 @router.delete("/knowledge/{source_id}", status_code=204)
