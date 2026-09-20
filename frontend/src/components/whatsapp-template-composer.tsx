@@ -1,4 +1,5 @@
 import { WhatsApp } from '@/components/provider-logo';
+import { apiErrorMessage } from '@/lib/api-error-message';
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Copy, ExternalLink, FileText, PencilLine, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { Button, Field, Modal } from '@/components/ui';
@@ -49,7 +50,7 @@ export function WhatsAppTemplateComposer({ agentId, conversationId, purpose = 's
     if (!approvedTemplate || !consent || busy) return;
     setBusy(true); setError('');
     try { await api.integrations.whatsapp.sendTemplate(conversationId, { name: approvedTemplate.name, language: approvedTemplate.language, parameters: values, consentConfirmed: true }); setSent(true); onQueued?.(); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not queue template'); }
+    catch (failure) { setError(apiErrorMessage(failure, 'Could not queue template')); }
     finally { setBusy(false); }
   };
   const useDraft = () => {

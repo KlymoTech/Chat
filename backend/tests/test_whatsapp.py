@@ -903,6 +903,9 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
         # when AI delivery failed, allowing a teammate to recover the thread.
         persisted.status = "failed"
         persisted.provider_timestamp = datetime.now(UTC)
+        # Meta's service window belongs to this sender/business-number pair,
+        # even when an older receipt was not linked to the current course thread.
+        persisted.conversation_id = None
         await session.commit()
 
     queued_deliveries: list[str] = []

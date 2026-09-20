@@ -9,6 +9,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useToast, useWorkspace } from '@/components/providers';
 import { Badge, Button, EmptyState, PageLoader } from '@/components/ui';
 import { api } from '@/lib/api';
+import { apiErrorMessage } from '@/lib/api-error-message';
 import { conversationApi } from '@/lib/conversation-api';
 import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/education-api';
 import { educationEnrollmentApi, type EducationEnrollment } from '@/lib/education-enrollment-api';
@@ -201,7 +202,7 @@ export function ConversationsPage() {
       pushToast(`Formatted ${draft.messageFormat.type} reply queued for WhatsApp`);
       return true;
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Reply could not be sent', 'error');
+      pushToast(apiErrorMessage(error, 'Reply could not be sent'), 'error');
       return false;
     } finally {
       setSending(false);

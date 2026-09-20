@@ -709,7 +709,10 @@ async def reply_to_conversation(
                 WhatsAppInboundMessage.tenant_id == principal.tenant_id,
                 WhatsAppInboundMessage.workspace_id == principal.workspace_id,
                 WhatsAppInboundMessage.connection_id == whatsapp_connection.id,
-                WhatsAppInboundMessage.conversation_id == conversation.id,
+                or_(
+                    WhatsAppInboundMessage.conversation_id == conversation.id,
+                    WhatsAppInboundMessage.sender_wa_id == conversation.visitor_id,
+                ),
                 WhatsAppInboundMessage.status.not_in(("ignored", "cancelled")),
                 WhatsAppInboundMessage.message_text != "",
             )

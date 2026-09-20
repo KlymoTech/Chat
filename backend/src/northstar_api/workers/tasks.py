@@ -8,7 +8,7 @@ from uuid import UUID
 
 import structlog
 from celery.signals import task_failure  # type: ignore[import-untyped]
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from northstar_api.config import get_settings
@@ -490,10 +490,13 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
                         )
                     )
                 ).where(
-                    WhatsAppInboundMessage.tenant_id == delivery.tenant_id,
-                    WhatsAppInboundMessage.connection_id == delivery.connection_id,
-                    WhatsAppInboundMessage.conversation_id == message.conversation_id,
-                    WhatsAppInboundMessage.status.not_in(("ignored", "cancelled")),
+                        WhatsAppInboundMessage.tenant_id == delivery.tenant_id,
+                        WhatsAppInboundMessage.connection_id == delivery.connection_id,
+                        or_(
+                            WhatsAppInboundMessage.conversation_id == message.conversation_id,
+                            WhatsAppInboundMessage.sender_wa_id == delivery.recipient_wa_id,
+                        ),
+                        WhatsAppInboundMessage.status.not_in(("ignored", "cancelled")),
                     WhatsAppInboundMessage.message_text != "",
                 )
             )
