@@ -425,7 +425,11 @@ async def list_conversations(
             AgentPurposeSetting.workspace_id == principal.workspace_id,
             AgentPurposeSetting.purpose == AgentPurpose.LEAD_GENERATION.value,
         )
-        conditions.append(Conversation.agent_id.in_(lead_agents) if purpose is AgentPurpose.LEAD_GENERATION else Conversation.agent_id.not_in(lead_agents))
+        conditions.append(
+            Conversation.agent_id.in_(lead_agents)
+            if purpose is AgentPurpose.LEAD_GENERATION
+            else Conversation.agent_id.not_in(lead_agents)
+        )
     if agent_id:
         conditions.append(Conversation.agent_id == agent_id)
     if channel:
@@ -502,9 +506,13 @@ async def resolve_conversation(
     )
     if payload and payload.lead_status is not None and resolution.lead is not None:
         await lead_domain_service.update_status(
-            session, lead=resolution.lead, status=payload.lead_status,
-            actor_id=str(principal.user_id), correlation_id=request_id_ctx.get(),
-            qualification_reason="Marked Qualified in Conversations", skip_unchanged=True,
+            session,
+            lead=resolution.lead,
+            status=payload.lead_status,
+            actor_id=str(principal.user_id),
+            correlation_id=request_id_ctx.get(),
+            qualification_reason="Marked Qualified in Conversations",
+            skip_unchanged=True,
         )
     await session.commit()
     await session.refresh(conversation)
@@ -524,7 +532,10 @@ async def update_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    if payload.state == ConversationState.RESOLVED and await conversation_purpose(session, conversation) is AgentPurpose.EDUCATION:
+    if (
+        payload.state == ConversationState.RESOLVED
+        and await conversation_purpose(session, conversation) is AgentPurpose.EDUCATION
+    ):
         raise HTTPException(status_code=409, detail=EDUCATION_WORKFLOW_MESSAGE)
     previous_state = conversation.state
     patch = payload.model_dump(exclude_unset=True)
@@ -574,6 +585,7 @@ async def update_conversation(
 
     if payload.model_fields_set & {"visitor_name", "visitor_email", "page_url", "visitor_details"}:
         from northstar_api.services.visitor_details import update_linked_lead
+
         await update_linked_lead(session, conversation, payload.model_fields_set)
 
     await session.commit()
@@ -622,6 +634,41 @@ async def reply_to_conversation(
         rendered_rows.extend(" | ".join(row) for row in rows)
         message_content = f"{message_content}\n\n" + "\n".join(rendered_rows)
         message_format.pop("buttons", None)
+    elif format_type in {
+        "list",
+        "image",
+        "video",
+        "audio",
+        "document",
+        "sticker",
+        "location",
+        "contact",
+        "cta_url",
+        "flow",
+        "product",
+        "product_list",
+        "catalog",
+    }:
+        config = message_format.get("config") or {}
+        if format_type in {"image", "video", "audio", "document", "sticker"} and not (
+            config.get("url") or config.get("mediaId")
+        ):
+            raise HTTPException(status_code=422, detail="Add a public media URL or uploaded media ID")
+        if format_type == "location" and not (config.get("latitude") and config.get("longitude")):
+            raise HTTPException(status_code=422, detail="Location requires latitude and longitude")
+        if format_type == "contact" and not config.get("contact"):
+            raise HTTPException(status_code=422, detail="Add contact details")
+        if format_type in {
+            "list",
+            "cta_url",
+            "flow",
+            "product",
+            "product_list",
+            "catalog",
+        } and not config.get("action"):
+            raise HTTPException(status_code=422, detail="Add the WhatsApp action configuration")
+        message_format.pop("buttons", None)
+        message_format.pop("table", None)
     else:
         message_format = {"type": "text"}
     if payload.whatsapp_template and conversation.channel != Channel.WHATSAPP:

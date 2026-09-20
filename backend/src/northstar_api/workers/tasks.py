@@ -512,10 +512,26 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
                 return
             provider_client, access_token = await connection_client(session, connection)
             message_format = message.content_json or {}
-            is_buttons = message_format.get("type") == "buttons"
+            message_type = str(message_format.get("type") or "text")
+            is_buttons = message_type == "buttons"
+            advanced_types = {
+                "list",
+                "image",
+                "video",
+                "audio",
+                "document",
+                "sticker",
+                "location",
+                "contact",
+                "cta_url",
+                "flow",
+                "product",
+                "product_list",
+                "catalog",
+            }
             chunks = (
                 [message.content]
-                if delivery.template_payload or is_buttons
+                if delivery.template_payload or is_buttons or message_type in advanced_types
                 else split_whatsapp_text(message.content)
             )
             sent_ids = list(delivery.provider_message_ids or [])
@@ -536,6 +552,15 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
                         buttons=message_format.get("buttons") or [],
                     )
                     if is_buttons
+                    else await provider_client.send_workflow_message(
+                        access_token,
+                        phone_number_id=connection.phone_number_id,
+                        to=delivery.recipient_wa_id,
+                        message_type=message_type,
+                        body=chunk,
+                        config=dict(message_format.get("config") or {}),
+                    )
+                    if message_type in advanced_types
                     else await provider_client.send_text(
                         access_token,
                         phone_number_id=connection.phone_number_id,

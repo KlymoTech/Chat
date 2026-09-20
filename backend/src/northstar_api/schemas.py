@@ -361,7 +361,9 @@ class UploadPresignRequest(APIModel):
             "tiff": "image/tiff",
         }.get(extension)
         if not expected:
-            raise ValueError("filename must use a supported PDF, DOCX, TXT, Markdown, PNG, JPEG, or TIFF extension")
+            raise ValueError(
+                "filename must use a supported PDF, DOCX, TXT, Markdown, PNG, JPEG, or TIFF extension"
+            )
         if self.content_type != expected:
             raise ValueError("contentType does not match the filename extension")
         return self
@@ -488,9 +490,27 @@ class MessageTable(APIModel):
 
 
 class MessageFormat(APIModel):
-    type: Literal["text", "buttons", "table"] = "text"
+    type: Literal[
+        "text",
+        "buttons",
+        "list",
+        "table",
+        "image",
+        "video",
+        "audio",
+        "document",
+        "sticker",
+        "location",
+        "contact",
+        "cta_url",
+        "flow",
+        "product",
+        "product_list",
+        "catalog",
+    ] = "text"
     buttons: list[MessageButton] = Field(default_factory=list, max_length=3)
     table: MessageTable | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConversationReplyCreate(APIModel):

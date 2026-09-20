@@ -170,12 +170,14 @@
 .wa-format-tabs button.is-active { border-color: #008069; color: #006c57; background: #e7fce3; }
 .wa-format-tabs button svg { width: 14px; height: 14px; }
 .wa-format-tabs > span { margin-left: auto; color: #667781; font-size: 10px; }
+.wa-more-format select { padding:6px 26px 6px 9px;border:1px solid #cbd5d0;border-radius:8px;background:#fff;color:#54656f;font:12px Arial,sans-serif; }
 .wa-format-editor { display: grid; gap: 7px; padding: 10px 16px 0; color: #111b21; font: 12px Arial, sans-serif; }
 .wa-format-editor > small { color: #667781; }
 .wa-format-editor label { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: center; gap: 7px; }
 .wa-format-editor input, .wa-format-editor textarea { min-width: 0; padding: 7px 9px; border: 1px solid #cbd5d0; border-radius: 7px; background: #fff; font: inherit; }
 .wa-format-editor label > button, .wa-add-field { display: inline-flex; align-items: center; gap: 4px; border: 0; color: #006c57; background: transparent; cursor: pointer; }
 .wa-format-editor label > button svg, .wa-add-field svg { width: 14px; height: 14px; }
+.wa-rich-media { display:block;width:min(340px,100%);max-height:280px;margin-top:8px;border-radius:7px;object-fit:cover;background:#111; }.wa-rich-audio { width:min(340px,100%);margin-top:8px;height:38px; }.wa-rich-attachment { margin-top:8px;padding:10px;border-radius:7px;background:rgb(255 255 255 / .45);color:#006c57;font-size:12px;font-weight:700; }
 .wa-add-field { justify-self: start; padding: 3px 0; }
 .wa-button-fields { display: grid; gap: 6px; }
 .wa-format-error { color: #b42318 !important; }

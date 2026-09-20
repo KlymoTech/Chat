@@ -137,10 +137,11 @@ export interface ChatMessage {
   citations?: Array<{ title: string; url?: string }>;
   deliveryStatus?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown' | null;
   messageFormat?: {
-    type: 'text' | 'buttons' | 'table';
+    type: 'text' | 'buttons' | 'list' | 'table' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'cta_url' | 'flow' | 'product' | 'product_list' | 'catalog';
     body?: string;
     buttons?: Array<{ id: string; title: string }>;
     table?: { columns: string[]; rows: string[][] };
+    config?: Record<string, unknown>;
   } | null;
 }
 

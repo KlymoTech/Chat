@@ -32,10 +32,20 @@ export function WhatsAppMessages({ messages, visitorName, agentName }: { message
           <div className="wa-message-text" dir="auto">{message.messageFormat?.type === 'table' ? message.messageFormat.body ?? message.content : message.content}</div>
           {message.messageFormat?.type === 'buttons' ? <div className="wa-message-buttons">{message.messageFormat.buttons?.map(button => <span key={button.id}>{button.title}</span>)}</div> : null}
           {message.messageFormat?.type === 'table' && message.messageFormat.table ? <div className="wa-message-table-wrap"><table className="wa-message-table"><thead><tr>{message.messageFormat.table.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{message.messageFormat.table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div> : null}
+          {message.messageFormat && !['text', 'buttons', 'table'].includes(message.messageFormat.type) ? <RichMessageAttachment format={message.messageFormat} /> : null}
           <div className="wa-message-meta"><time dateTime={message.createdAt} title={date.toLocaleString()}>{date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</time>{outgoing ? <WhatsAppDeliveryStatus status={message.deliveryStatus} /> : null}</div>
         </div>
         {message.citations?.map((citation) => <span className="wa-citation" key={citation.title}>{citation.title}</span>)}
       </article> : null}
     </Fragment>;
   })}</div>;
+}
+
+function RichMessageAttachment({ format }: { format: NonNullable<ChatMessage['messageFormat']> }) {
+  const config = format.config ?? {}; const url = String(config.url ?? '');
+  if (format.type === 'image' && url) return <img className="wa-rich-media" src={url} alt="Sent WhatsApp media" />;
+  if (format.type === 'video' && url) return <video className="wa-rich-media" src={url} controls preload="metadata" />;
+  if (format.type === 'audio' && url) return <audio className="wa-rich-audio" src={url} controls preload="metadata" />;
+  const labels: Record<string, string> = { list: 'List menu', document: `Document · ${String(config.filename ?? 'file')}`, sticker: 'Sticker', location: `Location · ${String(config.name ?? '')}`, contact: 'Shared contact', cta_url: 'Website button', flow: 'WhatsApp Flow', product: 'Product', product_list: 'Product list', catalog: 'Catalog' };
+  return <div className="wa-rich-attachment">{labels[format.type] ?? format.type}</div>;
 }
