@@ -13,6 +13,7 @@ it('requires an approved template, filled parameters and consent before queueing
   const user = userEvent.setup();
   render(<WhatsAppTemplateComposer agentId="agent" conversationId="conversation" />);
   await user.click(screen.getByRole('button', { name: 'Send WhatsApp template' }));
+  await user.click(screen.getByRole('tab', { name: /Approved by Meta/ }));
   await screen.findByRole('option', { name: 'follow_up (en)' });
   await user.selectOptions(screen.getByLabelText('Approved template'), '0');
   expect(screen.getByRole('button', { name: 'Queue template' })).toBeDisabled();
@@ -30,5 +31,19 @@ it('shows provider errors without claiming success', async () => {
   render(<WhatsAppTemplateComposer agentId="agent" conversationId="conversation" />);
   await user.click(screen.getByRole('button', { name: 'Send WhatsApp template' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Reconnect WhatsApp');
+  await user.click(screen.getByRole('tab', { name: /Approved by Meta/ }));
   expect(screen.getByRole('button', { name: 'Queue template' })).toBeDisabled();
+});
+
+it('opens the purpose-specific editable template library', async () => {
+  mocks.templates.mockResolvedValue([]);
+  const user = userEvent.setup();
+  render(<WhatsAppTemplateComposer agentId="agent" conversationId="conversation" purpose="education" />);
+  await user.click(screen.getByRole('button', { name: 'Send WhatsApp template' }));
+  expect(screen.getByRole('tab', { name: /Education/ })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getAllByRole('button', { name: /Enrollment|Class reminder|Study plan/ }).length).toBeGreaterThan(0);
+  const header = screen.getByLabelText('Header');
+  await user.clear(header);
+  await user.type(header, 'A brighter learning journey');
+  expect(screen.getByText('A brighter learning journey')).toBeInTheDocument();
 });
