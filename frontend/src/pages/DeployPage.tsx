@@ -28,6 +28,7 @@ import {
   ToggleRight,
   Type,
   WandSparkles,
+  Workflow,
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -38,6 +39,7 @@ import { WhatsAppMessageEditor, WhatsAppMessagePreview } from '@/components/what
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
+import { BotWorkflowBuilderPage } from '@/pages/BotWorkflowBuilderPage';
 import { apiErrorMessage } from '@/lib/api-error-message';
 import { createQrAssets, downloadQrAsset, type QrAssets } from '@/lib/qr';
 import { useApi } from '@/lib/use-api';
@@ -67,6 +69,7 @@ const shareItems = [
 
 const whatsappBuildItems = [
   { id: 'channel', label: 'WhatsApp number', icon: PlugZap },
+  { id: 'workflow', label: 'Workflow builder', icon: Workflow },
   { id: 'source', label: 'Agent source', icon: Bot },
   { id: 'activation', label: 'Bot activation', icon: ToggleRight },
   { id: 'welcome', label: 'Welcome message', icon: Sparkles },
@@ -379,6 +382,7 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
   const embeddedUrl = `${window.location.origin}/widget/${agent.publicId}`;
 
   if (integration?.id === 'whatsapp') {
+    if (section === 'workflow') return <div className="deploy-workflow-builder"><BotWorkflowBuilderPage key={agent.id} initialAgentId={agent.id} /></div>;
     if (section === 'welcome' || section === 'format') return <WhatsAppMessageEditor agent={agent} section={section} onChange={updateAppearance} />;
     if (section === 'activation') return <Panel title="Bot activation" description="Choose whether this bot responds to incoming WhatsApp messages."><Switch label="Bot active" checked={agent.status === 'active'} onChange={(active) => updateAgent({ status: active ? 'active' : 'draft' })} description="Active bots reply on their assigned number. Inactive bots stay in draft." /><p className="wa-editor-note">Apply changes to update the bot. A connected number is required; education bots also need their course and enrollment setup.</p></Panel>;
     if (section === 'localization') return <Panel title="Response language" description="Choose the language for generated answers. Write your welcome message and reply structure in the language you want to send."><Field label="Response language" htmlFor="wa-response-language"><select id="wa-response-language" value={agent.language} onChange={(event) => updateAgent({ language: event.target.value })}>{supportedWidgetLanguages.map((language) => <option key={language}>{language}</option>)}</select></Field></Panel>;

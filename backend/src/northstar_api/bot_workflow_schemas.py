@@ -64,6 +64,9 @@ class BotWorkflowStep(APIModel):
     condition: WorkflowCondition | None = None
     true_step_id: str | None = Field(default=None, max_length=80)
     false_step_id: str | None = Field(default=None, max_length=80)
+    next_step_id: str | None = Field(default=None, max_length=80)
+    position_x: int = Field(default=40, ge=0, le=5000)
+    position_y: int = Field(default=40, ge=0, le=5000)
     bot_behavior: Literal["complete", "wait_for_next_trigger"] = "complete"
     waiting_message: str = Field(default="Please choose an option or send the next command.", max_length=1024)
     wait_repeat_count: int = Field(default=0, ge=0, le=10)
@@ -120,6 +123,8 @@ class BotWorkflowSave(APIModel):
                 if not step.condition or not step.true_step_id or step.true_step_id not in ids:
                     raise ValueError(f"{step.name}: condition requires a valid true branch")
                 continue
+            if step.next_step_id and step.next_step_id not in ids:
+                raise ValueError(f"{step.name}: next step must reference an enabled workflow step")
             if step.message_format not in optional_body and not step.message.strip():
                 raise ValueError(f"{step.name}: response message is required")
             if step.message_format == "buttons" and not step.buttons:

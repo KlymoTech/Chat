@@ -126,6 +126,21 @@ async def match_bot_workflow(
     enabled = [step for step in (workflow.steps_json or []) if step.get("enabled", True)]
     fallback = None
     by_id = {str(step.get("id")): step for step in enabled}
+    last_step = None
+    for previous in sent:
+        previous_id = str((previous.content_json or {}).get("workflowStepId") or "")
+        if previous_id in by_id and not (previous.content_json or {}).get("workflowWaitingFor"):
+            last_step = by_id[previous_id]
+            break
+    if last_step:
+        next_id = last_step.get("nextStepId") or last_step.get("next_step_id")
+        next_step = by_id.get(str(next_id)) if next_id else None
+        if next_step and _matches(next_step, message) and _allowed_by_frequency(next_step, sent, now):
+            return _render(next_step)
+        if next_step:
+            waiting = _waiting_reply(last_step, sent)
+            if waiting:
+                return waiting
     for step in enabled:
         kind = step.get("triggerType") or step.get("trigger_type")
         if kind == "fallback":

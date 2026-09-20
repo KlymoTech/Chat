@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from northstar_api.bot_workflow_schemas import BotWorkflowStep
+from northstar_api.bot_workflow_schemas import BotWorkflowSave, BotWorkflowStep
 from northstar_api.services.bot_workflows import _allowed_by_frequency, _matches, _render, _waiting_reply
 
 
@@ -43,3 +43,10 @@ def test_waiting_bot_repeats_only_configured_number_of_times() -> None:
     assert _waiting_reply(step, []).content == "Choose an option"
     sent = [SimpleNamespace(content_json={"workflowWaitingFor": "menu"})]
     assert _waiting_reply(step, sent) is None
+
+
+def test_active_workflow_rejects_a_connection_to_a_missing_node() -> None:
+    with pytest.raises(ValidationError, match="next step"):
+        BotWorkflowSave(name="Connected flow", purpose="support", status="active", steps=[
+            BotWorkflowStep(id="welcome", name="Welcome", triggerType="command", triggerValue="/start", message="Hi", nextStepId="missing")
+        ])
