@@ -12,6 +12,7 @@ const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((module) => ({ d
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
 const AuditPage = lazy(() => import('@/pages/AuditPage').then((module) => ({ default: module.AuditPage })));
 const BatchesPage = lazy(() => import('@/pages/BatchesPage').then((module) => ({ default: module.BatchesPage })));
+const BotWorkflowBuilderPage = lazy(() => import('@/pages/BotWorkflowBuilderPage').then((module) => ({ default: module.BotWorkflowBuilderPage })));
 const ConversationsPage = lazy(() => import('@/pages/ConversationsPage').then((module) => ({ default: module.ConversationsPage })));
 const CoursesPage = lazy(() => import('@/pages/CoursesPage').then((module) => ({ default: module.CoursesPage })));
 const CourseKnowledgePage = lazy(() => import('@/pages/CourseKnowledgePage').then((module) => ({ default: module.CourseKnowledgePage })));
@@ -105,6 +106,7 @@ export function App() {
       <Route path="conversations" element={<ConversationsPage />} />
       <Route path="leads" element={<LeadsPage />} />
       <Route path="crm-workflow" element={<CRMWorkflowPage />} />
+      <Route path="workflows" element={<BotWorkflowBuilderPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
       <Route path="audit" element={<AuditPage />} />
       <Route path="integrations" element={<IntegrationsHubPage />} />

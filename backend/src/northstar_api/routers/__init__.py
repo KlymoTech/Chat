@@ -5,6 +5,7 @@ from northstar_api.routers import (
     analytics,
     auth,
     billing,
+    bot_workflows,
     channel_deliveries,
     channel_health_history,
     channel_operations,
@@ -79,6 +80,7 @@ api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
 api_router.include_router(mfa.router)
 api_router.include_router(agents.router)
+api_router.include_router(bot_workflows.router)
 api_router.include_router(education.router)
 api_router.include_router(course_knowledge.router)
 api_router.include_router(course_knowledge_artifacts.router)

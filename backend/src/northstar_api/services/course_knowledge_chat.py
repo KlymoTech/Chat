@@ -16,6 +16,7 @@ from northstar_api.course_knowledge_models import CourseAcademicReview, CourseRe
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.models import Agent, Channel, ConversationState, Message, MessageRole
 from northstar_api.schemas import ChatStreamRequest
+from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.chat import ChatCoordinator, PreparedChat, ReservedChat, whatsapp_welcome
 from northstar_api.services.course_knowledge import (
     Boundary,
@@ -203,10 +204,16 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 display_question=raw_message,
             )
         try:
+            workflow_reply = await match_bot_workflow(
+                session, tenant_id=tenant_id, workspace_id=agent.workspace_id,
+                agent_id=agent.id, message=raw_message,
+            )
             welcome = whatsapp_welcome(agent, raw_message) if channel is Channel.WHATSAPP else None
             evidence: list[Evidence] = []
             fallback_reason = None
-            if welcome:
+            if workflow_reply:
+                answer = workflow_reply.content
+            elif welcome:
                 answer = welcome
             else:
                 history = await course_history(session, reserved, boundary, context)
@@ -282,7 +289,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                     else:
                         answer = "Your institute has not published sufficient authorized material for this question. Please ask your teacher."
                     answer = f"{context.course_name}: not verified against your published course material. This question has been sent for teacher review.\n\n{answer}"
-            if channel is Channel.WHATSAPP:
+            if channel is Channel.WHATSAPP and not workflow_reply:
                 answer = format_whatsapp_reply(agent, answer)
             await revalidate_evidence(session, boundary, context, evidence)
             session.add(
@@ -325,6 +332,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 evidence=evidence,
                 latency_ms=round((time.perf_counter() - started) * 1000),
                 show_citations=True,
+                message_format=workflow_reply.message_format if workflow_reply else None,
             )
             return replace(prepared, display_question=raw_message)
         except Exception as exc:

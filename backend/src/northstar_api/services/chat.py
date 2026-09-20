@@ -5,6 +5,7 @@ import re
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
@@ -22,6 +23,7 @@ from northstar_api.models import (
     MessageRole,
 )
 from northstar_api.schemas import ChatStreamRequest
+from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.grounding import blocked_topic, validate_answer
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
 from northstar_api.services.localization import (
@@ -63,6 +65,7 @@ class PreparedChat:
     answer: str
     evidence: list[Evidence]
     display_question: str = ""
+    message_format: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +154,23 @@ class ChatCoordinator:
         if isinstance(reservation, PreparedChat):
             return replace(reservation, display_question=display_question)
         try:
+            workflow_reply = await match_bot_workflow(
+                session,
+                tenant_id=tenant_id,
+                workspace_id=agent.workspace_id,
+                agent_id=agent.id,
+                message=raw_message,
+            )
+            if workflow_reply:
+                prepared = await self._complete_exchange(
+                    session, tenant_id=tenant_id, agent=agent, reservation=reservation,
+                    question=message, answer=workflow_reply.content, evidence=[],
+                    latency_ms=round((time.perf_counter() - started) * 1000), show_citations=False,
+                    message_format=workflow_reply.message_format,
+                )
+                CHAT_REQUESTS.labels("workflow").inc()
+                CHAT_DURATION.observe(time.perf_counter() - started)
+                return replace(prepared, display_question=display_question)
             if welcome:
                 prepared = await self._complete_exchange(
                     session, tenant_id=tenant_id, agent=agent, reservation=reservation,
@@ -444,6 +464,7 @@ class ChatCoordinator:
         evidence: list[Evidence],
         latency_ms: int,
         show_citations: bool,
+        message_format: dict[str, Any] | None = None,
     ) -> PreparedChat:
         assistant = await session.scalar(
             select(Message)
@@ -467,6 +488,7 @@ class ChatCoordinator:
         if assistant.model_request_id != reservation.lease_id:
             raise HTTPException(status_code=409, detail="Chat request lease was superseded")
         assistant.content = answer
+        assistant.content_json = message_format or {"type": "text"}
         assistant.completion_tokens = max(1, len(answer.split()))
         assistant.prompt_tokens = max(
             1, len(question.split()) + sum(len(item.text.split()) for item in evidence)
@@ -512,6 +534,7 @@ class ChatCoordinator:
             assistant.id,
             answer,
             evidence if show_citations else [],
+            message_format=assistant.content_json or None,
         )
 
     async def _get_agent(
@@ -636,7 +659,10 @@ class ChatCoordinator:
                 )
                 for citation in citations
             ]
-        return PreparedChat(conversation_id, assistant.id, assistant.content, evidence)
+        return PreparedChat(
+            conversation_id, assistant.id, assistant.content, evidence,
+            message_format=assistant.content_json or None,
+        )
 
     async def _mark_reservation_failed(
         self,

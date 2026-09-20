@@ -270,17 +270,27 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 await session.commit()
 
             provider_client, access_token = await connection_client(session, connection)
-            chunks = split_whatsapp_text(prepared.answer)
+            workflow_buttons = (
+                prepared.message_format.get("buttons") or []
+                if prepared.message_format and prepared.message_format.get("type") == "buttons"
+                else []
+            )
+            chunks = [prepared.answer] if workflow_buttons else split_whatsapp_text(prepared.answer)
             sent_ids = list(receipt.outbound_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
                 if education_mode:
                     from northstar_api.services.course_whatsapp import validate_whatsapp_study_reply
                     await validate_whatsapp_study_reply(session, agent=agent, receipt=receipt, prepared=prepared)
-                provider_id = await provider_client.send_text(
-                    access_token,
-                    phone_number_id=connection.phone_number_id,
-                    to=receipt.sender_wa_id,
-                    text=chunk,
+                provider_id = (
+                    await provider_client.send_reply_buttons(
+                        access_token, phone_number_id=connection.phone_number_id,
+                        to=receipt.sender_wa_id, body=chunk, buttons=workflow_buttons,
+                    )
+                    if workflow_buttons
+                    else await provider_client.send_text(
+                        access_token, phone_number_id=connection.phone_number_id,
+                        to=receipt.sender_wa_id, text=chunk,
+                    )
                 )
                 sent_ids.append(provider_id)
                 receipt.outbound_message_ids = list(sent_ids)
