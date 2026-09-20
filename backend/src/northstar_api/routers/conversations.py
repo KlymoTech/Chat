@@ -78,6 +78,7 @@ def conversation_response(conversation: Conversation) -> ConversationOut:
             content=message.content,
             created_at=message.created_at,
             citations=[CitationOut(title=item.title, url=item.url) for item in message.citations],
+            message_format=message.content_json or None,
         )
         for message in conversation.messages
     ]
@@ -597,6 +598,32 @@ async def reply_to_conversation(
     whatsapp_connection: WhatsAppConnection | None = None
     template_payload = None
     message_content = payload.content.strip()
+    message_format = payload.message_format.model_dump() if payload.message_format else {"type": "text"}
+    format_type = message_format.get("type", "text")
+    if payload.whatsapp_template and payload.message_format and format_type != "text":
+        raise HTTPException(status_code=422, detail="A WhatsApp template cannot use another message format")
+    if format_type == "buttons":
+        buttons = message_format.get("buttons") or []
+        if not buttons:
+            raise HTTPException(status_code=422, detail="Add at least one quick-reply button")
+        if len(message_content) > 1024:
+            raise HTTPException(status_code=422, detail="Button message body cannot exceed 1024 characters")
+        message_format.pop("table", None)
+    elif format_type == "table":
+        table = message_format.get("table")
+        if not table:
+            raise HTTPException(status_code=422, detail="Add table columns and rows")
+        columns = table["columns"]
+        rows = table["rows"]
+        if any(len(row) != len(columns) for row in rows):
+            raise HTTPException(status_code=422, detail="Every table row must match the number of columns")
+        message_format["body"] = message_content
+        rendered_rows = [" | ".join(columns), " | ".join("---" for _ in columns)]
+        rendered_rows.extend(" | ".join(row) for row in rows)
+        message_content = f"{message_content}\n\n" + "\n".join(rendered_rows)
+        message_format.pop("buttons", None)
+    else:
+        message_format = {"type": "text"}
     if payload.whatsapp_template and conversation.channel != Channel.WHATSAPP:
         raise HTTPException(status_code=422, detail="Templates are only available for WhatsApp conversations")
     telegram_target: tuple[ChannelConnection, str] | None = None
@@ -725,6 +752,7 @@ async def reply_to_conversation(
         sequence=sequence + 1,
         role=MessageRole.AGENT,
         content=message_content,
+        content_json=message_format,
         finish_reason="queued" if queued_external else "sent",
     )
     session.add(message)
@@ -918,4 +946,5 @@ async def reply_to_conversation(
         content=message.content,
         created_at=message.created_at,
         citations=[],
+        message_format=message.content_json or None,
     )

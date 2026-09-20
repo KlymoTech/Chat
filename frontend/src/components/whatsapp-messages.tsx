@@ -29,7 +29,9 @@ export function WhatsAppMessages({ messages, visitorName, agentName }: { message
       {message.role === 'system' ? <div className="wa-system">{message.content}</div> : message.content ? <article className={`wa-message wa-message--${outgoing ? 'outgoing' : 'incoming'}`} aria-label={`${outgoing ? message.role === 'agent' ? 'You' : agentName : visitorName}: ${message.content}`}>
         <div className="wa-bubble">
           {outgoing ? <span className="wa-sender">{message.role === 'agent' ? 'You' : `${agentName} · AI`}</span> : null}
-          <div className="wa-message-text" dir="auto">{message.content}</div>
+          <div className="wa-message-text" dir="auto">{message.messageFormat?.type === 'table' ? message.messageFormat.body ?? message.content : message.content}</div>
+          {message.messageFormat?.type === 'buttons' ? <div className="wa-message-buttons">{message.messageFormat.buttons?.map(button => <span key={button.id}>{button.title}</span>)}</div> : null}
+          {message.messageFormat?.type === 'table' && message.messageFormat.table ? <div className="wa-message-table-wrap"><table className="wa-message-table"><thead><tr>{message.messageFormat.table.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{message.messageFormat.table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div> : null}
           <div className="wa-message-meta"><time dateTime={message.createdAt} title={date.toLocaleString()}>{date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</time>{outgoing ? <WhatsAppDeliveryStatus status={message.deliveryStatus} /> : null}</div>
         </div>
         {message.citations?.map((citation) => <span className="wa-citation" key={citation.title}>{citation.title}</span>)}

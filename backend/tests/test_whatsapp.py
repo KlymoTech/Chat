@@ -364,6 +364,28 @@ async def test_cloud_client_honors_meta_transient_error_flag() -> None:
     assert captured.value.retryable
 
 
+async def test_cloud_client_sends_native_reply_buttons() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"messages": [{"id": "wamid.button"}]})
+
+    client = WhatsAppCloudClient(whatsapp_settings(), transport=httpx.MockTransport(handler))
+    message_id = await client.send_reply_buttons(
+        "EA-user-token",
+        phone_number_id="777",
+        to="15550101",
+        body="Choose a course",
+        buttons=[{"id": "cma", "title": "CMA"}, {"id": "cpa", "title": "CPA"}],
+    )
+
+    assert message_id == "wamid.button"
+    assert captured["type"] == "interactive"
+    assert captured["interactive"]["body"]["text"] == "Choose a course"
+    assert captured["interactive"]["action"]["buttons"][1]["reply"]["title"] == "CPA"
+
+
 def test_extracts_text_button_and_interactive_messages() -> None:
     payload = _webhook_payload(
         [

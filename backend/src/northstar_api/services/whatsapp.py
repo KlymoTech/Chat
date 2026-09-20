@@ -397,6 +397,49 @@ class WhatsAppCloudClient:
             raise WhatsAppGraphError("message delivery")
         return message_id
 
+    async def send_reply_buttons(
+        self,
+        access_token: str,
+        *,
+        phone_number_id: str,
+        to: str,
+        body: str,
+        buttons: list[dict[str, str]],
+    ) -> str:
+        if not body or len(body) > 1024 or not 1 <= len(buttons) <= 3:
+            raise ValueError("WhatsApp button messages require a body and 1 to 3 buttons")
+        payload = await self._request(
+            "POST",
+            f"{phone_number_id}/messages",
+            operation="interactive message delivery",
+            access_token=access_token,
+            json={
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to,
+                "type": "interactive",
+                "interactive": {
+                    "type": "button",
+                    "body": {"text": body},
+                    "action": {
+                        "buttons": [
+                            {"type": "reply", "reply": {"id": item["id"], "title": item["title"]}}
+                            for item in buttons
+                        ]
+                    },
+                },
+            },
+        )
+        messages = payload.get("messages")
+        message_id = (
+            messages[0].get("id")
+            if isinstance(messages, list) and messages and isinstance(messages[0], dict)
+            else None
+        )
+        if not isinstance(message_id, str) or not message_id:
+            raise WhatsAppGraphError("interactive message delivery")
+        return message_id
+
     async def send_text_chunks(
         self, access_token: str, *, phone_number_id: str, to: str, text: str
     ) -> list[str]:

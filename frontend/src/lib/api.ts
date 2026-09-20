@@ -398,7 +398,7 @@ export const api = {
   conversations: {
     list: () => withFallback(() => request<PageResult<Conversation>>('/conversations'), async () => { await pause(); const items = demoConversationList(); return { items, total: items.length, page: 1, pageSize: 50 }; }),
     updateState: (conversationId: string, state: ConversationState) => withFallback(() => request<Conversation>(`/conversations/${conversationId}`, { method: 'PATCH', body: JSON.stringify({ state }) }), async () => { const items = demoConversationList(); const item = items.find((entry) => entry.id === conversationId); if (!item) throw new ApiError('Conversation not found', 404); item.state = state; writeStorage(CONVERSATIONS_KEY, items); return item; }),
-    reply: (conversationId: string, content: string) => withFallback(() => request<Conversation['messages'][number]>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content }) }), async () => ({ id: id('agent'), role: 'agent', content, createdAt: new Date().toISOString() })),
+    reply: (conversationId: string, content: string, messageFormat?: import('@/types').ChatMessage['messageFormat']) => withFallback(() => request<Conversation['messages'][number]>(`/conversations/${conversationId}/messages`, { method: 'POST', body: JSON.stringify({ content, messageFormat }) }), async () => ({ id: id('agent'), role: 'agent' as const, content, messageFormat, createdAt: new Date().toISOString() })),
   },
   leads: {
     list: () => withFallback(() => request<PageResult<Lead>>('/leads'), async () => { await pause(); const items = demoLeadList(); return { items, total: items.length, page: 1, pageSize: 50 }; }),

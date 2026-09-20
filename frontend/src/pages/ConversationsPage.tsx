@@ -1,7 +1,7 @@
 import { WhatsAppContactDetails } from '@/components/whatsapp-contact-details';
 import { ProviderLogo, WhatsApp } from '@/components/provider-logo';
 import { WhatsAppMessages } from '@/components/whatsapp-messages';
-import { WhatsAppReplyComposer } from '@/components/whatsapp-reply-composer';
+import { WhatsAppReplyComposer, type StructuredReply } from '@/components/whatsapp-reply-composer';
 import { VisitorDetailsEditor } from '@/components/visitor-details-editor';
 import { Archive, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, GraduationCap, Inbox, Info, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -121,7 +121,13 @@ export function ConversationsPage() {
   const conversations = useMemo(() => result.data?.items ?? [], [result.data]);
   const showingList = params.get('view') === 'list';
   const selectedId = showingList ? undefined : params.get('selected') ?? conversations[0]?.id;
-  const selected = conversations.find((item) => item.id === selectedId) ?? null;
+  const selectedSummary = conversations.find((item) => item.id === selectedId) ?? null;
+  const detail = usePollingApi(
+    (signal) => selectedId ? conversationApi.get(selectedId, signal) : Promise.resolve(null),
+    [activeWorkspace?.id, selectedId],
+    2000,
+  );
+  const selected = detail.data ?? selectedSummary;
   const selectedAgent = selected ? agents.data?.find((item) => item.id === selected.agentId) : null;
   useEffect(() => {
     if (showingList) return;
@@ -186,6 +192,22 @@ export function ConversationsPage() {
     }
   };
 
+  const sendStructuredReply = async (draft: StructuredReply) => {
+    if (!selected || sending) return false;
+    setSending(true);
+    try {
+      await api.conversations.reply(selected.id, draft.content, draft.messageFormat);
+      await Promise.all([result.reload(), detail.reload()]);
+      pushToast(`Formatted ${draft.messageFormat.type} reply queued for WhatsApp`);
+      return true;
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Reply could not be sent', 'error');
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
+
   if (result.loading && !result.data) return <PageLoader />;
   return <div className="inbox-page">
     <section className={`conversation-list-panel ${selected ? 'has-selection' : ''}`}>
@@ -207,11 +229,11 @@ export function ConversationsPage() {
       <div className="conversation-items" role="region" aria-label="Conversation list" tabIndex={0}>{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar conversation-list-avatar">{conversation.visitorName.charAt(0)}<ProviderLogo provider={conversation.channel} size={16} className="conversation-channel-logo" /></span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge>{conversation.purpose === 'education' || agents.data?.find((agent) => agent.id === conversation.agentId)?.purpose === 'education' ? <Badge tone="purple">Education</Badge> : null}<em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
       {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description={isEducationAgent ? 'Try another Course, Batch, Student, channel, status, or search.' : 'Try another workspace, agent, channel, status, or search.'} /> : null}
     </section>
-    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={result.reload} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} setState={setState} purpose={selected.purpose ?? selectedAgent?.purpose} onBack={() => setParams({ view: 'list' })} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
+    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={() => { result.reload(); detail.reload(); }} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} sendStructuredReply={sendStructuredReply} setState={setState} purpose={selected.purpose ?? selectedAgent?.purpose} onBack={() => setParams({ view: 'list' })} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
   </div>;
 }
 
-function ConversationDetail({ savingState, onVisitorSaved, conversation, agentName, workspaceName, reply, setReply, submitReply, setState, purpose, onBack, sending }: { savingState: boolean; onVisitorSaved: () => void; conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; setState: (state: ConversationState, leadStatus?: string) => Promise<void>; purpose: Conversation['purpose']; onBack: () => void; sending: boolean }) {
+function ConversationDetail({ savingState, onVisitorSaved, conversation, agentName, workspaceName, reply, setReply, submitReply, sendStructuredReply, setState, purpose, onBack, sending }: { savingState: boolean; onVisitorSaved: () => void; conversation: Conversation; agentName: string; workspaceName: string; reply: string; setReply: (value: string) => void; submitReply: (event: FormEvent) => void; sendStructuredReply: (draft: StructuredReply) => Promise<boolean>; setState: (state: ConversationState, leadStatus?: string) => Promise<void>; purpose: Conversation['purpose']; onBack: () => void; sending: boolean }) {
   const [leadStatus, setLeadStatus] = useState(conversation.leadStatus ?? 'new');
   useEffect(() => { setLeadStatus(conversation.leadStatus ?? 'new'); }, [conversation.id, conversation.leadStatus]);
   const [showContactDetails, setShowContactDetails] = useState(false);
@@ -251,7 +273,7 @@ function ConversationDetail({ savingState, onVisitorSaved, conversation, agentNa
       if (followLatest.current) setHasNewMessages(false);
     }}>{!isWhatsApp ? <><div className="thread-notice"><Sparkles /> <span><strong>{isEducation ? 'Student learning conversation' : conversation.state === 'escalated' ? 'Human attention requested' : 'Northstar handled this conversation'}</strong><small>{isEducation ? 'Kept in Education. This chat does not create a lead or sync to a sales CRM.' : 'The complete AI context is available below.'}</small></span></div><div className="message-day"><span>{new Date(conversation.startedAt).toLocaleDateString('en', { month: 'long', day: 'numeric' })}</span></div></> : null}
       {isWhatsApp ? <WhatsAppMessages messages={conversation.messages} visitorName={conversation.visitorName} agentName={agentName} /> : conversation.messages.map((message) => <div className={`inbox-message inbox-message--${message.role}`} key={message.id}>{message.role === 'user' ? <span className="message-avatar message-avatar--visitor">{conversation.visitorName.charAt(0)}</span> : <span className="message-avatar"><>{message.role === 'agent' ? <UserRound /> : <Sparkles />}</></span>}<div><span className="message-author">{message.role === 'user' ? conversation.visitorName : message.role === 'agent' ? 'You' : 'Northstar AI'} <time>{new Date(message.createdAt).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}</time></span><div className="message-bubble">{message.content}</div>{message.citations?.map((citation) => <button className="citation-chip" key={citation.title}><ExternalLink />{citation.title}</button>)}</div></div>)}
-    </div>{hasNewMessages ? <button type="button" className="conversation-new-messages" onClick={jumpToLatest}>New messages <ChevronDown aria-hidden="true" /></button> : null}{conversation.channel === 'whatsapp' ? <div className="conversation-reply-tools"><WhatsAppTemplateComposer key={conversation.id} agentId={conversation.agentId} conversationId={conversation.id} onQueued={onVisitorSaved} /></div> : null}{isWhatsApp ? <WhatsAppReplyComposer reply={reply} setReply={setReply} sending={sending} onSubmit={submitReply} /> : <form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form>}</div>
+    </div>{hasNewMessages ? <button type="button" className="conversation-new-messages" onClick={jumpToLatest}>New messages <ChevronDown aria-hidden="true" /></button> : null}{conversation.channel === 'whatsapp' ? <div className="conversation-reply-tools"><WhatsAppTemplateComposer key={conversation.id} agentId={conversation.agentId} conversationId={conversation.id} onQueued={onVisitorSaved} /></div> : null}{isWhatsApp ? <WhatsAppReplyComposer sending={sending} onSend={sendStructuredReply} /> : <form className="human-composer" onSubmit={(event) => void submitReply(event)}><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply as a teammate…" rows={2} disabled={sending} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') event.currentTarget.form?.requestSubmit(); }} /><div><span><button type="button" aria-label="Insert emoji"><Smile /></button><small>⌘ Enter to send</small></span><Button size="sm" icon={Send} disabled={!reply.trim() || sending}>{sending ? 'Sending…' : 'Send'}</Button></div></form>}</div>
     <aside className="visitor-panel">{isWhatsApp ? <WhatsAppContactDetails contact={conversation.whatsappContact} /> : null}<div className="visitor-profile"><span className="mini-avatar mini-avatar--xl">{conversation.visitorName.charAt(0)}</span><h3>{conversation.visitorName}</h3><Badge tone={conversation.sentiment === 'positive' ? 'success' : conversation.sentiment === 'negative' ? 'danger' : 'neutral'}>{conversation.sentiment} sentiment</Badge></div><dl><div><dt><Mail /> Email</dt><dd>{conversation.visitorEmail ?? 'Not provided'}</dd></div><div><dt><Bot /> Workspace</dt><dd>{workspaceName}</dd></div><div><dt><Bot /> Agent</dt><dd>{agentName}</dd></div><div><dt><ProviderLogo provider={conversation.channel} /> Channel</dt><dd>{isWhatsApp ? 'WhatsApp' : conversation.channel}</dd></div><div><dt><Clock3 /> Started</dt><dd>{relativeTime(conversation.startedAt)}</dd></div><div><dt><CircleAlert /> Status</dt><dd className="capitalize">{conversation.state}</dd></div></dl><VisitorDetailsEditor key={conversation.id} conversation={conversation} onSaved={onVisitorSaved} /><div className="conversation-summary"><strong><Sparkles /> AI summary</strong><p>{conversation.preview} The visitor may benefit from a short, direct follow-up.</p></div></aside>
   </section>;
 }

@@ -54,6 +54,13 @@ function usesEducationScope(filters: ConversationFilters): boolean {
 }
 
 export const conversationApi = {
+  async get(conversationId: string, signal?: AbortSignal): Promise<Conversation> {
+    const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
+      signal, credentials: 'include', headers: authHeaders(),
+    });
+    if (!response.ok) throw new ApiError(`Conversation request failed (${response.status})`, response.status);
+    return response.json() as Promise<Conversation>;
+  },
   async updateVisitor(conversationId: string, details: { visitorName: string; visitorEmail: string | null; pageUrl: string | null; visitorDetails: Record<string, string | null> }): Promise<Conversation> {
     const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
       method: 'PATCH', credentials: 'include',

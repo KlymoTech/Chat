@@ -1,26 +1,63 @@
-import { useRef, useState, type FormEvent } from 'react';
-import { Send, Smile, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Columns3, ListChecks, MessageSquareText, Plus, Send, Smile, Trash2, X } from 'lucide-react';
+import type { ChatMessage } from '@/types';
 
-export function WhatsAppReplyComposer({ reply, setReply, sending, onSubmit }: {
-  reply: string; setReply: (text: string) => void; sending: boolean; onSubmit: (event: FormEvent) => void;
-}) {
+export interface StructuredReply {
+  content: string;
+  messageFormat: NonNullable<ChatMessage['messageFormat']>;
+}
+
+type FormatType = StructuredReply['messageFormat']['type'];
+const cells = (value: string) => value.split(',').map(item => item.trim()).filter(Boolean);
+
+export function WhatsAppReplyComposer({ sending, onSend }: { sending: boolean; onSend: (reply: StructuredReply) => Promise<boolean> }) {
+  const [format, setFormat] = useState<FormatType>('text');
+  const [content, setContent] = useState('');
+  const [buttons, setButtons] = useState(['']);
+  const [columns, setColumns] = useState('Item, Details');
+  const [rows, setRows] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
-  return <form className="wa-composer" onSubmit={onSubmit}>
-    {emojiOpen ? <div className="wa-emoji-picker" role="group" aria-label="Choose an emoji">{['😀', '😊', '👍', '🙏', '❤️', '🎉', '✅', '👋'].map(emoji => <button type="button" key={emoji} aria-label={`Insert ${emoji}`} onClick={() => {
-      const start = input.current?.selectionStart ?? reply.length;
-      const end = input.current?.selectionEnd ?? reply.length;
-      setReply(reply.slice(0, start) + emoji + reply.slice(end));
-      setEmojiOpen(false);
-      input.current?.focus();
-    }}>{emoji}</button>)}</div> : null}
-    <button type="button" className="wa-composer-icon" aria-label={emojiOpen ? 'Close emoji picker' : 'Insert emoji'} aria-expanded={emojiOpen} disabled={sending} onClick={() => setEmojiOpen(!emojiOpen)}>{emojiOpen ? <X /> : <Smile />}</button>
-    <textarea ref={input} aria-label="WhatsApp message" value={reply} onChange={event => setReply(event.target.value)} placeholder="Type a message" rows={1} disabled={sending} onKeyDown={event => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-        event.preventDefault();
-        if (reply.trim() && !sending) event.currentTarget.form?.requestSubmit();
-      }
-    }} />
-    <button className="wa-send" type="submit" aria-label={sending ? 'Sending message' : 'Send message'} title="Send (Enter). Shift+Enter for a new line." disabled={!reply.trim() || sending}><Send aria-hidden="true" /></button>
-  </form>;
+  const tableColumns = useMemo(() => cells(columns), [columns]);
+  const tableRows = useMemo(() => rows.split('\n').map(cells).filter(row => row.length), [rows]);
+  const valid = Boolean(content.trim()) && (format === 'text'
+    || (format === 'buttons' && buttons.some(button => button.trim()) && content.trim().length <= 1024)
+    || (format === 'table' && tableColumns.length > 0 && tableRows.length > 0 && tableRows.every(row => row.length === tableColumns.length)));
+
+  const submit = async () => {
+    if (!valid || sending) return;
+    const messageFormat: StructuredReply['messageFormat'] = format === 'buttons'
+      ? { type: 'buttons', buttons: buttons.filter(Boolean).map((title, index) => ({ id: `reply_${index + 1}`, title: title.trim() })) }
+      : format === 'table'
+        ? { type: 'table', table: { columns: tableColumns, rows: tableRows } }
+        : { type: 'text' };
+    if (await onSend({ content: content.trim(), messageFormat })) {
+      setContent(''); setRows(''); setButtons(['']);
+    }
+  };
+
+  return <div className="wa-composer-shell">
+    <div className="wa-format-tabs" role="tablist" aria-label="Message format">
+      {([['text', MessageSquareText, 'Text'], ['buttons', ListChecks, 'Buttons'], ['table', Columns3, 'Table']] as const).map(([value, Icon, label]) => <button key={value} type="button" role="tab" aria-selected={format === value} className={format === value ? 'is-active' : ''} onClick={() => setFormat(value)}><Icon />{label}</button>)}
+      <span>Choose exactly how this reply will be sent</span>
+    </div>
+    {format === 'buttons' ? <div className="wa-format-editor">
+      <strong>Quick-reply buttons</strong><small>Up to 3 buttons, 20 characters each. The student taps one to reply.</small>
+      <div className="wa-button-fields">{buttons.map((button, index) => <label key={index}><span>Button {index + 1}</span><input value={button} maxLength={20} placeholder={index === 0 ? 'Example: Switch to CPA' : 'Button label'} onChange={event => setButtons(items => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} />{buttons.length > 1 ? <button type="button" aria-label={`Remove button ${index + 1}`} onClick={() => setButtons(items => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></button> : null}</label>)}</div>
+      {buttons.length < 3 ? <button type="button" className="wa-add-field" onClick={() => setButtons(items => [...items, ''])}><Plus />Add button</button> : null}
+    </div> : null}
+    {format === 'table' ? <div className="wa-format-editor">
+      <strong>Table content</strong><small>Use commas between columns and a new line for each row. WhatsApp receives a readable text table.</small>
+      <label><span>Column headings</span><input value={columns} placeholder="Course, Status, Expiry" onChange={event => setColumns(event.target.value)} /></label>
+      <label><span>Rows</span><textarea value={rows} rows={3} placeholder={'CMA, Active, 15 Jan 2027\nCPA, Active, 20 Dec 2027'} onChange={event => setRows(event.target.value)} /></label>
+      {tableRows.some(row => row.length !== tableColumns.length) ? <small className="wa-format-error">Every row must have {tableColumns.length} comma-separated cells.</small> : null}
+    </div> : null}
+    {(format === 'buttons' || format === 'table') && content.trim() ? <div className="wa-format-preview" aria-label="Message preview"><small>Preview</small><p>{content}</p>{format === 'buttons' ? <div>{buttons.filter(Boolean).map(button => <span key={button}>{button}</span>)}</div> : <table><thead><tr>{tableColumns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{tableRows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table>}</div> : null}
+    <form className="wa-composer" onSubmit={event => { event.preventDefault(); void submit(); }}>
+      {emojiOpen ? <div className="wa-emoji-picker" role="group" aria-label="Choose an emoji">{['😀', '😊', '👍', '🙏', '❤️', '🎉', '✅', '👋'].map(emoji => <button type="button" key={emoji} aria-label={`Insert ${emoji}`} onClick={() => { const start = input.current?.selectionStart ?? content.length; const end = input.current?.selectionEnd ?? content.length; setContent(content.slice(0, start) + emoji + content.slice(end)); setEmojiOpen(false); input.current?.focus(); }}>{emoji}</button>)}</div> : null}
+      <button type="button" className="wa-composer-icon" aria-label={emojiOpen ? 'Close emoji picker' : 'Insert emoji'} aria-expanded={emojiOpen} disabled={sending} onClick={() => setEmojiOpen(!emojiOpen)}>{emojiOpen ? <X /> : <Smile />}</button>
+      <textarea ref={input} aria-label="WhatsApp message" value={content} onChange={event => setContent(event.target.value)} placeholder={format === 'text' ? 'Type a message' : format === 'buttons' ? 'Type the message shown above the buttons' : 'Type the introduction shown above the table'} rows={1} disabled={sending} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (valid && !sending) void submit(); } }} />
+      <button className="wa-send" type="submit" aria-label={sending ? 'Sending message' : `Send ${format} message`} title="Send (Enter). Shift+Enter for a new line." disabled={!valid || sending}><Send aria-hidden="true" /></button>
+    </form>
+  </div>;
 }

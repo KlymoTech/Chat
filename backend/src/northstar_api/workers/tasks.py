@@ -204,10 +204,10 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
             ) is AgentPurpose.EDUCATION
             if education_mode:
-                from northstar_api.services.course_whatsapp import authorize_whatsapp_study
-                from northstar_api.services.education_chat import education_chat_coordinator
                 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalSender
                 from northstar_api.lead_crm.domain import ChannelProvider
+                from northstar_api.services.course_whatsapp import authorize_whatsapp_study
+                from northstar_api.services.education_chat import education_chat_coordinator
                 from northstar_api.workers.channel_event_consumer import _get_or_create_education_conversation
 
                 decision, menu_handled = await authorize_whatsapp_study(
@@ -430,7 +430,9 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
                 await session.commit()
                 return
             provider_client, access_token = await connection_client(session, connection)
-            chunks = [message.content] if delivery.template_payload else split_whatsapp_text(message.content)
+            message_format = message.content_json or {}
+            is_buttons = message_format.get("type") == "buttons"
+            chunks = [message.content] if delivery.template_payload or is_buttons else split_whatsapp_text(message.content)
             sent_ids = list(delivery.provider_message_ids or [])
             for chunk in chunks[len(sent_ids) :]:
                 provider_id = (
@@ -441,6 +443,14 @@ async def _send_whatsapp_human_reply_async(delivery_id: UUID) -> None:
                         template=delivery.template_payload,
                     )
                     if delivery.template_payload
+                    else await provider_client.send_reply_buttons(
+                        access_token,
+                        phone_number_id=connection.phone_number_id,
+                        to=delivery.recipient_wa_id,
+                        body=chunk,
+                        buttons=message_format.get("buttons") or [],
+                    )
+                    if is_buttons
                     else await provider_client.send_text(
                         access_token,
                         phone_number_id=connection.phone_number_id,

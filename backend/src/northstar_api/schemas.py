@@ -387,6 +387,7 @@ class MessageOut(APIModel):
     created_at: datetime
     citations: list[CitationOut] = Field(default_factory=list)
     delivery_status: str | None = None
+    message_format: dict[str, Any] | None = None
 
 
 class VisitorDetails(APIModel):
@@ -462,8 +463,39 @@ class WhatsAppTemplateSelection(APIModel):
         return values
 
 
+class MessageButton(APIModel):
+    id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=20)
+
+
+class MessageTable(APIModel):
+    columns: list[str] = Field(min_length=1, max_length=5)
+    rows: list[list[str]] = Field(min_length=1, max_length=20)
+
+    @field_validator("columns")
+    @classmethod
+    def validate_columns(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() or len(value) > 40 for value in values):
+            raise ValueError("Table columns must contain 1 to 40 characters")
+        return values
+
+    @field_validator("rows")
+    @classmethod
+    def validate_rows(cls, values: list[list[str]]) -> list[list[str]]:
+        if any(not row or len(row) > 5 or any(len(cell) > 160 for cell in row) for row in values):
+            raise ValueError("Table rows must contain 1 to 5 cells of up to 160 characters")
+        return values
+
+
+class MessageFormat(APIModel):
+    type: Literal["text", "buttons", "table"] = "text"
+    buttons: list[MessageButton] = Field(default_factory=list, max_length=3)
+    table: MessageTable | None = None
+
+
 class ConversationReplyCreate(APIModel):
     whatsapp_template: WhatsAppTemplateSelection | None = None
+    message_format: MessageFormat | None = None
     content: str = Field(min_length=1, max_length=12_000)
 
 

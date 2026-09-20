@@ -164,6 +164,31 @@
 .inbox-page .conversation-detail--whatsapp .conversation-reply-tools > .button { height: 32px; min-height: 32px; padding: 4px 10px; border: 1px solid #c4d6cc; border-radius: 8px; background: #fff; color: #006c57; font: 12px Arial, sans-serif; box-shadow: none; }
 .inbox-page .conversation-detail--whatsapp .conversation-new-messages { color: #006c57; background: #e7fce3; border-color: #c4d6cc; }
 .wa-composer { position: relative; display: flex; align-items: flex-end; gap: 10px; flex: 0 0 auto; padding: 12px 16px; background: #f0f2f5; }
+.wa-composer-shell { flex: 0 0 auto; background: #f0f2f5; border-top: 1px solid #d9dedb; }
+.wa-format-tabs { display: flex; align-items: center; gap: 6px; padding: 8px 16px 0; }
+.wa-format-tabs button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid #cbd5d0; border-radius: 8px; color: #54656f; background: #fff; font: 12px Arial, sans-serif; cursor: pointer; }
+.wa-format-tabs button.is-active { border-color: #008069; color: #006c57; background: #e7fce3; }
+.wa-format-tabs button svg { width: 14px; height: 14px; }
+.wa-format-tabs > span { margin-left: auto; color: #667781; font-size: 10px; }
+.wa-format-editor { display: grid; gap: 7px; padding: 10px 16px 0; color: #111b21; font: 12px Arial, sans-serif; }
+.wa-format-editor > small { color: #667781; }
+.wa-format-editor label { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: center; gap: 7px; }
+.wa-format-editor input, .wa-format-editor textarea { min-width: 0; padding: 7px 9px; border: 1px solid #cbd5d0; border-radius: 7px; background: #fff; font: inherit; }
+.wa-format-editor label > button, .wa-add-field { display: inline-flex; align-items: center; gap: 4px; border: 0; color: #006c57; background: transparent; cursor: pointer; }
+.wa-format-editor label > button svg, .wa-add-field svg { width: 14px; height: 14px; }
+.wa-add-field { justify-self: start; padding: 3px 0; }
+.wa-button-fields { display: grid; gap: 6px; }
+.wa-format-error { color: #b42318 !important; }
+.wa-format-preview { margin: 10px 16px 0; padding: 9px 11px; border: 1px solid #c4d6cc; border-radius: 8px; background: #d9fdd3; color: #111b21; font: 12px Arial, sans-serif; overflow-x: auto; }
+.wa-format-preview > small { color: #54656f; text-transform: uppercase; letter-spacing: .04em; }
+.wa-format-preview p { margin: 5px 0; white-space: pre-wrap; }
+.wa-format-preview > div { display: flex; gap: 5px; flex-wrap: wrap; }
+.wa-format-preview > div span, .wa-message-buttons span { padding: 6px 9px; border: 1px solid #b7d8cd; border-radius: 6px; color: #007b67; background: #fff; text-align: center; }
+.wa-format-preview table, .wa-message-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.wa-format-preview th, .wa-format-preview td, .wa-message-table th, .wa-message-table td { padding: 5px 7px; border: 1px solid #abc8bd; text-align: left; }
+.wa-message-buttons { display: grid; gap: 4px; margin-top: 7px; }
+.wa-message-table-wrap { max-width: 100%; overflow-x: auto; }
+.wa-message-table { min-width: 260px; font-size: 12px; }
 .wa-composer textarea { flex: 1; min-width: 0; height: 44px; max-height: 140px; field-sizing: content; resize: none; border: 1px solid transparent; border-radius: 9px; padding: 12px 14px; color: #111b21; background: #fff; font: 14px/20px Arial, sans-serif; }
 .wa-composer textarea:focus { outline: 2px solid #008069; outline-offset: 1px; }
 .wa-composer button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 44px; border: 0; border-radius: 50%; cursor: pointer; }

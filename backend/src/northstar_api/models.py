@@ -543,6 +543,7 @@ class Message(Base, UUIDPrimaryKeyMixin):
     sequence: Mapped[int] = mapped_column(Integer)
     role: Mapped[MessageRole] = mapped_column(enum_column(MessageRole, "message_role"))
     content: Mapped[str] = mapped_column(Text)
+    content_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     content_fingerprint: Mapped[str | None] = mapped_column(String(64))
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     model_request_id: Mapped[str | None] = mapped_column(String(200))

@@ -136,6 +136,12 @@ export interface ChatMessage {
   createdAt: string;
   citations?: Array<{ title: string; url?: string }>;
   deliveryStatus?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown' | null;
+  messageFormat?: {
+    type: 'text' | 'buttons' | 'table';
+    body?: string;
+    buttons?: Array<{ id: string; title: string }>;
+    table?: { columns: string[]; rows: string[][] };
+  } | null;
 }
 
 export interface Conversation {

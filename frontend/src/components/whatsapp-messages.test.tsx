@@ -1,5 +1,4 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WhatsAppMessages } from './whatsapp-messages';
 import { WhatsAppReplyComposer } from './whatsapp-reply-composer';
@@ -29,14 +28,30 @@ describe('WhatsApp conversation', () => {
     expect(screen.getByRole('img', { name: 'Delivery failed' })).toHaveTextContent('Not sent');
     expect(screen.getByRole('img', { name: 'Waiting to send' })).toBeInTheDocument();
   });
+  it('lets an operator preview and send a native quick-reply button message', async () => {
+    const send = vi.fn().mockResolvedValue(true);
+    render(<WhatsAppReplyComposer sending={false} onSend={send} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Buttons' }));
+    fireEvent.change(screen.getByPlaceholderText('Example: Switch to CPA'), { target: { value: 'Switch to CPA' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'WhatsApp message' }), { target: { value: 'Choose your course' } });
+    expect(screen.getByLabelText('Message preview')).toHaveTextContent('Switch to CPA');
+    fireEvent.click(screen.getByRole('button', { name: 'Send buttons message' }));
+    expect(send).toHaveBeenCalledWith({ content: 'Choose your course', messageFormat: { type: 'buttons', buttons: [{ id: 'reply_1', title: 'Switch to CPA' }] } });
+  });
+  it('renders stored buttons and tables as structured chat content', () => {
+    render(<WhatsAppMessages messages={[
+      { ...outgoing, id: 'buttons', messageFormat: { type: 'buttons', buttons: [{ id: 'cpa', title: 'CPA' }] } },
+      { ...outgoing, id: 'table', content: 'Courses\n\nCourse | Status', messageFormat: { type: 'table', body: 'Courses', table: { columns: ['Course', 'Status'], rows: [['CMA', 'Active']] } } },
+    ]} visitorName="Anan" agentName="CMA" />);
+    expect(screen.getByText('CPA')).toBeInTheDocument();
+    expect(screen.getByRole('table')).toHaveTextContent('CMA');
+    expect(screen.getByText('Courses')).toBeInTheDocument();
+  });
   it('sends on Enter, preserves Shift+Enter/IME composition, and inserts emoji into the draft', () => {
     const send = vi.fn();
-    function Composer() {
-      const [reply, setReply] = useState('Hello');
-      return <WhatsAppReplyComposer reply={reply} setReply={setReply} sending={false} onSubmit={event => { event.preventDefault(); send(); }} />;
-    }
-    render(<Composer />);
+    render(<WhatsAppReplyComposer sending={false} onSend={async () => { send(); return true; }} />);
     const input = screen.getByRole('textbox', { name: 'WhatsApp message' });
+    fireEvent.change(input, { target: { value: 'Hello' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     expect(send).not.toHaveBeenCalled();

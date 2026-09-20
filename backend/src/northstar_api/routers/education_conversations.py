@@ -38,6 +38,7 @@ def _conversation_response(conversation: Conversation) -> ConversationOut:
             content=message.content,
             created_at=message.created_at,
             citations=[CitationOut(title=item.title, url=item.url) for item in message.citations],
+            message_format=message.content_json or None,
         )
         for message in conversation.messages
     ]
