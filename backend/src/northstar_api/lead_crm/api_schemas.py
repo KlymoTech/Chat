@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from northstar_api.lead_crm.domain import CRMDeliveryStatus, CRMProvider
+from northstar_api.lead_crm.generic_contract import configured_capabilities, validate_configuration
 
 
 class LeadCRMModel(BaseModel):
@@ -30,6 +31,14 @@ class CRMConnectionCreate(LeadCRMModel):
     configuration: dict[str, Any] = Field(default_factory=dict)
     credentials: dict[str, Any] | None = None
 
+    @model_validator(mode="after")
+    def validate_generic_contract(self) -> Self:
+        # Empty drafts remain legal, but credentialed/configured connections must
+        # pass the same contract used before every outbound runtime request.
+        if self.provider == CRMProvider.GENERIC_REST and (self.configuration or self.credentials):
+            validate_configuration(self.configuration)
+        return self
+
 
 class CRMConnectionOut(LeadCRMModel):
     id: UUID
@@ -48,6 +57,14 @@ class CRMConnectionOut(LeadCRMModel):
     last_error: str | None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def expose_configured_capabilities(self) -> Self:
+        # Recompute for historical rows too: stale class-level flags in the DB
+        # must not advertise operations missing from the actual configuration.
+        if self.provider == CRMProvider.GENERIC_REST.value:
+            self.capabilities = configured_capabilities(self.configuration)
+        return self
 
 
 class CRMWorkspaceSettingsPatch(LeadCRMModel):
