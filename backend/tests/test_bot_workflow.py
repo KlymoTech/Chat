@@ -4,10 +4,14 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from httpx import AsyncClient
 from pydantic import ValidationError
 
 from northstar_api.bot_workflow_schemas import BotWorkflowSave, BotWorkflowStep
+from northstar_api.services.bot_workflow_templates import enrolled_student_tutor
 from northstar_api.services.bot_workflows import _allowed_by_frequency, _matches, _render, _waiting_reply
+
+pytestmark = pytest.mark.usefixtures("crm_test_plan")
 
 
 def test_workflow_command_and_keyword_matching() -> None:
@@ -50,3 +54,49 @@ def test_active_workflow_rejects_a_connection_to_a_missing_node() -> None:
         BotWorkflowSave(name="Connected flow", purpose="support", status="active", steps=[
             BotWorkflowStep(id="welcome", name="Welcome", triggerType="command", triggerValue="/start", message="Hi", nextStepId="missing")
         ])
+
+
+def test_enrolled_student_template_is_backend_owned_and_calendar_scoped() -> None:
+    workflow = enrolled_student_tutor()
+    assert workflow.purpose.value == "education"
+    assert workflow.status == "draft"
+    assert [step.id for step in workflow.steps] == [
+        "edu_daily_welcome", "edu_enrollment_route", "edu_course_session",
+        "edu_switch_course", "edu_help",
+    ]
+    welcome = workflow.steps[0]
+    assert welcome.repeat_policy == "once_per_calendar_day"
+    assert welcome.calendar_timezone == "Asia/Kolkata"
+    assert welcome.config == {
+        "systemAction": "education_daily_welcome", "continueOriginalMessage": True
+    }
+    assert workflow.steps[1].config["dynamicSource"] == "verified_active_enrollments"
+    assert workflow.steps[3].trigger_value == "switch course"
+
+
+async def test_template_catalog_applies_and_persists_for_an_education_agent(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    headers = {**auth_headers, "X-Workspace-ID": workspace.json()["id"]}
+    created = await client.post("/api/v1/agents", headers=headers, json={
+        "name": "Template Education Bot",
+        "description": "Template integration test",
+        "purpose": "education",
+        "deploymentChannel": "whatsapp",
+    })
+    assert created.status_code == 201, created.text
+    catalog = await client.get("/api/v1/bot-workflows/templates", headers=headers)
+    assert catalog.status_code == 200, catalog.text
+    assert catalog.json()[0]["key"] == "enrolled_student_tutor"
+    applied = await client.post(
+        f"/api/v1/bot-workflows/{created.json()['id']}/templates/enrolled_student_tutor",
+        headers=headers,
+    )
+    assert applied.status_code == 200, applied.text
+    body = applied.json()
+    assert body["status"] == "draft"
+    assert body["steps"][0]["config"]["systemAction"] == "education_daily_welcome"
+    saved = await client.get(f"/api/v1/bot-workflows/{created.json()['id']}", headers=headers)
+    assert saved.status_code == 200
+    assert saved.json()["id"] == body["id"]

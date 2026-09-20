@@ -146,3 +146,11 @@ class BotWorkflowOut(BotWorkflowSave):
     agent_id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class BotWorkflowTemplateOut(APIModel):
+    key: str
+    name: str
+    purpose: AgentPurpose
+    description: str
+    workflow: BotWorkflowSave

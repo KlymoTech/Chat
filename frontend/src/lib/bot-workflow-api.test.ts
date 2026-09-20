@@ -15,4 +15,13 @@ describe('bot workflow API', () => {
     expect(request.headers['X-Workspace-ID']).toBe('workspace-1');
     expect(JSON.parse(request.body)).toMatchObject({ purpose: 'support', status: 'active' });
   });
+
+  it('applies and persists a backend-owned workflow template', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 'wf-education' }) });
+    await botWorkflowApi.applyTemplate('agent-education', 'enrolled_student_tutor');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/bot-workflows/agent-education/templates/enrolled_student_tutor',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+  });
 });

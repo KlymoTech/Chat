@@ -6,13 +6,16 @@ makes a numeric menu reply safe to retry after a provider/network failure.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from northstar_api.course_knowledge_dispatch import CourseStudyReceipt
 from northstar_api.course_knowledge_models import CourseEnrollmentAccess, CourseStudySelection
+from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.education_student_identities import StudentIdentityType
+from northstar_api.models import BotWorkflow, Message, MessageRole
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError, fingerprint
 from northstar_api.services.course_study_access import authorize_study_access
 from northstar_api.services.education_runtime_authorization import (
@@ -25,6 +28,51 @@ from northstar_api.services.whatsapp import split_whatsapp_text
 from northstar_api.services.whatsapp_accounts import connection_client
 
 DENIAL = "Your course access is not active for this WhatsApp number. Please contact your institute to verify your number and enrollment."
+
+
+async def _daily_menu_welcome(session, agent, identity) -> str | None:
+    """Return the configured welcome only when it has not been sent today."""
+    workflow = await session.scalar(select(BotWorkflow).where(
+        BotWorkflow.tenant_id == agent.tenant_id,
+        BotWorkflow.workspace_id == agent.workspace_id,
+        BotWorkflow.agent_id == agent.id,
+        BotWorkflow.status == "active",
+    ))
+    if workflow is None:
+        return None
+    step = next((item for item in workflow.steps_json or [] if (
+        (item.get("config") or {}).get("systemAction") == "education_daily_welcome"
+        and item.get("enabled", True)
+    )), None)
+    if step is None:
+        return None
+    zone = ZoneInfo(str(step.get("calendarTimezone") or "Asia/Kolkata"))
+    local_today = datetime.now(UTC).astimezone(zone).date()
+    start = datetime.combine(local_today, time.min, tzinfo=zone).astimezone(UTC)
+    menu_receipts = (await session.scalars(select(CourseStudyReceipt).where(
+        CourseStudyReceipt.tenant_id == agent.tenant_id,
+        CourseStudyReceipt.workspace_id == agent.workspace_id,
+        CourseStudyReceipt.agent_id == agent.id,
+        CourseStudyReceipt.identity_id == identity.id,
+        CourseStudyReceipt.created_at >= start,
+    ))).all()
+    if any((item.prompt or "").startswith(str(step.get("message") or "")) for item in menu_receipts):
+        return None
+    replies = (await session.scalars(
+        select(Message)
+        .join(EducationConversationContext, EducationConversationContext.conversation_id == Message.conversation_id)
+        .where(
+            EducationConversationContext.tenant_id == agent.tenant_id,
+            EducationConversationContext.workspace_id == agent.workspace_id,
+            EducationConversationContext.agent_id == agent.id,
+            EducationConversationContext.student_id == identity.student_id,
+            Message.role == MessageRole.ASSISTANT,
+            Message.created_at >= start,
+        )
+    )).all()
+    if any(str((item.content_json or {}).get("workflowStepId") or "") == str(step.get("id")) for item in replies):
+        return None
+    return str(step.get("message") or "").strip() or None
 
 
 async def _verified_identity(session, agent, sender):
@@ -185,6 +233,9 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
         prompt = prompt or DENIAL
         await session.flush()
         verified = await _verified_identity(session, agent, receipt.sender_wa_id)
+        daily_welcome = await _daily_menu_welcome(session, agent, verified) if verified else None
+        if daily_welcome:
+            prompt = f"{daily_welcome}\n\n{prompt}"
         selection_epoch = await _selection_epoch(session, agent, verified)
         cached = CourseStudyReceipt(
             tenant_id=agent.tenant_id,

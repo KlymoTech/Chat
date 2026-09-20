@@ -209,6 +209,16 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 agent_id=agent.id, conversation_id=reserved.conversation_id,
                 message=raw_message, channel=channel.value,
             )
+            workflow_format = workflow_reply.message_format if workflow_reply else None
+            daily_welcome = None
+            if workflow_reply and (
+                (workflow_reply.message_format.get("config") or {}).get("systemAction")
+                == "education_daily_welcome"
+            ):
+                # A daily welcome decorates the real tutoring response instead of
+                # consuming the student's first question of the day.
+                daily_welcome = workflow_reply.content
+                workflow_reply = None
             welcome = whatsapp_welcome(agent, raw_message) if channel is Channel.WHATSAPP else None
             evidence: list[Evidence] = []
             fallback_reason = None
@@ -292,6 +302,8 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                     answer = f"{context.course_name}: not verified against your published course material. This question has been sent for teacher review.\n\n{answer}"
             if channel is Channel.WHATSAPP and not workflow_reply:
                 answer = format_whatsapp_reply(agent, answer)
+            if daily_welcome:
+                answer = f"{daily_welcome}\n\n📚 *Active course: {context.course_name}*\n\n{answer}"
             await revalidate_evidence(session, boundary, context, evidence)
             session.add(
                 CourseResponseContext(
@@ -333,7 +345,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 evidence=evidence,
                 latency_ms=round((time.perf_counter() - started) * 1000),
                 show_citations=True,
-                message_format=workflow_reply.message_format if workflow_reply else None,
+                message_format=workflow_format,
             )
             return replace(prepared, display_question=raw_message)
         except Exception as exc:
