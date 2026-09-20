@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import html
 import io
 import json
 import math
@@ -10,7 +9,6 @@ import re
 import tempfile
 import zipfile
 from pathlib import Path
-from urllib.parse import urlparse
 from uuid import UUID
 
 import fitz  # type: ignore[import-untyped]
@@ -30,6 +28,11 @@ from northstar_api.models import (
     KnowledgeSnapshot,
     KnowledgeSource,
     KnowledgeStatus,
+)
+from northstar_api.modules.knowledge.web_sources import (
+    CrawlIncomplete,
+    SitemapMaterialization,
+    materialize_sitemap,
 )
 from northstar_api.services.hybrid_extraction import (
     ExtractionPackage,
@@ -211,6 +214,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
     source.status = KnowledgeStatus.PROCESSING
     source.error = None
     await session.commit()
+    web_crawl: SitemapMaterialization | None = None
     try:
         if source.kind == KnowledgeKind.FILE and source.object_key and source.content is None:
             data, metadata = await object_store.download(source.object_key)
@@ -322,6 +326,9 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             )
             if source.content != content:
                 raise ValueError("Indexing text differs from verified source records")
+        elif source.kind == KnowledgeKind.SITEMAP and source.url and not source.content:
+            web_crawl = await _materialize_sitemap_result(source)
+            content = web_crawl.text
         else:
             content = await _materialize_text(source)
         if not content and source.kind != KnowledgeKind.FILE:
@@ -333,6 +340,24 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
         chunks_with_metadata = structured_chunks or [
             (chunk, {"chunk_type": "text"}) for chunk in semantic_chunks(content)
         ]
+        if web_crawl is not None:
+            # Never blend separate source pages into a single chunk. Query-driven
+            # page identity and the acquired text hash survive indexing.
+            chunks_with_metadata = [
+                (
+                    chunk,
+                    {
+                        "chunk_type": "web_page",
+                        "source_url": page.final_url,
+                        "requested_url": page.requested_url,
+                        "fetched_at": page.fetched_at,
+                        "page_text_sha256": page.manifest_entry()["text_sha256"],
+                        "representation": "guarded-visible-text",
+                    },
+                )
+                for page in web_crawl.pages
+                for chunk in semantic_chunks(page.text)
+            ]
         chunks = [chunk for chunk, _ in chunks_with_metadata]
         if not chunks and source.kind != KnowledgeKind.FILE:
             raise ValueError("Source produced no usable chunks")
@@ -399,6 +424,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                     "version": 1,
                     "embeddingModel": settings.nvidia_embedding_model,
                     "embeddingDimension": settings.embedding_dimension,
+                    "ingestedSourceCrawl": web_crawl.manifest if web_crawl is not None else None,
                     "sources": [
                         {
                             "sourceId": str(item.id),
@@ -448,11 +474,16 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             )
         if failed_source:
             failed_source.status = KnowledgeStatus.FAILED
-            failed_source.error = "Ingestion failed; inspect the job log."
+            failed_source.error = (
+                str(exc)[:1000] if isinstance(exc, CrawlIncomplete)
+                else "Ingestion failed; inspect the job log."
+            )
         if failed_job:
             failed_job.status = JobStatus.FAILED
             failed_job.step = "failed"
             failed_job.error_json = {"type": type(exc).__name__, "message": str(exc)[:400]}
+            if isinstance(exc, CrawlIncomplete):
+                failed_job.error_json = {**failed_job.error_json, "crawl_manifest": exc.manifest}
         await session.commit()
         raise
 
@@ -660,59 +691,18 @@ async def _materialize_webpage_with_vision(source: KnowledgeSource) -> str:
     return f"Source page: {final_url}\n\n{initial_text.strip()}".strip()
 
 
-async def _materialize_sitemap(source: KnowledgeSource) -> str:
+async def _materialize_sitemap_result(source: KnowledgeSource) -> SitemapMaterialization:
     assert source.url is not None
     settings = get_settings()
-    sitemap, final_sitemap_url = await fetch_public_text(source.url, max_bytes=1_000_000)
-    source.url = final_sitemap_url
-    sitemap_host = (urlparse(final_sitemap_url).hostname or "").lower()
-    raw_locations = re.findall(
-        r"<(?:[A-Za-z0-9_-]+:)?loc\b[^>]*>(.*?)</(?:[A-Za-z0-9_-]+:)?loc>",
-        sitemap,
-        flags=re.IGNORECASE | re.DOTALL,
+    result = await materialize_sitemap(
+        source.url,
+        max_urls=settings.knowledge_sitemap_max_urls,
+        max_characters=settings.knowledge_max_extracted_characters,
     )
-    locations: list[str] = []
-    for raw_location in raw_locations:
-        location = html.unescape(raw_location).strip()
-        parsed = urlparse(location)
-        if (
-            parsed.scheme.lower() not in {"http", "https"}
-            or (parsed.hostname or "").lower() != sitemap_host
-            or location in locations
-        ):
-            continue
-        locations.append(location)
-        if len(locations) >= settings.knowledge_sitemap_max_urls:
-            break
-    if not locations:
-        raise ValueError("Sitemap did not contain same-host HTTP(S) page URLs")
+    source.url = result.sitemap_url
+    return result
 
-    semaphore = asyncio.Semaphore(5)
 
-    async def fetch_page(page_url: str) -> tuple[str, str] | None:
-        try:
-            async with semaphore:
-                page_text, final_url = await fetch_public_text(page_url, max_bytes=500_000)
-            return final_url, page_text
-        except Exception as exc:
-            logger.warning(
-                "sitemap_page_fetch_failed",
-                host=(urlparse(page_url).hostname or "")[:255],
-                error=type(exc).__name__,
-            )
-            return None
-
-    pages = await asyncio.gather(*(fetch_page(location) for location in locations))
-    sections: list[str] = []
-    remaining = settings.knowledge_max_extracted_characters
-    for page in pages:
-        if not page or not page[1].strip() or remaining <= 0:
-            continue
-        final_url, page_text = page
-        section = f"Source page: {final_url}\n\n{page_text.strip()}"
-        section = section[:remaining]
-        sections.append(section)
-        remaining -= len(section)
-    if not sections:
-        raise ValueError("Sitemap pages did not yield usable text")
-    return "\n\n---\n\n".join(sections)
+async def _materialize_sitemap(source: KnowledgeSource) -> str:
+    """Compatibility entrypoint; incomplete crawls are never returned as usable text."""
+    return (await _materialize_sitemap_result(source)).text

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import math
 import socket
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -84,7 +85,12 @@ def _is_public_address(address: IPAddress) -> bool:
     return all(is_public(candidate) for candidate in embedded)
 
 
-async def _resolve_public_target(url: str) -> _ResolvedTarget:
+async def _resolve_public_target(
+    url: str,
+    *,
+    allowed_hosts: frozenset[str] | None = None,
+    allowed_ports: frozenset[int] | None = None,
+) -> _ResolvedTarget:
     try:
         target = httpx.URL(url)
     except (httpx.InvalidURL, ValueError) as exc:
@@ -97,7 +103,15 @@ async def _resolve_public_target(url: str) -> _ResolvedTarget:
         raise UnsafeURL("URL hostname is invalid") from exc
     if not hostname or "%" in hostname:
         raise UnsafeURL("URL hostname is invalid")
-    port = target.port or (443 if target.scheme == "https" else 80)
+    port = target.port if target.port is not None else (443 if target.scheme == "https" else 80)
+    if not 1 <= port <= 65535:
+        raise UnsafeURL("URL port is invalid")
+    # Enforce scope before DNS, including every redirect hop. An empty grant
+    # deliberately denies all hosts/ports; it must not mean unrestricted.
+    if allowed_hosts is not None and hostname.lower() not in allowed_hosts:
+        raise UnsafeURL("URL host is outside the permitted source scope")
+    if allowed_ports is not None and port not in allowed_ports:
+        raise UnsafeURL("URL port is outside the permitted source scope")
     raw_addresses = await _lookup_addresses(hostname, port)
     if not raw_addresses:
         raise UnsafeURL("URL host did not resolve to an address")
@@ -146,7 +160,11 @@ async def _fetch_from_address(
         async with client.stream(
             "GET",
             pinned_url,
-            headers={"User-Agent": "NorthstarKnowledgeBot/1.0", "Host": target.host_header},
+            headers={
+                "User-Agent": "NorthstarKnowledgeBot/1.0",
+                "Host": target.host_header,
+                "Accept-Encoding": "identity",
+            },
             extensions=extensions,
         ) as response:
             if response.status_code in _REDIRECT_STATUSES:
@@ -158,43 +176,74 @@ async def _fetch_from_address(
             content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
             if content_type not in _SUPPORTED_CONTENT_TYPES:
                 raise ValueError("URL returned an unsupported content type")
+            # Avoid allocating an unbounded decompressed chunk before the byte
+            # limit can run. Compressed responses are explicitly unsupported.
+            if response.headers.get("content-encoding", "identity").strip().lower() not in {"", "identity"}:
+                raise ValueError("Compressed URL responses are not supported by this bounded transport")
             body = bytearray()
             async for chunk in response.aiter_bytes():
-                body.extend(chunk)
-                if len(body) > max_bytes:
+                if len(chunk) > max_bytes - len(body):
                     raise ValueError("URL content exceeded the configured size limit")
-            text = bytes(body).decode(response.encoding or "utf-8", errors="replace")
+                body.extend(chunk)
+            try:
+                text = bytes(body).decode(response.encoding or "utf-8", errors="strict")
+            except (UnicodeError, LookupError) as exc:
+                raise ValueError("URL response cannot be decoded without data loss") from exc
             return None, html_to_text(text) if content_type == "text/html" else text
 
 
 async def fetch_public_text(
-    url: str, *, max_bytes: int = 3_000_000, max_redirects: int = 5
+    url: str,
+    *,
+    max_bytes: int = 3_000_000,
+    max_redirects: int = 5,
+    allowed_hosts: frozenset[str] | None = None,
+    allowed_ports: frozenset[int] | None = None,
+    total_timeout: float = 60.0,
 ) -> tuple[str, str]:
-    if max_bytes < 1:
-        raise ValueError("max_bytes must be positive")
-    if max_redirects < 0:
-        raise ValueError("max_redirects cannot be negative")
-    current = url
-    for redirect_count in range(max_redirects + 1):
-        target = await _resolve_public_target(current)
-        last_connect_error: httpx.HTTPError | None = None
-        for address in target.addresses:
-            try:
-                location, text = await _fetch_from_address(target, address, max_bytes=max_bytes)
-                break
-            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-                last_connect_error = exc
-        else:
-            assert last_connect_error is not None
-            raise last_connect_error
+    """Fetch bounded text without DNS rebinding or an out-of-scope redirect.
 
-        if location is not None:
-            if redirect_count == max_redirects:
-                break
-            current = urljoin(str(target.url), location)
-            continue
-        assert text is not None
-        return text, current
+    Host grants use lowercase ASCII/IDNA names without a trailing dot. Existing
+    unrestricted public-fetch callers retain their public-host/port behavior;
+    scoped crawls explicitly supply both grants. The wall-clock deadline covers
+    DNS, all IP attempts, redirects and response streaming, not just idle reads.
+    """
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    if isinstance(max_redirects, bool) or not isinstance(max_redirects, int) or max_redirects < 0:
+        raise ValueError("max_redirects must be a nonnegative integer")
+    if isinstance(total_timeout, bool) or not math.isfinite(total_timeout) or total_timeout <= 0:
+        raise ValueError("total_timeout must be positive and finite")
+    current = url
+    async with asyncio.timeout(total_timeout):
+        for redirect_count in range(max_redirects + 1):
+            target = await _resolve_public_target(
+                current, allowed_hosts=allowed_hosts, allowed_ports=allowed_ports
+            )
+            last_connect_error: httpx.HTTPError | None = None
+            for address in target.addresses:
+                try:
+                    location, text = await _fetch_from_address(target, address, max_bytes=max_bytes)
+                    break
+                except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                    last_connect_error = exc
+            else:
+                assert last_connect_error is not None
+                raise last_connect_error
+
+            if location is not None:
+                if redirect_count == max_redirects:
+                    break
+                current = urljoin(str(target.url), location)
+                try:
+                    next_scheme = httpx.URL(current).scheme
+                except (httpx.InvalidURL, ValueError) as exc:
+                    raise UnsafeURL("Redirect URL is malformed") from exc
+                if target.url.scheme == "https" and next_scheme == "http":
+                    raise UnsafeURL("HTTPS source redirects cannot downgrade to HTTP")
+                continue
+            assert text is not None
+            return text, current
     raise ValueError("URL exceeded the redirect limit")
 
 

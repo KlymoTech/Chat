@@ -94,7 +94,7 @@ async def test_redirect_to_private_address_is_rejected_before_connect(
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(302, headers={"location": "http://metadata.internal/latest"})
+        return httpx.Response(302, headers={"location": "https://metadata.internal/latest"})
 
     install_network(monkeypatch, lookup, handler)
     with pytest.raises(safe_fetch.UnsafeURL, match="non-public"):

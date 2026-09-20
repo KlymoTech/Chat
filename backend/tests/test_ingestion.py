@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from northstar_api.models import KnowledgeKind, KnowledgeSource
+from northstar_api.modules.knowledge import web_sources
 from northstar_api.services import ingestion
 
 
@@ -54,7 +55,7 @@ def test_approved_chunks_retain_unknown_heading_level_for_review() -> None:
     assert unknown["heading_level"] is None
 
 
-async def test_sitemap_ingestion_fetches_only_same_host_pages(
+async def test_sitemap_ingestion_rejects_incomplete_out_of_scope_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetched: list[str] = []
@@ -69,7 +70,7 @@ async def test_sitemap_ingestion_fetches_only_same_host_pages(
             )
         return "Returns are accepted within 30 days.", url
 
-    monkeypatch.setattr(ingestion, "fetch_public_text", fetch)
+    monkeypatch.setattr(web_sources, "fetch_public_text", fetch)
     source = KnowledgeSource(
         tenant_id=uuid4(),
         agent_id=uuid4(),
@@ -78,14 +79,12 @@ async def test_sitemap_ingestion_fetches_only_same_host_pages(
         url="https://docs.example/sitemap.xml",
     )
 
-    content = await ingestion._materialize_text(source)
+    with pytest.raises(web_sources.CrawlIncomplete):
+        await ingestion._materialize_text(source)
 
-    assert fetched == [
-        "https://docs.example/sitemap.xml",
-        "https://docs.example/returns",
-    ]
-    assert "Source page: https://docs.example/returns" in content
-    assert "30 days" in content
+    # Reject the manifest before any page fetch rather than silently claiming
+    # that the in-scope subset is a complete crawl.
+    assert fetched == ["https://docs.example/sitemap.xml"]
 
 
 async def test_url_ingestion_uses_only_guarded_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
