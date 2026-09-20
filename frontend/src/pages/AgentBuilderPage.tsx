@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } 
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { EducationKnowledgeScopeManager } from '@/components/education-knowledge-scope-manager';
 import { ExtractionReviewModal } from '@/components/extraction-review-modal';
+import { ChatWidget } from '@/components/chat-widget';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader, Switch } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -37,7 +38,6 @@ const purposeLabels: Record<AgentPurpose, string> = {
 function currentPurpose(agent: Agent): AgentPurpose {
   return agent.purpose ?? 'support';
 }
-
 function editableAgentFields(agent: Agent, saved: Agent): AgentPatch {
   const { name, description, instructions, status, purpose, tone, language, avatar, appearance, model, security } = agent;
   return { name, description, instructions, ...(status !== saved.status ? { status } : {}), purpose, tone, language, avatar, appearance, model, security };
@@ -75,7 +75,7 @@ function AgentBuilderWorkspace({ initialAgent, allAgents, activeTab, reloadAgent
         {activeTab === 'settings' ? <fieldset className="deploy-controls" disabled={saving}><SettingsPanel agent={agent} update={update} onSave={() => void save()} saving={saving} dirty={dirty} /></fieldset> : null}
         {activeTab === 'embeddings' ? <EmbeddingsPanel agent={agent} /> : null}
       </section>
-      <BuilderAgentPreview agent={agent} />
+      <BuilderAgentPreview agent={agent} liveKnowledgeTest={activeTab === 'knowledge'} />
     </div>
     <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete this agent?" description="This action cannot be undone." size="sm" footer={<><Button variant="secondary" onClick={() => setDeleteOpen(false)}>Cancel</Button><Button variant="danger" icon={Trash2} onClick={() => void remove()}>Delete forever</Button></>}><p className="modal-warning"><AlertTriangle /> All deployments of <strong>{agent.name}</strong> will stop responding immediately.</p></Modal>
   </div>;
@@ -83,8 +83,15 @@ function AgentBuilderWorkspace({ initialAgent, allAgents, activeTab, reloadAgent
 
 const channelNames: Record<string, string> = { website: 'Website widget', whatsapp: 'WhatsApp', instagram: 'Instagram', facebook: 'Facebook / Meta', slack: 'Slack', teams: 'Microsoft Teams', api: 'Developer API', notion: 'Notion', zapier: 'Zapier' };
 
-function BuilderAgentPreview({ agent }: { agent: Agent }) {
+function BuilderAgentPreview({ agent, liveKnowledgeTest = false }: { agent: Agent; liveKnowledgeTest?: boolean }) {
   const channel = agent.appearance.deploymentChannel ?? 'website';
+  const [testSession, setTestSession] = useState(0);
+  if (liveKnowledgeTest) return <aside className="widget-preview agent-template-preview knowledge-test-preview">
+    <div className="preview-toolbar"><span><i className="status-dot status-dot--success" /> Live knowledge test</span><button type="button" onClick={() => setTestSession((value) => value + 1)}><RefreshCw /> New test</button></div>
+    <div className="knowledge-test-preview__intro"><BrainCircuit /><div><strong>Ask about your uploaded material</strong><small>Answers stream from the real agent endpoint and show citations from indexed sources.</small></div></div>
+    <div className="deploy-preview__stage deploy-preview__stage--mobile"><ChatWidget key={`${agent.id}:${testSession}`} agent={agent} embedded /></div>
+    <p>Only sources marked Ready are searchable. Untrained sources stop contributing to future answers.</p>
+  </aside>;
   return <aside className="widget-preview agent-template-preview">
     <div className="preview-toolbar"><span><i className="status-dot status-dot--success" /> {channelNames[channel] ?? 'Website widget'} preview</span></div>
     <div className="deploy-preview__stage deploy-preview__stage--mobile"><AgentDeploymentPreview agent={agent} integrationId={channel} /></div>
@@ -110,20 +117,33 @@ function SaveBar({ dirty, saving, onSave }: { dirty: boolean; saving: boolean; o
 }
 
 function KnowledgePanel({ agent, onChanged }: { agent: Agent; onChanged: () => void }) {
-  const result = useApi(() => api.knowledge.list(agent.id), [agent.id]); const { pushToast } = useToast(); const [addOpen, setAddOpen] = useState(false); const [selected, setSelected] = useState<string[]>([]); const [reviewSource, setReviewSource] = useState<KnowledgeSource | null>(null);
+  const result = useApi(() => api.knowledge.list(agent.id), [agent.id]); const { pushToast } = useToast(); const [addOpen, setAddOpen] = useState(false); const [selected, setSelected] = useState<string[]>([]); const [reviewSource, setReviewSource] = useState<KnowledgeSource | null>(null); const [untraining, setUntraining] = useState<KnowledgeSource[]>([]); const [removing, setRemoving] = useState(false);
   const reloadSources = result.reload;
   const processingSources = result.data?.some((source) => source.status === 'processing');
   useEffect(() => { if (!processingSources) return; const timer = window.setInterval(reloadSources, 5000); return () => window.clearInterval(timer); }, [processingSources, reloadSources]);
-  const remove = async (source: KnowledgeSource) => { await api.knowledge.remove(source.id); pushToast(`${source.name} removed`); result.reload(); onChanged(); };
+  const confirmUntrain = async () => {
+    if (!untraining.length || removing) return;
+    setRemoving(true);
+    try {
+      await api.knowledge.untrain(untraining.map((source) => source.id));
+      const removedIds = new Set(untraining.map((source) => source.id));
+      setSelected((current) => current.filter((id) => !removedIds.has(id)));
+      pushToast(untraining.length === 1 ? `${untraining[0]!.name} untrained` : `${untraining.length} sources untrained`);
+      setUntraining([]); await result.reload(); onChanged();
+    } catch (reason) { pushToast(apiErrorMessage(reason, 'Could not untrain the selected knowledge'), 'error'); }
+    finally { setRemoving(false); }
+  };
+  const selectedSources = (result.data ?? []).filter((source) => selected.includes(source.id));
   return <div className="editor-inner editor-inner--wide"><div className="builder-heading builder-heading--actions"><span className="builder-heading__icon"><BookOpen /></span><div><h2>Knowledge</h2><p>Give your agent reliable information to ground every answer.</p></div><Button icon={Plus} onClick={() => setAddOpen(true)}>Add source</Button></div>
     <div className="knowledge-stats"><Card><span><Database /></span><div><strong>{result.data?.length ?? 0}</strong><small>Sources</small></div></Card><Card><span><FileText /></span><div><strong>{result.data?.reduce((sum, item) => sum + item.chunks, 0) ?? 0}</strong><small>Knowledge chunks</small></div></Card><Card><span><Check /></span><div><strong>{result.data?.filter((item) => item.status === 'ready').length ?? 0}</strong><small>Ready to answer</small></div></Card></div>
-    <Card className="knowledge-table-card"><div className="table-toolbar"><div><h3>Sources</h3><p>Content is automatically chunked and indexed.</p></div><div><Button variant="secondary" size="sm" icon={Link2} onClick={() => setAddOpen(true)}>Import from source</Button><Button size="sm" icon={Plus} onClick={() => setAddOpen(true)}>Create</Button></div></div>
-      {result.loading ? <div className="table-loading">Loading sources…</div> : result.data?.length ? <div className="responsive-table"><table><thead><tr><th><input type="checkbox" aria-label="Select all sources" checked={selected.length === result.data.length && result.data.length > 0} onChange={(event) => setSelected(event.target.checked ? result.data!.map((item) => item.id) : [])} /></th><th>Source</th><th>Status</th><th>Type</th><th>Chunks</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{result.data.map((source) => <tr key={source.id}><td><input type="checkbox" aria-label={`Select ${source.name}`} checked={selected.includes(source.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id))} /></td><td><span className={`source-icon source-icon--${source.kind}`}>{source.kind === 'file' ? <File /> : source.kind === 'text' ? <FileText /> : <Globe2 />}</span><span><strong>{source.name}</strong><small>{source.url ?? source.sizeLabel}</small></span></td><td><Badge tone={source.status === 'ready' ? 'success' : source.status === 'failed' ? 'danger' : 'purple'}><i className="status-dot" /> {source.status}</Badge></td><td className="capitalize">{source.kind}</td><td>{source.chunks}</td><td>{relativeTime(source.updatedAt)}</td><td><button className="icon-button danger-hover" onClick={() => void remove(source)} aria-label={`Delete ${source.name}`}><Trash2 /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={BookOpen} title="No knowledge yet" description="Upload a file, add a webpage, or write content directly." action={<Button icon={Plus} onClick={() => setAddOpen(true)}>Add your first source</Button>} />}
+    <Card className="knowledge-table-card"><div className="table-toolbar"><div><h3>Sources</h3><p>Content is automatically chunked and indexed.</p></div><div>{selectedSources.length ? <Button variant="danger" size="sm" icon={Trash2} onClick={() => setUntraining(selectedSources)}>Untrain {selectedSources.length}</Button> : null}<Button variant="secondary" size="sm" icon={Link2} onClick={() => setAddOpen(true)}>Import from source</Button><Button size="sm" icon={Plus} onClick={() => setAddOpen(true)}>Create</Button></div></div>
+      {result.loading ? <div className="table-loading">Loading sources…</div> : result.data?.length ? <div className="responsive-table"><table><thead><tr><th><input type="checkbox" aria-label="Select all sources" checked={selected.length === result.data.length && result.data.length > 0} onChange={(event) => setSelected(event.target.checked ? result.data!.map((item) => item.id) : [])} /></th><th>Source</th><th>Status</th><th>Type</th><th>Chunks</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{result.data.map((source) => <tr key={source.id}><td><input type="checkbox" aria-label={`Select ${source.name}`} checked={selected.includes(source.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, source.id] : current.filter((id) => id !== source.id))} /></td><td><span className={`source-icon source-icon--${source.kind}`}>{source.kind === 'file' ? <File /> : source.kind === 'text' ? <FileText /> : <Globe2 />}</span><span><strong>{source.name}</strong><small>{source.url ?? source.sizeLabel}</small></span></td><td><Badge tone={source.status === 'ready' ? 'success' : source.status === 'failed' ? 'danger' : 'purple'}><i className="status-dot" /> {source.status}</Badge></td><td className="capitalize">{source.kind}</td><td>{source.chunks}</td><td>{relativeTime(source.updatedAt)}</td><td><button className="icon-button danger-hover" onClick={() => setUntraining([source])} aria-label={`Untrain ${source.name}`}><Trash2 /></button></td></tr>)}</tbody></table></div> : <EmptyState icon={BookOpen} title="No knowledge yet" description="Upload a file, add a webpage, or write content directly." action={<Button icon={Plus} onClick={() => setAddOpen(true)}>Add your first source</Button>} />}
     </Card>
     {result.data?.filter((source) => source.status === 'needs_review' || source.extractionAvailable).map((source) => <Card key={source.id}><strong>{source.name}</strong><p>{source.status === 'needs_review' ? `Extraction review required: ${source.extractionIssueCount ?? 0} unresolved issues. This file is not searchable until approved.` : 'Source evidence and extraction reports are available.'}</p><Button variant="secondary" onClick={() => setReviewSource(source)}>{source.status === 'needs_review' ? 'Review source pages' : 'View extraction evidence'}</Button></Card>)}
     {currentPurpose(agent) === 'education' ? <EducationKnowledgeScopeManager agentId={agent.id} sources={result.data ?? []} /> : null}
     {addOpen ? <KnowledgeModal agentId={agent.id} education={currentPurpose(agent) === 'education'} onClose={() => setAddOpen(false)} onCreated={() => { setAddOpen(false); result.reload(); onChanged(); pushToast('Knowledge source added'); }} /> : null}
     {reviewSource && <ExtractionReviewModal source={reviewSource} onClose={() => setReviewSource(null)} onApproved={(message) => { setReviewSource(null); result.reload(); pushToast(message ?? 'Extraction approved; indexing started'); }} />}
+    <Modal open={untraining.length > 0} onClose={() => { if (!removing) setUntraining([]); }} closeDisabled={removing} title={untraining.length === 1 ? 'Untrain this source?' : `Untrain ${untraining.length} sources?`} description="This removes the selected material from future retrieval and cannot be undone." size="sm" footer={<><Button variant="secondary" disabled={removing} onClick={() => setUntraining([])}>Cancel</Button><Button variant="danger" icon={Trash2} disabled={removing} onClick={() => void confirmUntrain()}>{removing ? 'Untraining…' : 'Untrain knowledge'}</Button></>}><div className="knowledge-untrain-summary"><AlertTriangle /><div><strong>{untraining.reduce((sum, source) => sum + source.chunks, 0).toLocaleString()} indexed chunks will be removed</strong><p>{untraining.map((source) => source.name).join(', ')}</p><small>The original upload and extraction artifacts will also be securely purged.</small></div></div></Modal>
   </div>;
 }
 

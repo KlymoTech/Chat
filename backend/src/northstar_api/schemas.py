@@ -292,6 +292,17 @@ class KnowledgeOut(APIModel):
     extraction_available: bool = False
 
 
+class KnowledgeUntrain(APIModel):
+    source_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+    @field_validator("source_ids")
+    @classmethod
+    def unique_source_ids(cls, values: list[UUID]) -> list[UUID]:
+        if len(values) != len(set(values)):
+            raise ValueError("source_ids must be unique")
+        return values
+
+
 class FactCreate(APIModel):
     question: str = Field(min_length=2, max_length=10_000)
     answer: str = Field(min_length=1, max_length=50_000)

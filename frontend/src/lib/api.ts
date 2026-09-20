@@ -394,6 +394,7 @@ export const api = {
       const items = demoKnowledgeList(); items.unshift(source); writeStorage(KNOWLEDGE_KEY, items); return source;
     }),
     remove: (sourceId: string) => withFallback(() => request<void>(`/knowledge/${sourceId}`, { method: 'DELETE' }), async () => { await pause(); writeStorage(KNOWLEDGE_KEY, demoKnowledgeList().filter((item) => item.id !== sourceId)); }),
+    untrain: (sourceIds: string[]) => withFallback(() => request<{ removedSources: number; removedChunks: number }>('/knowledge/untrain', { method: 'POST', body: JSON.stringify({ sourceIds }) }), async () => { await pause(); const ids = new Set(sourceIds); const current = demoKnowledgeList(); const removed = current.filter((item) => ids.has(item.id)); writeStorage(KNOWLEDGE_KEY, current.filter((item) => !ids.has(item.id))); return { removedSources: removed.length, removedChunks: removed.reduce((sum, item) => sum + item.chunks, 0) }; }),
   },
   conversations: {
     list: () => withFallback(() => request<PageResult<Conversation>>('/conversations'), async () => { await pause(); const items = demoConversationList(); return { items, total: items.length, page: 1, pageSize: 50 }; }),
