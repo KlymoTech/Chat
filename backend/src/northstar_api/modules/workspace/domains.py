@@ -17,6 +17,7 @@ from northstar_api.workers.celery_app import celery_app
 from .brand_cache import invalidate_brand_cache
 from .contracts import DomainCreate, DomainRecord, WorkspaceSettingsBundle
 from .domain_hostname import normalize_new_custom_domain_hostname
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -128,11 +129,14 @@ async def create_domain(
     tenant, workspace = await load_workspace(principal, session)
     if not entitlement_for_plan(tenant.plan).custom_domain_enabled:
         raise HTTPException(status_code=403, detail="Your plan does not include custom domains")
-    document = settings_document(workspace)
     try:
         normalized = normalize_new_custom_domain_hostname(payload.hostname)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Lock before reading the domain list: parallel creations or worker updates
+    # must not overwrite a newer settings JSON snapshot.
+    await lock_workspace_settings(session, workspace)
+    document = settings_document(workspace)
     # Disabled domain rows still reserve their hostname in normalized storage.
     # Never attempt to insert a second row for the same hostname.
     if any(item.hostname == normalized for item in document.domains.domains):
@@ -186,6 +190,7 @@ async def start_domain_verification(
 ) -> DomainRecord:
     _interactive_only(principal)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
@@ -248,6 +253,7 @@ async def check_domain_activation(
 ) -> DomainRecord:
     _interactive_only(principal)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
@@ -312,6 +318,7 @@ async def disable_domain(
 ) -> DomainRecord:
     _interactive_only(principal)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
