@@ -37,6 +37,8 @@ def _load_migration(monkeypatch: pytest.MonkeyPatch, dialect: str):
 
 def test_postgresql_service_grant_is_scoped_and_reversible(monkeypatch: pytest.MonkeyPatch) -> None:
     migration, operations = _load_migration(monkeypatch, "postgresql")
+    assert migration.revision == "0058_workspace_email_grants"
+    assert len(migration.revision) <= 32
     assert migration.down_revision == "0057_workspace_invite_email_jobs"
     migration.upgrade()
     assert operations.statements == [
