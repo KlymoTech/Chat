@@ -2,6 +2,7 @@ import { PauseCircle, PlayCircle, UsersRound } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
 import { Badge, Button, Card, Field, Modal } from '@/components/ui';
+import { WorkspaceMemberDetailsPanel } from '@/features/workspace/members/WorkspaceMemberDetailsPanel';
 import {
   workspaceTeamApi,
   type WorkspaceMember,
@@ -17,6 +18,7 @@ export function WorkspaceMembersPanel({ workspace }: { workspace: WorkspaceSetti
   const context = `${workspacePresentationKey()}:${workspace.id}:${[...(workspace.permissions ?? [])].sort().join(',')}`;
   return <div key={context}>
     <WorkspaceTeamPanel workspace={workspace} />
+    <WorkspaceMemberDetailsPanel />
     <WorkspaceMemberLifecyclePanel workspace={workspace} />
   </div>;
 }
