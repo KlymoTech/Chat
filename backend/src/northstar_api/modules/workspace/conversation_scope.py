@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import event, or_, select
@@ -41,16 +42,14 @@ def set_conversation_assignment_scope(
 
 
 @event.listens_for(Session, "do_orm_execute")
-def apply_conversation_assignment_scope(execute_state: object) -> None:
-    if not getattr(execute_state, "is_select", False):
+def apply_conversation_assignment_scope(execute_state: Any) -> None:
+    if not execute_state.is_select:
         return
-    session = getattr(execute_state, "session", None)
-    info = getattr(session, "info", {}) if session is not None else {}
-    scope = info.get(_SESSION_KEY)
+    scope = execute_state.session.info.get(_SESSION_KEY)
     if scope is None:
         return
     tenant_id, workspace_id, user_id, team_ids = scope
-    predicates: list[object] = []
+    predicates: list[Any] = []
     if user_id is not None:
         predicates.append(WorkspaceConversationAssignment.assigned_user_id == user_id)
     if team_ids:
@@ -62,7 +61,7 @@ def apply_conversation_assignment_scope(execute_state: object) -> None:
         WorkspaceConversationAssignment.workspace_id == workspace_id,
         or_(*predicates),
     )
-    execute_state.statement = execute_state.statement.options(  # type: ignore[attr-defined]
+    execute_state.statement = execute_state.statement.options(
         with_loader_criteria(
             Conversation,
             Conversation.id.in_(assignment_ids),
