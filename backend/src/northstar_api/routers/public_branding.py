@@ -6,9 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from northstar_api.dependencies import DBSession
+from northstar_api.modules.branding.services import resolve_published_workspace_brand
 from northstar_api.modules.workspace.brand_cache import cache_domain_brand, cached_domain_brand
 from northstar_api.modules.workspace.domain_resolution import normalize_hostname, resolve_workspace_domain
-from northstar_api.modules.workspace.store import settings_document
 from northstar_api.onboarding_contract import SetupContract
 
 router = APIRouter(prefix="/branding", tags=["public-branding"])
@@ -56,7 +56,7 @@ async def public_branding(
     workspace = await resolve_workspace_domain(session, normalized)
     if workspace is None:
         raise HTTPException(status_code=404, detail="No active brand is configured for this domain")
-    published = settings_document(workspace).branding_published
+    published, _ = await resolve_published_workspace_brand(session, workspace)
     if published is None or not published.identity.branded_login:
         raise HTTPException(status_code=404, detail="No active login brand is configured for this domain")
     identity = published.identity
