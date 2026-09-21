@@ -74,7 +74,7 @@ export function WorkspaceOwnershipPanel({ workspaceId, currentUserId, canManage 
     <div className="workspace-panel__body">
       {loading ? <p role="status">Loading workspace owner…</p> : owner?.ownerUserId
         ? <p><strong>{owner.ownerName ?? 'Workspace administrator'}</strong> <span>({owner.ownerUserId})</span></p>
-        : <p role="status">No active workspace administrator is available as owner.</p>}
+        : <p role="status">No active workspace owner is available. Contact your organization administrator to recover ownership.</p>}
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
       {error && !saving ? <Button type="button" onClick={() => setRevision((value) => value + 1)}>Retry loading owner</Button> : null}
