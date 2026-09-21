@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from northstar_api.dependencies import _custom_role_context
-from northstar_api.models import Workspace
+from northstar_api.models import Role, Workspace, WorkspaceRole
 from northstar_api.modules.workspace.api_key_scopes import permissions_for_api_key_scopes
 from northstar_api.modules.workspace.contracts import (
     BusinessHours,
@@ -28,6 +28,8 @@ from northstar_api.modules.workspace.security_policy import (
     required_password_length,
     validate_security_settings,
 )
+from northstar_api.modules.workspace.settings import _visible_bundle
+from northstar_api.security import Principal
 from northstar_api.services.notifications import _category_enabled
 
 
@@ -38,6 +40,39 @@ def _workspace(bundle: WorkspaceSettingsBundle) -> Workspace:
         slug="admissions",
         settings_json={"workspaceSettingsV2": bundle.model_dump(by_alias=True, mode="json")},
     )
+
+
+def _principal(*permissions: str) -> Principal:
+    return Principal(
+        user_id=uuid4(),
+        tenant_id=uuid4(),
+        role=Role.MEMBER,
+        token_id="test-token",
+        workspace_id=uuid4(),
+        workspace_role=WorkspaceRole.VIEWER,
+        permissions=frozenset(permissions),
+    )
+
+
+def test_settings_read_filters_unrelated_policy_sections() -> None:
+    bundle = WorkspaceSettingsBundle()
+    bundle.security.security_contact = "security@example.com"
+    bundle.developer.rate_limit_per_minute = 321
+    bundle.branding_draft.identity.company_name = "Acme Academy"
+    bundle.roles.custom_roles = [
+        CustomRole(name="Brand editor", permissions=["branding.edit"])
+    ]
+
+    branding_only = _visible_bundle(bundle, _principal("workspace.view", "branding.edit"))
+    assert branding_only.branding_draft.identity.company_name == "Acme Academy"
+    assert branding_only.security.security_contact is None
+    assert branding_only.developer.rate_limit_per_minute != 321
+    assert branding_only.roles.custom_roles == []
+
+    roles_only = _visible_bundle(bundle, _principal("workspace.view", "roles.manage"))
+    assert len(roles_only.roles.custom_roles) == 1
+    assert roles_only.security.security_contact is None
+    assert roles_only.branding_draft.identity.company_name != "Acme Academy"
 
 
 def test_security_policy_rejects_invalid_network_and_enforces_email_domain_and_password() -> None:
