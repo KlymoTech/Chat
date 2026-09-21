@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from northstar_api.database import set_tenant_context
 from northstar_api.dependencies import DBSession
 from northstar_api.models import Workspace, WorkspaceStatus
+from northstar_api.modules.workspace.brand_cache import cache_domain_brand, cached_domain_brand
 from northstar_api.modules.workspace.store import settings_document
 from northstar_api.onboarding_contract import SetupContract
 
@@ -76,14 +77,22 @@ async def public_branding(
     session: DBSession,
     hostname: str = Query(min_length=4, max_length=253),
 ) -> PublicBrandingResponse:
-    workspace = await _resolve_workspace(session, _hostname(hostname))
+    normalized = _hostname(hostname)
+    cached = await cached_domain_brand(normalized)
+    if cached is not None:
+        try:
+            return PublicBrandingResponse.model_validate(cached)
+        except (TypeError, ValueError):
+            pass
+
+    workspace = await _resolve_workspace(session, normalized)
     if workspace is None:
         raise HTTPException(status_code=404, detail="No active brand is configured for this domain")
     published = settings_document(workspace).branding_published
     if published is None or not published.identity.branded_login:
         raise HTTPException(status_code=404, detail="No active login brand is configured for this domain")
     identity = published.identity
-    return PublicBrandingResponse(
+    response = PublicBrandingResponse(
         workspace_id=workspace.id,
         company_name=identity.company_name,
         browser_title=identity.browser_title,
@@ -91,8 +100,10 @@ async def public_branding(
         favicon_data_url=identity.favicon_data_url,
         primary_color=identity.primary_color,
         secondary_color=identity.secondary_color,
-        colors=published.colors,
-        typography=published.typography,
+        colors=published.colors.model_dump(mode="json"),
+        typography=published.typography.model_dump(mode="json"),
         authentication=published.authentication.model_dump(by_alias=True, mode="json"),
         support_url=identity.support_url,
     )
+    await cache_domain_brand(normalized, response.model_dump(mode="json"))
+    return response
