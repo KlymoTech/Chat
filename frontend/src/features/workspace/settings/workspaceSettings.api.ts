@@ -32,10 +32,12 @@ export type BrandVersion = { version: number; createdBy: string; publishedAt: st
 export type DomainRecord = { id: string; hostname: string; status: 'pending' | 'dns_pending' | 'verifying' | 'verified' | 'certificate_pending' | 'active' | 'failed' | 'disabled'; verificationName: string; verificationValue: string; failureReason: string; createdAt: string };
 export type WorkspaceSettingsBundle = { general: GeneralSettings; security: SecuritySettings; notifications: NotificationSettings; developer: DeveloperSettings; roles: RolesSettings; teams: TeamsSettings; dashboard: DashboardSettings; brandingDraft: ExtendedBranding; brandingPublished: ExtendedBranding | null; brandingVersions: BrandVersion[]; domains: { domains: DomainRecord[] } };
 export type CapabilityCatalog = { permissions: string[]; builtinRoles: Record<string, string[]>; resourceKinds: string[] };
+export type ConversationAssignment = { conversationId: string; userId: string | null; teamId: string | null };
+export type ConversationAssignmentOptions = { members: Array<{ id: string; name: string; email: string; role: string }>; teams: Array<{ id: string; name: string }> };
 
 function storedToken(): string | undefined { return readStorage<{ accessToken?: string } | null>(SESSION_KEY, null)?.accessToken; }
 
-async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
   const identity = workspacePresentationKey();
   const workspaceId = activeWorkspaceId();
   const token = storedToken();
@@ -74,4 +76,8 @@ export const workspaceSettingsApi = {
   verifyDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/verification-start`, 'POST'),
   activateDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/activation-check`, 'POST'),
   disableDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/disable`, 'POST'),
+  assignmentOptions: () => request<ConversationAssignmentOptions>('/workspace/settings/conversation-assignments/options'),
+  getConversationAssignment: (conversationId: string) => request<ConversationAssignment>(`/workspace/settings/conversation-assignments/${conversationId}`),
+  saveConversationAssignment: (conversationId: string, userId: string | null, teamId: string | null) => request<ConversationAssignment>(`/workspace/settings/conversation-assignments/${conversationId}`, 'PUT', { userId, teamId }),
+  clearConversationAssignment: (conversationId: string) => request<ConversationAssignment>(`/workspace/settings/conversation-assignments/${conversationId}`, 'DELETE'),
 };
