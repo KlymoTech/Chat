@@ -233,6 +233,19 @@ async def resend_workspace_invitation(
     settings: EmailSettings | None = None,
 ) -> IssuedWorkspaceInvitation:
     config = settings or get_email_settings()
+    # Lock the Workspace before its invitation, just as issue does. An archived
+    # or foreign Workspace must not rotate a token or stage a delivery event.
+    workspace = await session.scalar(
+        select(Workspace)
+        .where(
+            Workspace.id == workspace_id,
+            Workspace.tenant_id == tenant_id,
+            Workspace.status == WorkspaceStatus.ACTIVE,
+        )
+        .with_for_update()
+    )
+    if workspace is None:
+        raise WorkspaceInvitationError("Workspace not found", status_code=404)
     invitation = await session.scalar(
         select(WorkspaceInvitation)
         .where(
@@ -412,7 +425,7 @@ async def preview_workspace_invitation(
         await session.scalars(
             select(WorkspaceInvitationAgentAccess.agent_id)
             .where(WorkspaceInvitationAgentAccess.invitation_id == invitation.id)
-            .order_by(WorkspaceInvitationAgentAccess.agent_id)
+            .order_by(WorkspaceInvitationAgentAccess.invitation_id)
         )
     )
     existing_user = (
