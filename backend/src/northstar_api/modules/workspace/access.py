@@ -13,9 +13,10 @@ from northstar_api.security import Principal
 
 from .contracts import DashboardSettings, RolesSettings, TeamsSettings
 from .repositories.workspace_write_lock import lock_workspace_settings
+from .services.dashboard_service import update_workspace_dashboard
 from .services.role_service import update_workspace_roles
 from .services.team_service import update_workspace_teams
-from .store import load_workspace, record_workspace_change, save_document, settings_document
+from .store import load_workspace, record_workspace_change, settings_document
 
 router = APIRouter()
 RolesManagePrincipal = Annotated[Principal, Depends(require_permissions("roles.manage"))]
@@ -201,12 +202,8 @@ async def update_dashboard(
 ) -> DashboardSettings:
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
-    document = settings_document(workspace)
-    before = document.dashboard.model_dump(by_alias=True, mode="json")
-    document.dashboard = payload
-    document.branding_draft.dashboard = payload
-    save_document(workspace, document)
-    await persist_branding_document(session, workspace, document)
+    before = update_workspace_dashboard(workspace, payload)
+    await persist_branding_document(session, workspace, settings_document(workspace))
     record_workspace_change(
         session,
         principal,
