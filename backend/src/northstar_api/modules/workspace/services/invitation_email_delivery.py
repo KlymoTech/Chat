@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.email_config import get_email_settings
 from northstar_api.modules.workspace.models.invitation_email_job import WorkspaceInvitationEmailJob
+from northstar_api.modules.workspace.services.invitation_audit import stage_invitation_transition
 from northstar_api.modules.workspace.services.invitation_email_config import (
     InvitationEmailConfigurationError,
     get_invitation_email_config,
@@ -72,6 +73,32 @@ def stage_invitation_email(
     return True
 
 
+async def _mark_terminal_broker_failure(session: AsyncSession, job: WorkspaceInvitationEmailJob) -> None:
+    """Show failure only for the same still-pending invitation and token generation."""
+    invitation = await session.scalar(
+        select(WorkspaceInvitation).where(
+            WorkspaceInvitation.id == job.invitation_id,
+            WorkspaceInvitation.tenant_id == job.tenant_id,
+            WorkspaceInvitation.workspace_id == job.workspace_id,
+            WorkspaceInvitation.token_hash == job.token_hash,
+            WorkspaceInvitation.status == WorkspaceInvitationStatus.PENDING,
+        ).with_for_update()
+    )
+    if invitation is None:
+        return
+    invitation.last_delivery_error = "BrokerUnavailable"
+    stage_invitation_transition(
+        session,
+        tenant_id=job.tenant_id,
+        workspace_id=job.workspace_id,
+        invitation_id=job.invitation_id,
+        actor_user_id=None,
+        action="delivery_failed",
+        role=invitation.role.value,
+        all_agents_access=invitation.all_agents_access,
+    )
+
+
 async def dispatch_invitation_email_jobs(session: AsyncSession, *, now: datetime | None = None) -> int:
     """Called inside the existing job-dispatcher DB transaction.
 
@@ -100,6 +127,7 @@ async def dispatch_invitation_email_jobs(session: AsyncSession, *, now: datetime
             job.status = "dispatch_failed"
             job.ciphertext = None
             job.last_error = "BrokerUnavailable"
+            await _mark_terminal_broker_failure(session, job)
             continue
         try:
             await asyncio.to_thread(
@@ -121,6 +149,7 @@ async def dispatch_invitation_email_jobs(session: AsyncSession, *, now: datetime
             if job.dispatch_attempts >= MAX_DISPATCH_ATTEMPTS:
                 job.status = "dispatch_failed"
                 job.ciphertext = None
+                await _mark_terminal_broker_failure(session, job)
             else:
                 job.next_dispatch_at = clock + timedelta(seconds=min(300, 2 ** job.dispatch_attempts))
             logger.warning(
