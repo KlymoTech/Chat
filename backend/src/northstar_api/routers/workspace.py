@@ -27,6 +27,7 @@ from northstar_api.models import (
 from northstar_api.modules.workspace.services.general_settings import (
     GENERAL_SETTING_FIELDS,
     changed_general_fields,
+    changed_preference_fields,
     record_general_settings_update,
 )
 from northstar_api.schemas import APIModel
@@ -178,6 +179,11 @@ async def get_workspace(principal: WorkspaceViewPrincipal, session: DBSession) -
 async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePrincipal, session: DBSession) -> WorkspaceOut:
     tenant, workspace, membership, count = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
     general_before = {field: getattr(workspace, field) for field in GENERAL_SETTING_FIELDS}
+    settings = dict(workspace.settings_json or {})
+    preferences_before = safe_legacy_read(WorkspacePreferences, {
+        "timezone": workspace.timezone, "defaultLanguage": workspace.default_language,
+        "dateFormat": workspace.date_format, **settings.get("preferences", {}),
+    }, []).model_dump(by_alias=True, mode="json")
     if payload.slug and payload.slug != workspace.slug:
         duplicate = await session.scalar(select(Workspace.id).where(
             Workspace.tenant_id == principal.tenant_id, Workspace.slug == payload.slug, Workspace.id != workspace.id,
@@ -187,9 +193,10 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
         workspace.slug = payload.slug
     if payload.name is not None:
         workspace.name = payload.name.strip()
-    settings = dict(workspace.settings_json or {})
+    preferences_after = preferences_before
     if payload.preferences is not None:
-        settings["preferences"] = payload.preferences.model_dump(by_alias=True)
+        preferences_after = payload.preferences.model_dump(by_alias=True, mode="json")
+        settings["preferences"] = preferences_after
         workspace.timezone = payload.preferences.timezone
         workspace.default_language = payload.preferences.default_language
         workspace.date_format = payload.preferences.date_format
@@ -239,15 +246,18 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
             event_type="workspace.security.updated.v1",
             payload={"workspaceId": str(workspace.id)},
         )
+    changed_fields = tuple(sorted(set(
+        changed_general_fields(
+            general_before,
+            {field: getattr(workspace, field) for field in GENERAL_SETTING_FIELDS},
+        ) + changed_preference_fields(preferences_before, preferences_after)
+    )))
     record_general_settings_update(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=workspace.id,
         actor_user_id=principal.user_id,
-        changed_fields=changed_general_fields(
-            general_before,
-            {field: getattr(workspace, field) for field in GENERAL_SETTING_FIELDS},
-        ),
+        changed_fields=changed_fields,
     )
     workspace.settings_json = settings
     await session.commit()
@@ -289,6 +299,7 @@ async def create_workspace(payload: WorkspaceCreate, principal: CurrentPrincipal
         raise HTTPException(status_code=404, detail="Tenant not found")
     workspace = Workspace(tenant_id=principal.tenant_id, name=payload.name.strip(), slug=payload.slug,
                           timezone=payload.timezone, default_language=payload.default_language, date_format=payload.date_format,
+                          settings_json={"preferences": payload.model_dump(by_alias=True, mode="json", exclude={"name", "slug"})},
                           created_by=principal.user_id)
     session.add(workspace)
     await session.flush()
