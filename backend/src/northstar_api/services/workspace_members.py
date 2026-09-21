@@ -17,6 +17,7 @@ from northstar_api.models import (
     WorkspaceMembership,
     WorkspaceRole,
 )
+from northstar_api.modules.workspace.services.ownership import WorkspaceOwnershipError, protect_workspace_owner
 
 
 class WorkspaceMemberError(RuntimeError):
@@ -210,6 +211,18 @@ async def _protect_last_admin(
         )
 
 
+async def _protect_current_owner(
+    session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID, member_user_id: UUID,
+) -> None:
+    try:
+        await protect_workspace_owner(
+            session, tenant_id=tenant_id, workspace_id=workspace_id,
+            member_user_id=member_user_id,
+        )
+    except WorkspaceOwnershipError as exc:
+        raise WorkspaceMemberError(str(exc), status_code=exc.status_code) from None
+
+
 async def update_workspace_member(
     session: AsyncSession,
     *,
@@ -227,6 +240,9 @@ async def update_workspace_member(
         workspace_id=workspace_id,
         actor_user_id=actor_user_id,
         member_user_id=member_user_id,
+    )
+    await _protect_current_owner(
+        session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
     )
     await _protect_last_admin(
         session,
@@ -268,6 +284,9 @@ async def remove_workspace_member(
         workspace_id=workspace_id,
         actor_user_id=actor_user_id,
         member_user_id=member_user_id,
+    )
+    await _protect_current_owner(
+        session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
     )
     await _protect_last_admin(
         session,
