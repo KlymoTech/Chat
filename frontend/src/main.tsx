@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from '@/App';
 import { AuthProvider, ToastProvider, WorkspaceProvider } from '@/components/providers';
 import { PublicBrandingProvider } from '@/components/public-branding';
+import { WorkspaceBrandRuntime } from '@/features/branding/WorkspaceBrandRuntime';
 import '@/styles.css';
 import '@/help.css';
 import '@/help-detail.css';
@@ -19,7 +20,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <PublicBrandingProvider>
         <ToastProvider>
-          <AuthProvider><WorkspaceProvider><App /></WorkspaceProvider></AuthProvider>
+          <AuthProvider>
+            <WorkspaceProvider>
+              <WorkspaceBrandRuntime><App /></WorkspaceBrandRuntime>
+            </WorkspaceProvider>
+          </AuthProvider>
         </ToastProvider>
       </PublicBrandingProvider>
     </BrowserRouter>
