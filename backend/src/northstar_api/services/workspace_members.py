@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.lead_crm.audit import record_audit_event
@@ -19,6 +19,7 @@ from northstar_api.models import (
     WorkspaceRole,
 )
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
+from northstar_api.modules.workspace.services.admin_availability import available_workspace_admin_count
 from northstar_api.modules.workspace.services.ownership import WorkspaceOwnershipError, protect_workspace_owner
 from northstar_api.services.outbox import enqueue_event
 
@@ -179,6 +180,7 @@ async def _require_other_member(
 async def _protect_last_admin(
     session: AsyncSession,
     *,
+    tenant_id: UUID,
     workspace_id: UUID,
     membership: WorkspaceMembership,
     next_role: WorkspaceRole | None,
@@ -187,26 +189,26 @@ async def _protect_last_admin(
     if not removing_admin:
         return
 
+    # protect_workspace_owner already locks the selected workspace before the
+    # target membership. Retain that lock while counting other usable admins.
     workspace = await session.scalar(
-        select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()
+        select(Workspace.id).where(
+            Workspace.tenant_id == tenant_id,
+            Workspace.id == workspace_id,
+        ).with_for_update()
     )
     if workspace is None:
         raise WorkspaceMemberError("Workspace not found", status_code=404)
 
-    count = int(
-        await session.scalar(
-            select(func.count())
-            .select_from(WorkspaceMembership)
-            .where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.role == WorkspaceRole.ADMIN,
-            )
-        )
-        or 0
+    others = await available_workspace_admin_count(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        exclude_user_id=membership.user_id,
     )
-    if count <= 1:
+    if others < 1:
         raise WorkspaceMemberError(
-            "The workspace must keep at least one administrator",
+            "The workspace must keep at least one active administrator",
             status_code=409,
         )
 
@@ -286,6 +288,7 @@ async def update_workspace_member(
     )
     await _protect_last_admin(
         session,
+        tenant_id=tenant_id,
         workspace_id=workspace_id,
         membership=membership,
         next_role=role,
@@ -353,6 +356,7 @@ async def remove_workspace_member(
     )
     await _protect_last_admin(
         session,
+        tenant_id=tenant_id,
         workspace_id=workspace_id,
         membership=membership,
         next_role=None,
