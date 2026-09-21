@@ -87,7 +87,9 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
         : await workspaceTeamApi.reactivateMember(target.userId, reason);
       setStates((old) => ({ ...old, [result.userId]: result.status }));
       setTarget(null); setReason(''); setConfirmation('');
-      emitWorkspaceMemberChanged(result.status === 'suspended' ? 'member-suspended' : 'member-reactivated');
+      // Effective account status can remain "disabled" after a Workspace
+      // suspension. Broadcast the transition requested, not that projection.
+      emitWorkspaceMemberChanged(nextStatus === 'suspended' ? 'member-suspended' : 'member-reactivated');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Member lifecycle change could not be completed');
     } finally { setBusy(false); }
