@@ -44,10 +44,18 @@ def _workspace() -> Workspace:
     )
 
 
-def _mock_membership(monkeypatch: pytest.MonkeyPatch, workspace: Workspace, *, role: WorkspaceRole):
+def _mock_membership(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace: Workspace,
+    *,
+    role: WorkspaceRole,
+    account_is_active: bool = True,
+):
     user_id = uuid4()
     membership = SimpleNamespace(role=role)
-    user = SimpleNamespace(id=user_id, mfa_enabled=False, last_login_at=None)
+    user = SimpleNamespace(
+        id=user_id, is_active=account_is_active, mfa_enabled=False, last_login_at=None
+    )
 
     async def scoped_loader(_principal, _session):
         return None, workspace
@@ -140,5 +148,36 @@ async def test_suspension_refuses_owner_transferred_during_scoped_read(
     assert "Transfer workspace ownership" in error.value.detail
     assert workspace.created_by == target_id
     assert workspace.settings_json["workspaceMemberStatusV1"] == {}
+    assert session.refreshes == [("settings_json", "branding_json", "status", "created_by")]
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_ownership_transfer_refuses_disabled_user_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace()
+    current_owner_id = uuid4()
+    workspace.created_by = current_owner_id
+    target_id, membership = _mock_membership(
+        monkeypatch,
+        workspace,
+        role=WorkspaceRole.VIEWER,
+        account_is_active=False,
+    )
+    session = _Session({"workspaceMemberStatusV1": {}})
+    principal = SimpleNamespace(workspace_role=WorkspaceRole.ADMIN)
+
+    with pytest.raises(HTTPException) as error:
+        await members.transfer_ownership(
+            target_id,
+            principal,  # type: ignore[arg-type]
+            session,  # type: ignore[arg-type]
+        )
+
+    assert error.value.status_code == 409
+    assert error.value.detail == "Reactivate the user account before transferring workspace ownership"
+    assert membership.role == WorkspaceRole.VIEWER
+    assert workspace.created_by == current_owner_id
     assert session.refreshes == [("settings_json", "branding_json", "status", "created_by")]
     assert session.commits == 0
