@@ -26,6 +26,12 @@ const sections: SettingsSection[] = [
   'channels', 'integrations', 'developer', 'audit', 'billing', 'branding',
 ];
 
+const emptyCapabilities: CapabilityCatalog = {
+  permissions: [],
+  builtinRoles: {},
+  resourceKinds: [],
+};
+
 function requiredPermission(section: SettingsSection): string | null {
   return {
     general: 'settings.view',
@@ -56,8 +62,14 @@ export function WorkspaceSettingsPage() {
 
   useEffect(() => {
     let current = true;
-    Promise.all([workspaceApi.get(), workspaceSettingsApi.get(), workspaceSettingsApi.capabilities()])
-      .then(([workspaceValue, settingsValue, catalog]) => {
+    workspaceApi.get()
+      .then(async (workspaceValue) => {
+        const [settingsValue, catalog] = await Promise.all([
+          workspaceSettingsApi.get(),
+          workspaceValue.permissions.includes('roles.manage')
+            ? workspaceSettingsApi.capabilities()
+            : Promise.resolve(emptyCapabilities),
+        ]);
         if (!current) return;
         setWorkspace(workspaceValue);
         setBundle(settingsValue);
