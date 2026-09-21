@@ -9,6 +9,7 @@ from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.models import Workspace
 from northstar_api.modules.branding.repositories import persist_branding_document
+from northstar_api.modules.branding.services.domain_service import TLS_ELIGIBLE_DOMAIN_STATUSES
 from northstar_api.security import Principal
 from northstar_api.workers.celery_app import celery_app
 
@@ -193,7 +194,10 @@ async def check_domain_activation(
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
         raise HTTPException(status_code=404, detail="Domain not found")
-    if domain.status not in {"verified", "certificate_pending", "failed"}:
+    # "failed" is ambiguous: it may mean DNS ownership was never verified.
+    # Require another successful DNS verification before a failed domain can
+    # proceed to TLS validation; certificate_pending remains retryable.
+    if domain.status not in TLS_ELIGIBLE_DOMAIN_STATUSES:
         raise HTTPException(
             status_code=409,
             detail="Verify DNS ownership before checking activation",
