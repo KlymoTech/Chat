@@ -4,20 +4,25 @@ import secrets
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
-from northstar_api.models import Workspace
+from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.branding.repositories import persist_branding_document
+from northstar_api.modules.branding.services.domain_service import TLS_ELIGIBLE_DOMAIN_STATUSES
 from northstar_api.security import Principal
 from northstar_api.workers.celery_app import celery_app
 
 from .brand_cache import invalidate_brand_cache
 from .contracts import DomainCreate, DomainRecord, WorkspaceSettingsBundle
+from .domain_hostname import normalize_new_custom_domain_hostname
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
 DomainManagePrincipal = Annotated[Principal, Depends(require_permissions("branding.domain.manage"))]
+_MAX_WORKSPACE_DOMAINS = 20  # Match DomainsSettings.domains max_length.
 
 
 def _interactive_only(principal: Principal) -> None:
@@ -38,6 +43,20 @@ def _enqueue(task_name: str, *, tenant_id: str, workspace_id: str, domain_id: st
     return True
 
 
+def _is_hostname_unique_violation(exc: IntegrityError) -> bool:
+    """Recognize only the domain hostname constraint, not unrelated SQL errors."""
+    orig = exc.orig
+    diagnostic = getattr(orig, "diag", None)
+    constraint = getattr(diagnostic, "constraint_name", None)
+    if constraint == "uq_workspace_custom_domain_hostname":
+        return True
+    message = str(orig).lower()
+    return (
+        "uq_workspace_custom_domain_hostname" in message
+        or "unique constraint failed: workspace_custom_domain.hostname" in message
+    )
+
+
 async def _mark_dispatch_failed(
     *,
     session: DBSession,
@@ -48,6 +67,33 @@ async def _mark_dispatch_failed(
     domain: DomainRecord,
     operation: str,
 ) -> None:
+    # The initial request is committed before queue dispatch. Another request
+    # may disable the domain, archive the workspace or restart verification
+    # before the broker reports failure. Do not save the stale in-memory JSON.
+    queued_status = "verifying" if operation == "verification" else "certificate_pending"
+    domain_id = domain.id
+    hostname = domain.hostname
+    verification_name = domain.verification_name
+    verification_value = domain.verification_value
+    await session.refresh(
+        workspace,
+        attribute_names=["settings_json", "status"],
+        with_for_update=True,
+    )
+    document = settings_document(workspace)
+    current = next((item for item in document.domains.domains if item.id == domain_id), None)
+    if (
+        workspace.status != WorkspaceStatus.ACTIVE
+        or current is None
+        or current.hostname != hostname
+        or current.status != queued_status
+        or current.verification_name != verification_name
+        or current.verification_value != verification_value
+    ):
+        # No change belongs to this failed request; release the row lock.
+        await session.rollback()
+        return
+    domain = current
     domain.status = "failed"
     domain.failure_reason = "Background worker dispatch is unavailable; retry this operation"
     save_document(workspace, document)
@@ -83,13 +129,22 @@ async def create_domain(
     tenant, workspace = await load_workspace(principal, session)
     if not entitlement_for_plan(tenant.plan).custom_domain_enabled:
         raise HTTPException(status_code=403, detail="Your plan does not include custom domains")
+    try:
+        normalized = normalize_new_custom_domain_hostname(payload.hostname)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Lock before reading the domain list: parallel creations or worker updates
+    # must not overwrite a newer settings JSON snapshot.
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
-    normalized = DomainRecord.normalized_hostname(payload.hostname)
-    if any(
-        item.hostname == normalized and item.status != "disabled"
-        for item in document.domains.domains
-    ):
+    # Disabled domain rows still reserve their hostname in normalized storage.
+    # Never attempt to insert a second row for the same hostname.
+    if any(item.hostname == normalized for item in document.domains.domains):
         raise HTTPException(status_code=409, detail="Domain is already configured")
+    # Mutating a Pydantic list does not re-run its max_length validator. Without
+    # this guard a 21st entry makes the entire saved bundle fail to deserialize.
+    if len(document.domains.domains) >= _MAX_WORKSPACE_DOMAINS:
+        raise HTTPException(status_code=409, detail="Workspace custom-domain limit reached")
     domain = DomainRecord(
         hostname=normalized,
         verification_name=f"_northstar-verify.{normalized}",
@@ -97,19 +152,27 @@ async def create_domain(
     )
     document.domains.domains.append(domain)
     save_document(workspace, document)
-    await persist_branding_document(session, workspace, document)
-    record_workspace_change(
-        session,
-        principal,
-        workspace,
-        "workspace.domain.created",
-        ["hostname", "status"],
-        resource_type="workspace_custom_domain",
-        resource_id=domain.id,
-        after={"hostname": normalized, "status": domain.status},
-        request=request,
-    )
-    await session.commit()
+    try:
+        # The global unique constraint is authoritative even when tenant RLS
+        # prevents this workspace from seeing a hostname claimed elsewhere.
+        await persist_branding_document(session, workspace, document)
+        record_workspace_change(
+            session,
+            principal,
+            workspace,
+            "workspace.domain.created",
+            ["hostname", "status"],
+            resource_type="workspace_custom_domain",
+            resource_id=domain.id,
+            after={"hostname": normalized, "status": domain.status},
+            request=request,
+        )
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if _is_hostname_unique_violation(exc):
+            raise HTTPException(status_code=409, detail="Domain is already configured") from None
+        raise
     await invalidate_brand_cache(workspace.id, hostnames=[normalized])
     return domain
 
@@ -127,6 +190,7 @@ async def start_domain_verification(
 ) -> DomainRecord:
     _interactive_only(principal)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
@@ -189,11 +253,15 @@ async def check_domain_activation(
 ) -> DomainRecord:
     _interactive_only(principal)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
         raise HTTPException(status_code=404, detail="Domain not found")
-    if domain.status not in {"verified", "certificate_pending", "failed"}:
+    # "failed" is ambiguous: it may mean DNS ownership was never verified.
+    # Require another successful DNS verification before a failed domain can
+    # proceed to TLS validation; certificate_pending remains retryable.
+    if domain.status not in TLS_ELIGIBLE_DOMAIN_STATUSES:
         raise HTTPException(
             status_code=409,
             detail="Verify DNS ownership before checking activation",
@@ -250,6 +318,7 @@ async def disable_domain(
 ) -> DomainRecord:
     _interactive_only(principal)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:

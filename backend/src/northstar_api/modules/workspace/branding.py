@@ -21,6 +21,7 @@ from .contracts import (
     RollbackRequest,
     WorkspaceSettingsBundle,
 )
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -141,6 +142,7 @@ async def save_branding_draft(
 ) -> ExtendedBranding:
     _interactive_only(principal, "editing")
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     before = document.branding_draft.model_dump(by_alias=True, mode="json")
     document.branding_draft = payload
@@ -171,6 +173,7 @@ async def publish_branding(
 ) -> BrandVersion:
     _interactive_only(principal, "publication")
     tenant, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     return await _publish(
         settings_document(workspace),
         principal,
@@ -191,6 +194,7 @@ async def rollback_branding(
 ) -> BrandVersion:
     _interactive_only(principal, "publication")
     tenant, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     source = next(
         (item for item in document.branding_versions if item.version == payload.version),

@@ -5,17 +5,32 @@ import { applyBrandTokens } from '@/theme/brand-tokens';
 
 const RuntimeBrandContext = createContext<ExtendedBranding | null>(null);
 
+type WorkspaceBrandSnapshot = {
+  workspaceId: string;
+  branding: ExtendedBranding | null;
+};
+
 export function WorkspaceBrandRuntime({ children }: { children: ReactNode }) {
   const { activeWorkspace } = useWorkspace();
-  const [branding, setBranding] = useState<ExtendedBranding | null>(null);
+  const [brandSnapshot, setBrandSnapshot] = useState<WorkspaceBrandSnapshot | null>(null);
+  // A previous workspace's published brand must not remain visible while the
+  // next workspace's asynchronous branding request is still in flight.
+  const branding = brandSnapshot?.workspaceId === activeWorkspace?.id
+    ? brandSnapshot.branding
+    : null;
 
   useEffect(() => {
     let current = true;
     if (!activeWorkspace) {
-      setBranding(null);
+      setBrandSnapshot(null);
       return () => { current = false; };
     }
-    workspaceSettingsApi.runtimeBranding().then((value) => { if (current) setBranding(value); }).catch(() => { if (current) setBranding(null); });
+    const workspaceId = activeWorkspace.id;
+    workspaceSettingsApi.runtimeBranding().then((value) => {
+      if (current) setBrandSnapshot({ workspaceId, branding: value });
+    }).catch(() => {
+      if (current) setBrandSnapshot({ workspaceId, branding: null });
+    });
     return () => { current = false; };
   }, [activeWorkspace?.id]);
 

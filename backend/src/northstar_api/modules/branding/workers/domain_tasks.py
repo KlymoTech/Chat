@@ -10,12 +10,18 @@ from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context, tenant_context
 from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.branding.repositories import persist_branding_document
-from northstar_api.modules.branding.services.domain_service import check_domain_tls, verify_domain_txt
+from northstar_api.modules.branding.services.domain_service import (
+    TLS_ELIGIBLE_DOMAIN_STATUSES,
+    check_domain_tls,
+    verify_domain_txt,
+)
 from northstar_api.modules.workspace.brand_cache import invalidate_brand_cache
 from northstar_api.modules.workspace.contracts import DomainRecord, WorkspaceSettingsBundle
 from northstar_api.modules.workspace.events.administrative_events import emit_workspace_administrative_event
 from northstar_api.modules.workspace.store import save_document, settings_document
 from northstar_api.workers.celery_app import celery_app
+
+_DNS_ELIGIBLE_DOMAIN_STATUSES = frozenset({"verifying", "dns_pending", "pending"})
 
 
 async def _load_workspace_and_domain(
@@ -36,6 +42,41 @@ async def _load_workspace_and_domain(
     document = settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     return workspace, document, domain
+
+
+async def _refresh_domain_for_result(
+    session: AsyncSession,
+    workspace: Workspace,
+    domain_id: str,
+    *,
+    hostname: str,
+    allowed_statuses: frozenset[str],
+    verification_name: str | None = None,
+    verification_value: str | None = None,
+) -> tuple[WorkspaceSettingsBundle, DomainRecord] | None:
+    """Lock and reload durable state after external I/O, before writing a worker result.
+
+    An administrator may disable a domain or start a new verification while a
+    queued worker is doing DNS/HTTPS I/O. Refreshing the workspace JSON under a
+    row lock prevents a stale worker result from undoing that newer change.
+    The lock is acquired *after* network I/O so the request isn't blocked on it.
+    """
+    await session.refresh(
+        workspace,
+        attribute_names=["settings_json", "status"],
+        with_for_update=True,
+    )
+    if workspace.status != WorkspaceStatus.ACTIVE:
+        return None
+    document = settings_document(workspace)
+    domain = next((item for item in document.domains.domains if item.id == domain_id), None)
+    if domain is None or domain.hostname != hostname or domain.status not in allowed_statuses:
+        return None
+    if verification_name is not None and domain.verification_name != verification_name:
+        return None
+    if verification_value is not None and domain.verification_value != verification_value:
+        return None
+    return document, domain
 
 
 async def _run_dns_verification(tenant_id: str, workspace_id: str, domain_id: str) -> None:
@@ -65,9 +106,23 @@ async def _run_dns_verification(tenant_id: str, workspace_id: str, domain_id: st
             if workspace is None or document is None or domain is None:
                 return
             hostname = domain.hostname
-            if domain.status not in {"verifying", "dns_pending", "pending"}:
+            if domain.status not in _DNS_ELIGIBLE_DOMAIN_STATUSES:
                 return
+            verification_name = domain.verification_name
+            verification_value = domain.verification_value
             verified = await verify_domain_txt(domain)
+            current = await _refresh_domain_for_result(
+                session,
+                workspace,
+                domain_id,
+                hostname=hostname,
+                allowed_statuses=_DNS_ELIGIBLE_DOMAIN_STATUSES,
+                verification_name=verification_name,
+                verification_value=verification_value,
+            )
+            if current is None:
+                return
+            document, domain = current
             if verified:
                 domain.status = "verified"
                 domain.failure_reason = ""
@@ -127,9 +182,19 @@ async def _run_tls_check(tenant_id: str, workspace_id: str, domain_id: str) -> N
             if workspace is None or document is None or domain is None:
                 return
             hostname = domain.hostname
-            if domain.status not in {"verified", "certificate_pending", "failed"}:
+            if domain.status not in TLS_ELIGIBLE_DOMAIN_STATUSES:
                 return
             ready, reason = await check_domain_tls(hostname)
+            current = await _refresh_domain_for_result(
+                session,
+                workspace,
+                domain_id,
+                hostname=hostname,
+                allowed_statuses=TLS_ELIGIBLE_DOMAIN_STATUSES,
+            )
+            if current is None:
+                return
+            document, domain = current
             if ready:
                 domain.status = "active"
                 domain.failure_reason = ""

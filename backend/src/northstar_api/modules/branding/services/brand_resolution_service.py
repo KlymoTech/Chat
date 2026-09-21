@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +18,18 @@ from northstar_api.modules.workspace.store import settings_document
 from ..models import WorkspaceBrand
 
 
+# Metadata belongs only to the mutable workspace cache alias. Immutable version
+# snapshots and the public branding response keep their existing payload shape.
+_WORKSPACE_CACHE_VERSION_KEY = "__published_brand_version"
+
+
+def _workspace_cache_payload(branding: ExtendedBranding, version: int) -> dict[str, Any]:
+    return {
+        **branding.model_dump(by_alias=True, mode="json"),
+        _WORKSPACE_CACHE_VERSION_KEY: version,
+    }
+
+
 async def resolve_published_workspace_brand(
     session: AsyncSession,
     workspace: Workspace,
@@ -27,8 +41,14 @@ async def resolve_published_workspace_brand(
     """
     cached = await cached_workspace_brand(workspace.id)
     if cached is not None:
+        # Older cache entries do not have version metadata. Accept those entries
+        # during the short cache TTL rather than breaking a rolling deployment.
+        cached_payload = cached.copy()
+        cached_version = cached_payload.pop(_WORKSPACE_CACHE_VERSION_KEY, 0)
         try:
-            return ExtendedBranding.model_validate(cached), 0
+            branding = ExtendedBranding.model_validate(cached_payload)
+            if type(cached_version) is int and cached_version >= 0:
+                return branding, cached_version
         except (TypeError, ValueError):
             pass
 
@@ -47,7 +67,7 @@ async def resolve_published_workspace_brand(
                     branding = ExtendedBranding.model_validate(version_cached)
                     await cache_workspace_brand(
                         workspace.id,
-                        branding.model_dump(by_alias=True, mode="json"),
+                        _workspace_cache_payload(branding, version),
                     )
                     return branding, version
                 except (TypeError, ValueError):
@@ -60,7 +80,10 @@ async def resolve_published_workspace_brand(
             payload = branding.model_dump(by_alias=True, mode="json")
             if version > 0:
                 await cache_version_brand(workspace.id, version, payload)
-            await cache_workspace_brand(workspace.id, payload)
+            await cache_workspace_brand(
+                workspace.id,
+                _workspace_cache_payload(branding, version),
+            )
             return branding, version
 
     document = settings_document(workspace)
@@ -71,7 +94,10 @@ async def resolve_published_workspace_brand(
     payload = branding.model_dump(by_alias=True, mode="json")
     if version > 0:
         await cache_version_brand(workspace.id, version, payload)
-    await cache_workspace_brand(workspace.id, payload)
+    await cache_workspace_brand(
+        workspace.id,
+        _workspace_cache_payload(branding, version),
+    )
     return branding, version
 
 

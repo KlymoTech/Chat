@@ -24,6 +24,7 @@ from northstar_api.models import (
     WorkspaceRole,
     WorkspaceStatus,
 )
+from northstar_api.modules.workspace.repositories.workspace_write_lock import lock_workspace_settings
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
@@ -172,6 +173,9 @@ async def get_workspace(principal: WorkspaceViewPrincipal, session: DBSession) -
 @router.patch("", response_model=WorkspaceOut)
 async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePrincipal, session: DBSession) -> WorkspaceOut:
     tenant, workspace, membership, count = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
+    # Match the section-23 settings writers: reload under a PostgreSQL row lock
+    # before changing any field in the shared settings_json or branding_json.
+    await lock_workspace_settings(session, workspace)
     if payload.slug and payload.slug != workspace.slug:
         duplicate = await session.scalar(select(Workspace.id).where(
             Workspace.tenant_id == principal.tenant_id, Workspace.slug == payload.slug, Workspace.id != workspace.id,

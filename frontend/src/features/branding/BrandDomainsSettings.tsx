@@ -46,9 +46,10 @@ export function BrandDomainsSettings({ bundle, onChange }: { bundle: WorkspaceSe
       <div className="page-heading page-heading--split"><div><strong>{domain.hostname}</strong><p>Created {new Date(domain.createdAt).toLocaleString()}</p></div><Badge tone={domain.status === 'active' ? 'success' : domain.status === 'failed' ? 'warning' : 'neutral'}>{domain.status.replaceAll('_', ' ')}</Badge></div>
       <p>TXT record</p><code>{domain.verificationName}</code><p>Value</p><code>{domain.verificationValue}</code>
       {domain.failureReason ? <p role="status">{domain.failureReason}</p> : null}
+      {domain.status === 'failed' ? <p>Verify DNS ownership again before checking TLS.</p> : null}
       <div className="workspace-panel__actions">
         <Button variant="secondary" disabled={busyId === domain.id || ['active', 'disabled'].includes(domain.status)} onClick={() => void act(domain, 'verify')}>Check DNS ownership</Button>
-        <Button variant="secondary" disabled={busyId === domain.id || !['verified', 'certificate_pending', 'failed'].includes(domain.status)} onClick={() => void act(domain, 'activate')}>Check TLS & activate</Button>
+        <Button variant="secondary" disabled={busyId === domain.id || !['verified', 'certificate_pending'].includes(domain.status)} onClick={() => void act(domain, 'activate')}>Check TLS & activate</Button>
         <Button variant="danger" disabled={busyId === domain.id || domain.status === 'disabled'} onClick={() => { if (window.confirm(`Disable ${domain.hostname}? Branded login will stop resolving on this hostname.`)) void act(domain, 'disable'); }}>Disable</Button>
       </div>
     </div>)}

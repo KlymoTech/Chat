@@ -11,6 +11,11 @@ from northstar_api.config import get_settings
 from northstar_api.modules.workspace.contracts import DomainRecord
 
 
+# A generic "failed" state can follow a DNS or worker-dispatch failure; it
+# cannot establish domain ownership. A new DNS verification must succeed first.
+TLS_ELIGIBLE_DOMAIN_STATUSES = frozenset({"verified", "certificate_pending"})
+
+
 async def _dns_json(name: str, record_type: str) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=6.0, follow_redirects=False) as client:
@@ -80,4 +85,9 @@ async def check_domain_tls(hostname: str) -> tuple[bool, str]:
         return False, f"TLS/HTTPS is not ready ({type(exc).__name__})"
 
 
-__all__ = ["check_domain_tls", "hostname_resolves_publicly", "verify_domain_txt"]
+__all__ = [
+    "TLS_ELIGIBLE_DOMAIN_STATUSES",
+    "check_domain_tls",
+    "hostname_resolves_publicly",
+    "verify_domain_txt",
+]
