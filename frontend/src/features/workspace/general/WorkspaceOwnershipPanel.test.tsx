@@ -31,6 +31,17 @@ describe('WorkspaceOwnershipPanel', () => {
     expect(workspaceApi.getTeam).not.toHaveBeenCalled();
   });
 
+  it('requires recovery rather than granting the creator an implicit transfer form', async () => {
+    vi.mocked(workspaceApi.getOwner).mockResolvedValue({
+      ownerUserId: null, ownerName: null, creatorUserId: 'original-creator',
+    });
+    render(<WorkspaceOwnershipPanel workspaceId="workspace-1" currentUserId="original-creator" canManage />);
+    expect(await screen.findByText(/Contact your organization administrator to recover ownership/)).toBeTruthy();
+    expect(screen.queryByText('Transfer workspace ownership')).toBeNull();
+    expect(workspaceApi.getTeam).not.toHaveBeenCalled();
+    expect(workspaceApi.transferOwner).not.toHaveBeenCalled();
+  });
+
   it('requires target, reason and typed confirmation before submitting once', async () => {
     vi.mocked(workspaceApi.getOwner).mockResolvedValue(owner);
     vi.mocked(workspaceApi.getTeam).mockResolvedValue({ members: [
