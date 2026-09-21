@@ -2,6 +2,7 @@ import { Building2, GraduationCap } from 'lucide-react';
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { Button, Card, Field } from '@/components/ui';
 import { WorkspaceGeneralDetails } from '@/features/workspace/general/WorkspaceGeneralDetails';
+import { WorkspaceOwnershipPanel } from '@/features/workspace/general/WorkspaceOwnershipPanel';
 import type { WorkspaceSettings } from '@/lib/workspace-api';
 
 interface WorkspaceGeneralPanelProps {
@@ -10,11 +11,12 @@ interface WorkspaceGeneralPanelProps {
   onSave: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
   saving: boolean;
   ownerInitial: string;
+  currentUserId?: string;
 }
 
 /** Keep the legacy form and API; UI grants mirror (but never replace) backend authorization. */
 export function WorkspaceGeneralPanel({
-  workspace, setWorkspace, onSave, saving, ownerInitial,
+  workspace, setWorkspace, onSave, saving, ownerInitial, currentUserId,
 }: WorkspaceGeneralPanelProps) {
   const canEdit = workspace.permissions?.includes('workspace.update')
     ?? (workspace.id === 'workspace-demo');
@@ -33,6 +35,12 @@ export function WorkspaceGeneralPanel({
         </div>
       </Card>
     </form>
+
+    {currentUserId ? <WorkspaceOwnershipPanel
+      workspaceId={workspace.id}
+      currentUserId={currentUserId}
+      canManage={workspace.permissions?.includes('members.manage') ?? false}
+    /> : null}
 
     <Card className="workspace-panel"><PanelHeading icon={GraduationCap} title="Education conversations" description="Student chats stay in Conversations and are kept separate from Leads and CRM sales sync." />
       <div className="workspace-panel__body"><p>Education agents support enrolled students. Their chats have no Resolve or lead-status actions. Use a Lead Generation agent for sales enquiries.</p></div>
