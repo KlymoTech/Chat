@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
@@ -12,7 +12,7 @@ from northstar_api.security import Principal
 from northstar_api.workers.celery_app import celery_app
 
 from .brand_cache import invalidate_brand_cache
-from .contracts import DomainCreate, DomainRecord
+from .contracts import DomainCreate, DomainRecord, WorkspaceSettingsBundle
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -24,16 +24,54 @@ def _interactive_only(principal: Principal) -> None:
         raise HTTPException(status_code=403, detail="Interactive branding domain management required")
 
 
-def _enqueue(task_name: str, *, tenant_id: str, workspace_id: str, domain_id: str) -> None:
-    celery_app.send_task(
-        task_name,
-        args=[tenant_id, workspace_id, domain_id],
-        queue="operations",
-        routing_key="operations",
+def _enqueue(task_name: str, *, tenant_id: str, workspace_id: str, domain_id: str) -> bool:
+    try:
+        celery_app.send_task(
+            task_name,
+            args=[tenant_id, workspace_id, domain_id],
+            queue="operations",
+            routing_key="operations",
+        )
+    except Exception:  # broker/client failures vary by transport; persist an explicit retryable state
+        return False
+    return True
+
+
+async def _mark_dispatch_failed(
+    *,
+    session: DBSession,
+    principal: Principal,
+    request: Request,
+    workspace,
+    document: WorkspaceSettingsBundle,
+    domain: DomainRecord,
+    operation: str,
+) -> None:
+    domain.status = "failed"
+    domain.failure_reason = "Background worker dispatch is unavailable; retry this operation"
+    save_document(workspace, document)
+    await persist_branding_document(session, workspace, document)
+    record_workspace_change(
+        session,
+        principal,
+        workspace,
+        f"workspace.domain.{operation}.dispatch_failed",
+        ["status", "failureReason"],
+        resource_type="workspace_custom_domain",
+        resource_id=domain.id,
+        after={
+            "hostname": domain.hostname,
+            "status": domain.status,
+            "failureReason": domain.failure_reason,
+        },
+        reason="Worker dispatch failed after durable request state was committed",
+        request=request,
     )
+    await session.commit()
+    await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
 
 
-@router.post("/domains", response_model=DomainRecord, status_code=201)
+@router.post("/domains", response_model=DomainRecord, status_code=status.HTTP_201_CREATED)
 async def create_domain(
     payload: DomainCreate,
     request: Request,
@@ -75,7 +113,11 @@ async def create_domain(
     return domain
 
 
-@router.post("/domains/{domain_id}/verification-start", response_model=DomainRecord)
+@router.post(
+    "/domains/{domain_id}/verification-start",
+    response_model=DomainRecord,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def start_domain_verification(
     domain_id: str,
     request: Request,
@@ -110,16 +152,34 @@ async def start_domain_verification(
     )
     await session.commit()
     await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
-    _enqueue(
+    dispatched = _enqueue(
         "northstar.verify_workspace_brand_domain",
         tenant_id=str(workspace.tenant_id),
         workspace_id=str(workspace.id),
         domain_id=domain.id,
     )
+    if not dispatched:
+        await _mark_dispatch_failed(
+            session=session,
+            principal=principal,
+            request=request,
+            workspace=workspace,
+            document=document,
+            domain=domain,
+            operation="verification",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Domain verification worker is unavailable; retry the verification request",
+        )
     return domain
 
 
-@router.post("/domains/{domain_id}/activation-check", response_model=DomainRecord)
+@router.post(
+    "/domains/{domain_id}/activation-check",
+    response_model=DomainRecord,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def check_domain_activation(
     domain_id: str,
     request: Request,
@@ -157,12 +217,26 @@ async def check_domain_activation(
     )
     await session.commit()
     await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
-    _enqueue(
+    dispatched = _enqueue(
         "northstar.check_workspace_brand_tls",
         tenant_id=str(workspace.tenant_id),
         workspace_id=str(workspace.id),
         domain_id=domain.id,
     )
+    if not dispatched:
+        await _mark_dispatch_failed(
+            session=session,
+            principal=principal,
+            request=request,
+            workspace=workspace,
+            document=document,
+            domain=domain,
+            operation="activation",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Domain activation worker is unavailable; retry the activation request",
+        )
     return domain
 
 
