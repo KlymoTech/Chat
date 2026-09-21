@@ -96,3 +96,10 @@ async def transfer_owner(
         owner_name=owner.name,
         creator_user_id=workspace.created_by if workspace is not None else None,
     )
+
+
+# Recovery uses its own organization-level authorization and is only reachable
+# inside the same existing /workspace/owner router and workspace context.
+from northstar_api.modules.workspace.api import owner_recovery  # noqa: E402
+
+router.include_router(owner_recovery.router)
