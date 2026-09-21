@@ -24,7 +24,8 @@ async def test_workspace_owner_transfer_is_confirmed_scoped_and_audited(
     initial = await client.get("/api/v1/workspace/owner", headers=auth_headers)
     assert initial.status_code == 200, initial.text
     initial_owner_id = UUID(initial.json()["ownerUserId"])
-    assert initial.json()["creatorUserId"] is not None
+    # Historical seeded workspaces can have no recorded creator; ownership still resolves.
+    original_creator = initial.json()["creatorUserId"]
 
     invitee_id = uuid4()
     async with SessionFactory() as session:
@@ -70,14 +71,26 @@ async def test_workspace_owner_transfer_is_confirmed_scoped_and_audited(
             "/api/v1/workspace/owner/transfer", headers=auth_headers, json=base,
         )
         assert missing_confirmation.status_code == 422, missing_confirmation.text
+        wrong_workspace = await client.post(
+            "/api/v1/workspace/owner/transfer",
+            headers={**auth_headers, "X-Workspace-ID": str(uuid4())},
+            json={**base, "confirmation": "TRANSFER"},
+        )
+        assert wrong_workspace.status_code == 403, wrong_workspace.text
+        not_an_admin = await client.post(
+            "/api/v1/workspace/owner/transfer", headers=auth_headers,
+            json={**base, "targetUserId": str(uuid4()), "confirmation": "TRANSFER"},
+        )
+        assert not_an_admin.status_code == 409, not_an_admin.text
         assert await entries() == before
+
         transferred = await client.post(
             "/api/v1/workspace/owner/transfer", headers=auth_headers,
             json={**base, "confirmation": "TRANSFER"},
         )
         assert transferred.status_code == 200, transferred.text
         assert transferred.json()["ownerUserId"] == str(invitee_id)
-        assert transferred.json()["creatorUserId"] == initial.json()["creatorUserId"]
+        assert transferred.json()["creatorUserId"] == original_creator
         reread = await client.get("/api/v1/workspace/owner", headers=auth_headers)
         assert reread.status_code == 200, reread.text
         assert reread.json()["ownerUserId"] == str(invitee_id)
@@ -92,6 +105,11 @@ async def test_workspace_owner_transfer_is_confirmed_scoped_and_audited(
         )
         assert protected.status_code == 409, protected.text
         assert "transfer workspace ownership" in protected.text.lower()
+        demotion = await client.patch(
+            f"/api/v1/workspace/members/{invitee_id}", headers=auth_headers,
+            json={"role": "viewer", "allAgentsAccess": True},
+        )
+        assert demotion.status_code == 409, demotion.text
 
         audits, events = await entries()
         assert len(audits - before[0]) == 1
