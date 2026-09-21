@@ -3,13 +3,14 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import EmailStr, Field, field_validator
 
 from northstar_api.access_policy import WORKSPACE_GRANTS, WORKSPACE_PERMISSIONS
 from northstar_api.dependencies import DBSession, require_permissions
+from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import Workspace
 from northstar_api.onboarding_contract import SetupContract
@@ -25,6 +26,8 @@ BrandViewPrincipal = Annotated[Principal, Depends(require_permissions("branding.
 BrandEditPrincipal = Annotated[Principal, Depends(require_permissions("branding.edit"))]
 BrandPublishPrincipal = Annotated[Principal, Depends(require_permissions("branding.publish"))]
 DomainManagePrincipal = Annotated[Principal, Depends(require_permissions("branding.domain.manage"))]
+RolesManagePrincipal = Annotated[Principal, Depends(require_permissions("roles.manage"))]
+TeamsManagePrincipal = Annotated[Principal, Depends(require_permissions("teams.manage"))]
 
 
 class BusinessHours(SetupContract):
@@ -155,10 +158,18 @@ class EmailBranding(SetupContract):
     sender_name: str = Field(default="", max_length=160)
     reply_to: EmailStr | None = None
     footer: str = Field(default="", max_length=1000)
-    enabled_templates: list[str] = Field(default_factory=lambda: [
-        "invitation", "password_reset", "email_verification", "security_alert",
-        "billing_notification", "conversation_notification", "lead_notification", "education_notification",
-    ])
+    enabled_templates: list[str] = Field(
+        default_factory=lambda: [
+            "invitation",
+            "password_reset",
+            "email_verification",
+            "security_alert",
+            "billing_notification",
+            "conversation_notification",
+            "lead_notification",
+            "education_notification",
+        ]
+    )
 
 
 class WidgetBranding(SetupContract):
@@ -200,7 +211,14 @@ class DomainRecord(SetupContract):
     id: str = Field(default_factory=lambda: str(uuid4()))
     hostname: str = Field(min_length=4, max_length=253)
     status: Literal[
-        "pending", "dns_pending", "verifying", "verified", "certificate_pending", "active", "failed", "disabled"
+        "pending",
+        "dns_pending",
+        "verifying",
+        "verified",
+        "certificate_pending",
+        "active",
+        "failed",
+        "disabled",
     ] = "dns_pending"
     verification_name: str
     verification_value: str
@@ -253,15 +271,25 @@ def _settings_document(workspace: Workspace) -> WorkspaceSettingsBundle:
         document = WorkspaceSettingsBundle.model_validate(raw)
     except Exception:
         document = WorkspaceSettingsBundle()
-    # Preserve values already owned by the legacy workspace endpoint.
+
     legacy_security = dict(workspace.settings_json or {}).get("security", {})
     if legacy_security:
-        document.security.sensitive_data_masking = bool(legacy_security.get("sensitiveDataMasking", document.security.sensitive_data_masking))
-        document.security.security_contact = legacy_security.get("securityContact", document.security.security_contact)
+        document.security.sensitive_data_masking = bool(
+            legacy_security.get("sensitiveDataMasking", document.security.sensitive_data_masking)
+        )
+        document.security.security_contact = legacy_security.get(
+            "securityContact", document.security.security_contact
+        )
+
     if workspace.branding_json and document.branding_published is None:
-        legacy = {key: value for key, value in workspace.branding_json.items() if key not in {"customDomain", "dnsStatus"}}
+        legacy = {
+            key: value
+            for key, value in workspace.branding_json.items()
+            if key not in {"customDomain", "dnsStatus"}
+        }
         try:
-            document.branding_published = ExtendedBranding(identity=WhiteLabelWrite.model_validate(legacy))
+            identity = WhiteLabelWrite.model_validate(legacy)
+            document.branding_published = ExtendedBranding(identity=identity)
             document.branding_draft = document.branding_published.model_copy(deep=True)
         except Exception:
             pass
@@ -274,7 +302,13 @@ def _save_document(workspace: Workspace, document: WorkspaceSettingsBundle) -> N
     workspace.settings_json = settings
 
 
-def _audit(session: DBSession, principal: Principal, workspace: Workspace, action: str, fields: list[str] | None = None) -> None:
+def _audit(
+    session: DBSession,
+    principal: Principal,
+    workspace: Workspace,
+    action: str,
+    fields: list[str] | None = None,
+) -> None:
     record_audit_event(
         session,
         tenant_id=principal.tenant_id,
@@ -296,39 +330,70 @@ def _audit(session: DBSession, principal: Principal, workspace: Workspace, actio
     )
 
 
-async def _workspace(principal: Principal, session: DBSession) -> Workspace:
-    _, workspace, _, _ = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
-    return workspace
+async def _workspace(principal: Principal, session: DBSession) -> tuple[Any, Workspace]:
+    tenant, workspace, _, _ = await _load_workspace(
+        principal.tenant_id,
+        principal.workspace_id,
+        principal.user_id,
+        session,
+    )
+    return tenant, workspace
 
 
 @router.get("", response_model=WorkspaceSettingsBundle)
 async def get_settings(principal: SettingsViewPrincipal, session: DBSession) -> WorkspaceSettingsBundle:
-    return _settings_document(await _workspace(principal, session))
+    _, workspace = await _workspace(principal, session)
+    return _settings_document(workspace)
 
 
 @router.get("/capabilities")
 async def get_capabilities(principal: SettingsViewPrincipal) -> dict[str, Any]:
+    _ = principal
     return {
         "permissions": sorted(WORKSPACE_PERMISSIONS),
         "builtinRoles": {name: sorted(values) for name, values in WORKSPACE_GRANTS.items()},
-        "resourceKinds": ["agents", "knowledge", "conversations", "courses", "batches", "students", "leads", "channels", "crm"],
+        "resourceKinds": [
+            "agents",
+            "knowledge",
+            "conversations",
+            "courses",
+            "batches",
+            "students",
+            "leads",
+            "channels",
+            "crm",
+        ],
     }
 
 
 @router.patch("/general", response_model=GeneralSettings)
-async def update_general(payload: GeneralSettings, principal: SettingsManagePrincipal, session: DBSession) -> GeneralSettings:
-    workspace = await _workspace(principal, session)
+async def update_general(
+    payload: GeneralSettings,
+    principal: SettingsManagePrincipal,
+    session: DBSession,
+) -> GeneralSettings:
+    _, workspace = await _workspace(principal, session)
     document = _settings_document(workspace)
     document.general = payload
     _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.settings.general.updated", sorted(payload.model_fields_set))
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.settings.general.updated",
+        sorted(payload.model_fields_set),
+    )
     await session.commit()
     return payload
 
 
 @router.patch("/security", response_model=SecuritySettings)
-async def update_security(payload: SecuritySettings, principal: SettingsManagePrincipal, session: DBSession) -> SecuritySettings:
-    workspace = await _workspace(principal, session)
+async def update_security(
+    payload: SecuritySettings,
+    principal: SettingsManagePrincipal,
+    session: DBSession,
+) -> SecuritySettings:
+    _, workspace = await _workspace(principal, session)
     document = _settings_document(workspace)
     document.security = payload
     legacy = dict(workspace.settings_json or {})
@@ -338,144 +403,292 @@ async def update_security(payload: SecuritySettings, principal: SettingsManagePr
     }
     workspace.settings_json = legacy
     _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.settings.security.updated", sorted(payload.model_fields_set))
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.settings.security.updated",
+        sorted(payload.model_fields_set),
+    )
     await session.commit()
     return payload
 
 
 @router.patch("/notifications", response_model=NotificationSettings)
-async def update_notifications(payload: NotificationSettings, principal: SettingsManagePrincipal, session: DBSession) -> NotificationSettings:
-    workspace = await _workspace(principal, session)
-    document = _settings_document(workspace); document.notifications = payload; _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.settings.notifications.updated", sorted(payload.model_fields_set))
-    await session.commit(); return payload
+async def update_notifications(
+    payload: NotificationSettings,
+    principal: SettingsManagePrincipal,
+    session: DBSession,
+) -> NotificationSettings:
+    _, workspace = await _workspace(principal, session)
+    document = _settings_document(workspace)
+    document.notifications = payload
+    _save_document(workspace, document)
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.settings.notifications.updated",
+        sorted(payload.model_fields_set),
+    )
+    await session.commit()
+    return payload
 
 
 @router.patch("/developer", response_model=DeveloperSettings)
-async def update_developer(payload: DeveloperSettings, principal: SettingsManagePrincipal, session: DBSession) -> DeveloperSettings:
-    workspace = await _workspace(principal, session)
-    document = _settings_document(workspace); document.developer = payload; _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.settings.developer.updated", sorted(payload.model_fields_set))
-    await session.commit(); return payload
+async def update_developer(
+    payload: DeveloperSettings,
+    principal: SettingsManagePrincipal,
+    session: DBSession,
+) -> DeveloperSettings:
+    _, workspace = await _workspace(principal, session)
+    document = _settings_document(workspace)
+    document.developer = payload
+    _save_document(workspace, document)
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.settings.developer.updated",
+        sorted(payload.model_fields_set),
+    )
+    await session.commit()
+    return payload
 
 
 @router.patch("/roles", response_model=RolesSettings)
-async def update_roles(payload: RolesSettings, principal: Annotated[Principal, Depends(require_permissions("roles.manage"))], session: DBSession) -> RolesSettings:
-    workspace = await _workspace(principal, session)
-    document = _settings_document(workspace); document.roles = payload; _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.roles.updated", [role.id for role in payload.custom_roles])
-    await session.commit(); return payload
+async def update_roles(
+    payload: RolesSettings,
+    principal: RolesManagePrincipal,
+    session: DBSession,
+) -> RolesSettings:
+    _, workspace = await _workspace(principal, session)
+    document = _settings_document(workspace)
+    document.roles = payload
+    _save_document(workspace, document)
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.roles.updated",
+        [role.id for role in payload.custom_roles],
+    )
+    await session.commit()
+    return payload
 
 
 @router.patch("/teams", response_model=TeamsSettings)
-async def update_teams(payload: TeamsSettings, principal: Annotated[Principal, Depends(require_permissions("teams.manage"))], session: DBSession) -> TeamsSettings:
-    workspace = await _workspace(principal, session)
-    document = _settings_document(workspace); document.teams = payload; _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.teams.updated", [team.id for team in payload.teams])
-    await session.commit(); return payload
+async def update_teams(
+    payload: TeamsSettings,
+    principal: TeamsManagePrincipal,
+    session: DBSession,
+) -> TeamsSettings:
+    _, workspace = await _workspace(principal, session)
+    document = _settings_document(workspace)
+    document.teams = payload
+    _save_document(workspace, document)
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.teams.updated",
+        [team.id for team in payload.teams],
+    )
+    await session.commit()
+    return payload
 
 
 @router.patch("/dashboard", response_model=DashboardSettings)
-async def update_dashboard(payload: DashboardSettings, principal: BrandEditPrincipal, session: DBSession) -> DashboardSettings:
-    workspace = await _workspace(principal, session)
-    document = _settings_document(workspace); document.dashboard = payload; document.branding_draft.dashboard = payload; _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.dashboard.updated", [widget.id for widget in payload.widgets])
-    await session.commit(); return payload
+async def update_dashboard(
+    payload: DashboardSettings,
+    principal: BrandEditPrincipal,
+    session: DBSession,
+) -> DashboardSettings:
+    _, workspace = await _workspace(principal, session)
+    document = _settings_document(workspace)
+    document.dashboard = payload
+    document.branding_draft.dashboard = payload
+    _save_document(workspace, document)
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.dashboard.updated",
+        [widget.id for widget in payload.widgets],
+    )
+    await session.commit()
+    return payload
 
 
 @router.get("/branding", response_model=WorkspaceSettingsBundle)
-async def get_branding(principal: BrandViewPrincipal, session: DBSession) -> WorkspaceSettingsBundle:
-    return _settings_document(await _workspace(principal, session))
+async def get_branding(
+    principal: BrandViewPrincipal,
+    session: DBSession,
+) -> WorkspaceSettingsBundle:
+    _, workspace = await _workspace(principal, session)
+    return _settings_document(workspace)
 
 
 @router.patch("/branding/draft", response_model=ExtendedBranding)
-async def save_branding_draft(payload: ExtendedBranding, principal: BrandEditPrincipal, session: DBSession) -> ExtendedBranding:
+async def save_branding_draft(
+    payload: ExtendedBranding,
+    principal: BrandEditPrincipal,
+    session: DBSession,
+) -> ExtendedBranding:
     if principal.token_id.startswith("api_key:"):
         raise HTTPException(status_code=403, detail="Interactive branding editing required")
-    workspace = await _workspace(principal, session)
-    document = _settings_document(workspace); document.branding_draft = payload; _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.brand.draft.updated", ["brandingDraft"])
-    await session.commit(); return payload
-
-
-@router.post("/branding/publish", response_model=BrandVersion)
-async def publish_branding(payload: PublishRequest, principal: BrandPublishPrincipal, session: DBSession) -> BrandVersion:
-    if principal.token_id.startswith("api_key:"):
-        raise HTTPException(status_code=403, detail="Interactive branding publication required")
-    workspace = await _workspace(principal, session)
+    _, workspace = await _workspace(principal, session)
     document = _settings_document(workspace)
-    version_number = max([item.version for item in document.branding_versions], default=0) + 1
+    document.branding_draft = payload
+    _save_document(workspace, document)
+    _audit(session, principal, workspace, "workspace.brand.draft.updated", ["brandingDraft"])
+    await session.commit()
+    return payload
+
+
+def _check_brand_entitlements(plan: str, branding: ExtendedBranding) -> None:
+    entitlement = entitlement_for_plan(plan)
+    if not entitlement.white_label_enabled:
+        raise HTTPException(status_code=403, detail="Your plan does not include white label")
+    if branding.identity.branded_emails and not entitlement.branded_email_enabled:
+        raise HTTPException(status_code=403, detail="Your plan does not include branded email")
+    if branding.identity.remove_platform_branding and not entitlement.remove_platform_mark_enabled:
+        raise HTTPException(status_code=403, detail="Your plan does not include platform-brand removal")
+
+
+async def _publish(
+    document: WorkspaceSettingsBundle,
+    principal: Principal,
+    session: DBSession,
+    workspace: Workspace,
+    plan: str,
+    change_note: str,
+) -> BrandVersion:
+    _check_brand_entitlements(plan, document.branding_draft)
+    version_number = max((item.version for item in document.branding_versions), default=0) + 1
     version = BrandVersion(
         version=version_number,
         created_by=str(principal.user_id),
         published_at=datetime.now(UTC),
-        change_note=payload.change_note,
+        change_note=change_note,
         branding=document.branding_draft.model_copy(deep=True),
     )
     document.branding_published = version.branding.model_copy(deep=True)
     document.branding_versions = (document.branding_versions + [version])[-50:]
+    active_domain = next(
+        (item.hostname for item in document.domains.domains if item.status == "active"),
+        "",
+    )
     workspace.branding_json = {
         **version.branding.identity.model_dump(by_alias=True, mode="json"),
-        "customDomain": next((item.hostname for item in document.domains.domains if item.status == "active"), ""),
-        "dnsStatus": "verified" if any(item.status == "active" for item in document.domains.domains) else "not-configured",
+        "customDomain": active_domain,
+        "dnsStatus": "verified" if active_domain else "not-configured",
     }
     _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.brand.published", [f"version:{version_number}"])
-    await session.commit(); return version
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.brand.published",
+        [f"version:{version_number}"],
+    )
+    await session.commit()
+    return version
+
+
+@router.post("/branding/publish", response_model=BrandVersion)
+async def publish_branding(
+    payload: PublishRequest,
+    principal: BrandPublishPrincipal,
+    session: DBSession,
+) -> BrandVersion:
+    if principal.token_id.startswith("api_key:"):
+        raise HTTPException(status_code=403, detail="Interactive branding publication required")
+    tenant, workspace = await _workspace(principal, session)
+    document = _settings_document(workspace)
+    return await _publish(document, principal, session, workspace, tenant.plan, payload.change_note)
 
 
 @router.post("/branding/rollback", response_model=BrandVersion)
-async def rollback_branding(payload: RollbackRequest, principal: BrandPublishPrincipal, session: DBSession) -> BrandVersion:
-    workspace = await _workspace(principal, session)
+async def rollback_branding(
+    payload: RollbackRequest,
+    principal: BrandPublishPrincipal,
+    session: DBSession,
+) -> BrandVersion:
+    tenant, workspace = await _workspace(principal, session)
     document = _settings_document(workspace)
-    source = next((item for item in document.branding_versions if item.version == payload.version), None)
+    source = next(
+        (item for item in document.branding_versions if item.version == payload.version),
+        None,
+    )
     if source is None:
         raise HTTPException(status_code=404, detail="Brand version not found")
     document.branding_draft = source.branding.model_copy(deep=True)
-    _save_document(workspace, document)
-    await session.flush()
-    return await publish_branding(PublishRequest(change_note=payload.change_note), principal, session)
+    return await _publish(document, principal, session, workspace, tenant.plan, payload.change_note)
 
 
 @router.post("/domains", response_model=DomainRecord, status_code=201)
-async def create_domain(payload: DomainCreate, principal: DomainManagePrincipal, session: DBSession) -> DomainRecord:
-    workspace = await _workspace(principal, session)
+async def create_domain(
+    payload: DomainCreate,
+    principal: DomainManagePrincipal,
+    session: DBSession,
+) -> DomainRecord:
+    tenant, workspace = await _workspace(principal, session)
+    if not entitlement_for_plan(tenant.plan).custom_domain_enabled:
+        raise HTTPException(status_code=403, detail="Your plan does not include custom domains")
     document = _settings_document(workspace)
     normalized = DomainRecord.normalized_hostname(payload.hostname)
-    if any(item.hostname == normalized and item.status != "disabled" for item in document.domains.domains):
+    if any(
+        item.hostname == normalized and item.status != "disabled"
+        for item in document.domains.domains
+    ):
         raise HTTPException(status_code=409, detail="Domain is already configured")
-    token = secrets.token_urlsafe(24)
     domain = DomainRecord(
         hostname=normalized,
         verification_name=f"_northstar-verify.{normalized}",
-        verification_value=token,
+        verification_value=secrets.token_urlsafe(24),
     )
-    document.domains.domains.append(domain); _save_document(workspace, document)
+    document.domains.domains.append(domain)
+    _save_document(workspace, document)
     _audit(session, principal, workspace, "workspace.domain.created", [normalized])
-    await session.commit(); return domain
+    await session.commit()
+    return domain
 
 
 @router.post("/domains/{domain_id}/verification-start", response_model=DomainRecord)
-async def start_domain_verification(domain_id: str, principal: DomainManagePrincipal, session: DBSession) -> DomainRecord:
-    workspace = await _workspace(principal, session)
+async def start_domain_verification(
+    domain_id: str,
+    principal: DomainManagePrincipal,
+    session: DBSession,
+) -> DomainRecord:
+    _, workspace = await _workspace(principal, session)
     document = _settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
         raise HTTPException(status_code=404, detail="Domain not found")
     if domain.status in {"disabled", "active"}:
         raise HTTPException(status_code=409, detail="Domain cannot be verified in its current state")
-    # DNS ownership and TLS provisioning are asynchronous infrastructure work. This
-    # endpoint deliberately only starts the lifecycle; workers advance verified -> active.
     domain.status = "verifying"
     domain.failure_reason = ""
     _save_document(workspace, document)
-    _audit(session, principal, workspace, "workspace.domain.verification.started", [domain.hostname])
-    await session.commit(); return domain
+    _audit(
+        session,
+        principal,
+        workspace,
+        "workspace.domain.verification.started",
+        [domain.hostname],
+    )
+    await session.commit()
+    return domain
 
 
 @router.post("/domains/{domain_id}/disable", response_model=DomainRecord)
-async def disable_domain(domain_id: str, principal: DomainManagePrincipal, session: DBSession) -> DomainRecord:
-    workspace = await _workspace(principal, session)
+async def disable_domain(
+    domain_id: str,
+    principal: DomainManagePrincipal,
+    session: DBSession,
+) -> DomainRecord:
+    _, workspace = await _workspace(principal, session)
     document = _settings_document(workspace)
     domain = next((item for item in document.domains.domains if item.id == domain_id), None)
     if domain is None:
@@ -483,4 +696,5 @@ async def disable_domain(domain_id: str, principal: DomainManagePrincipal, sessi
     domain.status = "disabled"
     _save_document(workspace, document)
     _audit(session, principal, workspace, "workspace.domain.disabled", [domain.hostname])
-    await session.commit(); return domain
+    await session.commit()
+    return domain
