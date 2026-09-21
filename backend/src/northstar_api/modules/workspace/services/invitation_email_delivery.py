@@ -59,7 +59,9 @@ def stage_invitation_email(
         # EmailSettings validates SMTP_HOST when SMTP mode is selected. Keep
         # misconfiguration out of HTTP error details, and roll back the entire
         # invite/resend transaction rather than returning an unexpected 500.
-        raise WorkspaceInvitationEmailUnavailable("Workspace invitation SMTP delivery is not configured") from None
+        raise WorkspaceInvitationEmailUnavailable(
+            "Workspace invitation SMTP delivery is not configured"
+        ) from None
     if delivery_mode != "smtp":
         raise WorkspaceInvitationEmailUnavailable("Workspace invitation SMTP delivery is not configured")
     fingerprint = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
