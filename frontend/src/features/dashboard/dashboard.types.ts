@@ -31,9 +31,27 @@ export type DashboardWidgetRendererProps = {
   data: DashboardData;
 };
 
+// A workspace administrator may customize audience/configuration, but cannot
+// grant a widget access to data the current viewer is not authorized to see.
+// Keep these capabilities in sync with the backend's WORKSPACE_PERMISSIONS.
+const WIDGET_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
+  'conversation-summary': ['conversations.view'],
+  'conversation-chart': ['analytics.view'],
+  'inbox-attention': ['conversations.view'],
+  'lead-summary': ['leads.view'],
+  'leads-chart': ['leads.view'],
+  'agent-activity': ['agents.view'],
+  'channel-health': ['channels.view'],
+  'crm-status': ['crm.view'],
+  'education-summary': ['education.view'],
+  'usage': ['workspace.view'],
+  'kpi-cards': ['agents.view', 'analytics.view', 'conversations.view', 'leads.view'],
+};
+
 export function widgetVisibleToViewer(widget: DashboardWidget, viewer: DashboardViewerContext): boolean {
   if (!widget.visible) return false;
   if (widget.audience.length > 0 && !widget.audience.includes(viewer.role)) return false;
+  if ((WIDGET_PERMISSIONS[widget.type] ?? []).some((permission) => !viewer.permissions.includes(permission))) return false;
   const requiredPermissions = Array.isArray(widget.config.requiredPermissions)
     ? widget.config.requiredPermissions.filter((value): value is string => typeof value === 'string')
     : [];
