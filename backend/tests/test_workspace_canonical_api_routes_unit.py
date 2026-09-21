@@ -3,7 +3,6 @@
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
 
-from northstar_api.modules.workspace import router as workspace_router
 from northstar_api.modules.workspace.access import (
     router as legacy_access_router,
     update_dashboard,
@@ -17,6 +16,7 @@ from northstar_api.modules.workspace.api import (
     teams_router,
 )
 from northstar_api.modules.workspace.contracts import DashboardSettings, RolesSettings, TeamsSettings
+from northstar_api.modules.workspace.router import router as workspace_router
 
 
 def _patch_route(router: APIRouter, path: str) -> APIRoute:
