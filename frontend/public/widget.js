@@ -18,6 +18,17 @@
     if (!response.ok) throw new Error(`${label} failed (${response.status})`);
     return response.json();
   };
+  const safeImageSource = (value) => {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    const candidate = value.trim();
+    if (candidate.startsWith('data:image/')) return candidate;
+    try {
+      const parsed = new URL(candidate, platformOrigin);
+      return parsed.protocol === 'https:' || parsed.origin === platformOrigin ? parsed.toString() : '';
+    } catch {
+      return '';
+    }
+  };
 
   const load = async () => {
     const bootstrap = await fetch(`${platformOrigin}/api/v1/widget/${encodeURIComponent(agentId)}/bootstrap`, {
@@ -29,16 +40,18 @@
     if (!bootstrap || bootstrap.publicId !== agentId || typeof bootstrap.sessionEndpoint !== 'string') {
       throw new Error('Widget bootstrap was invalid.');
     }
-
     mount(bootstrap);
   };
 
   const mount = (bootstrap) => {
     const appearance = bootstrap.appearance && typeof bootstrap.appearance === 'object' ? bootstrap.appearance : {};
+    const translations = appearance.translations && typeof appearance.translations === 'object' ? appearance.translations : {};
     const side = configuredSide || (appearance.position === 'bottom-left' ? 'left' : 'right');
     const color = configuredColor || (/^#[0-9a-f]{6}$/i.test(appearance.primaryColor || '') ? appearance.primaryColor : '#146cf6');
     const launcherStyle = ['spark', 'bubble', 'avatar'].includes(appearance.launcherStyle) ? appearance.launcherStyle : 'spark';
-    const avatar = typeof bootstrap.avatar === 'string' && bootstrap.avatar.trim() ? bootstrap.avatar.trim() : 'N';
+    const launcherIcon = safeImageSource(translations.launcherIcon);
+    const fallbackAvatar = safeImageSource(translations.botAvatar) || (typeof bootstrap.avatar === 'string' && bootstrap.avatar.trim() ? bootstrap.avatar.trim() : 'N');
+    const chatName = typeof appearance.widgetName === 'string' && appearance.widgetName.trim() ? appearance.widgetName.trim() : (typeof bootstrap.name === 'string' ? bootstrap.name : 'AI support');
     const numberInRange = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : fallback;
     const widgetWidth = numberInRange(appearance.widgetWidth, 380, 320, 600);
     const widgetHeight = numberInRange(appearance.widgetHeight, 680, 480, 900);
@@ -53,7 +66,7 @@
     container.style.cssText = `position:fixed;${side}:${pageMargin}px;bottom:${pageMargin}px;z-index:${zIndex};font-family:${fontFamily},system-ui,sans-serif`;
 
     const frame = document.createElement('iframe');
-    frame.title = `Chat with ${typeof bootstrap.name === 'string' ? bootstrap.name : 'AI support'}`;
+    frame.title = `Chat with ${chatName}`;
     frame.loading = 'lazy';
     frame.allow = 'clipboard-write; microphone';
     frame.referrerPolicy = 'strict-origin-when-cross-origin';
@@ -61,11 +74,27 @@
 
     const launcher = document.createElement('button');
     launcher.type = 'button';
-    launcher.setAttribute('aria-label', `Open chat with ${typeof bootstrap.name === 'string' ? bootstrap.name : 'AI support'}`);
+    launcher.setAttribute('aria-label', `Open chat with ${chatName}`);
     launcher.setAttribute('aria-expanded', 'false');
-    launcher.style.cssText = `float:${side};width:58px;height:58px;margin-top:12px;border:0;border-radius:19px;color:#fff;background:${color};box-shadow:0 12px 28px rgba(20,108,246,.28);cursor:pointer;font-size:25px`;
-    const launcherGlyph = () => launcherStyle === 'bubble' ? '\u25a4' : launcherStyle === 'avatar' ? avatar.slice(0, 2) : '\u2726';
-    launcher.textContent = launcherGlyph();
+    launcher.style.cssText = `float:${side};width:58px;height:58px;margin-top:12px;border:0;border-radius:19px;color:#fff;background:${color};box-shadow:0 12px 28px rgba(20,108,246,.28);cursor:pointer;font-size:25px;overflow:hidden`;
+    const renderLauncher = (opening) => {
+      launcher.replaceChildren();
+      if (opening) {
+        launcher.textContent = '\u00d7';
+        return;
+      }
+      const imageSource = launcherIcon || (launcherStyle === 'avatar' ? safeImageSource(fallbackAvatar) : '');
+      if (imageSource) {
+        const image = document.createElement('img');
+        image.src = imageSource;
+        image.alt = '';
+        image.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+        launcher.append(image);
+        return;
+      }
+      launcher.textContent = launcherStyle === 'bubble' ? '\u25a4' : launcherStyle === 'avatar' ? String(fallbackAvatar).slice(0, 2) : '\u2726';
+    };
+    renderLauncher(false);
     let frameLoaded = false;
     launcher.addEventListener('click', () => {
       const opening = frame.style.display === 'none';
@@ -74,8 +103,8 @@
         frame.src = `${platformOrigin}/widget/${encodeURIComponent(agentId)}`;
       }
       frame.style.display = opening ? 'block' : 'none';
-      launcher.textContent = opening ? '\u00d7' : launcherGlyph();
-      launcher.setAttribute('aria-label', opening ? 'Close AI support chat' : `Open chat with ${typeof bootstrap.name === 'string' ? bootstrap.name : 'AI support'}`);
+      renderLauncher(opening);
+      launcher.setAttribute('aria-label', opening ? 'Close chat' : `Open chat with ${chatName}`);
       launcher.setAttribute('aria-expanded', String(opening));
       if (opening) frame.focus();
     });

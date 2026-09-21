@@ -48,6 +48,7 @@ const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage').then((modul
 const WhiteLabelPage = lazy(() => import('@/pages/WhiteLabelPage').then((module) => ({ default: module.WhiteLabelPage })));
 const WorkspaceInvitationPage = lazy(() => import('@/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
 const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
+const WorkspaceSettingsPage = lazy(() => import('@/features/workspace/settings').then((module) => ({ default: module.WorkspaceSettingsPage })));
 const WidgetDemoPage = lazy(() => import('@/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
 const OrganizationsPage = lazy(() => import('@/pages/OrganizationsPage').then((module) => ({ default: module.OrganizationsPage })));
@@ -114,6 +115,8 @@ export function App() {
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
+      <Route path="workspace/settings" element={<Navigate to="/workspace/settings/general" replace />} />
+      <Route path="workspace/settings/:section" element={<WorkspaceSettingsPage />} />
       <Route path="platform-admin" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
       <Route path="help/search" element={<HelpSearchPage />} />
@@ -122,7 +125,7 @@ export function App() {
       <Route path="help/ask" element={<HelpAskPage />} />
       <Route path="help/support" element={<HelpSupportPage />} />
       <Route path="help/support/:requestId" element={<HelpSupportRequestPage />} />
-      <Route path="settings" element={<Navigate to="/workspace" replace />} />
+      <Route path="settings" element={<Navigate to="/workspace/settings/general" replace />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Suspense></PageErrorBoundary>;

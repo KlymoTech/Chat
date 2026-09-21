@@ -1,10 +1,22 @@
 import { readStorage, writeStorage } from '@/lib/storage';
 import { activeWorkspaceId } from '@/lib/workspace-api';
 
+export const WORKSPACE_API_KEY_SCOPES = [
+  'conversations:read',
+  'conversations:write',
+  'contacts:read',
+  'leads:write',
+  'agents:read',
+  'analytics:read',
+  'webhooks:manage',
+] as const;
+export type WorkspaceAPIKeyScope = typeof WORKSPACE_API_KEY_SCOPES[number];
+
 export interface WorkspaceAPIKey {
   id: string;
   name: string;
   prefix: string;
+  scopes: WorkspaceAPIKeyScope[];
   createdAt: string;
   lastUsedAt?: string | null;
 }
@@ -43,15 +55,16 @@ async function remote<T>(path: string, method: 'GET' | 'POST' | 'DELETE', body?:
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  const payload = response.status === 204 ? undefined : await response.json().catch(() => null);
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    const error = payload as { error?: { message?: string }; detail?: unknown } | null;
     throw new WorkspaceAPIKeyRequestError(
-      payload?.error?.message ?? `API key request failed (${response.status})`,
+      error?.error?.message ?? (typeof error?.detail === 'string' ? error.detail : `API key request failed (${response.status})`),
       response.status,
     );
   }
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  return payload as T;
 }
 
 function shouldUseDemoFallback(error: unknown): boolean {
@@ -63,12 +76,13 @@ function localKeys(): WorkspaceAPIKey[] {
   return readStorage<WorkspaceAPIKey[]>(LOCAL_KEYS_KEY, []);
 }
 
-function createLocalKey(name: string): WorkspaceAPIKeyCreated {
+function createLocalKey(name: string, scopes: WorkspaceAPIKeyScope[]): WorkspaceAPIKeyCreated {
   const secret = `nsk_live_${crypto.randomUUID().replaceAll('-', '')}${crypto.randomUUID().replaceAll('-', '')}`;
   const key: WorkspaceAPIKey = {
     id: crypto.randomUUID(),
     name,
     prefix: secret.slice(0, 16),
+    scopes,
     createdAt: new Date().toISOString(),
     lastUsedAt: null,
   };
@@ -86,14 +100,15 @@ export const workspaceAPIKeyApi = {
     }
   },
 
-  async create(name: string): Promise<WorkspaceAPIKeyCreated> {
+  async create(name: string, scopes: WorkspaceAPIKeyScope[]): Promise<WorkspaceAPIKeyCreated> {
     const normalizedName = name.trim().replace(/\s+/g, ' ');
     if (normalizedName.length < 2) throw new Error('API key name must be at least 2 characters');
+    if (scopes.length === 0) throw new Error('Select at least one API key scope');
     try {
-      return await remote<WorkspaceAPIKeyCreated>('/workspace/api-keys', 'POST', { name: normalizedName });
+      return await remote<WorkspaceAPIKeyCreated>('/workspace/api-keys', 'POST', { name: normalizedName, scopes });
     } catch (error) {
       if (!shouldUseDemoFallback(error)) throw error;
-      return createLocalKey(normalizedName);
+      return createLocalKey(normalizedName, scopes);
     }
   },
 

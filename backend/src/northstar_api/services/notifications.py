@@ -8,7 +8,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.models import Lead, User, WorkspaceMembership, WorkspaceRole
+from northstar_api.models import Lead, User, Workspace, WorkspaceMembership, WorkspaceRole
+from northstar_api.modules.workspace.contracts import NotificationSettings, WorkspaceSettingsBundle
 from northstar_api.notifications import Notification
 
 _NOTIFICATION_ADMIN_ROLES = (WorkspaceRole.ADMIN, WorkspaceRole.MANAGER)
@@ -63,8 +64,6 @@ async def create_notification(
             await session.flush()
         return value
     except IntegrityError:
-        # Concurrent consumers may project the same durable event. Keep the
-        # surrounding transaction usable and return the winning row.
         existing = await session.scalar(
             select(Notification).where(
                 Notification.tenant_id == tenant_id,
@@ -182,6 +181,53 @@ async def mark_all_notifications_read(
     return int(result.rowcount or 0)
 
 
+def _notification_settings(workspace: Workspace) -> NotificationSettings:
+    raw = dict(workspace.settings_json or {}).get("workspaceSettingsV2", {})
+    try:
+        return WorkspaceSettingsBundle.model_validate(raw).notifications
+    except (TypeError, ValueError):
+        return NotificationSettings()
+
+
+def _category_enabled(settings: NotificationSettings, category: str) -> bool:
+    normalized = category.strip().lower()
+    if normalized in {"security", "authentication"}:
+        return settings.security_alerts
+    if normalized in {"billing", "subscription", "usage"}:
+        return settings.billing_alerts
+    if normalized in {"channel", "channels", "delivery"}:
+        return settings.channel_failures
+    if normalized in {"integration", "integrations", "crm"}:
+        return settings.integration_failures
+    if normalized in {"member", "members", "workspace"}:
+        return settings.member_changes
+    return True
+
+
+async def _workspace_notification_recipients(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    settings: NotificationSettings,
+) -> list[UUID]:
+    query = (
+        select(WorkspaceMembership.user_id)
+        .join(User, User.id == WorkspaceMembership.user_id)
+        .where(
+            WorkspaceMembership.tenant_id == tenant_id,
+            WorkspaceMembership.workspace_id == workspace_id,
+            User.is_active.is_(True),
+        )
+    )
+    if settings.recipients:
+        recipients = {str(value).strip().lower() for value in settings.recipients}
+        query = query.where(func.lower(User.email).in_(recipients))
+    else:
+        query = query.where(WorkspaceMembership.role.in_(_NOTIFICATION_ADMIN_ROLES))
+    return list(await session.scalars(query.distinct()))
+
+
 async def notify_workspace_admins(
     session: AsyncSession,
     *,
@@ -197,18 +243,22 @@ async def notify_workspace_admins(
     source_event_id: UUID | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> int:
-    recipients = list(
-        await session.scalars(
-            select(WorkspaceMembership.user_id)
-            .join(User, User.id == WorkspaceMembership.user_id)
-            .where(
-                WorkspaceMembership.tenant_id == tenant_id,
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.role.in_(_NOTIFICATION_ADMIN_ROLES),
-                User.is_active.is_(True),
-            )
-            .distinct()
+    workspace = await session.scalar(
+        select(Workspace).where(
+            Workspace.id == workspace_id,
+            Workspace.tenant_id == tenant_id,
         )
+    )
+    if workspace is None:
+        return 0
+    settings = _notification_settings(workspace)
+    if not _category_enabled(settings, category):
+        return 0
+    recipients = await _workspace_notification_recipients(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        settings=settings,
     )
     for user_id in recipients:
         await create_notification(

@@ -26,6 +26,8 @@ from northstar_api.models import (
     WorkspaceRole,
     WorkspaceStatus,
 )
+from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
+from northstar_api.modules.workspace.security_policy import email_domain_allowed, required_password_length
 from northstar_api.security import hash_password
 from northstar_api.services.email_verification import _smtp_send
 from northstar_api.services.workspace_members import (
@@ -144,6 +146,11 @@ async def issue_workspace_invitation(
     )
     if workspace is None:
         raise WorkspaceInvitationError("Workspace not found", status_code=404)
+    if not email_domain_allowed(workspace, normalized):
+        raise WorkspaceInvitationError(
+            "This email domain is not allowed by the workspace security policy",
+            status_code=403,
+        )
     member = await session.scalar(
         select(WorkspaceMembership.user_id)
         .join(User, User.id == WorkspaceMembership.user_id)
@@ -494,6 +501,12 @@ async def signup_with_workspace_invitation(
     password: str,
 ) -> AcceptedWorkspaceInvitation:
     details = await preview_workspace_invitation(session, raw_token, lock=True)
+    minimum_length = required_password_length(details.workspace)
+    if len(password) < minimum_length:
+        raise WorkspaceInvitationError(
+            f"Password must be at least {minimum_length} characters for this workspace",
+            status_code=422,
+        )
     existing = await session.scalar(
         select(User.id).where(func.lower(User.email) == details.invitation.email)
     )
@@ -543,10 +556,32 @@ async def send_workspace_invitation_email(
     tenant_name: str,
     role: WorkspaceRole,
     raw_token: str,
+    workspace: Workspace | None = None,
     settings: EmailSettings | None = None,
 ) -> None:
     config = settings or get_email_settings()
     url = workspace_invitation_url(raw_token, config)
+    if workspace is not None:
+        rendered = render_workspace_email(
+            workspace,
+            "invitation",
+            context={
+                "tenant_name": tenant_name,
+                "workspace_name": workspace_name,
+                "role": role.value,
+                "recipient_email": recipient_email,
+            },
+            action_url=url,
+            fallback_subject=f"You have been invited to {workspace_name}",
+            fallback_heading=f"Join {workspace_name}",
+            fallback_body=(
+                f"You have been invited to join {workspace_name} in {tenant_name} as {role.value}. "
+                f"This invitation expires in {config.workspace_invitation_ttl_days} days."
+            ),
+            fallback_button_label="Review workspace invitation",
+        )
+        await deliver_workspace_email(recipient_email, rendered, settings=config)
+        return
     if config.email_delivery_mode == "log":
         from northstar_api.config import get_settings
 

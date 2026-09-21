@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated
 from urllib.parse import urlparse
 from uuid import UUID
@@ -13,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.database import get_session, set_tenant_context
 from northstar_api.dependencies import bearer
-from northstar_api.models import Agent, AgentStatus, Channel, Conversation
+from northstar_api.models import Agent, AgentStatus, Channel, Conversation, Workspace
+from northstar_api.modules.workspace.store import settings_document
 from northstar_api.schemas import (
     AgentAppearance,
     ChatStreamRequest,
@@ -104,28 +106,75 @@ async def public_agent(
     return agent
 
 
+async def _workspace_widget_appearance(session: AsyncSession, agent: Agent) -> AgentAppearance:
+    appearance = AgentAppearance.model_validate(agent.appearance)
+    workspace = await session.scalar(
+        select(Workspace).where(
+            Workspace.id == agent.workspace_id,
+            Workspace.tenant_id == agent.tenant_id,
+        )
+    )
+    if workspace is None:
+        return appearance
+    published = settings_document(workspace).branding_published
+    if published is None or not published.identity.branded_widget:
+        return appearance
+    widget = published.widget
+    translations = dict(appearance.translations)
+    translations.update({
+        "offlineMessage": widget.offline_message,
+        "launcherIcon": widget.launcher_icon,
+        "widgetLogo": widget.widget_logo,
+        "userMessageColor": widget.user_message_color,
+        "agentMessageColor": widget.agent_message_color,
+        "agentAvatar": widget.agent_avatar,
+        "botAvatar": widget.bot_avatar,
+        "poweredByLabel": widget.powered_by_label,
+        "businessHours": json.dumps(widget.business_hours.model_dump(by_alias=True, mode="json"), separators=(",", ":")),
+    })
+    return appearance.model_copy(
+        update={
+            "primary_color": widget.launcher_color,
+            "surface_color": widget.background,
+            "font_family": widget.font,
+            "position": widget.position,
+            "welcome_title": widget.header or appearance.welcome_title,
+            "welcome_message": widget.greeting,
+            "privacy_policy_url": widget.privacy_url or appearance.privacy_policy_url,
+            "widget_name": published.identity.company_name or appearance.widget_name,
+            "show_branding": not published.identity.remove_platform_branding,
+            "launcher_style": "avatar" if widget.launcher_icon else appearance.launcher_style,
+            "translations": translations,
+        }
+    )
+
+
 @router.get("/{public_id}/bootstrap", response_model=WidgetBootstrap)
 async def bootstrap_widget(public_id: str, request: Request, session: DB) -> WidgetBootstrap:
     agent = await public_agent(session, public_id, widget_request_origin(request))
     prefix = get_settings().app_api_prefix.rstrip("/")
-    return _widget_bootstrap(agent, f"{prefix}/widget/{agent.public_id}/sessions")
+    return await _widget_bootstrap(session, agent, f"{prefix}/widget/{agent.public_id}/sessions")
 
 
 @router.get("/{public_id}/hosted/bootstrap", response_model=WidgetBootstrap)
 async def bootstrap_hosted_widget(public_id: str, session: DB) -> WidgetBootstrap:
     agent = await public_agent(session, public_id, None)
     prefix = get_settings().app_api_prefix.rstrip("/")
-    return _widget_bootstrap(agent, f"{prefix}/widget/{agent.public_id}/hosted/sessions")
+    return await _widget_bootstrap(session, agent, f"{prefix}/widget/{agent.public_id}/hosted/sessions")
 
 
-def _widget_bootstrap(agent: Agent, session_endpoint: str) -> WidgetBootstrap:
+async def _widget_bootstrap(
+    session: AsyncSession,
+    agent: Agent,
+    session_endpoint: str,
+) -> WidgetBootstrap:
     return WidgetBootstrap(
         agent_id=agent.id,
         public_id=agent.public_id,
         name=agent.name,
         avatar=agent.avatar,
         language=agent.language,
-        appearance=AgentAppearance.model_validate(agent.appearance),
+        appearance=await _workspace_widget_appearance(session, agent),
         collect_email=bool(agent.security.get("collectEmail", False)),
         session_endpoint=session_endpoint,
         stream_endpoint="/api/v1/widget/sessions/{conversationId}/messages",
@@ -165,6 +214,7 @@ async def _create_session(
     request: Request,
 ) -> WidgetSessionOut:
     from northstar_api.services.visitor_details import capture_visitor_details, enrich_location
+
     limiter = await redis_services.check_rate_limit(
         f"tenant:{agent.tenant_id}:agent:{agent.id}:widget-sessions",
         get_settings().widget_session_rate_limit_per_minute,

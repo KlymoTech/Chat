@@ -29,6 +29,45 @@ interface WidgetProps {
   onClose?: () => void;
 }
 
+interface WidgetBusinessHours {
+  enabled?: boolean;
+  timezone?: string;
+  schedule?: Record<string, string[]>;
+}
+
+function isWithinBusinessHours(raw: string | undefined): boolean {
+  if (!raw) return true;
+  try {
+    const policy = JSON.parse(raw) as WidgetBusinessHours;
+    if (!policy.enabled) return true;
+    const timezone = policy.timezone || 'UTC';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const weekday = parts.find((part) => part.type === 'weekday')?.value.toLowerCase() ?? '';
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0') % 24;
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0');
+    const current = hour * 60 + minute;
+    const ranges = policy.schedule?.[weekday] ?? [];
+    return ranges.some((range) => {
+      const [start, end] = range.split('-');
+      if (!start || !end) return false;
+      const [startHour, startMinute] = start.split(':').map(Number);
+      const [endHour, endMinute] = end.split(':').map(Number);
+      if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return false;
+      const from = startHour! * 60 + startMinute!;
+      const to = endHour! * 60 + endMinute!;
+      return from <= to ? current >= from && current < to : current >= from || current < to;
+    });
+  } catch {
+    return true;
+  }
+}
+
 export function ChatWidget({
   agent,
   embedded = false,
@@ -74,6 +113,16 @@ export function ChatWidget({
   const displayAppearance = stillUsingEnglishDefaults
     ? localizeAgentAppearance(agent.appearance, selectedLanguage)
     : agent.appearance;
+  const brandMetadata = (displayAppearance.translations ?? {}) as Record<string, string>;
+  const launcherIcon = brandMetadata.launcherIcon?.trim() ?? '';
+  const widgetLogo = brandMetadata.widgetLogo?.trim() ?? '';
+  const agentAvatar = (brandMetadata.agentAvatar || brandMetadata.botAvatar || '').trim();
+  const userMessageColor = brandMetadata.userMessageColor?.trim() || agent.appearance.primaryColor;
+  const agentMessageColor = brandMetadata.agentMessageColor?.trim() || agent.appearance.surfaceColor;
+  const poweredByLabel = brandMetadata.poweredByLabel?.trim() ?? '';
+  const brandedWidgetName = displayAppearance.widgetName?.trim() ?? '';
+  const withinBusinessHours = isWithinBusinessHours(brandMetadata.businessHours);
+  const offlineMessage = brandMetadata.offlineMessage?.trim() || "We'll be back soon";
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -430,7 +479,9 @@ export function ChatWidget({
         onClick={() => setOpen(true)}
         aria-label={`${chatUi.openChat} ${agent.name}`}
       >
-        {agent.appearance.launcherStyle === 'bubble' ? (
+        {launcherIcon ? (
+          <img src={launcherIcon} alt="" style={{ width: 30, height: 30, objectFit: 'contain' }} />
+        ) : agent.appearance.launcherStyle === 'bubble' ? (
           <MessageSquareText />
         ) : agent.appearance.launcherStyle === 'avatar' ? (
           <span className="widget-launcher__avatar">
@@ -460,6 +511,8 @@ export function ChatWidget({
             agent.appearance.primaryColor,
           '--widget-surface':
             agent.appearance.surfaceColor,
+          '--widget-user-message': userMessageColor,
+          '--widget-agent-message': agentMessageColor,
           fontFamily: agent.appearance.fontFamily ?? 'Inter',
           borderRadius: agent.appearance.cornerRadius ?? 24,
         } as React.CSSProperties
@@ -469,12 +522,10 @@ export function ChatWidget({
       <header className="widget-header">
         <div className="widget-wordmark">
           <span className="widget-logo">
-            <Sparkles />
+            {widgetLogo ? <img src={widgetLogo} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <Sparkles />}
           </span>
 
-          <strong>
-            northstar<span>ai</span>
-          </strong>
+          {brandedWidgetName ? <strong>{brandedWidgetName}</strong> : <strong>northstar<span>ai</span></strong>}
         </div>
 
         <div className="widget-header-actions">
@@ -543,7 +594,7 @@ export function ChatWidget({
         {messages.length === 0 ? (
           <div className="widget-welcome">
             <span className="widget-orb">
-              <Sparkles />
+              {agentAvatar ? <img src={agentAvatar} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <Sparkles />}
             </span>
 
             <h2>
@@ -553,6 +604,8 @@ export function ChatWidget({
             {displayAppearance.greetingMode !== 'never' ? (
               <p>{displayAppearance.welcomeMessage}</p>
             ) : null}
+
+            {!withinBusinessHours ? <p role="status">{offlineMessage}</p> : null}
 
             {!consented ? (
               <div className="widget-consent">
@@ -602,11 +655,11 @@ export function ChatWidget({
               >
                 {message.role === 'assistant' ? (
                   <span className="message-avatar">
-                    <Sparkles />
+                    {agentAvatar ? <img src={agentAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <Sparkles />}
                   </span>
                 ) : null}
 
-                <div className="message-bubble">
+                <div className="message-bubble" style={{ background: message.role === 'user' ? 'var(--widget-user-message)' : message.role === 'assistant' ? 'var(--widget-agent-message)' : undefined }}>
                   {message.content ||
                     (streaming &&
                     index === messages.length - 1 ? (
@@ -662,7 +715,7 @@ export function ChatWidget({
                         }}
                       >
                         <ThumbsUp
-                          size={8} 
+                          size={8}
                           strokeWidth={2}
                         />
                       </button>
@@ -729,6 +782,7 @@ export function ChatWidget({
       </div>
 
       <footer className="widget-footer">
+        {!withinBusinessHours && messages.length > 0 ? <p role="status">{offlineMessage}</p> : null}
         <form onSubmit={submit}>
           <textarea
             rows={1}
@@ -780,10 +834,7 @@ export function ChatWidget({
 
         {agent.appearance.showBranding ? (
           <small>
-            {locale.poweredBy}{' '}
-            <strong>
-              <Sparkles /> Northstar AI
-            </strong>
+            {poweredByLabel || <>{locale.poweredBy}{' '}<strong><Sparkles /> Northstar AI</strong></>}
           </small>
         ) : null}
       </footer>

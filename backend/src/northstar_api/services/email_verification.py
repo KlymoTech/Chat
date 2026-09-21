@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.email_verification import EmailVerificationState, EmailVerificationToken
-from northstar_api.models import User
+from northstar_api.models import User, Workspace
+from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
 
 logger = structlog.get_logger(__name__)
 
@@ -161,10 +162,28 @@ async def send_verification_email(
     user: User,
     raw_token: str,
     *,
+    workspace: Workspace | None = None,
     settings: EmailSettings | None = None,
 ) -> None:
     config = settings or get_email_settings()
     url = verification_url(raw_token, config)
+    if workspace is not None:
+        rendered = render_workspace_email(
+            workspace,
+            "email_verification",
+            context={"user_name": user.name, "user_email": user.email},
+            action_url=url,
+            fallback_subject="Verify your email",
+            fallback_heading="Verify your email",
+            fallback_body=(
+                "Verify your email address to finish activating your account. "
+                f"This link expires in {config.email_verification_ttl_hours} hours. "
+                "If you did not create this account, you can ignore this email."
+            ),
+            fallback_button_label="Verify email",
+        )
+        await deliver_workspace_email(user.email, rendered, settings=config)
+        return
     if config.email_delivery_mode == "log":
         if get_settings().is_production:
             raise EmailVerificationError("Email delivery is not configured")
