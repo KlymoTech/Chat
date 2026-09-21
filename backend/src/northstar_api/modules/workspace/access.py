@@ -13,6 +13,7 @@ from northstar_api.security import Principal
 
 from .contracts import DashboardSettings, RolesSettings, TeamsSettings
 from .repositories.workspace_write_lock import lock_workspace_settings
+from .security_policy import validate_business_timezone
 from .services.dashboard_service import update_workspace_dashboard
 from .services.role_service import update_workspace_roles
 from .services.team_service import update_workspace_teams
@@ -108,6 +109,12 @@ async def _validate_teams(
         raise HTTPException(status_code=422, detail="Team identifiers must be unique")
     if len(names) != len(set(names)):
         raise HTTPException(status_code=422, detail="Team names must be unique in a workspace")
+
+    # Apply the same timezone validation already used by Workspace General.
+    # Reject invalid team schedules before querying membership or persisting
+    # the shared settings document; the legacy JSON representation is unchanged.
+    for team in payload.teams:
+        validate_business_timezone(team.business_hours.timezone)
 
     workspace_members = await _workspace_member_ids(session, principal, workspace_id)
     workspace_agents = await _workspace_agent_ids(session, principal, workspace_id)
