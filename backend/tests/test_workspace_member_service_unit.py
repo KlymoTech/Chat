@@ -72,16 +72,17 @@ async def test_other_active_administrator_preserves_ability_to_suspend():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role,status", [
-    (WorkspaceRole.MANAGER, "suspended"),
-    (WorkspaceRole.ADMIN, "active"),
-    (WorkspaceRole.VIEWER, "active"),
-])
+@pytest.mark.parametrize(
+    "role,status",
+    [
+        (WorkspaceRole.MANAGER, "suspended"),
+        (WorkspaceRole.ADMIN, "active"),
+        (WorkspaceRole.VIEWER, "active"),
+    ],
+)
 async def test_non_admin_suspension_and_reactivation_need_no_admin_query(role, status):
     session = _Session([])
-    await ensure_member_status_change_allowed(
-        session, _workspace(), uuid4(), role, status
-    )
+    await ensure_member_status_change_allowed(session, _workspace(), uuid4(), role, status)
     assert session.queries == 0
 
 
