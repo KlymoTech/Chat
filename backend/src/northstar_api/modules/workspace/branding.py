@@ -18,6 +18,7 @@ from northstar_api.security import Principal
 
 from .brand_cache import cache_workspace_brand, cached_workspace_brand, invalidate_brand_cache
 from .contracts import (
+    BrandingSettingsView,
     BrandVersion,
     DomainCreate,
     DomainRecord,
@@ -151,10 +152,16 @@ async def _tls_ready(hostname: str) -> tuple[bool, str]:
         return False, f"TLS/HTTPS is not ready ({type(exc).__name__})"
 
 
-@router.get("/branding", response_model=WorkspaceSettingsBundle)
-async def get_branding(principal: BrandViewPrincipal, session: DBSession) -> WorkspaceSettingsBundle:
+@router.get("/branding", response_model=BrandingSettingsView)
+async def get_branding(principal: BrandViewPrincipal, session: DBSession) -> BrandingSettingsView:
     _, workspace = await load_workspace(principal, session)
-    return settings_document(workspace)
+    document = settings_document(workspace)
+    return BrandingSettingsView(
+        branding_draft=document.branding_draft,
+        branding_published=document.branding_published,
+        branding_versions=document.branding_versions,
+        domains=document.domains,
+    )
 
 
 @router.get("/runtime-branding", response_model=ExtendedBranding | None)
