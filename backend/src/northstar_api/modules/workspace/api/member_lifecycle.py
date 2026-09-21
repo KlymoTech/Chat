@@ -26,7 +26,7 @@ MemberManagePrincipal = Annotated[Principal, Depends(require_permissions("member
 
 class WorkspaceMemberLifecycleOut(APIModel):
     user_id: UUID
-    status: Literal["active", "suspended"]
+    status: Literal["active", "suspended", "disabled"]
 
 
 class WorkspaceMemberLifecycleChange(APIModel):
