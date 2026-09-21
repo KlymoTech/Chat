@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from northstar_api.modules.workspace.api import member_lifecycle, ownership
+from northstar_api.modules.workspace.api import member_details, member_lifecycle, ownership
 from northstar_api.routers import (
     agents,
     analytics,
@@ -142,6 +142,7 @@ api_router.include_router(workspace.router)
 api_router.include_router(workspace.collection_router)
 api_router.include_router(ownership.router)
 api_router.include_router(member_lifecycle.router)
+api_router.include_router(member_details.router)
 api_router.include_router(workspace_invitations.public_router)
 api_router.include_router(workspace_api_keys.router)
 api_router.include_router(billing.router)
