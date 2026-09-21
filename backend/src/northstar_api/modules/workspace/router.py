@@ -5,17 +5,27 @@ from .api import (
     conversation_assignments_router,
     dashboard_runtime_router,
     dashboard_settings_router,
+    developer_settings_router,
     domains_router,
     email_router,
     general_router,
+    general_settings_router,
     members_router,
+    notifications_settings_router,
     roles_router,
-    settings_router,
+    security_settings_router,
+    settings_core_router,
     teams_router,
 )
 
 router = APIRouter(prefix="/workspace/settings", tags=["workspace-settings"])
-router.include_router(settings_router)
+# The original combined settings_router remains importable for compatibility;
+# only its canonical read/write capability routers are registered here.
+router.include_router(settings_core_router)
+router.include_router(general_settings_router)
+router.include_router(security_settings_router)
+router.include_router(notifications_settings_router)
+router.include_router(developer_settings_router)
 router.include_router(general_router)
 router.include_router(members_router)
 # Register each existing access capability once through its canonical boundary.
