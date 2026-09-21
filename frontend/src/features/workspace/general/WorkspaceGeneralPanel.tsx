@@ -1,6 +1,7 @@
 import { Building2, GraduationCap } from 'lucide-react';
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { Button, Card, Field } from '@/components/ui';
+import { WorkspaceGeneralDetails } from '@/features/workspace/general/WorkspaceGeneralDetails';
 import type { WorkspaceSettings } from '@/lib/workspace-api';
 
 interface WorkspaceGeneralPanelProps {
@@ -27,6 +28,7 @@ export function WorkspaceGeneralPanel({
           <div className="two-fields"><Field label="Workspace name" htmlFor="workspace-name"><input id="workspace-name" value={workspace.name} disabled={disabled} minLength={2} maxLength={160} required onChange={(event) => setWorkspace({ ...workspace, name: event.target.value })} /></Field><Field label="Workspace slug" htmlFor="workspace-slug"><div className="prefix-input"><span>app.northstar.ai/</span><input id="workspace-slug" value={workspace.slug} disabled={disabled} minLength={2} maxLength={80} required pattern="[a-z0-9]+(-[a-z0-9]+)*" onChange={(event) => setWorkspace({ ...workspace, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /></div></Field></div>
           <div className="two-fields"><Field label="Timezone"><select value={workspace.preferences.timezone} disabled={disabled} onChange={(event) => setWorkspace({ ...workspace, preferences: { ...workspace.preferences, timezone: event.target.value } })}><option>Asia/Calcutta</option><option>UTC</option><option>America/New_York</option><option>Europe/London</option></select></Field><Field label="Date format"><select value={workspace.preferences.dateFormat} disabled={disabled} onChange={(event) => setWorkspace({ ...workspace, preferences: { ...workspace.preferences, dateFormat: event.target.value as WorkspaceSettings['preferences']['dateFormat'] } })}><option>DD/MM/YYYY</option><option>MM/DD/YYYY</option><option>YYYY-MM-DD</option></select></Field></div>
           <Field label="Default workspace language"><select value={workspace.preferences.defaultLanguage} disabled={disabled} onChange={(event) => setWorkspace({ ...workspace, preferences: { ...workspace.preferences, defaultLanguage: event.target.value } })}><option>English</option><option>Hindi</option><option>Spanish</option><option>French</option><option>German</option><option>Arabic</option></select></Field>
+          <WorkspaceGeneralDetails workspace={workspace} setWorkspace={setWorkspace} disabled={disabled} />
           <div className="workspace-panel__actions"><Button type="submit" disabled={disabled}>{saving ? 'Saving…' : 'Save workspace'}</Button></div>
         </div>
       </Card>
