@@ -33,6 +33,19 @@ async def member_statuses(
     )))
     for state in states:
         result[state.user_id] = "suspended" if state.suspended_at is not None else "active"
+    # The global account state takes precedence over any workspace-only state.
+    # Join through the exact membership so disabled accounts in another tenant
+    # or workspace cannot appear in this workspace's lifecycle projection.
+    disabled_ids = await session.scalars(
+        select(User.id).join(WorkspaceMembership, WorkspaceMembership.user_id == User.id).where(
+            WorkspaceMembership.tenant_id == tenant_id,
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id.in_(user_ids),
+            User.is_active.is_(False),
+        )
+    )
+    for user_id in disabled_ids:
+        result[user_id] = "disabled"
     return result
 
 
