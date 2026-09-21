@@ -69,7 +69,7 @@ export function WorkspaceSettingsPage() {
       .then(async (workspaceValue) => {
         const [settingsValue, catalog] = await Promise.all([
           workspaceSettingsApi.get(),
-          workspaceValue.permissions.includes('roles.manage')
+            (workspaceValue.permissions ?? []).includes('roles.manage')
             ? workspaceSettingsApi.capabilities()
             : Promise.resolve(emptyCapabilities),
         ]);

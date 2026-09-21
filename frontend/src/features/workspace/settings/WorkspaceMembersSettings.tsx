@@ -35,7 +35,10 @@ export function WorkspaceMembersSettings({ workspace }: { workspace: WorkspaceSe
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   async function mutate(userId: string, work: () => Promise<WorkspaceMemberLifecycle>, success: string) {
     setBusyId(userId);

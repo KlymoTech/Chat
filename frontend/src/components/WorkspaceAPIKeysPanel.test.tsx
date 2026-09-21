@@ -67,6 +67,7 @@ const existingKey = {
   prefix: 'nsk_live_example',
   createdAt: '2026-09-10T00:00:00Z',
   lastUsedAt: null,
+  scopes: ['conversations:read'] as const,
 };
 
 const createdKey: WorkspaceAPIKeyCreated = {
@@ -76,6 +77,7 @@ const createdKey: WorkspaceAPIKeyCreated = {
   secret: 'nsk_live_created-full-secret-value',
   createdAt: '2026-09-11T00:00:00Z',
   lastUsedAt: null,
+  scopes: ['conversations:read'] as const,
 };
 
 describe('WorkspaceAPIKeysPanel', () => {

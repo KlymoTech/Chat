@@ -11,7 +11,7 @@ import json
 import zipfile
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetimen
+from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 

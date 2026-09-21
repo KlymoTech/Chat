@@ -1,4 +1,4 @@
-import { Bot, CheckCircle2, Clock3, Inbox, MessageSquareText } from 'lucide-react';
+import { Bot, CheckCircle2, Inbox, MessageSquareText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatCompact, relativeTime } from '@/lib/format';
 import type { DashboardWidgetRendererProps } from '../dashboard.types';

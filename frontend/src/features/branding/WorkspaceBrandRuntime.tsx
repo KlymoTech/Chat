@@ -15,14 +15,14 @@ export function WorkspaceBrandRuntime({ children }: { children: ReactNode }) {
   const [brandSnapshot, setBrandSnapshot] = useState<WorkspaceBrandSnapshot | null>(null);
   // A previous workspace's published brand must not remain visible while the
   // next workspace's asynchronous branding request is still in flight.
-  const branding = brandSnapshot?.workspaceId === activeWorkspace?.id
-    ? brandSnapshot.branding
-    : null;
+  const branding = (() => {
+    if (!brandSnapshot || brandSnapshot.workspaceId !== activeWorkspace?.id) return null;
+    return brandSnapshot.branding;
+  })();
 
   useEffect(() => {
     let current = true;
     if (!activeWorkspace) {
-      setBrandSnapshot(null);
       return () => { current = false; };
     }
     const workspaceId = activeWorkspace.id;
@@ -32,22 +32,23 @@ export function WorkspaceBrandRuntime({ children }: { children: ReactNode }) {
       if (current) setBrandSnapshot({ workspaceId, branding: null });
     });
     return () => { current = false; };
-  }, [activeWorkspace?.id]);
+  }, [activeWorkspace]);
 
   useEffect(() => {
-    if (!branding?.identity.brandedDashboard) return;
+    const activeBranding = branding;
+    if (!activeBranding?.identity.brandedDashboard) return;
     const previousTitle = document.title;
     const cleanupTokens = applyBrandTokens({
-      primaryColor: branding.identity.primaryColor,
-      secondaryColor: branding.identity.secondaryColor,
-      colors: branding.colors,
-      typography: branding.typography,
-      borderRadius: branding.appearance.borderRadius,
+      primaryColor: activeBranding.identity.primaryColor,
+      secondaryColor: activeBranding.identity.secondaryColor,
+      colors: activeBranding.colors,
+      typography: activeBranding.typography,
+      borderRadius: activeBranding.appearance.borderRadius,
     });
-    if (branding.identity.browserTitle) document.title = branding.identity.browserTitle;
+    if (activeBranding.identity.browserTitle) document.title = activeBranding.identity.browserTitle;
     return () => {
       cleanupTokens();
-      if (branding.identity.browserTitle && document.title === branding.identity.browserTitle) document.title = previousTitle;
+      if (activeBranding.identity.browserTitle && document.title === activeBranding.identity.browserTitle) document.title = previousTitle;
     };
   }, [branding]);
 

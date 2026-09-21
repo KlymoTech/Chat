@@ -31,6 +31,7 @@ describe('workspaceAPIKeyApi', () => {
         prefix: 'nsk_live_example',
         createdAt: '2026-09-10T00:00:00Z',
         lastUsedAt: null,
+        scopes: ['conversations:read'],
       }]))
       .mockResolvedValueOnce(jsonResponse({
         id: 'key-2',
@@ -45,7 +46,7 @@ describe('workspaceAPIKeyApi', () => {
     const listed = await workspaceAPIKeyApi.list();
     expect(listed).toHaveLength(1);
 
-    const created = await workspaceAPIKeyApi.create('  Production   2  ');
+    const created = await workspaceAPIKeyApi.create('  Production   2  ', ['conversations:read']);
     expect(created.secret).toBe('nsk_live_created-secret');
 
     await workspaceAPIKeyApi.revoke('key-2');

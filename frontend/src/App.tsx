@@ -46,7 +46,6 @@ const SignupPage = lazy(() => import('@/pages/SignupPage').then((module) => ({ d
 const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));
 const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
 const WorkspaceInvitationPage = lazy(() => import('@/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
-const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
 const WorkspaceSettingsPage = lazy(() => import('@/features/workspace/settings').then((module) => ({ default: module.WorkspaceSettingsPage })));
 const WidgetDemoPage = lazy(() => import('@/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
@@ -112,7 +111,8 @@ export function App() {
       <Route path="integrations" element={<IntegrationsHubPage />} />
       <Route path="integrations/advanced" element={<IntegrationManagementPage />} />
       <Route path="deploy" element={<DeployPage />} />
-      <Route path="workspace" element={<WorkspacePage />} />
+      {/* The settings center is the single workspace administration entry point. */}
+      <Route path="workspace" element={<Navigate to="/workspace/settings/general" replace />} />
       {/* Keep the legacy URL, but route it to the complete draft/preview/
           publish white-label control center. */}
       <Route path="workspace/white-label" element={<Navigate to="/workspace/settings/branding" replace />} />

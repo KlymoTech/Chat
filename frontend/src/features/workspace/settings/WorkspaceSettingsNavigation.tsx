@@ -55,6 +55,5 @@ export function WorkspaceSettingsNavigation({ active, onSelect, permissions }: {
       return <div key={group.label}><p>{group.label}</p>{items.map(({ id, label, icon: Icon }) =>
         <button type="button" key={id} className={active === id ? 'is-active' : ''} onClick={() => onSelect(id)}><Icon /><span>{label}</span></button>)}</div>;
     })}
-    <p>Legacy</p><a href="/workspace"><KeyRound /><span>Original workspace console</span></a>
   </nav>;
 }
