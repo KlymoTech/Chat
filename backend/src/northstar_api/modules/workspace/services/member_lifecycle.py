@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.lead_crm.audit import record_audit_event
-from northstar_api.models import WorkspaceMembership
+from northstar_api.models import WorkspaceMembership, WorkspaceRole
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
+from northstar_api.modules.workspace.services.admin_availability import available_workspace_admin_count
 from northstar_api.modules.workspace.services.ownership import (
     WorkspaceOwnershipError,
     locked_workspace,
@@ -79,6 +80,16 @@ async def set_member_suspended(
     currently_suspended = state is not None and state.suspended_at is not None
     if currently_suspended == suspended:
         return False
+    if suspended and membership.role == WorkspaceRole.ADMIN:
+        # The workspace lock serializes this check with other admin mutations.
+        # A suspended administrator or disabled account cannot be the fallback.
+        if await available_workspace_admin_count(
+            session, tenant_id=tenant_id, workspace_id=workspace_id,
+        ) <= 1:
+            raise WorkspaceMemberError(
+                "The workspace must keep at least one active administrator",
+                status_code=409,
+            )
     if state is None:
         state = WorkspaceMemberState(
             tenant_id=tenant_id, workspace_id=workspace_id, user_id=member_user_id,
