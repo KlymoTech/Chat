@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -21,7 +22,7 @@ from ..models import (
 )
 
 
-async def _workspace_row(session: AsyncSession, model: type, workspace: Workspace):
+async def _workspace_row(session: AsyncSession, model: type[Any], workspace: Workspace) -> Any:
     value = await session.get(model, workspace.id)
     if value is None:
         value = model(workspace_id=workspace.id, tenant_id=workspace.tenant_id)
