@@ -5,6 +5,7 @@ import type { DomainRecord, ExtendedBranding, WorkspaceSettingsBundle } from './
 import { workspaceSettingsApi } from './workspaceSettings.api';
 
 const surfaces = ['identity', 'colors', 'dashboard', 'authentication', 'email', 'widget', 'domains', 'versions'] as const;
+const brandColorKeys = ['accent','background','surface','sidebarBackground','sidebarText','header','textPrimary','textSecondary','success','warning','error','border','link'] as const;
 type Surface = typeof surfaces[number];
 
 export function WorkspaceBrandingSettings({ bundle, onChange }: { bundle: WorkspaceSettingsBundle; onChange: (next: WorkspaceSettingsBundle) => void }) {
@@ -80,7 +81,7 @@ export function WorkspaceBrandingSettings({ bundle, onChange }: { bundle: Worksp
 
     {surface === 'colors' ? <Card className="workspace-panel"><div className="workspace-panel__body"><h3>Colors and typography</h3>
       <div className="two-fields"><Field label="Primary"><input type="color" value={draft.identity.primaryColor} onChange={(event) => patch({ identity: { ...draft.identity, primaryColor: event.target.value } })} /></Field><Field label="Secondary"><input type="color" value={draft.identity.secondaryColor} onChange={(event) => patch({ identity: { ...draft.identity, secondaryColor: event.target.value } })} /></Field></div>
-      {['accent','background','surface','sidebarBackground','sidebarText','header','textPrimary','textSecondary','success','warning','error','border','link'].map((key) => <Field key={key} label={key}><input type="color" value={draft.colors[key] ?? '#ffffff'} onChange={(event) => patch({ colors: { ...draft.colors, [key]: event.target.value } })} /></Field>)}
+      {brandColorKeys.map((key) => <Field key={key} label={key}><input type="color" value={draft.colors[key]} onChange={(event) => patch({ colors: { ...draft.colors, [key]: event.target.value } })} /></Field>)}
       <div className="two-fields"><Field label="Heading font"><input value={String(draft.typography.headingFont ?? 'Inter')} onChange={(event) => patch({ typography: { ...draft.typography, headingFont: event.target.value } })} /></Field><Field label="Body font"><input value={String(draft.typography.bodyFont ?? 'Inter')} onChange={(event) => patch({ typography: { ...draft.typography, bodyFont: event.target.value } })} /></Field></div>
     </div></Card> : null}
 
