@@ -12,6 +12,7 @@ from northstar_api.modules.branding.repositories import persist_branding_documen
 from northstar_api.security import Principal
 
 from .contracts import DashboardSettings, RolesSettings, TeamsSettings
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -142,6 +143,7 @@ async def update_roles(
     session: DBSession,
 ) -> RolesSettings:
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     await _validate_roles(payload, principal, session, workspace.id)
     document = settings_document(workspace)
     before = document.roles.model_dump(by_alias=True, mode="json")
@@ -171,6 +173,7 @@ async def update_teams(
     session: DBSession,
 ) -> TeamsSettings:
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     await _validate_teams(payload, principal, session, workspace.id, document.roles)
     before = document.teams.model_dump(by_alias=True, mode="json")
@@ -200,6 +203,7 @@ async def update_dashboard(
     session: DBSession,
 ) -> DashboardSettings:
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     before = document.dashboard.model_dump(by_alias=True, mode="json")
     document.dashboard = payload
