@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
+from northstar_api.modules.branding.repositories import persist_branding_document
 from northstar_api.security import Principal
 
 from .brand_cache import invalidate_brand_cache
@@ -96,6 +97,11 @@ async def _tls_ready(hostname: str) -> tuple[bool, str]:
         return False, f"TLS/HTTPS is not ready ({type(exc).__name__})"
 
 
+async def _persist_domain_change(session: DBSession, workspace, document) -> None:
+    save_document(workspace, document)
+    await persist_branding_document(session, workspace, document)
+
+
 @router.post("/domains", response_model=DomainRecord, status_code=201)
 async def create_domain(
     payload: DomainCreate,
@@ -119,7 +125,7 @@ async def create_domain(
         verification_value=secrets.token_urlsafe(24),
     )
     document.domains.domains.append(domain)
-    save_document(workspace, document)
+    await _persist_domain_change(session, workspace, document)
     record_workspace_change(
         session,
         principal,
@@ -157,7 +163,7 @@ async def start_domain_verification(
     else:
         domain.status = "verified"
         event = "workspace.domain.verified"
-    save_document(workspace, document)
+    await _persist_domain_change(session, workspace, document)
     record_workspace_change(session, principal, workspace, event, [domain.hostname])
     await session.commit()
     await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
@@ -190,7 +196,7 @@ async def check_domain_activation(
     else:
         domain.failure_reason = reason
         action = "workspace.domain.certificate.pending"
-    save_document(workspace, document)
+    await _persist_domain_change(session, workspace, document)
     record_workspace_change(session, principal, workspace, action, [domain.hostname])
     await session.commit()
     await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
@@ -210,7 +216,7 @@ async def disable_domain(
     if domain is None:
         raise HTTPException(status_code=404, detail="Domain not found")
     domain.status = "disabled"
-    save_document(workspace, document)
+    await _persist_domain_change(session, workspace, document)
     record_workspace_change(
         session,
         principal,
