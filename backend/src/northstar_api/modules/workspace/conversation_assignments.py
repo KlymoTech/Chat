@@ -33,6 +33,23 @@ class ConversationAssignmentOut(SetupContract):
     team_id: str | None = None
 
 
+class ConversationAssignmentMember(SetupContract):
+    id: UUID
+    name: str
+    email: str
+    role: str
+
+
+class ConversationAssignmentTeam(SetupContract):
+    id: str
+    name: str
+
+
+class ConversationAssignmentOptions(SetupContract):
+    members: list[ConversationAssignmentMember]
+    teams: list[ConversationAssignmentTeam]
+
+
 async def _conversation(
     session: DBSession,
     principal: Principal,
@@ -59,6 +76,42 @@ def _response(
         conversation_id=conversation_id,
         user_id=assignment.assigned_user_id if assignment else None,
         team_id=assignment.assigned_team_id if assignment else None,
+    )
+
+
+@router.get("/options", response_model=ConversationAssignmentOptions)
+async def assignment_options(
+    principal: AssignmentPrincipal,
+    session: DBSession,
+) -> ConversationAssignmentOptions:
+    _, workspace = await load_workspace(principal, session)
+    rows = (
+        await session.execute(
+            select(User, WorkspaceMembership)
+            .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+            .where(
+                WorkspaceMembership.tenant_id == principal.tenant_id,
+                WorkspaceMembership.workspace_id == principal.workspace_id,
+                User.is_active.is_(True),
+            )
+            .order_by(User.name, User.email, User.id)
+        )
+    ).all()
+    document = settings_document(workspace)
+    return ConversationAssignmentOptions(
+        members=[
+            ConversationAssignmentMember(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                role=membership.role.value,
+            )
+            for user, membership in rows
+        ],
+        teams=[
+            ConversationAssignmentTeam(id=team.id, name=team.name)
+            for team in sorted(document.teams.teams, key=lambda value: value.name.lower())
+        ],
     )
 
 
