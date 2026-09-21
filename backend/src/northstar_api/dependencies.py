@@ -66,26 +66,53 @@ async def _agent_scope(session: AsyncSession, membership: WorkspaceMembership, u
     )))
 
 
-def _custom_role_context(workspace: Workspace, user_id: UUID) -> tuple[frozenset[str], frozenset[UUID] | None]:
+def _workspace_settings(workspace: Workspace) -> WorkspaceSettingsBundle:
     raw = dict(workspace.settings_json or {}).get("workspaceSettingsV2", {})
     try:
-        settings = WorkspaceSettingsBundle.model_validate(raw)
+        return WorkspaceSettingsBundle.model_validate(raw)
     except (TypeError, ValueError):
-        return frozenset(), None
+        return WorkspaceSettingsBundle()
+
+
+def _custom_role_context(workspace: Workspace, user_id: UUID) -> tuple[frozenset[str], frozenset[UUID] | None]:
+    settings = _workspace_settings(workspace)
     assigned = set(settings.roles.member_role_ids.get(str(user_id), []))
     roles = [role for role in settings.roles.custom_roles if role.id in assigned]
     permissions = frozenset(permission for role in roles for permission in role.permissions)
-    restricted_roles = [role for role in roles if "agents" in role.resources.selected]
-    if not restricted_roles:
-        return permissions, None
-    agent_ids: set[UUID] = set()
-    for role in restricted_roles:
-        for value in role.resources.selected.get("agents", []):
-            try:
-                agent_ids.add(UUID(value))
-            except ValueError:
+
+    scopes: list[set[UUID]] = []
+    selected_agent_ids: set[UUID] = set()
+    selected_agents_declared = False
+    for role in roles:
+        if "agents" in role.resources.selected:
+            selected_agents_declared = True
+            for value in role.resources.selected.get("agents", []):
+                try:
+                    selected_agent_ids.add(UUID(value))
+                except ValueError:
+                    continue
+    if selected_agents_declared:
+        scopes.append(selected_agent_ids)
+
+    if any(role.resources.conversation_scope == "team" for role in roles):
+        team_agent_ids: set[UUID] = set()
+        user_key = str(user_id)
+        for team in settings.teams.teams:
+            if user_key not in set(team.member_ids) | set(team.manager_ids):
                 continue
-    return permissions, frozenset(agent_ids)
+            for value in team.agent_ids:
+                try:
+                    team_agent_ids.add(UUID(value))
+                except ValueError:
+                    continue
+        scopes.append(team_agent_ids)
+
+    if not scopes:
+        return permissions, None
+    effective = scopes[0]
+    for scope in scopes[1:]:
+        effective &= scope
+    return permissions, frozenset(effective)
 
 
 def _merge_agent_scope(
