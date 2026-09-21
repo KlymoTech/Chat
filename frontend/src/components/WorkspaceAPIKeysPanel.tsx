@@ -18,7 +18,7 @@ export function WorkspaceAPIKeysPanel({ workspace }: { workspace: WorkspaceSetti
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [newSecret, setNewSecret] = useState('');
   const [keyName, setKeyName] = useState('Production');
-  const [scopes, setScopes] = useState<WorkspaceAPIKeyScope[]>(['conversations:read', 'agents:read']);
+  const [scopes, setScopes] = useState<WorkspaceAPIKeyScope[]>(['workspace:read', 'conversations:read', 'agents:read']);
   const permissions = workspace.permissions;
   const canView = permissions === undefined || permissions.includes('*') || permissions.includes('api_keys.view');
   const canManage = permissions === undefined || permissions.includes('*') || permissions.includes('api_keys.manage');
@@ -26,14 +26,14 @@ export function WorkspaceAPIKeysPanel({ workspace }: { workspace: WorkspaceSetti
   useEffect(() => {
     if (!canView) return;
     let active = true;
-    setLoading(true);
+    const timer = window.setTimeout(() => setLoading(true), 0);
     void workspaceAPIKeyApi.list()
       .then((values) => { if (active) setKeys(values); })
       .catch((error) => {
         if (active) pushToast(error instanceof Error ? error.message : 'API keys could not be loaded', 'error');
       })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    return () => { active = false; window.clearTimeout(timer); };
   }, [canView, pushToast, workspace.id]);
 
   function toggleScope(scope: WorkspaceAPIKeyScope) {

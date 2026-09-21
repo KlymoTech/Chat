@@ -2,6 +2,7 @@ import { readStorage, writeStorage } from '@/lib/storage';
 import { activeWorkspaceId } from '@/lib/workspace-api';
 
 export const WORKSPACE_API_KEY_SCOPES = [
+  'workspace:read',
   'conversations:read',
   'conversations:write',
   'contacts:read',

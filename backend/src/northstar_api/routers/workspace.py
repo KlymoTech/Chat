@@ -108,8 +108,10 @@ def _workspace_response(
     settings: dict[str, Any] = workspace.settings_json or {}
     warnings: list[str] = []
     brand = dict(workspace.branding_json or {})
-    brand.pop("dns_status", None)
-    brand["dnsStatus"] = "not-configured"
+    # Domain status is read-only here. Verification and activation are handled
+    # by the dedicated domain lifecycle routes and worker.
+    brand.setdefault("customDomain", "")
+    brand.setdefault("dnsStatus", "not-configured")
     preferences = safe_legacy_read(WorkspacePreferences, {
         "timezone": workspace.timezone, "defaultLanguage": workspace.default_language,
         "dateFormat": workspace.date_format, **settings.get("preferences", {}),
@@ -208,7 +210,17 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
                     brand[field] = await asyncio.to_thread(normalize_raster, str(brand[field]))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        workspace.branding_json = {**brand, "customDomain": str(previous.get("customDomain", "")), "dnsStatus": "not-configured"}
+        # Legacy clients may submit customDomain/dnsStatus. Preserve the
+        # hostname for display, but never let a legacy write mark a domain as
+        # verified or active; that requires the dedicated DNS/TLS lifecycle.
+        legacy_status = str(brand.get("dnsStatus", "not-configured"))
+        if legacy_status not in {"not-configured", "pending", "dns_pending"}:
+            legacy_status = "not-configured"
+        workspace.branding_json = {
+            **brand,
+            "customDomain": str(brand.get("customDomain", previous.get("customDomain", ""))),
+            "dnsStatus": legacy_status,
+        }
         record_audit_event(session, tenant_id=principal.tenant_id, workspace_id=workspace.id, actor_user_id=principal.user_id,
                            action="workspace.branding.updated", entity_type="workspace", entity_id=str(workspace.id), category="workspace",
                            metadata={"fields": sorted(brand)})

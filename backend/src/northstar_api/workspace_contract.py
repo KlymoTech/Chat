@@ -47,6 +47,14 @@ class WhiteLabelWrite(SetupContract):
     branded_widget: bool = False
     branded_emails: bool = False
     remove_platform_branding: bool = False
+    # Kept on the legacy write contract for backwards-compatible clients.
+    # Domain verification is still controlled by the dedicated domain lifecycle
+    # endpoints; this field is never trusted as proof of ownership.
+    custom_domain: str = Field(default="", max_length=253)
+    dns_status: Literal[
+        "not-configured", "pending", "dns_pending", "verifying", "verified",
+        "certificate_pending", "active", "failed", "disabled",
+    ] = "not-configured"
 
     @field_validator("primary_color", "secondary_color")
     @classmethod
@@ -73,8 +81,13 @@ class WhiteLabelWrite(SetupContract):
 
 
 class WhiteLabelSettings(WhiteLabelWrite):
+    # Legacy workspace responses expose the current domain lifecycle status;
+    # writes still cannot advance verification beyond pending states.
     custom_domain: str = Field(default="", max_length=253)
-    dns_status: Literal["not-configured"] = "not-configured"
+    dns_status: Literal[
+        "not-configured", "pending", "dns_pending", "verifying", "verified",
+        "certificate_pending", "active", "failed", "disabled",
+    ] = "not-configured"
 
 
 def safe_legacy_read[ModelT: BaseModel](model: type[ModelT], raw: dict[str, Any], warnings: list[str]) -> ModelT:

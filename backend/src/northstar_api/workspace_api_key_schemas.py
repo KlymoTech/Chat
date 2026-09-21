@@ -11,7 +11,7 @@ from northstar_api.schemas import APIModel
 
 class WorkspaceAPIKeyCreate(APIModel):
     name: str = Field(min_length=2, max_length=120)
-    scopes: list[str] = Field(default_factory=lambda: ["conversations:read", "agents:read"], min_length=1, max_length=20)
+    scopes: list[str] = Field(default_factory=lambda: ["workspace:read", "conversations:read", "agents:read"], min_length=1, max_length=20)
 
     @field_validator("name")
     @classmethod
