@@ -41,10 +41,12 @@ it('preserves legacy controls but does not mount additive readers without member
 it('does not assume a missing lifecycle record is active or permit a suspension', async () => {
   vi.mocked(workspaceTeamApi.listMembers).mockResolvedValue([member]);
   vi.mocked(workspaceTeamApi.listMemberLifecycle).mockResolvedValue([]);
+  vi.mocked(workspaceTeamApi.listMemberDetails).mockResolvedValue([]);
   render(<WorkspaceMembersPanel workspace={workspace(['members.view', 'members.manage'])} />);
   expect(await screen.findByText('Example Member')).toBeTruthy();
   expect(screen.getByText('Unavailable')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Reactivate' })).toBeNull();
   await waitFor(() => expect(workspaceTeamApi.listMemberLifecycle).toHaveBeenCalledTimes(1));
+  expect(workspaceTeamApi.listMemberDetails).toHaveBeenCalledTimes(1);
 });
