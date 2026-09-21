@@ -15,6 +15,7 @@ from .contracts import (
     SecuritySettings,
     WorkspaceSettingsBundle,
 )
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .security_policy import normalize_trusted_domains, validate_business_timezone, validate_security_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
@@ -91,6 +92,7 @@ async def update_general(
 ) -> GeneralSettings:
     _, workspace = await load_workspace(principal, session)
     validate_business_timezone(payload.business_hours.timezone)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     before = document.general.model_dump(by_alias=True, mode="json")
     document.general = payload
@@ -121,6 +123,7 @@ async def update_security(
     validate_security_settings(payload)
     payload = normalize_trusted_domains(payload)
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     before = document.security.model_dump(by_alias=True, mode="json")
     document.security = payload
@@ -155,6 +158,7 @@ async def update_notifications(
     session: DBSession,
 ) -> NotificationSettings:
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     before = document.notifications.model_dump(by_alias=True, mode="json")
     document.notifications = payload
@@ -183,6 +187,7 @@ async def update_developer(
     session: DBSession,
 ) -> DeveloperSettings:
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     before = document.developer.model_dump(by_alias=True, mode="json")
     document.developer = payload
