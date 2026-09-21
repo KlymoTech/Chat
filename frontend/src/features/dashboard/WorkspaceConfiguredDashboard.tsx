@@ -6,6 +6,7 @@ import type { ExtendedBranding } from '@/features/workspace/settings/workspaceSe
 import { api } from '@/lib/api';
 import { formatCompact, formatPercent, relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
+import type { Agent, AnalyticsSummary, Conversation } from '@/types';
 import './WorkspaceConfiguredDashboard.css';
 
 export function WorkspaceConfiguredDashboard({ brand }: { brand: ExtendedBranding }) {
@@ -19,7 +20,6 @@ export function WorkspaceConfiguredDashboard({ brand }: { brand: ExtendedBrandin
     .filter((widget) => widget.visible && (widget.audience.length === 0 || widget.audience.includes(role)))
     .sort((left, right) => left.y - right.y || left.x - right.x);
   const open = conversations.data?.items.filter((item) => item.state !== 'resolved') ?? [];
-  const activeAgents = agents.data?.filter((agent) => agent.status === 'active') ?? [];
 
   return <div className="page workspace-configured-dashboard">
     <div className="workspace-configured-dashboard__heading">
@@ -35,7 +35,7 @@ export function WorkspaceConfiguredDashboard({ brand }: { brand: ExtendedBrandin
   </div>;
 }
 
-function ConfiguredWidget({ type, config, agents, open, analytics, loading }: { type: string; config: Record<string, unknown>; agents: Awaited<ReturnType<typeof api.agents.list>>; open: Awaited<ReturnType<typeof api.conversations.list>>['items']; analytics: Awaited<ReturnType<typeof api.analytics.summary>> | null | undefined; loading: boolean }) {
+function ConfiguredWidget({ type, config, agents, open, analytics, loading }: { type: string; config: Record<string, unknown>; agents: Agent[]; open: Conversation[]; analytics: AnalyticsSummary | null | undefined; loading: boolean }) {
   const title = typeof config.title === 'string' && config.title.trim() ? config.title : defaultTitle(type);
   if (loading) return <div className="workspace-configured-dashboard__empty" role="status">Loading {title.toLowerCase()}…</div>;
 
