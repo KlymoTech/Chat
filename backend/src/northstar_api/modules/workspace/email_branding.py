@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
+from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.models import Workspace
 from northstar_api.services.email_verification import _smtp_send
@@ -134,6 +135,8 @@ async def deliver_workspace_email(
 ) -> None:
     config = settings or get_email_settings()
     if config.email_delivery_mode == "log":
+        if get_settings().is_production:
+            raise RuntimeError("Email delivery is not configured")
         return
     message = EmailMessage()
     message["Subject"] = rendered.subject
