@@ -16,14 +16,35 @@ from northstar_api.services.outbox import enqueue_event
 GENERAL_SETTING_FIELDS = frozenset({
     "name", "slug", "timezone", "default_language", "date_format",
 })
+GENERAL_PREFERENCE_FIELDS: Mapping[str, str] = {
+    "industry": "industry",
+    "country": "country",
+    "description": "description",
+    "time_format": "timeFormat",
+    "currency": "currency",
+    "week_start": "weekStart",
+    "workspace_icon": "workspaceIcon",
+    "business_hours": "businessHours",
+}
+_AUDITABLE_FIELDS = GENERAL_SETTING_FIELDS | frozenset(GENERAL_PREFERENCE_FIELDS)
 
 
 def changed_general_fields(
     before: Mapping[str, object], after: Mapping[str, object],
 ) -> tuple[str, ...]:
-    """Return only changed, allowlisted fields in deterministic order."""
+    """Return only changed, allowlisted top-level fields in deterministic order."""
     return tuple(sorted(
         field for field in GENERAL_SETTING_FIELDS if before.get(field) != after.get(field)
+    ))
+
+
+def changed_preference_fields(
+    before: Mapping[str, object], after: Mapping[str, object],
+) -> tuple[str, ...]:
+    """Compare validated camelCase preference snapshots and return field names only."""
+    return tuple(sorted(
+        field for field, alias in GENERAL_PREFERENCE_FIELDS.items()
+        if before.get(alias) != after.get(alias)
     ))
 
 
@@ -43,7 +64,7 @@ def record_general_settings_update(
     fields = tuple(sorted(set(changed_fields)))
     if not fields:
         return False
-    if not set(fields) <= GENERAL_SETTING_FIELDS:
+    if not set(fields) <= _AUDITABLE_FIELDS:
         raise ValueError("Only general workspace setting fields may be audited here")
 
     record_audit_event(
