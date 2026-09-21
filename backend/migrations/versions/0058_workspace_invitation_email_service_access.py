@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0058_workspace_invite_mail_service"
+revision = "0058_workspace_email_grants"
 down_revision = "0057_workspace_invite_email_jobs"
 branch_labels = None
 depends_on = None
