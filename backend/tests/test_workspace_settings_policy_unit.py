@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from northstar_api.dependencies import _custom_role_context
 from northstar_api.models import Workspace
 from northstar_api.modules.workspace.api_key_scopes import permissions_for_api_key_scopes
 from northstar_api.modules.workspace.contracts import (
@@ -15,8 +16,10 @@ from northstar_api.modules.workspace.contracts import (
     EmailTemplate,
     ExtendedBranding,
     NotificationSettings,
+    ResourceScope,
     SecuritySettings,
     WorkspaceSettingsBundle,
+    WorkspaceTeam,
 )
 from northstar_api.modules.workspace.email_branding import render_workspace_email
 from northstar_api.modules.workspace.member_state import is_member_suspended, save_member_status
@@ -63,6 +66,39 @@ def test_business_hours_and_custom_roles_are_validated_by_contract() -> None:
         BusinessHours.model_validate({"schedule": {"funday": ["09:00-17:00"]}})
     with pytest.raises(ValidationError):
         CustomRole(name="Unsafe", permissions=["platform.system.manage"])
+
+
+def test_team_conversation_scope_reuses_workspace_agent_boundary() -> None:
+    user_id = uuid4()
+    team_agent_id = uuid4()
+    outside_agent_id = uuid4()
+    role_id = str(uuid4())
+    bundle = WorkspaceSettingsBundle()
+    bundle.roles.custom_roles = [
+        CustomRole(
+            id=role_id,
+            name="Support team",
+            permissions=["conversations.view"],
+            resources=ResourceScope(conversation_scope="team"),
+        )
+    ]
+    bundle.roles.member_role_ids = {str(user_id): [role_id]}
+    bundle.teams.teams = [
+        WorkspaceTeam(
+            name="Admissions",
+            member_ids=[str(user_id)],
+            agent_ids=[str(team_agent_id)],
+        ),
+        WorkspaceTeam(
+            name="Other team",
+            member_ids=[str(uuid4())],
+            agent_ids=[str(outside_agent_id)],
+        ),
+    ]
+
+    permissions, agent_scope = _custom_role_context(_workspace(bundle), user_id)
+    assert permissions == frozenset({"conversations.view"})
+    assert agent_scope == frozenset({team_agent_id})
 
 
 def test_member_suspension_is_workspace_local_and_reversible() -> None:
