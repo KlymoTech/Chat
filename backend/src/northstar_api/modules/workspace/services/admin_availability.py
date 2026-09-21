@@ -11,14 +11,14 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.models import User, WorkspaceMembership, WorkspaceRole
+from northstar_api.models import TenantMembership, User, WorkspaceMembership, WorkspaceRole
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 
 
 async def available_workspace_admin_count(
     session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID,
 ) -> int:
-    """Count active-account, non-suspended admins in the exact tenant/workspace."""
+    """Count admins with an active account, org membership and unsuspended workspace access."""
     suspended = select(WorkspaceMemberState.user_id).where(
         WorkspaceMemberState.tenant_id == tenant_id,
         WorkspaceMemberState.workspace_id == workspace_id,
@@ -29,6 +29,11 @@ async def available_workspace_admin_count(
         select(func.count())
         .select_from(WorkspaceMembership)
         .join(User, User.id == WorkspaceMembership.user_id)
+        .join(
+            TenantMembership,
+            (TenantMembership.user_id == WorkspaceMembership.user_id)
+            & (TenantMembership.tenant_id == tenant_id),
+        )
         .where(
             WorkspaceMembership.tenant_id == tenant_id,
             WorkspaceMembership.workspace_id == workspace_id,
