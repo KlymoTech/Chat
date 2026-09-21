@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from fastapi import APIRouter, Depends
 
 # Load the legacy workspace router before the additive feature module. The
