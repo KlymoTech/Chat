@@ -9,8 +9,8 @@ import { SubscriptionBillingPanel } from '@/components/SubscriptionBillingPanel'
 import { Button, Badge, Card, Field, PageLoader, Switch } from '@/components/ui';
 import { WorkspaceAPIKeysPanel } from '@/components/WorkspaceAPIKeysPanel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
-import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
 import { WorkspaceGeneralPanel } from '@/features/workspace/general/WorkspaceGeneralPanel';
+import { WorkspaceMembersPanel } from '@/features/workspace/members/WorkspaceMembersPanel';
 import {
   activeWorkspaceId, workspaceApi, workspacePresentationKey, WORKSPACE_CHANGED_EVENT,
   type WorkspaceSettings,
@@ -110,7 +110,7 @@ export function WorkspacePage() {
       <div className="workspace-console-content">
         {section === 'workspace' ? <WorkspaceGeneralPanel workspace={workspace} setWorkspace={setWorkspace} onSave={saveProfile} saving={saving} ownerInitial={ownerInitial} currentUserId={session?.user.id} /> : null}
 
-        {section === 'team' ? <WorkspaceTeamPanel workspace={workspace} /> : null}
+        {section === 'team' ? <WorkspaceMembersPanel workspace={workspace} /> : null}
 
         {section === 'developer' ? <WorkspaceAPIKeysPanel workspace={workspace} /> : null}
 
