@@ -16,14 +16,12 @@ async def test_explicit_invalid_owner_fails_closed_without_reassigning_or_emitti
 ) -> None:
     current = await client.get("/api/v1/workspace", headers=auth_headers)
     assert current.status_code == 200, current.text
-    workspace_id = current.json()["id"]
     tenant_id = current.json()["tenantId"]
     original_owner = await client.get("/api/v1/workspace/owner", headers=auth_headers)
     assert original_owner.status_code == 200, original_owner.text
     assert original_owner.json()["ownerUserId"] is not None
 
-    # Do not alter the live fixture workspace: create an isolated workspace and
-    # explicitly set an absent user as owner to simulate post-handover ineligibility.
+    # Create a distinct workspace rather than mutate the shared fixture.
     created = await client.post(
         "/api/v1/workspaces", headers=auth_headers,
         json={"name": "Fail-closed owner regression", "slug": f"owner-recovery-{uuid4().hex[:16]}"},
@@ -37,18 +35,19 @@ async def test_explicit_invalid_owner_fails_closed_without_reassigning_or_emitti
             Workspace.id == selected_id, Workspace.tenant_id == tenant_id,
         ))
         assert workspace is not None
+        original_creator = str(workspace.created_by)
         workspace.settings_json = {**(workspace.settings_json or {}), "ownerUserId": absent_id}
         await session.commit()
 
     owner = await client.get("/api/v1/workspace/owner", headers=headers)
     assert owner.status_code == 200, owner.text
     assert owner.json()["ownerUserId"] is None
-    assert owner.json()["creatorUserId"] == original_owner.json()["ownerUserId"] or owner.json()["creatorUserId"] is not None
+    assert owner.json()["creatorUserId"] == original_creator
 
     denied = await client.post(
         "/api/v1/workspace/owner/transfer", headers=headers,
         json={
-            "expectedOwnerUserId": original_owner.json()["ownerUserId"],
+            "expectedOwnerUserId": original_creator,
             "targetUserId": str(uuid4()),
             "reason": "account_recovery", "confirmation": "TRANSFER",
         },
