@@ -26,6 +26,7 @@ from northstar_api.models import (
     WorkspaceRole,
     WorkspaceStatus,
 )
+from northstar_api.modules.workspace.services.invitation_audit import stage_invitation_transition
 from northstar_api.security import hash_password
 from northstar_api.services.email_verification import _smtp_send
 from northstar_api.services.workspace_members import (
@@ -210,6 +211,13 @@ async def issue_workspace_invitation(
         for field, value in values.items():
             setattr(invitation, field, value)
     await _replace_invitation_access(session, invitation.id, selected)
+    stage_invitation_transition(
+        session,
+        tenant_id=tenant_id, workspace_id=workspace_id,
+        invitation_id=invitation.id, actor_user_id=invited_by_user_id,
+        action="invited", role=role.value, all_agents_access=all_agents_access,
+        agent_count=len(selected),
+    )
     await session.flush()
     return IssuedWorkspaceInvitation(invitation=invitation, token=token)
 
@@ -251,6 +259,13 @@ async def resend_workspace_invitation(
     invitation.expires_at = now + timedelta(days=config.workspace_invitation_ttl_days)
     invitation.last_delivery_error = None
     invitation.updated_at = now
+    stage_invitation_transition(
+        session,
+        tenant_id=tenant_id, workspace_id=workspace_id,
+        invitation_id=invitation.id, actor_user_id=invited_by_user_id,
+        action="resent", role=invitation.role.value,
+        all_agents_access=invitation.all_agents_access,
+    )
     await session.flush()
     return IssuedWorkspaceInvitation(invitation=invitation, token=token)
 
@@ -266,6 +281,13 @@ async def mark_workspace_invitation_delivery(
     invitation.last_delivery_error = None if delivered else type(error).__name__[:500]
     if delivered:
         invitation.last_sent_at = datetime.now(UTC)
+    stage_invitation_transition(
+        session,
+        tenant_id=invitation.tenant_id, workspace_id=invitation.workspace_id,
+        invitation_id=invitation.id, actor_user_id=None,
+        action="delivery_succeeded" if delivered else "delivery_failed",
+        role=invitation.role.value, all_agents_access=invitation.all_agents_access,
+    )
     await session.flush()
 
 
@@ -347,6 +369,13 @@ async def revoke_workspace_invitation(
     invitation.revoked_at = now
     invitation.token_hash = workspace_invitation_token_hash(secrets.token_urlsafe(48))
     invitation.updated_at = now
+    stage_invitation_transition(
+        session,
+        tenant_id=tenant_id, workspace_id=workspace_id,
+        invitation_id=invitation.id, actor_user_id=None,
+        action="revoked", role=invitation.role.value,
+        all_agents_access=invitation.all_agents_access,
+    )
     await session.flush()
 
 
@@ -456,6 +485,14 @@ async def _accept_invitation(
     invitation.last_delivery_error = None
     invitation.updated_at = now
     user.last_login_at = now
+    stage_invitation_transition(
+        session,
+        tenant_id=invitation.tenant_id, workspace_id=invitation.workspace_id,
+        invitation_id=invitation.id, actor_user_id=user.id,
+        action="accepted", role=invitation.role.value,
+        all_agents_access=invitation.all_agents_access,
+        agent_count=len(details.agent_ids),
+    )
     await session.flush()
     return AcceptedWorkspaceInvitation(
         invitation=invitation,
@@ -527,6 +564,14 @@ async def decline_workspace_invitation(session: AsyncSession, raw_token: str) ->
     details.invitation.declined_at = now
     details.invitation.token_hash = workspace_invitation_token_hash(secrets.token_urlsafe(48))
     details.invitation.updated_at = now
+    stage_invitation_transition(
+        session,
+        tenant_id=details.invitation.tenant_id,
+        workspace_id=details.invitation.workspace_id,
+        invitation_id=details.invitation.id, actor_user_id=None,
+        action="declined", role=details.invitation.role.value,
+        all_agents_access=details.invitation.all_agents_access,
+    )
     await session.flush()
 
 
