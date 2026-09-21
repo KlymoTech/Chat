@@ -18,10 +18,11 @@ import { workspacePresentationKey, type WorkspaceSettings } from '@/lib/workspac
 export function WorkspaceMembersPanel({ workspace }: { workspace: WorkspaceSettings }) {
   const context = `${workspacePresentationKey()}:${workspace.id}:${[...(workspace.permissions ?? [])].sort().join(',')}`;
   const canView = workspace.permissions?.includes('members.view') ?? false;
+  const canManage = workspace.permissions?.includes('members.manage') ?? false;
   return <div key={context}>
     <WorkspaceTeamPanel workspace={workspace} />
     {canView ? <>
-      <WorkspaceMemberDetailsPanel />
+      <WorkspaceMemberDetailsPanel canManage={canManage} />
       <WorkspaceMemberLifecyclePanel workspace={workspace} />
     </> : null}
   </div>;
