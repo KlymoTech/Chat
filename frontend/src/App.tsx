@@ -113,6 +113,8 @@ export function App() {
       <Route path="integrations/advanced" element={<IntegrationManagementPage />} />
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
+      <Route path="workspace/settings" element={<Navigate to="/workspace/settings/general" replace />} />
+      <Route path="workspace/settings/general" element={<WorkspacePage />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
       <Route path="platform-admin" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
