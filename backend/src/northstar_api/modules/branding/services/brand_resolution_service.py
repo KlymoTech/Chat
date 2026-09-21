@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +23,7 @@ from ..models import WorkspaceBrand
 _WORKSPACE_CACHE_VERSION_KEY = "__published_brand_version"
 
 
-def _workspace_cache_payload(branding: ExtendedBranding, version: int) -> dict:
+def _workspace_cache_payload(branding: ExtendedBranding, version: int) -> dict[str, Any]:
     return {
         **branding.model_dump(by_alias=True, mode="json"),
         _WORKSPACE_CACHE_VERSION_KEY: version,
