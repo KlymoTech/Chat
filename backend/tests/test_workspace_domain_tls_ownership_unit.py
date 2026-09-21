@@ -22,6 +22,11 @@ def _domain(status: str) -> DomainRecord:
     return domain
 
 
+async def _already_locked(_session: object, _workspace: object) -> None:
+    """Route unit tests isolate TLS behavior; lock mechanics have dedicated tests."""
+    return None
+
+
 @pytest.mark.parametrize(
     "domain_status",
     ["pending", "dns_pending", "verifying", "failed", "disabled", "active"],
@@ -43,6 +48,7 @@ async def test_activation_rejects_domains_without_verified_dns(
         raise AssertionError("A rejected domain must not persist or enqueue TLS work")
 
     monkeypatch.setattr(domains, "load_workspace", load_workspace)
+    monkeypatch.setattr(domains, "lock_workspace_settings", _already_locked)
     monkeypatch.setattr(domains, "settings_document", lambda _workspace: document)
     monkeypatch.setattr(domains, "save_document", forbidden_side_effect)
     monkeypatch.setattr(domains, "_enqueue", forbidden_side_effect)
@@ -90,6 +96,7 @@ async def test_activation_preserves_verified_domain_retry(
         return True
 
     monkeypatch.setattr(domains, "load_workspace", load_workspace)
+    monkeypatch.setattr(domains, "lock_workspace_settings", _already_locked)
     monkeypatch.setattr(domains, "settings_document", lambda _workspace: document)
     monkeypatch.setattr(domains, "save_document", lambda *_args: None)
     monkeypatch.setattr(domains, "persist_branding_document", persist_branding_document)
