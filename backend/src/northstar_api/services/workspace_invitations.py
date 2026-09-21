@@ -14,6 +14,7 @@ import structlog
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.database import set_tenant_context
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.email_verification import EmailVerificationState
 from northstar_api.models import (
@@ -432,6 +433,9 @@ async def _accept_invitation(
     record_consents: bool = False,
 ) -> AcceptedWorkspaceInvitation:
     invitation = details.invitation
+    # The public signup path has no principal. Establish tenant RLS context
+    # before creating membership and the new scoped audit/outbox records.
+    await set_tenant_context(session, invitation.tenant_id)
     now = datetime.now(UTC)
     tenant_membership = await session.scalar(
         select(TenantMembership)
@@ -559,6 +563,7 @@ async def signup_with_workspace_invitation(
 
 async def decline_workspace_invitation(session: AsyncSession, raw_token: str) -> None:
     details = await preview_workspace_invitation(session, raw_token, lock=True)
+    await set_tenant_context(session, details.invitation.tenant_id)
     now = datetime.now(UTC)
     details.invitation.status = WorkspaceInvitationStatus.DECLINED
     details.invitation.declined_at = now
