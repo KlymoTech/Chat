@@ -108,7 +108,7 @@ export function WorkspacePage() {
     <div className="workspace-console-layout">
       <WorkspaceNavigation active={section} onSelect={(id) => setParams(id === 'workspace' ? {} : { section: id })} />
       <div className="workspace-console-content">
-        {section === 'workspace' ? <WorkspaceGeneralPanel workspace={workspace} setWorkspace={setWorkspace} onSave={saveProfile} saving={saving} ownerInitial={ownerInitial} /> : null}
+        {section === 'workspace' ? <WorkspaceGeneralPanel workspace={workspace} setWorkspace={setWorkspace} onSave={saveProfile} saving={saving} ownerInitial={ownerInitial} currentUserId={session?.user.id} /> : null}
 
         {section === 'team' ? <WorkspaceTeamPanel workspace={workspace} /> : null}
 
