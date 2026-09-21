@@ -2,6 +2,7 @@
 
 Existing workspaces have no owner field. Resolve a legacy owner from an active
 administrator (preferring the creator) without rewriting historical data.
+Once explicitly assigned, never silently hand ownership to a different admin.
 Ownership transfers are explicit, workspace-locked and transactional.
 """
 from __future__ import annotations
@@ -37,15 +38,21 @@ class WorkspaceOwner:
 def select_owner_id(
     configured: object, creator: UUID | None, eligible: tuple[UUID, ...],
 ) -> UUID | None:
-    """Only an active workspace administrator may be the effective owner."""
+    """Never silently reassign a recorded owner; infer only for legacy records.
+
+    A transferred owner may be disabled or lose tenant membership outside the
+    workspace-member routes. In that case, returning the creator/another admin
+    would accidentally grant ownership-transfer authority without a handover.
+    Explicitly configured but invalid ownership must be recovered separately.
+    """
     if not eligible:
         return None
-    try:
-        stored = UUID(str(configured)) if configured else None
-    except (TypeError, ValueError, AttributeError):
-        stored = None
-    if stored in eligible:
-        return stored
+    if configured is not None:
+        try:
+            stored = UUID(str(configured))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        return stored if stored in eligible else None
     if creator in eligible:
         return creator
     return eligible[0]
@@ -55,6 +62,8 @@ async def resolve_workspace_owner(
     session: AsyncSession, *, tenant_id: UUID, workspace: Workspace,
 ) -> WorkspaceOwner | None:
     """Scope by both tenant and workspace and ignore inactive/non-admin users."""
+    if workspace.tenant_id != tenant_id:
+        return None
     rows = (await session.execute(
         select(User.id, User.name)
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
@@ -65,7 +74,6 @@ async def resolve_workspace_owner(
             WorkspaceMembership.role == WorkspaceRole.ADMIN,
             TenantMembership.tenant_id == tenant_id,
             User.is_active.is_(True),
-            workspace.tenant_id == tenant_id,
         )
         .order_by(WorkspaceMembership.created_at, User.id)
     )).all()
@@ -116,7 +124,7 @@ async def transfer_workspace_ownership(
     )
     current = await resolve_workspace_owner(session, tenant_id=tenant_id, workspace=workspace)
     if current is None:
-        raise WorkspaceOwnershipError("Workspace has no active administrator; recover access first")
+        raise WorkspaceOwnershipError("Workspace ownership is unavailable; recover access first")
     if current.user_id != expected_owner_user_id:
         raise WorkspaceOwnershipError("Workspace owner changed; reload before transferring")
     if current.user_id != actor_user_id:
