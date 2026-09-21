@@ -55,6 +55,15 @@ def _in_networks(address: str, networks: list[str]) -> bool:
     return any(candidate in ip_network(value, strict=False) for value in networks)
 
 
+def enforce_network_security(workspace: Workspace, request: Request | None) -> None:
+    policy = security_settings(workspace)
+    address = _request_ip(request)
+    if address and policy.ip_denylist and _in_networks(address, policy.ip_denylist):
+        raise HTTPException(status_code=403, detail="This network is denied by the workspace security policy")
+    if policy.ip_allowlist and (not address or not _in_networks(address, policy.ip_allowlist)):
+        raise HTTPException(status_code=403, detail="This network is not allowed by the workspace security policy")
+
+
 def enforce_request_security(
     workspace: Workspace,
     user: User,
@@ -63,13 +72,7 @@ def enforce_request_security(
     request: Request | None,
 ) -> None:
     policy = security_settings(workspace)
-    address = _request_ip(request)
-    if address and policy.ip_denylist and _in_networks(address, policy.ip_denylist):
-        raise HTTPException(status_code=403, detail="This network is denied by the workspace security policy")
-    if policy.ip_allowlist:
-        if not address or not _in_networks(address, policy.ip_allowlist):
-            raise HTTPException(status_code=403, detail="This network is not allowed by the workspace security policy")
-
+    enforce_network_security(workspace, request)
     requires_mfa = policy.mfa_enforcement == "all" or (
         policy.mfa_enforcement == "admins" and workspace_role == WorkspaceRole.ADMIN
     )
