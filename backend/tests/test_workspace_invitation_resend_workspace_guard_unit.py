@@ -57,9 +57,10 @@ async def test_resend_locks_workspace_before_invitation_and_rotates_only_valid_i
         expires_at=None,
         last_delivery_error="OldFailure",
         updated_at=None,
+        email="new@example.test",
     )
     session = AsyncMock()
-    session.scalar.side_effect = [SimpleNamespace(id=workspace_id), invitation]
+    session.scalar.side_effect = [SimpleNamespace(id=workspace_id), invitation, None]
     audit = Mock()
     monkeypatch.setattr(service, "stage_invitation_transition", audit)
     monkeypatch.setattr(service.secrets, "token_urlsafe", lambda _size: "replacement-token")
@@ -75,14 +76,19 @@ async def test_resend_locks_workspace_before_invitation_and_rotates_only_valid_i
     assert invitation.token_hash == service.workspace_invitation_token_hash(issued.token)
     assert invitation.invited_by_user_id == actor_id
     assert invitation.last_delivery_error is None
-    assert session.scalar.await_count == 2
+    assert session.scalar.await_count == 3
     workspace_sql = str(
         session.scalar.await_args_list[0].args[0].compile(dialect=postgresql.dialect())
     )
     invitation_sql = str(
         session.scalar.await_args_list[1].args[0].compile(dialect=postgresql.dialect())
     )
+    member_statement = session.scalar.await_args_list[2].args[0]
+    member_sql = str(member_statement.compile(dialect=postgresql.dialect()))
     assert "FROM workspaces" in workspace_sql and "FOR UPDATE" in workspace_sql
     assert "FROM workspace_invitations" in invitation_sql and "FOR UPDATE" in invitation_sql
+    assert "workspace_memberships.tenant_id" in member_sql
+    assert "workspace_memberships.workspace_id" in member_sql
+    assert {tenant_id, workspace_id, invitation.email} <= set(member_statement.compile().params.values())
     audit.assert_called_once()
     session.flush.assert_awaited_once()
