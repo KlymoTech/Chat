@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Card } from '@/components/ui';
+import { onWorkspaceMemberChanged } from '@/features/workspace/members/workspaceMemberEvents';
 import { workspaceTeamApi, type WorkspaceMemberDetails } from '@/lib/workspace-team-api';
 
 /** Read-only member metadata; existing invite/access controls remain untouched. */
@@ -30,7 +31,8 @@ export function WorkspaceMemberDetailsPanel() {
 
   useEffect(() => {
     void load();
-    return () => controller.current?.abort();
+    const unsubscribe = onWorkspaceMemberChanged(() => { void load(); });
+    return () => { unsubscribe(); controller.current?.abort(); };
   }, [load]);
 
   const names = new Map(members.map((member) => [member.userId, member.name]));
