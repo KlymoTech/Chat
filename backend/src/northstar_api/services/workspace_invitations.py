@@ -425,7 +425,7 @@ async def preview_workspace_invitation(
         await session.scalars(
             select(WorkspaceInvitationAgentAccess.agent_id)
             .where(WorkspaceInvitationAgentAccess.invitation_id == invitation.id)
-            .order_by(WorkspaceInvitationAgentAccess.invitation_id)
+            .order_by(WorkspaceInvitationAgentAccess.agent_id)
         )
     )
     existing_user = (
