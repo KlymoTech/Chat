@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
 import { Badge, Button, Card, Field, Modal } from '@/components/ui';
 import { WorkspaceMemberDetailsPanel } from '@/features/workspace/members/WorkspaceMemberDetailsPanel';
+import { emitWorkspaceMemberChanged, onWorkspaceMemberChanged } from '@/features/workspace/members/workspaceMemberEvents';
 import {
   workspaceTeamApi,
   type WorkspaceMember,
@@ -54,7 +55,11 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
     } finally { if (!request.signal.aborted) setLoading(false); }
   }, []);
 
-  useEffect(() => { void load(); return () => controller.current?.abort(); }, [load]);
+  useEffect(() => {
+    void load();
+    const unsubscribe = onWorkspaceMemberChanged(() => { void load(); });
+    return () => { unsubscribe(); controller.current?.abort(); };
+  }, [load]);
 
   function open(member: WorkspaceMember, status: WorkspaceMemberLifecycle['status']) {
     setTarget(member); setNextStatus(status); setReason(''); setConfirmation(''); setError('');
@@ -72,6 +77,7 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
         : await workspaceTeamApi.reactivateMember(target.userId, reason);
       setStates((old) => ({ ...old, [result.userId]: result.status }));
       setTarget(null); setReason(''); setConfirmation('');
+      emitWorkspaceMemberChanged(result.status === 'suspended' ? 'member-suspended' : 'member-reactivated');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Member lifecycle change could not be completed');
     } finally { setBusy(false); }
