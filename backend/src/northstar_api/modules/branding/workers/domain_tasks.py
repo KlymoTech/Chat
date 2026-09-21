@@ -4,7 +4,7 @@ import asyncio
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context, tenant_context
@@ -12,17 +12,18 @@ from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.branding.repositories import persist_branding_document
 from northstar_api.modules.branding.services.domain_service import check_domain_tls, verify_domain_txt
 from northstar_api.modules.workspace.brand_cache import invalidate_brand_cache
+from northstar_api.modules.workspace.contracts import DomainRecord, WorkspaceSettingsBundle
 from northstar_api.modules.workspace.events.administrative_events import emit_workspace_administrative_event
 from northstar_api.modules.workspace.store import save_document, settings_document
 from northstar_api.workers.celery_app import celery_app
 
 
 async def _load_workspace_and_domain(
-    session,
+    session: AsyncSession,
     tenant_id: UUID,
     workspace_id: UUID,
     domain_id: str,
-):
+) -> tuple[Workspace | None, WorkspaceSettingsBundle | None, DomainRecord | None]:
     workspace = await session.scalar(
         select(Workspace).where(
             Workspace.id == workspace_id,
