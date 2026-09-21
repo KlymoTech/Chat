@@ -13,6 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import (
@@ -59,8 +60,8 @@ def select_owner_id(
     return eligible[0]
 
 
-def eligible_member_state_filter(tenant_id: UUID, workspace_id: UUID):
-    """Allow legacy members with no state row and explicitly active members only."""
+def eligible_member_state_filter(tenant_id: UUID, workspace_id: UUID) -> ColumnElement[bool]:
+    """Match only the selected workspace when checking member suspension."""
     return and_(
         WorkspaceMemberState.tenant_id == tenant_id,
         WorkspaceMemberState.workspace_id == workspace_id,
