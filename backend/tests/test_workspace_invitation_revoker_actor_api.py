@@ -27,7 +27,10 @@ async def test_invitation_revocation_audit_identifies_actual_authenticated_actor
     workspace_id = UUID(workspace.json()["id"])
     token = auth_headers["Authorization"].split(" ", 1)[1]
     expected_actor = UUID(decode_token(token, "access")["sub"])
-    headers = {**auth_headers, "X-Workspace-ID": str(workspace_id)}
+    headers = {
+        **auth_headers, "X-Workspace-ID": str(workspace_id),
+        "User-Agent": "WorkspaceAuditRegression/1.0",
+    }
 
     issued = await client.post("/api/v1/workspace/invitations", headers=headers, json={
         "email": f"revoker-{uuid4().hex}@example.com",
@@ -55,3 +58,5 @@ async def test_invitation_revocation_audit_identifies_actual_authenticated_actor
     assert events[0].actor_user_id == expected_actor
     assert events[0].category == "access"
     assert events[0].metadata_json == {"role": "viewer", "allAgentsAccess": True}
+    assert events[0].user_agent == "WorkspaceAuditRegression/1.0"
+    assert events[0].ip_address is not None
