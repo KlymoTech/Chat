@@ -17,6 +17,11 @@ export type PublicBranding = {
     loginBackground?: string;
     loginTitle?: string;
     loginDescription?: string;
+    signupTitle?: string;
+    forgotPasswordTitle?: string;
+    resetPasswordTitle?: string;
+    mfaTitle?: string;
+    invitationTitle?: string;
     termsUrl?: string;
     privacyUrl?: string;
     supportUrl?: string;
