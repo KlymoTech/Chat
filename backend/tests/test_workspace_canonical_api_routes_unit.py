@@ -29,6 +29,19 @@ def _patch_route(router: APIRouter, path: str) -> APIRoute:
     return matching[0]
 
 
+def _dependency_calls(route: APIRoute) -> tuple[object, ...]:
+    """Include nested authorization calls, not merely the endpoint function."""
+    calls: list[object] = []
+
+    def visit(node: object) -> None:
+        for dependency in getattr(node, "dependencies", ()):  # FastAPI Dependant tree.
+            calls.append(dependency.call)
+            visit(dependency)
+
+    visit(route.dependant)
+    return tuple(calls)
+
+
 def test_capability_routers_preserve_legacy_handlers_and_response_contracts() -> None:
     assert access_router is legacy_access_router
     for path, feature_router, handler, response_type in (
@@ -43,6 +56,7 @@ def test_capability_routers_preserve_legacy_handlers_and_response_contracts() ->
         assert legacy.response_model is canonical.response_model is registered.response_model is response_type
         assert legacy.status_code == canonical.status_code == registered.status_code
         assert legacy.name == canonical.name == registered.name
+        assert _dependency_calls(legacy) == _dependency_calls(canonical) == _dependency_calls(registered)
         assert len(feature_router.routes) == 1
 
 
