@@ -62,8 +62,22 @@ async def ensure_member_status_change_allowed(
         )
 
 
-def ensure_ownership_transfer_allowed(workspace: Workspace, member_user_id: UUID) -> None:
-    """A suspended member cannot become the workspace owner."""
+def ensure_ownership_transfer_allowed(
+    workspace: Workspace,
+    member_user_id: UUID,
+    *,
+    account_is_active: bool = True,
+) -> None:
+    """A suspended Workspace member or disabled account cannot become owner.
+
+    Preserve the established two-argument service contract. HTTP callers pass
+    the current User.is_active value retrieved by the scoped member loader.
+    """
+    if not account_is_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Reactivate the user account before transferring workspace ownership",
+        )
     if is_member_suspended(workspace.settings_json, member_user_id):
         raise HTTPException(
             status_code=409,
