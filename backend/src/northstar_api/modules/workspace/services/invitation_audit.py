@@ -12,7 +12,9 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.lead_crm.audit import record_audit_event
-from northstar_api.modules.workspace.services.invitation_actor import invitation_revoker_actor
+from northstar_api.modules.workspace.services.invitation_actor import (
+    invitation_audit_request, invitation_revoker_actor,
+)
 from northstar_api.services.outbox import enqueue_event
 
 InvitationAction = Literal[
@@ -59,6 +61,9 @@ def stage_invitation_transition(
         entity_id=str(invitation_id),
         category="access",
         metadata=metadata,
+        request=invitation_audit_request(
+            session, tenant_id=tenant_id, workspace_id=workspace_id,
+        ),
     )
     event = enqueue_event(
         session,
