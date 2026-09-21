@@ -72,5 +72,7 @@ def test_legacy_development_fallback_does_not_require_smtp(monkeypatch: pytest.M
         "get_email_settings",
         Mock(side_effect=AssertionError("The original development sender owns its delivery settings")),
     )
-    assert delivery.stage_invitation_email(session, invitation=_invitation("token"), raw_token="token") is False
+    assert (
+        delivery.stage_invitation_email(session, invitation=_invitation("token"), raw_token="token") is False
+    )
     session.add.assert_not_called()
