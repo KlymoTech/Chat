@@ -11,6 +11,11 @@ export interface WorkspaceMember {
   allAgentsAccess: boolean; agentIds: string[]; joinedAt: string; isSelf: boolean;
 }
 export interface WorkspaceMemberLifecycle { userId: string; status: WorkspaceMemberStatus }
+export interface WorkspaceMemberDetails {
+  userId: string; name: string; email: string; role: WorkspaceRole;
+  status: WorkspaceMemberStatus; mfaEnabled: boolean; lastLoginAt: string | null;
+  invitedByUserId: string | null; joinedAt: string;
+}
 export interface WorkspaceMemberLifecycleChange { reason: string; confirmation: 'SUSPEND' | 'REACTIVATE' }
 export interface WorkspaceInvitation {
   id: string; email: string; role: WorkspaceRole; allAgentsAccess: boolean; agentIds: string[];
@@ -82,6 +87,7 @@ async function request<T>(path: string, options: {
 export const workspaceTeamApi = {
   listMembers: (signal?: AbortSignal) => request<WorkspaceMember[]>('/workspace/members', { signal }),
   listMemberLifecycle: (signal?: AbortSignal) => request<WorkspaceMemberLifecycle[]>('/workspace/members/lifecycle', { signal }),
+  listMemberDetails: (signal?: AbortSignal) => request<WorkspaceMemberDetails[]>('/workspace/members/details', { signal }),
   listInvitations: (signal?: AbortSignal) => request<WorkspaceInvitation[]>('/workspace/invitations', { signal }),
   invite: (input: WorkspaceInvitationCreate) => request<WorkspaceInvitation>('/workspace/invitations', { method: 'POST', body: input }),
   updateMember: (userId: string, input: WorkspaceAccessInput) => request<WorkspaceMember>(
