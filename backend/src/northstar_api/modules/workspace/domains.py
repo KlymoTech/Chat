@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
-from northstar_api.models import Workspace
+from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.branding.repositories import persist_branding_document
 from northstar_api.modules.branding.services.domain_service import TLS_ELIGIBLE_DOMAIN_STATUSES
 from northstar_api.security import Principal
@@ -65,6 +65,33 @@ async def _mark_dispatch_failed(
     domain: DomainRecord,
     operation: str,
 ) -> None:
+    # The initial request is committed before queue dispatch. Another request
+    # may disable the domain, archive the workspace or restart verification
+    # before the broker reports failure. Do not save the stale in-memory JSON.
+    queued_status = "verifying" if operation == "verification" else "certificate_pending"
+    domain_id = domain.id
+    hostname = domain.hostname
+    verification_name = domain.verification_name
+    verification_value = domain.verification_value
+    await session.refresh(
+        workspace,
+        attribute_names=["settings_json", "status"],
+        with_for_update=True,
+    )
+    document = settings_document(workspace)
+    current = next((item for item in document.domains.domains if item.id == domain_id), None)
+    if (
+        workspace.status != WorkspaceStatus.ACTIVE
+        or current is None
+        or current.hostname != hostname
+        or current.status != queued_status
+        or current.verification_name != verification_name
+        or current.verification_value != verification_value
+    ):
+        # No change belongs to this failed request; release the row lock.
+        await session.rollback()
+        return
+    domain = current
     domain.status = "failed"
     domain.failure_reason = "Background worker dispatch is unavailable; retry this operation"
     save_document(workspace, document)
