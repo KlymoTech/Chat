@@ -1,5 +1,9 @@
 from fastapi import APIRouter, Depends
 
+# Load the legacy workspace router before the additive feature module. The
+# settings module reuses its scoped loader while the migration remains
+# non-destructive.
+from northstar_api.routers import workspace
 from northstar_api.modules.workspace import router as workspace_settings_router
 from northstar_api.routers import (
     agents,
@@ -67,7 +71,6 @@ from northstar_api.routers import (
     whatsapp,
     whatsapp_accounts,
     widget,
-    workspace,
     workspace_api_keys,
     workspace_invitations,
 )
