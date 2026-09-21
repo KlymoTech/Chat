@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import (
     Agent,
     Role,
@@ -17,7 +18,9 @@ from northstar_api.models import (
     WorkspaceMembership,
     WorkspaceRole,
 )
+from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 from northstar_api.modules.workspace.services.ownership import WorkspaceOwnershipError, protect_workspace_owner
+from northstar_api.services.outbox import enqueue_event
 
 
 class WorkspaceMemberError(RuntimeError):
@@ -184,9 +187,6 @@ async def _protect_last_admin(
     if not removing_admin:
         return
 
-    # Serialize administrator demotion/removal for this workspace. Locking only
-    # the target membership allows two administrators to demote each other at
-    # the same time after both observe a count of two.
     workspace = await session.scalar(
         select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()
     )
@@ -223,6 +223,46 @@ async def _protect_current_owner(
         raise WorkspaceMemberError(str(exc), status_code=exc.status_code) from None
 
 
+def _stage_member_event(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    actor_user_id: UUID,
+    member_user_id: UUID,
+    action: str,
+    event_type: str,
+    fields: list[str] | None = None,
+) -> None:
+    metadata = {"fields": fields} if fields else None
+    record_audit_event(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        entity_type="workspace_member",
+        entity_id=str(member_user_id),
+        category="access",
+        metadata=metadata,
+    )
+    payload: dict[str, object] = {
+        "workspaceId": str(workspace_id),
+        "userId": str(member_user_id),
+    }
+    if fields:
+        payload["fields"] = fields
+    event = enqueue_event(
+        session,
+        tenant_id=tenant_id,
+        aggregate_type="workspace_member",
+        aggregate_id=member_user_id,
+        event_type=event_type,
+        payload=payload,
+    )
+    event.workspace_id = workspace_id
+
+
 async def update_workspace_member(
     session: AsyncSession,
     *,
@@ -234,8 +274,6 @@ async def update_workspace_member(
     all_agents_access: bool,
     agent_ids: list[UUID],
 ) -> WorkspaceMemberDetails:
-    # Ownership changes, role updates and removals serialize on the workspace
-    # before locking a member row, avoiding opposite lock ordering/deadlocks.
     await _protect_current_owner(
         session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
     )
@@ -259,6 +297,18 @@ async def update_workspace_member(
         all_agents_access=all_agents_access,
         agent_ids=agent_ids,
     )
+    previous_agent_ids = tuple(await session.scalars(select(WorkspaceMemberAgentAccess.agent_id).where(
+        WorkspaceMemberAgentAccess.workspace_id == workspace_id,
+        WorkspaceMemberAgentAccess.user_id == member_user_id,
+    ).order_by(WorkspaceMemberAgentAccess.agent_id)))
+    changed_fields: list[str] = []
+    if membership.role != role:
+        changed_fields.append("role")
+    if membership.all_agents_access != all_agents_access:
+        changed_fields.append("all_agents_access")
+    if previous_agent_ids != tuple(sorted(selected)):
+        changed_fields.append("agent_ids")
+
     membership.role = role
     membership.all_agents_access = all_agents_access
     membership.updated_at = datetime.now(UTC)
@@ -268,6 +318,17 @@ async def update_workspace_member(
         user_id=member_user_id,
         agent_ids=selected,
     )
+    if changed_fields:
+        _stage_member_event(
+            session,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            actor_user_id=actor_user_id,
+            member_user_id=member_user_id,
+            action="workspace.member.updated",
+            event_type="workspace.member.updated.v1",
+            fields=changed_fields,
+        )
     await session.flush()
     return WorkspaceMemberDetails(membership=membership, user=user, agent_ids=selected)
 
@@ -301,6 +362,22 @@ async def remove_workspace_member(
             WorkspaceMemberAgentAccess.workspace_id == workspace_id,
             WorkspaceMemberAgentAccess.user_id == member_user_id,
         )
+    )
+    await session.execute(
+        delete(WorkspaceMemberState).where(
+            WorkspaceMemberState.tenant_id == tenant_id,
+            WorkspaceMemberState.workspace_id == workspace_id,
+            WorkspaceMemberState.user_id == member_user_id,
+        )
+    )
+    _stage_member_event(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        actor_user_id=actor_user_id,
+        member_user_id=member_user_id,
+        action="workspace.member.removed",
+        event_type="workspace.member.removed.v1",
     )
     await session.delete(membership)
     remaining = await session.scalar(
