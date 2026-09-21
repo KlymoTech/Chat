@@ -19,6 +19,7 @@ from northstar_api.models import (
 )
 from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
 from northstar_api.modules.workspace.member_state import is_member_suspended
+from northstar_api.modules.workspace.security_policy import enforce_network_security, enforce_request_security
 from northstar_api.onboarding_models import OrganizationSetup
 from northstar_api.security import TENANT_ROLE_PERMISSIONS, WORKSPACE_ROLE_PERMISSIONS, Principal, decode_token
 from northstar_api.services.email_verification import email_is_verified
@@ -64,21 +65,37 @@ async def _agent_scope(session: AsyncSession, membership: WorkspaceMembership, u
     )))
 
 
-def _custom_role_permissions(workspace: Workspace, user_id: UUID) -> frozenset[str]:
+def _custom_role_context(workspace: Workspace, user_id: UUID) -> tuple[frozenset[str], frozenset[UUID] | None]:
     raw = dict(workspace.settings_json or {}).get("workspaceSettingsV2", {})
     try:
         settings = WorkspaceSettingsBundle.model_validate(raw)
     except (TypeError, ValueError):
-        return frozenset()
+        return frozenset(), None
     assigned = set(settings.roles.member_role_ids.get(str(user_id), []))
-    if not assigned:
-        return frozenset()
-    return frozenset(
-        permission
-        for role in settings.roles.custom_roles
-        if role.id in assigned
-        for permission in role.permissions
-    )
+    roles = [role for role in settings.roles.custom_roles if role.id in assigned]
+    permissions = frozenset(permission for role in roles for permission in role.permissions)
+    restricted_roles = [role for role in roles if "agents" in role.resources.selected]
+    if not restricted_roles:
+        return permissions, None
+    agent_ids: set[UUID] = set()
+    for role in restricted_roles:
+        for value in role.resources.selected.get("agents", []):
+            try:
+                agent_ids.add(UUID(value))
+            except ValueError:
+                continue
+    return permissions, frozenset(agent_ids)
+
+
+def _merge_agent_scope(
+    membership_scope: frozenset[UUID] | None,
+    custom_scope: frozenset[UUID] | None,
+) -> frozenset[UUID] | None:
+    if custom_scope is None:
+        return membership_scope
+    if membership_scope is None:
+        return custom_scope
+    return membership_scope & custom_scope
 
 
 async def authenticate_api_key(token: str, session: AsyncSession, *, request: Request | None = None) -> Principal:
@@ -103,6 +120,7 @@ async def authenticate_api_key(token: str, session: AsyncSession, *, request: Re
         raise HTTPException(status_code=401, detail="API key access is unavailable")
     if is_member_suspended(workspace.settings_json, api_key.created_by_user_id):
         raise HTTPException(status_code=403, detail="Workspace membership is suspended")
+    enforce_network_security(workspace, request)
     if not await email_is_verified(session, api_key.created_by_user_id):
         raise HTTPException(status_code=403, detail="Email verification required")
     requested_workspace = request.headers.get("x-workspace-id", "").strip() if request else ""
@@ -185,19 +203,23 @@ async def authenticate_access_token(token: str, session: AsyncSession, *, reques
             Workspace.status == WorkspaceStatus.ACTIVE,
         )
     )
-    if workspace is None:
+    user = await session.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
+    if workspace is None or user is None:
         raise HTTPException(status_code=403, detail="Workspace access is unavailable")
     if is_member_suspended(workspace.settings_json, user_id):
         raise HTTPException(status_code=403, detail="Workspace membership is suspended")
+    enforce_request_security(workspace, user, workspace_membership.role, payload, request)
+    custom_permissions, custom_agent_scope = _custom_role_context(workspace, user_id)
     permissions = (
         TENANT_ROLE_PERMISSIONS[membership.role]
         | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
-        | _custom_role_permissions(workspace, user_id)
+        | custom_permissions
     )
+    membership_agent_scope = await _agent_scope(session, workspace_membership, user_id)
     return Principal(
         user_id=user_id, tenant_id=tenant_id, role=membership.role, token_id=payload["jti"],
         workspace_id=workspace_membership.workspace_id, workspace_role=workspace_membership.role,
-        permissions=permissions, agent_ids=await _agent_scope(session, workspace_membership, user_id),
+        permissions=permissions, agent_ids=_merge_agent_scope(membership_agent_scope, custom_agent_scope),
     )
 
 
