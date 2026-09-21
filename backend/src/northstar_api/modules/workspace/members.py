@@ -12,6 +12,7 @@ from northstar_api.models import User, WorkspaceMembership, WorkspaceRole
 from northstar_api.onboarding_contract import SetupContract
 from northstar_api.security import Principal
 
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .store import load_workspace, record_workspace_change
 
 router = APIRouter()
@@ -122,6 +123,9 @@ async def _set_member_status(
     if member_user_id == principal.user_id:
         raise HTTPException(status_code=409, detail="Use another workspace administrator to change your own status")
     _, workspace = await load_workspace(principal, session)
+    # A concurrent role/status change must be visible before checking the
+    # last-active-admin invariant or writing workspaceMemberStatusV1.
+    await lock_workspace_settings(session, workspace)
     membership, user = await _require_member(session, workspace, member_user_id)
     if membership.role == WorkspaceRole.ADMIN and status == "suspended":
         active_admins = list(
@@ -182,6 +186,7 @@ async def transfer_ownership(
     if principal.workspace_role != WorkspaceRole.ADMIN:
         raise HTTPException(status_code=403, detail="Workspace administrator permission required")
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     membership, user = await _require_member(session, workspace, member_user_id)
     if is_member_suspended(workspace.settings_json, member_user_id):
         raise HTTPException(status_code=409, detail="Reactivate the member before transferring ownership")
