@@ -13,14 +13,21 @@ from northstar_api.modules.workspace.general import router as general_router
 from northstar_api.modules.workspace.members import router as members_router
 from northstar_api.modules.workspace.settings import router as settings_router
 
+from .workspace_dashboard import router as dashboard_settings_router
+from .workspace_roles import router as roles_router
+from .workspace_teams import router as teams_router
+
 __all__ = [
-    "access_router",
+    "access_router",  # Retain the original combined router for legacy imports.
     "branding_router",
     "conversation_assignments_router",
     "dashboard_runtime_router",
+    "dashboard_settings_router",
     "domains_router",
     "email_router",
     "general_router",
     "members_router",
+    "roles_router",
     "settings_router",
+    "teams_router",
 ]
