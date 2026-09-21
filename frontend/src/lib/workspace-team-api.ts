@@ -11,7 +11,7 @@ export interface WorkspaceMember {
   userId: string; name: string; email: string; role: WorkspaceRole;
   allAgentsAccess: boolean; agentIds: string[]; joinedAt: string; isSelf: boolean;
 }
-export interface WorkspaceMemberLifecycle { userId: string; status: WorkspaceMemberStatus }
+export interface WorkspaceMemberLifecycle { userId: string; status: WorkspaceMemberDetailsStatus }
 export interface WorkspaceMemberDetails {
   userId: string; name: string; email: string; role: WorkspaceRole;
   status: WorkspaceMemberDetailsStatus; mfaEnabled: boolean; lastLoginAt: string | null;
