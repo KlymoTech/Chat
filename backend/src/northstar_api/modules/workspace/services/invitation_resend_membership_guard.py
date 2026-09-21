@@ -34,9 +34,10 @@ async def prevent_resend_to_existing_workspace_member(
     ):
         return
     route = request.scope.get("route")
-    if getattr(route, "path", "") .endswith(
+    route_path = getattr(route, "path", "")
+    if not isinstance(route_path, str) or not route_path.endswith(
         "/workspace/invitations/{invitation_id}/resend"
-    ) is False:
+    ):
         return
     try:
         invitation_id = UUID(str(request.path_params.get("invitation_id", "")))
