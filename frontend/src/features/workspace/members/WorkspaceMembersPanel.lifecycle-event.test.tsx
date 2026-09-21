@@ -8,6 +8,7 @@ import type { WorkspaceSettings } from '@/lib/workspace-api';
 const mocks = vi.hoisted(() => ({
   listMembers: vi.fn(),
   listMemberLifecycle: vi.fn(),
+  listMemberDetails: vi.fn(),
   suspendMember: vi.fn(),
   reactivateMember: vi.fn(),
   emitWorkspaceMemberChanged: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@/lib/workspace-team-api', () => ({
   workspaceTeamApi: {
     listMembers: mocks.listMembers,
     listMemberLifecycle: mocks.listMemberLifecycle,
+    listMemberDetails: mocks.listMemberDetails,
     suspendMember: mocks.suspendMember,
     reactivateMember: mocks.reactivateMember,
   },
@@ -42,6 +44,7 @@ it('emits suspension, not reactivation, when global disablement overrides the re
     joinedAt: '2026-09-01T00:00:00Z', isSelf: false,
   };
   mocks.listMembers.mockResolvedValue([member]);
+  mocks.listMemberDetails.mockResolvedValue([]);
   mocks.listMemberLifecycle.mockResolvedValue([{ userId: member.userId, status: 'active' }]);
   mocks.suspendMember.mockResolvedValue({ userId: member.userId, status: 'disabled' });
   const workspace = {
