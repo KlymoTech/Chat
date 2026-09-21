@@ -35,7 +35,7 @@ export type DashboardWidgetRendererProps = {
 // grant a widget access to data the current viewer is not authorized to see.
 // Keep these capabilities in sync with the backend's WORKSPACE_PERMISSIONS.
 const WIDGET_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
-  'conversation-summary': ['conversations.view'],
+  'conversation-summary': ['conversations.view', 'analytics.view'],
   'conversation-chart': ['analytics.view'],
   'inbox-attention': ['conversations.view'],
   'lead-summary': ['leads.view'],
@@ -44,7 +44,7 @@ const WIDGET_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   'channel-health': ['channels.view'],
   'crm-status': ['crm.view'],
   'education-summary': ['education.view'],
-  'usage': ['workspace.view'],
+  'usage': ['agents.view', 'analytics.view'],
   'kpi-cards': ['agents.view', 'analytics.view', 'conversations.view', 'leads.view'],
 };
 
