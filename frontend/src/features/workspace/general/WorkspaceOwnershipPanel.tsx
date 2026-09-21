@@ -5,6 +5,7 @@ import {
   type WorkspaceOwner, type WorkspaceOwnerTransfer, type WorkspaceTeamMember,
 } from '@/lib/workspace-api';
 import { workspaceTeamApi } from '@/lib/workspace-team-api';
+import { WorkspaceOwnerRecoveryPanel } from './WorkspaceOwnerRecoveryPanel';
 
 interface Props {
   workspaceId: string;
@@ -104,6 +105,10 @@ export function WorkspaceOwnershipPanel({ workspaceId, currentUserId, canManage 
           </Button>
         </form> : <p>Invite or promote another active workspace administrator before transferring ownership.</p>}
       </details> : null}
+      {owner && !owner.ownerUserId && !error ? <WorkspaceOwnerRecoveryPanel
+        workspaceId={workspaceId} currentUserId={currentUserId} canManage={canManage}
+        onRecovered={(next) => { setOwner(next); setNotice('Workspace ownership recovered and audited.'); }}
+      /> : null}
     </div>
   </Card>;
 }
