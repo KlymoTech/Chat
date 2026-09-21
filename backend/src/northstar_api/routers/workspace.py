@@ -30,6 +30,7 @@ from northstar_api.modules.workspace.services.general_settings import (
     changed_preference_fields,
     record_general_settings_update,
 )
+from northstar_api.modules.workspace.services.preference_merge import merge_workspace_preferences
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
@@ -195,11 +196,14 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
         workspace.name = payload.name.strip()
     preferences_after = preferences_before
     if payload.preferences is not None:
-        preferences_after = payload.preferences.model_dump(by_alias=True, mode="json")
+        merged_preferences = merge_workspace_preferences(
+            WorkspacePreferences.model_validate(preferences_before), payload.preferences,
+        )
+        preferences_after = merged_preferences.model_dump(by_alias=True, mode="json")
         settings["preferences"] = preferences_after
-        workspace.timezone = payload.preferences.timezone
-        workspace.default_language = payload.preferences.default_language
-        workspace.date_format = payload.preferences.date_format
+        workspace.timezone = merged_preferences.timezone
+        workspace.default_language = merged_preferences.default_language
+        workspace.date_format = merged_preferences.date_format
     if payload.white_label is not None:
         if not principal.can("branding.publish") or principal.token_id.startswith("api_key:"):
             raise HTTPException(status_code=403, detail="Interactive branding publication permission required")
