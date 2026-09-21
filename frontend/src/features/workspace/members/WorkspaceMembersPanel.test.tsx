@@ -8,7 +8,8 @@ vi.mock('@/components/WorkspaceTeamPanel', () => ({ WorkspaceTeamPanel: () => <d
 vi.mock('@/lib/workspace-api', () => ({ workspacePresentationKey: () => 'scope' }));
 vi.mock('@/lib/workspace-team-api', () => ({
   workspaceTeamApi: {
-    listMembers: vi.fn(), listMemberLifecycle: vi.fn(), suspendMember: vi.fn(), reactivateMember: vi.fn(),
+    listMembers: vi.fn(), listMemberLifecycle: vi.fn(), listMemberDetails: vi.fn(),
+    suspendMember: vi.fn(), reactivateMember: vi.fn(),
   },
 }));
 
@@ -33,6 +34,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 describe('WorkspaceMembersPanel lifecycle', () => {
   it('requires reason and typed SUSPEND confirmation before changing access', async () => {
+    vi.mocked(workspaceTeamApi.listMemberDetails).mockResolvedValue([]);
     vi.mocked(workspaceTeamApi.listMembers).mockResolvedValue(members);
     vi.mocked(workspaceTeamApi.listMemberLifecycle).mockResolvedValue([
       { userId: 'self', status: 'active' }, { userId: 'member', status: 'active' },
@@ -53,6 +55,7 @@ describe('WorkspaceMembersPanel lifecycle', () => {
   });
 
   it('shows a retryable load error and never offers self suspension', async () => {
+    vi.mocked(workspaceTeamApi.listMemberDetails).mockResolvedValue([]);
     vi.mocked(workspaceTeamApi.listMembers).mockRejectedValue(new Error('Lifecycle unavailable'));
     vi.mocked(workspaceTeamApi.listMemberLifecycle).mockResolvedValue([]);
     render(<WorkspaceMembersPanel workspace={workspace} />);
