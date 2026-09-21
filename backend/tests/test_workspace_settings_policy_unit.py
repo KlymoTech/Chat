@@ -96,9 +96,52 @@ def test_team_conversation_scope_reuses_workspace_agent_boundary() -> None:
         ),
     ]
 
-    permissions, agent_scope = _custom_role_context(_workspace(bundle), user_id)
+    permissions, agent_scope, assigned_only = _custom_role_context(_workspace(bundle), user_id)
     assert permissions == frozenset({"conversations.view"})
     assert agent_scope == frozenset({team_agent_id})
+    assert assigned_only is False
+
+
+def test_assigned_conversation_scope_is_enabled_only_when_it_is_the_effective_scope() -> None:
+    user_id = uuid4()
+    assigned_role_id = str(uuid4())
+    team_role_id = str(uuid4())
+    all_role_id = str(uuid4())
+
+    bundle = WorkspaceSettingsBundle()
+    bundle.roles.custom_roles = [
+        CustomRole(
+            id=assigned_role_id,
+            name="Assigned only",
+            permissions=["conversations.view"],
+            resources=ResourceScope(conversation_scope="assigned"),
+        ),
+        CustomRole(
+            id=team_role_id,
+            name="Team scope",
+            permissions=["conversations.view"],
+            resources=ResourceScope(conversation_scope="team"),
+        ),
+        CustomRole(
+            id=all_role_id,
+            name="All conversations",
+            permissions=["conversations.view"],
+            resources=ResourceScope(conversation_scope="all"),
+        ),
+    ]
+
+    bundle.roles.member_role_ids = {str(user_id): [assigned_role_id]}
+    _, _, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    assert assigned_only is True
+
+    bundle.roles.member_role_ids = {str(user_id): [assigned_role_id, team_role_id]}
+    _, _, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    assert assigned_only is False
+
+    bundle.roles.member_role_ids = {str(user_id): [assigned_role_id, all_role_id]}
+    _, agent_scope, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    assert agent_scope is None
+    assert assigned_only is False
 
 
 def test_member_suspension_is_workspace_local_and_reversible() -> None:
