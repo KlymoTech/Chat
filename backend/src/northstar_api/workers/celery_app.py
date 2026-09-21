@@ -19,6 +19,7 @@ celery_app = Celery(
         "northstar_api.workers.instagram_tasks",
         "northstar_api.workers.facebook_messenger_tasks",
         "northstar_api.workers.slack_tasks",
+        "northstar_api.workers.workspace_invitation_email_tasks",
     ],
 )
 celery_app.conf.update(
@@ -52,6 +53,22 @@ celery_app.conf.update(
         ),
         Queue("ingest.failed", exchange=dead_letter_exchange, routing_key="ingest.failed", durable=True),
         Queue("operations", exchange=jobs_exchange, routing_key="operations", durable=True),
+        Queue(
+            "workspace.email",
+            exchange=jobs_exchange,
+            routing_key="workspace.email",
+            durable=True,
+            queue_arguments={
+                "x-dead-letter-exchange": dead_letter_exchange.name,
+                "x-dead-letter-routing-key": "workspace.email.failed",
+            },
+        ),
+        Queue(
+            "workspace.email.failed",
+            exchange=dead_letter_exchange,
+            routing_key="workspace.email.failed",
+            durable=True,
+        ),
         Queue(
             "whatsapp.inbound",
             exchange=jobs_exchange,
@@ -146,6 +163,9 @@ celery_app.conf.update(
     task_routes={
         "northstar.ingest_source": {"queue": "ingest.source", "routing_key": "ingest.source"},
         "northstar.prepare_course_assignment": {"queue": "ingest.source", "routing_key": "ingest.source"},
+        "northstar.send_workspace_invitation_email": {
+            "queue": "workspace.email", "routing_key": "workspace.email",
+        },
         "northstar.process_whatsapp_inbound": {
             "queue": "whatsapp.inbound",
             "routing_key": "whatsapp.inbound",
