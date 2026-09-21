@@ -2,14 +2,28 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceGeneralPanel } from '@/features/workspace/general/WorkspaceGeneralPanel';
-import { workspaceDefaults } from '@/lib/workspace-api';
+import type { WorkspaceSettings } from '@/lib/workspace-api';
+
+const workspace: WorkspaceSettings = {
+  id: 'workspace-1', name: 'Northstar Workspace', slug: 'northstar',
+  plan: 'business', memberCount: 1,
+  preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
+  security: { sensitiveDataMasking: true, securityContact: null },
+  whiteLabel: {
+    companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
+    primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: null, supportUrl: '',
+    browserTitle: 'Northstar AI', customDomain: '', dnsStatus: 'not-configured',
+    brandedLogin: false, brandedDashboard: true, brandedWidget: false,
+    brandedEmails: false, removePlatformBranding: false,
+  },
+};
 
 afterEach(cleanup);
 
 describe('WorkspaceGeneralPanel', () => {
   it('preserves the existing profile fields and education guidance', () => {
     render(<WorkspaceGeneralPanel
-      workspace={workspaceDefaults}
+      workspace={workspace}
       setWorkspace={vi.fn()}
       onSave={vi.fn()}
       saving={false}
@@ -29,7 +43,7 @@ describe('WorkspaceGeneralPanel', () => {
     const setWorkspace = vi.fn();
     const onSave = vi.fn();
     render(<WorkspaceGeneralPanel
-      workspace={workspaceDefaults}
+      workspace={workspace}
       setWorkspace={setWorkspace}
       onSave={onSave}
       saving={false}
@@ -44,7 +58,7 @@ describe('WorkspaceGeneralPanel', () => {
 
   it('disables saving during an active request', () => {
     render(<WorkspaceGeneralPanel
-      workspace={workspaceDefaults}
+      workspace={workspace}
       setWorkspace={vi.fn()}
       onSave={vi.fn()}
       saving
