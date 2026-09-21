@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
 from northstar_api.email_config import get_email_settings
+from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.workspace.models.invitation_email_job import WorkspaceInvitationEmailJob
 from northstar_api.modules.workspace.services.invitation_audit import stage_invitation_transition
 from northstar_api.modules.workspace.services.invitation_email_config import (
@@ -115,16 +116,22 @@ async def cancel_obsolete_invitation_email_jobs(
 
     The invitation's own transition already records its audit event. This
     internal cleanup is scoped to an exact matching tenant/workspace, pending
-    status, unexpired token generation; it never reads or logs ciphertext.
+    status, unexpired token generation and active workspace; it never reads
+    or logs ciphertext. Archived workspaces cannot deliver invitations.
     """
     clock = now or datetime.now(UTC)
-    live_invitation = select(WorkspaceInvitation.id).where(
+    live_invitation = select(WorkspaceInvitation.id).join(
+        Workspace,
+        (Workspace.id == WorkspaceInvitation.workspace_id)
+        & (Workspace.tenant_id == WorkspaceInvitation.tenant_id),
+    ).where(
         WorkspaceInvitation.id == WorkspaceInvitationEmailJob.invitation_id,
         WorkspaceInvitation.tenant_id == WorkspaceInvitationEmailJob.tenant_id,
         WorkspaceInvitation.workspace_id == WorkspaceInvitationEmailJob.workspace_id,
         WorkspaceInvitation.token_hash == WorkspaceInvitationEmailJob.token_hash,
         WorkspaceInvitation.status == WorkspaceInvitationStatus.PENDING,
         WorkspaceInvitation.expires_at > clock,
+        Workspace.status == WorkspaceStatus.ACTIVE,
     ).exists()
     await session.execute(
         update(WorkspaceInvitationEmailJob)
