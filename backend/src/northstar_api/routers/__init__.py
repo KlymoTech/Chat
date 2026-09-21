@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from northstar_api.modules.workspace import router as workspace_settings_router
 from northstar_api.routers import (
     agents,
     analytics,
@@ -141,6 +142,7 @@ api_router.include_router(workspace.router)
 api_router.include_router(workspace.collection_router)
 api_router.include_router(workspace_invitations.public_router)
 api_router.include_router(workspace_api_keys.router)
+api_router.include_router(workspace_settings_router)
 api_router.include_router(billing.router)
 api_router.include_router(whatsapp_accounts.router)
 api_router.include_router(platform_admin.router)
