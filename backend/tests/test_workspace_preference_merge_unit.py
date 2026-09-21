@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
+from fastapi import HTTPException
 
 from northstar_api.modules.workspace.services.preference_merge import merge_workspace_preferences
 from northstar_api.workspace_contract import WorkspacePreferences
@@ -51,8 +51,10 @@ def test_explicit_blank_can_clear_optional_industry_without_resetting_other_valu
 
 def test_merging_revalidates_business_hours_against_stored_values() -> None:
     current = WorkspacePreferences(business_hours={
-        "monday": {"enabled": True, "opens": "08:00", "closes": "16:00"},
+        "monday": {"enabled": True, "opens": "08:00", "closes": "18:00"},
     })
-    requested = WorkspacePreferences.model_validate({"businessHours": {"monday": {"opens": "16:00"}}})
-    with pytest.raises(ValidationError):
+    requested = WorkspacePreferences.model_validate({"businessHours": {"monday": {"opens": "18:00"}}})
+    with pytest.raises(HTTPException) as error:
         merge_workspace_preferences(current, requested)
+    assert error.value.status_code == 422
+    assert "18:00" not in str(error.value.detail)
