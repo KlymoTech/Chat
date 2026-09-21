@@ -369,6 +369,8 @@ async def authenticate_access_token(
     membership_agent_scope = await _agent_scope(session, workspace_membership, user_id)
     set_conversation_assignment_scope(
         session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_membership.workspace_id,
         user_id=user_id if assigned_conversations_only else None,
         team_ids=team_conversation_ids,
     )
