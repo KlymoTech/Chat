@@ -4,11 +4,21 @@ import { useState } from 'react';
 import { useAuth } from '@/components/providers';
 import { Badge, Button, EmptyState } from '@/components/ui';
 import { DashboardTrend, DashboardWelcome, LearningTip } from '@/components/academy-dashboard';
+import { WorkspaceConfiguredDashboard } from '@/features/dashboard/WorkspaceConfiguredDashboard';
+import { useWorkspaceBrandRuntime } from '@/features/branding/WorkspaceBrandRuntime';
 import { api } from '@/lib/api';
 import { formatCompact, formatPercent, relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 
 export function OverviewPage() {
+  const brand = useWorkspaceBrandRuntime();
+  if (brand?.identity.brandedDashboard && brand.dashboard.widgets.length > 0) {
+    return <WorkspaceConfiguredDashboard brand={brand} />;
+  }
+  return <LegacyOverviewPage />;
+}
+
+function LegacyOverviewPage() {
   const { session } = useAuth();
   const agents = useApi(() => api.agents.list());
   const conversations = useApi(() => api.conversations.list());
