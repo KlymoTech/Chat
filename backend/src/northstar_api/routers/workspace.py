@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 from sqlalchemy import and_, func, select
 
 from northstar_api.access_policy import effective_permissions
@@ -28,6 +28,7 @@ from northstar_api.modules.workspace.services.general_settings import (
     GENERAL_SETTING_FIELDS,
     changed_general_fields,
     changed_preference_fields,
+    normalize_workspace_name,
     record_general_settings_update,
 )
 from northstar_api.modules.workspace.services.preference_merge import merge_workspace_preferences
@@ -78,10 +79,22 @@ class WorkspacePatch(APIModel):
     education_create_upsell_leads: bool | None = None
     security: WorkspaceSecurityPolicy | None = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_workspace_name(cls, value: str | None) -> str | None:
+        return normalize_workspace_name(value)
+
 
 class WorkspaceCreate(WorkspacePreferences):
     name: str = Field(min_length=2, max_length=160)
     slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+    @field_validator("name")
+    @classmethod
+    def validate_workspace_name(cls, value: str) -> str:
+        normalized = normalize_workspace_name(value)
+        assert normalized is not None
+        return normalized
 
 
 class WorkspaceMemberOut(APIModel):
