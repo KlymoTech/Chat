@@ -6,6 +6,7 @@ const SESSION_KEY = 'northstar.session';
 
 export type SettingsSection = 'general' | 'members' | 'roles' | 'teams' | 'security' | 'notifications' | 'channels' | 'integrations' | 'developer' | 'audit' | 'billing' | 'branding';
 export type BusinessHours = { enabled: boolean; timezone: string; schedule: Record<string, string[]> };
+export type WorkspaceGeneralMetadata = { workspaceId: string; tenantId: string; organization: string; status: string; owner: { id: string; name: string; email: string } | null };
 export type GeneralSettings = { industry: string; country: string; timeFormat: '12h' | '24h'; currency: string; weekStart: 'monday' | 'sunday'; description: string; workspaceIcon: string; businessHours: BusinessHours };
 export type SecuritySettings = { sensitiveDataMasking: boolean; securityContact: string | null; mfaEnforcement: 'optional' | 'admins' | 'all'; sessionTimeoutMinutes: number; passwordMinLength: number; ipAllowlist: string[]; ipDenylist: string[]; trustedDomains: string[]; webhookSigningRequired: boolean; securityNotifications: boolean };
 export type NotificationSettings = { memberChanges: boolean; securityAlerts: boolean; billingAlerts: boolean; channelFailures: boolean; integrationFailures: boolean; weeklyDigest: boolean; recipients: string[] };
@@ -45,6 +46,7 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET'
 
 export const workspaceSettingsApi = {
   get: () => request<WorkspaceSettingsBundle>('/workspace/settings'),
+  generalMetadata: () => request<WorkspaceGeneralMetadata>('/workspace/settings/general/metadata'),
   capabilities: () => request<CapabilityCatalog>('/workspace/settings/capabilities'),
   saveGeneral: (value: GeneralSettings) => request<GeneralSettings>('/workspace/settings/general', 'PATCH', value),
   saveSecurity: (value: SecuritySettings) => request<SecuritySettings>('/workspace/settings/security', 'PATCH', value),
