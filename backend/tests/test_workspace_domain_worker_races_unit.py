@@ -50,7 +50,7 @@ class _RefreshSession:
         # Emulate an administrator's committed change becoming visible when
         # the worker reloads the locked workspace row after network I/O.
         save_document(workspace, self.updated_document)
-        workspace.status = WorkspaceStatus.ACTIVE if self.active else WorkspaceStatus.SUSPENDED
+        workspace.status = WorkspaceStatus.ACTIVE if self.active else WorkspaceStatus.ARCHIVED
 
 
 def _document(*domains: DomainRecord) -> WorkspaceSettingsBundle:
@@ -126,7 +126,7 @@ async def test_dns_worker_does_not_apply_result_after_token_rotation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_does_not_write_removed_domain_or_suspended_workspace() -> None:
+async def test_worker_does_not_write_removed_domain_or_archived_workspace() -> None:
     original = _domain()
     workspace = _workspace(original)
     for session in (_RefreshSession(_document()), _RefreshSession(_document(original), active=False)):
