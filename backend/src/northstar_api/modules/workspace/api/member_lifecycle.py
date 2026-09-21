@@ -74,14 +74,19 @@ async def _change(
             suspended=suspended,
             reason=payload.reason,
         )
+        # Suspension may coexist with global account disablement. Reflect the
+        # effective status before committing rather than reporting false access.
+        effective_status = "active"
+        if suspended:
+            effective_status = (await member_statuses(
+                session, tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id, user_ids=[member_user_id],
+            ))[member_user_id]
         await session.commit()
     except WorkspaceMemberError as exc:
         await session.rollback()
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
-    return WorkspaceMemberLifecycleOut(
-        user_id=member_user_id,
-        status="suspended" if suspended else "active",
-    )
+    return WorkspaceMemberLifecycleOut(user_id=member_user_id, status=effective_status)
 
 
 @router.post("/{member_user_id}/suspend", response_model=WorkspaceMemberLifecycleOut)
