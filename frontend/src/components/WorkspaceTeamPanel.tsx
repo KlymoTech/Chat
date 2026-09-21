@@ -154,11 +154,11 @@ function TeamPanel({ workspace }: { workspace: WorkspaceSettings }) {
       {actionError ? <div role="alert" className="workspace-team-state"><p>{actionError}</p><Button variant="secondary" disabled={busy} onClick={reload}>Reload and review team</Button></div> : null}
       {loading ? <div className="workspace-team-state" role="status">Loading team access…</div> : loadError ?
         <div className="workspace-team-state" role="alert"><CircleAlert /><h4>Team access unavailable</h4><p>{loadError}</p>{canView ? <Button onClick={() => void load()}>Try again</Button> : null}</div> : <>
-          <section className="workspace-team-section"><div className="workspace-team-section__heading"><strong>Active members</strong><small>{members.length} members</small></div>
+          <section className="workspace-team-section"><div className="workspace-team-section__heading"><strong>Account-enabled members</strong><small>{members.length} members</small></div>
             <div className="workspace-member-list">{members.map((member) => <div key={member.userId}>
               <span className="mini-avatar">{member.name.charAt(0).toUpperCase()}</span>
               <span><strong>{member.name}{member.isSelf ? ' (you)' : ''}</strong><small>{member.email} · {member.allAgentsAccess ? 'All current and future agents' : `${member.agentIds.length} selected agents`}</small></span>
-              <Badge tone="success">Active</Badge><Badge tone={member.role === 'workspace_admin' ? 'purple' : 'neutral'}>{roleLabel(member.role)}</Badge>
+              <Badge tone="neutral">Account enabled</Badge><Badge tone={member.role === 'workspace_admin' ? 'purple' : 'neutral'}>{roleLabel(member.role)}</Badge>
               {canManage && !member.isSelf && managesScope(member) ? <span className="workspace-member-list__actions"><Button size="sm" variant="ghost" icon={Pencil} disabled={busy} onClick={() => openEdit(member)}>Edit</Button>
                 <button type="button" className="icon-button danger-hover" disabled={busy} onClick={() => remove(member)} aria-label={`Remove ${member.name}`}><Trash2 /></button></span> : null}
             </div>)}</div>
