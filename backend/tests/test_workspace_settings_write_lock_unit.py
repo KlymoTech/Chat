@@ -21,9 +21,16 @@ from northstar_api.modules.workspace.store import settings_document
 
 
 class _Session:
-    def __init__(self, replacement: dict[str, object], *, status: WorkspaceStatus = WorkspaceStatus.ACTIVE):
+    def __init__(
+        self,
+        replacement: dict[str, object],
+        *,
+        status: WorkspaceStatus = WorkspaceStatus.ACTIVE,
+        current_owner=None,
+    ):
         self.replacement = replacement
         self.status = status
+        self.current_owner = current_owner
         self.refreshes: list[tuple[object, tuple[str, ...], object]] = []
         self.commits = 0
 
@@ -32,6 +39,8 @@ class _Session:
         workspace.settings_json = self.replacement
         workspace.branding_json = {"companyName": "Current brand"}
         workspace.status = self.status
+        if self.current_owner is not None:
+            workspace.created_by = self.current_owner
 
     async def commit(self):
         self.commits += 1
@@ -61,13 +70,15 @@ def _record(hostname: str) -> DomainRecord:
 async def test_write_lock_refreshes_current_json_and_refuses_archived_workspace() -> None:
     workspace = _workspace(WorkspaceSettingsBundle())
     replacement = {"workspaceSettingsV2": {}, "otherSetting": "preserve"}
-    session = _Session(replacement)
+    latest_owner = uuid4()
+    session = _Session(replacement, current_owner=latest_owner)
     await lock_workspace_settings(session, workspace)  # type: ignore[arg-type]
     assert session.refreshes == [
-        (workspace, ("settings_json", "branding_json", "status"), True)
+        (workspace, ("settings_json", "branding_json", "status", "created_by"), True)
     ]
     assert workspace.settings_json["otherSetting"] == "preserve"
     assert workspace.branding_json == {"companyName": "Current brand"}
+    assert workspace.created_by == latest_owner
 
     session.status = WorkspaceStatus.ARCHIVED
     with pytest.raises(HTTPException) as error:
