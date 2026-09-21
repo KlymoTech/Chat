@@ -4,6 +4,7 @@ import secrets
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
@@ -19,6 +20,7 @@ from .store import load_workspace, record_workspace_change, save_document, setti
 
 router = APIRouter()
 DomainManagePrincipal = Annotated[Principal, Depends(require_permissions("branding.domain.manage"))]
+_MAX_WORKSPACE_DOMAINS = 20  # Match DomainsSettings.domains max_length.
 
 
 def _interactive_only(principal: Principal) -> None:
@@ -37,6 +39,20 @@ def _enqueue(task_name: str, *, tenant_id: str, workspace_id: str, domain_id: st
     except Exception:  # broker/client failures vary by transport; persist an explicit retryable state
         return False
     return True
+
+
+def _is_hostname_unique_violation(exc: IntegrityError) -> bool:
+    """Recognize only the domain hostname constraint, not unrelated SQL errors."""
+    orig = exc.orig
+    diagnostic = getattr(orig, "diag", None)
+    constraint = getattr(diagnostic, "constraint_name", None)
+    if constraint == "uq_workspace_custom_domain_hostname":
+        return True
+    message = str(orig).lower()
+    return (
+        "uq_workspace_custom_domain_hostname" in message
+        or "unique constraint failed: workspace_custom_domain.hostname" in message
+    )
 
 
 async def _mark_dispatch_failed(
@@ -86,11 +102,14 @@ async def create_domain(
         raise HTTPException(status_code=403, detail="Your plan does not include custom domains")
     document = settings_document(workspace)
     normalized = DomainRecord.normalized_hostname(payload.hostname)
-    if any(
-        item.hostname == normalized and item.status != "disabled"
-        for item in document.domains.domains
-    ):
+    # Disabled domain rows still reserve their hostname in normalized storage.
+    # Never attempt to insert a second row for the same hostname.
+    if any(item.hostname == normalized for item in document.domains.domains):
         raise HTTPException(status_code=409, detail="Domain is already configured")
+    # Mutating a Pydantic list does not re-run its max_length validator. Without
+    # this guard a 21st entry makes the entire saved bundle fail to deserialize.
+    if len(document.domains.domains) >= _MAX_WORKSPACE_DOMAINS:
+        raise HTTPException(status_code=409, detail="Workspace custom-domain limit reached")
     domain = DomainRecord(
         hostname=normalized,
         verification_name=f"_northstar-verify.{normalized}",
@@ -98,19 +117,27 @@ async def create_domain(
     )
     document.domains.domains.append(domain)
     save_document(workspace, document)
-    await persist_branding_document(session, workspace, document)
-    record_workspace_change(
-        session,
-        principal,
-        workspace,
-        "workspace.domain.created",
-        ["hostname", "status"],
-        resource_type="workspace_custom_domain",
-        resource_id=domain.id,
-        after={"hostname": normalized, "status": domain.status},
-        request=request,
-    )
-    await session.commit()
+    try:
+        # The global unique constraint is authoritative even when tenant RLS
+        # prevents this workspace from seeing a hostname claimed elsewhere.
+        await persist_branding_document(session, workspace, document)
+        record_workspace_change(
+            session,
+            principal,
+            workspace,
+            "workspace.domain.created",
+            ["hostname", "status"],
+            resource_type="workspace_custom_domain",
+            resource_id=domain.id,
+            after={"hostname": normalized, "status": domain.status},
+            request=request,
+        )
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if _is_hostname_unique_violation(exc):
+            raise HTTPException(status_code=409, detail="Domain is already configured") from None
+        raise
     await invalidate_brand_cache(workspace.id, hostnames=[normalized])
     return domain
 
