@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
-from northstar_api.models import User
+from northstar_api.models import User, Workspace
+from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
 from northstar_api.password_reset import PasswordCredentialState, PasswordResetToken
 from northstar_api.security import hash_password, verify_password
 from northstar_api.services.email_verification import _smtp_send
@@ -140,10 +141,28 @@ async def send_password_reset_email(
     user: User,
     raw_token: str,
     *,
+    workspace: Workspace | None = None,
     settings: EmailSettings | None = None,
 ) -> None:
     config = settings or get_email_settings()
     url = password_reset_url(raw_token, config)
+    if workspace is not None:
+        rendered = render_workspace_email(
+            workspace,
+            "password_reset",
+            context={"user_name": user.name, "user_email": user.email},
+            action_url=url,
+            fallback_subject="Reset your password",
+            fallback_heading="Reset your password",
+            fallback_body=(
+                "We received a request to reset your password. "
+                f"This link expires in {config.password_reset_ttl_minutes} minutes. "
+                "If you did not request a password reset, you can ignore this email."
+            ),
+            fallback_button_label="Reset password",
+        )
+        await deliver_workspace_email(user.email, rendered, settings=config)
+        return
     if config.email_delivery_mode == "log":
         if get_settings().is_production:
             raise PasswordResetError("Email delivery is not configured")
