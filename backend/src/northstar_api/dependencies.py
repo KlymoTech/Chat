@@ -18,6 +18,7 @@ from northstar_api.models import (
     WorkspaceMembership, WorkspaceRole, WorkspaceStatus,
 )
 from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
+from northstar_api.modules.workspace.member_state import is_member_suspended
 from northstar_api.onboarding_models import OrganizationSetup
 from northstar_api.security import TENANT_ROLE_PERMISSIONS, WORKSPACE_ROLE_PERMISSIONS, Principal, decode_token
 from northstar_api.services.email_verification import email_is_verified
@@ -93,8 +94,15 @@ async def authenticate_api_key(token: str, session: AsyncSession, *, request: Re
         WorkspaceMembership.workspace_id == api_key.workspace_id, Workspace.status == WorkspaceStatus.ACTIVE,
         Workspace.tenant_id == api_key.tenant_id,
     ))
-    if tenant_membership is None or workspace_membership is None:
+    workspace = await session.scalar(select(Workspace).where(
+        Workspace.id == api_key.workspace_id,
+        Workspace.tenant_id == api_key.tenant_id,
+        Workspace.status == WorkspaceStatus.ACTIVE,
+    ))
+    if tenant_membership is None or workspace_membership is None or workspace is None:
         raise HTTPException(status_code=401, detail="API key access is unavailable")
+    if is_member_suspended(workspace.settings_json, api_key.created_by_user_id):
+        raise HTTPException(status_code=403, detail="Workspace membership is suspended")
     if not await email_is_verified(session, api_key.created_by_user_id):
         raise HTTPException(status_code=403, detail="Email verification required")
     requested_workspace = request.headers.get("x-workspace-id", "").strip() if request else ""
@@ -179,6 +187,8 @@ async def authenticate_access_token(token: str, session: AsyncSession, *, reques
     )
     if workspace is None:
         raise HTTPException(status_code=403, detail="Workspace access is unavailable")
+    if is_member_suspended(workspace.settings_json, user_id):
+        raise HTTPException(status_code=403, detail="Workspace membership is suspended")
     permissions = (
         TENANT_ROLE_PERMISSIONS[membership.role]
         | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
