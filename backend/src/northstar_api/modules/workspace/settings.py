@@ -17,7 +17,13 @@ from .contracts import (
 )
 from .repositories.workspace_write_lock import lock_workspace_settings
 from .security_policy import normalize_trusted_domains, validate_business_timezone, validate_security_settings
-from .store import load_workspace, record_workspace_change, save_document, settings_document
+from .services.settings_service import (
+    update_developer_settings,
+    update_general_settings,
+    update_notification_settings,
+    update_security_settings,
+)
+from .store import load_workspace, record_workspace_change, settings_document
 
 router = APIRouter()
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
@@ -93,10 +99,7 @@ async def update_general(
     _, workspace = await load_workspace(principal, session)
     validate_business_timezone(payload.business_hours.timezone)
     await lock_workspace_settings(session, workspace)
-    document = settings_document(workspace)
-    before = document.general.model_dump(by_alias=True, mode="json")
-    document.general = payload
-    save_document(workspace, document)
+    before = update_general_settings(workspace, payload)
     record_workspace_change(
         session,
         principal,
@@ -124,16 +127,7 @@ async def update_security(
     payload = normalize_trusted_domains(payload)
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
-    document = settings_document(workspace)
-    before = document.security.model_dump(by_alias=True, mode="json")
-    document.security = payload
-    legacy = dict(workspace.settings_json or {})
-    legacy["security"] = {
-        "sensitiveDataMasking": payload.sensitive_data_masking,
-        "securityContact": str(payload.security_contact) if payload.security_contact else None,
-    }
-    workspace.settings_json = legacy
-    save_document(workspace, document)
+    before = update_security_settings(workspace, payload)
     record_workspace_change(
         session,
         principal,
@@ -159,10 +153,7 @@ async def update_notifications(
 ) -> NotificationSettings:
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
-    document = settings_document(workspace)
-    before = document.notifications.model_dump(by_alias=True, mode="json")
-    document.notifications = payload
-    save_document(workspace, document)
+    before = update_notification_settings(workspace, payload)
     record_workspace_change(
         session,
         principal,
@@ -188,10 +179,7 @@ async def update_developer(
 ) -> DeveloperSettings:
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
-    document = settings_document(workspace)
-    before = document.developer.model_dump(by_alias=True, mode="json")
-    document.developer = payload
-    save_document(workspace, document)
+    before = update_developer_settings(workspace, payload)
     record_workspace_change(
         session,
         principal,
