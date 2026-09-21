@@ -24,6 +24,16 @@ async def test_legacy_and_nested_partial_patches_preserve_existing_workspace_pro
         expanded = await client.patch("/api/v1/workspace", headers=auth_headers, json={"preferences": profile})
         assert expanded.status_code == 200, expanded.text
 
+        conflicting = await client.patch(
+            "/api/v1/workspace", headers=auth_headers,
+            json={"preferences": {"businessHours": {"monday": {"opens": "18:00"}}}},
+        )
+        assert conflicting.status_code == 422, conflicting.text
+        assert "18:00" not in conflicting.text
+        after_conflict = await client.get("/api/v1/workspace", headers=auth_headers)
+        assert after_conflict.status_code == 200, after_conflict.text
+        assert after_conflict.json()["preferences"] == expanded.json()["preferences"]
+
         legacy = await client.patch(
             "/api/v1/workspace", headers=auth_headers,
             json={"preferences": {"timezone": alternate_timezone}},
