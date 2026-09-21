@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.models import Workspace, WorkspaceMembership, WorkspaceRole
+from northstar_api.models import User, Workspace, WorkspaceMembership, WorkspaceRole
 from northstar_api.modules.workspace.member_state import is_member_suspended, member_statuses
 
 
@@ -24,10 +24,11 @@ async def ensure_member_status_change_allowed(
     member_role: WorkspaceRole,
     status: Literal["active", "suspended"],
 ) -> None:
-    """Preserve an active owner and at least one active Workspace administrator.
+    """Preserve an active owner and at least one usable Workspace administrator.
 
     The Workspace row must already be locked by the caller; read the current
-    membership roles and the freshly reloaded status document together.
+    membership roles, account state and freshly reloaded status document together.
+    A disabled user account cannot serve as the remaining active administrator.
     """
     if status != "suspended":
         return
@@ -45,10 +46,13 @@ async def ensure_member_status_change_allowed(
         return
 
     administrator_ids = await session.scalars(
-        select(WorkspaceMembership.user_id).where(
+        select(WorkspaceMembership.user_id)
+        .join(User, User.id == WorkspaceMembership.user_id)
+        .where(
             WorkspaceMembership.tenant_id == workspace.tenant_id,
             WorkspaceMembership.workspace_id == workspace.id,
             WorkspaceMembership.role == WorkspaceRole.ADMIN,
+            User.is_active.is_(True),
         )
     )
     statuses = member_statuses(workspace.settings_json)
