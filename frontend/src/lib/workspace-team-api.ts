@@ -6,6 +6,7 @@ import type { Session } from '@/types';
 export type WorkspaceRole = 'workspace_admin' | 'manager' | 'operator' | 'analyst' | 'viewer';
 export type WorkspaceInvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
 export type WorkspaceMemberStatus = 'active' | 'suspended';
+export type WorkspaceMemberDetailsStatus = WorkspaceMemberStatus | 'disabled';
 export interface WorkspaceMember {
   userId: string; name: string; email: string; role: WorkspaceRole;
   allAgentsAccess: boolean; agentIds: string[]; joinedAt: string; isSelf: boolean;
@@ -13,7 +14,7 @@ export interface WorkspaceMember {
 export interface WorkspaceMemberLifecycle { userId: string; status: WorkspaceMemberStatus }
 export interface WorkspaceMemberDetails {
   userId: string; name: string; email: string; role: WorkspaceRole;
-  status: WorkspaceMemberStatus; mfaEnabled: boolean; lastLoginAt: string | null;
+  status: WorkspaceMemberDetailsStatus; mfaEnabled: boolean; lastLoginAt: string | null;
   invitedByUserId: string | null; joinedAt: string;
 }
 export interface WorkspaceMemberLifecycleChange { reason: string; confirmation: 'SUSPEND' | 'REACTIVATE' }
