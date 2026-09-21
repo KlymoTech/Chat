@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 import structlog
 from sqlalchemy import or_, select
@@ -110,6 +109,7 @@ async def dispatch_invitation_email_jobs(session: AsyncSession, *, now: datetime
                 routing_key="workspace.email",
                 retry=True,
             )
+            job.status = "queued"
             job.dispatch_attempts += 1
             job.dispatched_at = clock
             # Re-offer if RabbitMQ accepted the task but no worker acknowledged.
