@@ -19,6 +19,7 @@ celery_app = Celery(
         "northstar_api.workers.instagram_tasks",
         "northstar_api.workers.facebook_messenger_tasks",
         "northstar_api.workers.slack_tasks",
+        "northstar_api.modules.branding.workers.domain_tasks",
     ],
 )
 celery_app.conf.update(
@@ -30,8 +31,6 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
-    # Finish or terminate before RabbitMQ's default 30-minute acknowledgement
-    # deadline. Otherwise a stuck task closes the consumer's entire channel.
     task_soft_time_limit=1440,
     task_time_limit=1500,
     broker_connection_retry_on_startup=True,
@@ -169,6 +168,14 @@ celery_app.conf.update(
         "northstar.send_slack_message": {
             "queue": "slack.outbound",
             "routing_key": "slack.outbound",
+        },
+        "northstar.verify_workspace_brand_domain": {
+            "queue": "operations",
+            "routing_key": "operations",
+        },
+        "northstar.check_workspace_brand_tls": {
+            "queue": "operations",
+            "routing_key": "operations",
         },
     },
 )
