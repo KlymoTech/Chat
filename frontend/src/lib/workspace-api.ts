@@ -2,7 +2,22 @@ import { readStorage, writeStorage } from '@/lib/storage';
 
 export type DnsStatus = 'not-configured' | 'pending' | 'verified';
 export type WorkspaceRole = 'workspace_admin' | 'manager' | 'operator' | 'analyst' | 'viewer';
-export interface WorkspacePreferences { timezone: string; defaultLanguage: string; dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD' }
+export interface BusinessDay { enabled: boolean; opens: string; closes: string }
+export type BusinessHours = Record<'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday', BusinessDay>;
+export interface WorkspacePreferences {
+  timezone: string;
+  defaultLanguage: string;
+  dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD';
+  // Optional on the client for existing tests, older cached demo workspaces and integrations.
+  industry?: string;
+  country?: string;
+  description?: string;
+  timeFormat?: '12h' | '24h';
+  currency?: string;
+  weekStart?: 'monday' | 'saturday' | 'sunday';
+  workspaceIcon?: string;
+  businessHours?: BusinessHours;
+}
 export interface WorkspaceSecurityPolicy { sensitiveDataMasking: boolean; securityContact: string | null }
 export interface WhiteLabelSettings {
   companyName: string; logoDataUrl: string; faviconDataUrl: string; appIconDataUrl: string;
@@ -30,10 +45,21 @@ export const WORKSPACE_CHANGED_EVENT = 'northstar:active-workspace-changed';
 export class WorkspaceRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'WorkspaceRequestError'; }
 }
+const defaultBusinessHours: BusinessHours = {
+  monday: { enabled: true, opens: '09:00', closes: '17:00' },
+  tuesday: { enabled: true, opens: '09:00', closes: '17:00' },
+  wednesday: { enabled: true, opens: '09:00', closes: '17:00' },
+  thursday: { enabled: true, opens: '09:00', closes: '17:00' },
+  friday: { enabled: true, opens: '09:00', closes: '17:00' },
+  saturday: { enabled: false, opens: '09:00', closes: '17:00' },
+  sunday: { enabled: false, opens: '09:00', closes: '17:00' },
+};
 const defaults: WorkspaceSettings = {
   id: 'workspace-demo', name: 'Northstar Workspace', slug: 'northstar', plan: 'business', memberCount: 1,
   educationCreateUpsellLeads: false, brandingPublished: false,
-  preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
+  preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY',
+    industry: '', country: '', description: '', timeFormat: '24h', currency: 'USD', weekStart: 'monday',
+    workspaceIcon: '', businessHours: defaultBusinessHours },
   security: { sensitiveDataMasking: true, securityContact: null },
   whiteLabel: { companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
     primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: null, supportUrl: '',
