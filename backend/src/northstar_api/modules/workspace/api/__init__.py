@@ -5,7 +5,13 @@ migration. New production imports should use this package so those modules can
 be moved one capability at a time without changing application registration.
 """
 
-from northstar_api.modules.branding.api import branding_router, domains_router, email_router
+from northstar_api.modules.branding.api import (
+    brand_draft_router,
+    brand_versions_router,
+    branding_router,
+    domains_router,
+    email_router,
+)
 from northstar_api.modules.workspace.access import router as access_router
 from northstar_api.modules.workspace.conversation_assignments import router as conversation_assignments_router
 from northstar_api.modules.workspace.dashboard_runtime import router as dashboard_runtime_router
@@ -24,7 +30,9 @@ from .workspace_teams import router as teams_router
 
 __all__ = [
     "access_router",  # Retain the original combined router for legacy imports.
-    "branding_router",
+    "brand_draft_router",
+    "brand_versions_router",
+    "branding_router",  # Retain combined branding router for legacy imports.
     "conversation_assignments_router",
     "dashboard_runtime_router",
     "dashboard_settings_router",
