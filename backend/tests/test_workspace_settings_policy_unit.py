@@ -68,7 +68,7 @@ def test_business_hours_and_custom_roles_are_validated_by_contract() -> None:
         CustomRole(name="Unsafe", permissions=["platform.system.manage"])
 
 
-def test_team_conversation_scope_reuses_workspace_agent_boundary() -> None:
+def test_team_conversation_scope_uses_team_assignment_and_agent_boundaries() -> None:
     user_id = uuid4()
     team_agent_id = uuid4()
     outside_agent_id = uuid4()
@@ -83,12 +83,13 @@ def test_team_conversation_scope_reuses_workspace_agent_boundary() -> None:
         )
     ]
     bundle.roles.member_role_ids = {str(user_id): [role_id]}
+    team = WorkspaceTeam(
+        name="Admissions",
+        member_ids=[str(user_id)],
+        agent_ids=[str(team_agent_id)],
+    )
     bundle.teams.teams = [
-        WorkspaceTeam(
-            name="Admissions",
-            member_ids=[str(user_id)],
-            agent_ids=[str(team_agent_id)],
-        ),
+        team,
         WorkspaceTeam(
             name="Other team",
             member_ids=[str(uuid4())],
@@ -96,10 +97,13 @@ def test_team_conversation_scope_reuses_workspace_agent_boundary() -> None:
         ),
     ]
 
-    permissions, agent_scope, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    permissions, agent_scope, assigned_only, team_ids = _custom_role_context(
+        _workspace(bundle), user_id
+    )
     assert permissions == frozenset({"conversations.view"})
     assert agent_scope == frozenset({team_agent_id})
     assert assigned_only is False
+    assert team_ids == frozenset({team.id})
 
 
 def test_assigned_conversation_scope_is_enabled_only_when_it_is_the_effective_scope() -> None:
@@ -131,17 +135,22 @@ def test_assigned_conversation_scope_is_enabled_only_when_it_is_the_effective_sc
     ]
 
     bundle.roles.member_role_ids = {str(user_id): [assigned_role_id]}
-    _, _, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    _, _, assigned_only, team_ids = _custom_role_context(_workspace(bundle), user_id)
     assert assigned_only is True
+    assert team_ids == frozenset()
 
+    team = WorkspaceTeam(name="Support", member_ids=[str(user_id)], agent_ids=[str(uuid4())])
+    bundle.teams.teams = [team]
     bundle.roles.member_role_ids = {str(user_id): [assigned_role_id, team_role_id]}
-    _, _, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    _, _, assigned_only, team_ids = _custom_role_context(_workspace(bundle), user_id)
     assert assigned_only is False
+    assert team_ids == frozenset({team.id})
 
-    bundle.roles.member_role_ids = {str(user_id): [assigned_role_id, all_role_id]}
-    _, agent_scope, assigned_only = _custom_role_context(_workspace(bundle), user_id)
+    bundle.roles.member_role_ids = {str(user_id): [assigned_role_id, team_role_id, all_role_id]}
+    _, agent_scope, assigned_only, team_ids = _custom_role_context(_workspace(bundle), user_id)
     assert agent_scope is None
     assert assigned_only is False
+    assert team_ids == frozenset()
 
 
 def test_member_suspension_is_workspace_local_and_reversible() -> None:
