@@ -18,7 +18,15 @@ export type TeamsSettings = { teams: WorkspaceTeam[] };
 export type DashboardWidget = { id: string; type: string; x: number; y: number; width: number; height: number; visible: boolean; audience: string[]; config: Record<string, unknown> };
 export type DashboardSettings = { layoutVersion: number; landingScreen: string; widgets: DashboardWidget[] };
 export type LegacyBrandIdentity = { companyName: string; logoDataUrl: string; faviconDataUrl: string; appIconDataUrl: string; primaryColor: string; secondaryColor: string; supportEmail: string | null; supportUrl: string; browserTitle: string; brandedLogin: boolean; brandedDashboard: boolean; brandedWidget: boolean; brandedEmails: boolean; removePlatformBranding: boolean };
-export type ExtendedBranding = { identity: LegacyBrandIdentity; colors: Record<string, string>; typography: Record<string, string | number>; dashboard: DashboardSettings; authentication: { loginLogo: string; loginBackground: string; loginTitle: string; loginDescription: string; termsUrl: string; privacyUrl: string; supportUrl: string; footer: string }; email: { logo: string; senderName: string; replyTo: string | null; footer: string; enabledTemplates: string[] }; widget: { launcherIcon: string; launcherColor: string; position: 'bottom-left' | 'bottom-right'; greeting: string; widgetLogo: string; header: string; background: string; userMessageColor: string; agentMessageColor: string; font: 'Inter' | 'DM Sans' | 'Manrope' | 'System UI'; privacyUrl: string; poweredByLabel: string; offlineMessage: string }; navigation: Record<string, unknown> };
+export type BrandAssets = { compactLogo: string; darkModeLogo: string; loginIllustration: string; emailLogo: string; widgetLogo: string };
+export type BrandColors = { primaryHover: string; accent: string; background: string; surface: string; sidebarBackground: string; sidebarText: string; header: string; textPrimary: string; textSecondary: string; success: string; warning: string; error: string; border: string; link: string };
+export type BrandTypography = { headingFont: string; bodyFont: string; baseFontSize: number; headingScale: number; normalWeight: number; mediumWeight: number; boldWeight: number };
+export type DashboardAppearance = { sidebarLogo: string; sidebarStyle: 'solid' | 'soft' | 'minimal'; sidebarCollapsedDefault: boolean; headerStyle: 'solid' | 'transparent' | 'minimal'; borderRadius: number; cardAppearance: 'flat' | 'bordered' | 'elevated'; density: 'compact' | 'comfortable' | 'spacious'; mode: 'light' | 'dark' | 'system'; navigationOrder: string[]; navigationHidden: string[] };
+export type AuthBranding = { loginLogo: string; loginBackground: string; loginTitle: string; loginDescription: string; signupTitle: string; forgotPasswordTitle: string; resetPasswordTitle: string; mfaTitle: string; invitationTitle: string; termsUrl: string; privacyUrl: string; supportUrl: string; footer: string };
+export type EmailTemplate = { subject: string; heading: string; body: string; buttonLabel: string };
+export type EmailBranding = { logo: string; senderName: string; replyTo: string | null; footer: string; enabledTemplates: string[]; templates: Record<string, EmailTemplate> };
+export type WidgetBranding = { launcherIcon: string; launcherColor: string; position: 'bottom-left' | 'bottom-right'; greeting: string; widgetLogo: string; header: string; background: string; userMessageColor: string; agentMessageColor: string; agentAvatar: string; botAvatar: string; font: 'Inter' | 'DM Sans' | 'Manrope' | 'System UI'; privacyUrl: string; poweredByLabel: string; businessHours: BusinessHours; offlineMessage: string };
+export type ExtendedBranding = { identity: LegacyBrandIdentity; assets: BrandAssets; colors: BrandColors; typography: BrandTypography; appearance: DashboardAppearance; dashboard: DashboardSettings; authentication: AuthBranding; email: EmailBranding; widget: WidgetBranding; navigation: Record<string, unknown> };
 export type BrandVersion = { version: number; createdBy: string; publishedAt: string; changeNote: string; branding: ExtendedBranding };
 export type DomainRecord = { id: string; hostname: string; status: 'pending' | 'dns_pending' | 'verifying' | 'verified' | 'certificate_pending' | 'active' | 'failed' | 'disabled'; verificationName: string; verificationValue: string; failureReason: string; createdAt: string };
 export type WorkspaceSettingsBundle = { general: GeneralSettings; security: SecuritySettings; notifications: NotificationSettings; developer: DeveloperSettings; roles: RolesSettings; teams: TeamsSettings; dashboard: DashboardSettings; brandingDraft: ExtendedBranding; brandingPublished: ExtendedBranding | null; brandingVersions: BrandVersion[]; domains: { domains: DomainRecord[] } };
@@ -35,7 +43,7 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET'
     headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const payload: unknown = await response.json().catch(() => undefined);
+  const payload: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
   if (identity !== workspacePresentationKey() || workspaceId !== activeWorkspaceId()) throw new DOMException('Workspace context changed', 'AbortError');
   if (!response.ok) {
     const value = payload as { error?: { message?: string }; detail?: unknown } | undefined;
@@ -46,6 +54,7 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET'
 
 export const workspaceSettingsApi = {
   get: () => request<WorkspaceSettingsBundle>('/workspace/settings'),
+  runtimeBranding: () => request<ExtendedBranding | null>('/workspace/settings/runtime-branding'),
   generalMetadata: () => request<WorkspaceGeneralMetadata>('/workspace/settings/general/metadata'),
   capabilities: () => request<CapabilityCatalog>('/workspace/settings/capabilities'),
   saveGeneral: (value: GeneralSettings) => request<GeneralSettings>('/workspace/settings/general', 'PATCH', value),
@@ -60,5 +69,6 @@ export const workspaceSettingsApi = {
   rollbackBrand: (version: number, changeNote = 'Rollback') => request<BrandVersion>('/workspace/settings/branding/rollback', 'POST', { version, changeNote }),
   createDomain: (hostname: string) => request<DomainRecord>('/workspace/settings/domains', 'POST', { hostname }),
   verifyDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/verification-start`, 'POST'),
+  activateDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/activation-check`, 'POST'),
   disableDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/disable`, 'POST'),
 };
