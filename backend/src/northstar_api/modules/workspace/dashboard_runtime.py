@@ -34,7 +34,10 @@ async def get_runtime_dashboard(
     document = settings_document(workspace)
     published, _ = await resolve_published_workspace_brand(session, workspace)
     dashboard = published.dashboard if published is not None else document.dashboard
-    appearance = published.appearance if published is not None else document.branding_draft.appearance
+    # A draft is a private editing surface, not the live workspace appearance.
+    # Preserve the existing live dashboard settings until a brand is published,
+    # but never expose unpublished appearance settings to regular viewers.
+    appearance = published.appearance if published is not None else DashboardAppearance()
     entitlement = entitlement_for_plan(tenant.plan)
     features = {f"channel:{name}" for name in entitlement.allowed_channels}
     if entitlement.crm_enabled:
