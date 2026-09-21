@@ -30,7 +30,7 @@ from northstar_api.services.course_knowledge import (
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError
 from northstar_api.services.llm import ModelUnavailableError
 from northstar_api.services.redaction import mask_sensitive_text
-from northstar_api.services.web_fallback import related_web_evidence
+from northstar_api.services.web_fallback import related_web_evidence, selected_web_fallback
 from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
 
@@ -270,7 +270,10 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 if fallback_reason:
                     # Never send previous private course answers or retrieved source
                     # snippets to a public search or general-knowledge fallback.
-                    policy = (agent.security or {}).get("webFallback", "off")
+                    # Education retrieval is already lexical and scoped to the
+                    # selected enrollment/course. Reuse the saved dropdown only
+                    # after no authorized course evidence was found.
+                    policy = selected_web_fallback(agent.security)
                     external = []
                     if policy in {"public", "related_only"}:
                         external = await related_web_evidence(

@@ -61,6 +61,22 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
     } catch (cause) { setError(apiErrorMessage(cause, 'Unable to download evidence.')); }
   };
 
+  const openStoredPdf = async () => {
+    try {
+      const blob = await api.knowledge.extractionSourcePdf(source.id);
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener,noreferrer');
+    } catch (cause) { setError(apiErrorMessage(cause, 'This source is not a stored PDF.')); }
+  };
+
+  const downloadText = async () => {
+    try {
+      const blob = await api.knowledge.extractionText(source.id);
+      const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = `${source.name}-extracted.txt`; anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (cause) { setError(apiErrorMessage(cause, 'Unable to download extracted text.')); }
+  };
+
   const save = async () => {
     if (!record || !page || !confirmed) return;
     setSaving(true); setError(''); setNotice('');
@@ -101,7 +117,9 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
 
   return <Modal open onClose={onClose} size="lg" title={`Review extraction: ${source.name}`}
     description="Compare source evidence and save each page. Critical content requires two different reviewers."
-    footer={<><Button variant="secondary" onClick={() => void download()} disabled={!record || saving}>Download evidence</Button>
+    footer={<><Button variant="secondary" onClick={() => void openStoredPdf()} disabled={!record || saving}>Open stored PDF</Button>
+      <Button variant="secondary" onClick={() => void downloadText()} disabled={!record || saving}>Download extracted text</Button>
+      <Button variant="secondary" onClick={() => void download()} disabled={!record || saving}>Download evidence</Button>
       <Button variant="secondary" onClick={() => void retry()} disabled={saving || released}>Reprocess source</Button>
       <Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>
       <Button onClick={() => void save()} disabled={saving || !page || blocked || !confirmed || !reason.trim()}>
@@ -117,6 +135,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
       {record.word && <details><summary>Word source parts and annotation channels</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(record.word, null, 2)}</pre></details>}
       {page ? <div className="extraction-review">
         <p><strong>Source unit {page.number} of {record.pages.length}</strong> · Printed label: {page.printed_page_label ?? 'not identified'}</p>
+        {page.quality && <p>Extraction quality: {Math.round(page.quality.score * 100)}% · {page.quality.method.replaceAll('_', ' ')}{page.quality.reasons.length ? ` · Review flags: ${page.quality.reasons.join(', ')}` : ' · Native text accepted'}</p>}
         <p>Primary review: {page.primary_review ? 'recorded' : 'pending'}. {page.requires_second_review && `Independent second review: ${page.second_review ? 'recorded' : 'required'}.`}</p>
         {blocked && !released && <p role="alert">This page needs successful source processing and loaded evidence before review can be saved. The draft package remains available.</p>}
         {imageUrl && <a href={imageUrl} target="_blank" rel="noreferrer" aria-label="Open full resolution source page"><img src={imageUrl} alt={`Original source page ${page.number}`} style={{ display: 'block', width: '100%', maxHeight: 550, objectFit: 'contain' }} /></a>}

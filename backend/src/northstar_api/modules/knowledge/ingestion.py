@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import io
 import json
-import math
 import re
 import tempfile
 import zipfile
@@ -42,7 +41,6 @@ from northstar_api.services.hybrid_extraction import (
     encode_page_checkpoint,
     extract_document,
 )
-from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import object_store
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.safe_fetch import fetch_public_text
@@ -53,23 +51,6 @@ logger = structlog.get_logger(__name__)
 
 class ExtractionYield(Exception):
     """A durable page batch completed; resume in a fresh worker delivery."""
-
-
-def validate_embedding_batch(
-    vectors: list[list[float]], expected_count: int, dimension: int
-) -> None:
-    """Reject an incomplete or corrupt index before replacing searchable chunks."""
-    if len(vectors) != expected_count:
-        raise ValueError(f"Embedding count mismatch: expected {expected_count}, got {len(vectors)}")
-    for index, vector in enumerate(vectors):
-        if len(vector) != dimension:
-            raise ValueError(
-                f"Embedding dimension mismatch at chunk {index}: expected {dimension}, got {len(vector)}"
-            )
-        if not all(math.isfinite(value) for value in vector):
-            raise ValueError(f"Embedding contains a non-finite value at chunk {index}")
-        if not any(value != 0 for value in vector):
-            raise ValueError(f"Embedding is a zero vector at chunk {index}")
 
 
 def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35) -> list[str]:
@@ -128,12 +109,45 @@ def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35)
     return [chunk for chunk in chunks if chunk]
 
 
+def extraction_page_text(page: dict[str, object]) -> str:
+    """Use the review text when available, otherwise retain extracted page text."""
+    for field in ("selected_text", "native_text", "visual_text"):
+        value = page.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def approved_extraction_chunks(record: dict) -> list[tuple[str, dict[str, object]]]:
     """Project approved physical regions into searchable chunks with provenance."""
     result: list[tuple[str, dict[str, object]]] = []
     heading_stack: list[tuple[int | None, str, str]] = []
     for page in record.get("pages", []):
         blocks = [item for item in page.get("blocks", []) if item.get("status") != "split"]
+        # Native-only pages have no visual regions, but retain page citations
+        # and quality provenance in the same vectorless chunk store.
+        if not blocks:
+            page_text = extraction_page_text(page)
+            page_parts = semantic_chunks(page_text)
+            for part_index, part in enumerate(page_parts):
+                result.append(
+                    (
+                        part,
+                        {
+                            "chunk_type": "text",
+                            "page_number": page.get("number"),
+                            "printed_page_label": page.get("printed_page_label"),
+                            "part_index": part_index,
+                            "part_count": len(page_parts),
+                            "extraction_revision": record.get("extraction_revision"),
+                            "page_quality": page.get("quality"),
+                            "canonical_chunk_id": hashlib.sha256(
+                                f"{record.get('source_sha256')}:{record.get('extraction_revision')}:page:{page.get('number')}:{part_index}:{part}".encode()
+                            ).hexdigest(),
+                        },
+                    )
+                )
+            continue
         for block_ordinal, block in enumerate(blocks):
             text = str(block.get("selected_text") or "").strip()
             if not text:
@@ -186,6 +200,7 @@ def approved_extraction_chunks(record: dict) -> list[tuple[str, dict[str, object
                             "source_artifact": block.get("crop"),
                             "part_index": part_index,
                             "extraction_revision": record.get("extraction_revision"),
+                            "page_quality": page.get("quality"),
                             "canonical_chunk_id": hashlib.sha256(
                                 f"{record.get('source_sha256')}:{record.get('extraction_revision')}:{block.get('id')}:{part_index}:{part}".encode()
                             ).hexdigest(),
@@ -295,15 +310,31 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             source.extraction_key = await object_store.put_extraction(
                 source.tenant_id, source.id, package.archive(), version=source.revision or 1
             )
-            source.extraction_issue_count = len(package.issues)
-            source.status = KnowledgeStatus.NEEDS_REVIEW
+            # Low-confidence pages are preserved but must be approved before they
+            # enter the vectorless index. High-confidence native text can proceed
+            # without an unnecessary vision call or human review.
+            if package.record["review_status"] != "verified_release":
+                source.status = KnowledgeStatus.NEEDS_REVIEW
+                source.extraction_issue_count = sum(
+                    issue.get("status") != "resolved" for issue in package.issues
+                )
+                source.size_label = f"{len(package.record['pages'])} source units"
+                source.chunk_count = 0
+                if job:
+                    job.status = JobStatus.SUCCEEDED
+                    job.step = "review_required"
+                    job.progress = 100
+                await session.commit()
+                return
+            approved = package
+            content = "\n\n".join(
+                f"===PDF_PAGE:{page['number']}===\n{extraction_page_text(page)}"
+                if page.get("source_unit") == "pdf_page" else extraction_page_text(page)
+                for page in package.record["pages"]
+                if extraction_page_text(page)
+            )
+            source.content = content
             source.size_label = f"{len(package.record['pages'])} source units"
-            if job:
-                job.status = JobStatus.SUCCEEDED
-                job.step = "needs_review"
-                job.progress = 100
-            await session.commit()
-            return
         if source.kind == KnowledgeKind.FILE:
             if not source.extraction_key or not source.extraction_key.startswith(
                 f"extractions/{source.tenant_id}/{source.id}/"
@@ -313,16 +344,11 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             approved = ExtractionPackage.from_archive(
                 evidence, source_sha256=source.checksum, revision=source.revision
             )
-            if (
-                approved.record["review_status"] != "verified_release"
-                or not approved.record["release_eligible"]
-            ):
-                raise ValueError("File evidence has not passed verified release")
             content = "\n\n".join(
-                f"===PDF_PAGE:{p['number']}===\n{p['selected_text']}"
-                if p.get("source_unit") == "pdf_page"
-                else p["selected_text"]
+                f"===PDF_PAGE:{p['number']}===\n{extraction_page_text(p)}"
+                if p.get("source_unit") == "pdf_page" else extraction_page_text(p)
                 for p in approved.record["pages"]
+                if extraction_page_text(p)
             )
             if source.content != content:
                 raise ValueError("Indexing text differs from verified source records")
@@ -359,19 +385,14 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 for chunk in semantic_chunks(page.text)
             ]
         chunks = [chunk for chunk, _ in chunks_with_metadata]
-        if not chunks and source.kind != KnowledgeKind.FILE:
+        if not chunks:
             raise ValueError("Source produced no usable chunks")
         if len(chunks) > settings.knowledge_max_chunks:
             raise ValueError("Source produced more chunks than the configured limit")
         if job:
-            job.step = "embedding"
+            job.step = "indexing"
             job.progress = 55
             await session.commit()
-        vectors: list[list[float]] = []
-        batch_size = 32
-        for start in range(0, len(chunks), batch_size):
-            vectors.extend(await nvidia_adapter.embed_documents(chunks[start : start + batch_size]))
-        validate_embedding_batch(vectors, len(chunks), settings.embedding_dimension)
         agent = await session.scalar(
             select(Agent).where(Agent.id == source.agent_id).with_for_update()
         )
@@ -380,7 +401,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
         publication_revision = agent.published_knowledge_revision + 1
         agent.published_knowledge_revision = publication_revision
         await session.execute(delete(DocumentChunk).where(DocumentChunk.source_id == source.id))
-        for ordinal, (content_chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
+        for ordinal, content_chunk in enumerate(chunks):
             chunk_metadata = dict(chunks_with_metadata[ordinal][1])
             chunk_metadata["content_hash"] = hashlib.sha256(content_chunk.encode("utf-8")).hexdigest()
             session.add(
@@ -394,8 +415,10 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                     token_count=max(1, round(len(content_chunk.split()) * 1.35)),
                     approved=True,
                     revision=publication_revision,
-                    embedding_model=get_settings().nvidia_embedding_model,
-                    embedding=vector,
+                    # Vectorless RAG deliberately persists searchable text and
+                    # provenance only; no embedding is generated or stored.
+                    embedding_model=None,
+                    embedding=None,
                     metadata_json=chunk_metadata,
                 )
             )
@@ -422,8 +445,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 revision=publication_revision,
                 manifest={
                     "version": 1,
-                    "embeddingModel": settings.nvidia_embedding_model,
-                    "embeddingDimension": settings.embedding_dimension,
+                    "retrievalMode": "lexical",
                     "ingestedSourceCrawl": web_crawl.manifest if web_crawl is not None else None,
                     "sources": [
                         {

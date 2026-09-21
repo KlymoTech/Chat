@@ -185,6 +185,8 @@ export interface ExtractionPage {
   requires_second_review?: boolean;
   primary_review?: { reviewer: string; reviewed_at: string };
   second_review?: { reviewer: string; reviewed_at: string };
+  requires_review?: boolean;
+  quality?: { score: number; method: string; reasons: string[]; native_character_count: number; native_word_count: number; native_figure_count: number; native_table_count: number; formula_detected: boolean };
 }
 
 export interface ExtractionRecord {
@@ -381,6 +383,8 @@ export const api = {
     extractionPage: (sourceId: string, page: number) => requestEvidence(`/knowledge/${sourceId}/extraction/pages/${page}`),
     extractionRegion: (sourceId: string, blockId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/regions/${encodeURIComponent(blockId)}`),
     extractionArchive: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/archive`),
+    extractionSourcePdf: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/source-pdf`),
+    extractionText: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/text`),
     retryExtraction: (sourceId: string) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/retry`, { method: 'POST' }),
     approveExtraction: (sourceId: string, submission: ExtractionReviewSubmission) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/approve`, { method: 'POST', body: JSON.stringify(submission) }),
     add: (agentId: string, input: { name: string; kind: KnowledgeKind; url?: string; content?: string; file?: File }) => withFallback(async () => {

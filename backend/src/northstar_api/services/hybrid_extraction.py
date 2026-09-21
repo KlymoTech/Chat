@@ -353,6 +353,35 @@ def _compare(native: str, visual: str) -> bool:
     return same_text(native, visual)
 
 
+def native_page_quality(native: str, details: dict[str, Any]) -> dict[str, Any]:
+    """Measure native-text sufficiency before using vision; this is not an accuracy claim."""
+    text = native.strip()
+    compact = re.sub(r"\s+", "", text)
+    letters = sum(character.isalpha() for character in compact)
+    words = re.findall(r"\b[\w'-]+\b", text)
+    figures = sum(block.get("type") == "figure" for block in details.get("native_blocks", []))
+    tables = details.get("native_tables", [])
+    formula_like = bool(re.search(r"(?:[=≈≠≤≥∫∑√]|\^|[_][{(]|[A-Za-z]\d)", text))
+    reasons: list[str] = []
+    if len(compact) < 80 or len(words) < 12:
+        reasons.append("very_little_native_text")
+    if "�" in text or (compact and letters / len(compact) < 0.35 and not formula_like):
+        reasons.append("possible_ocr_or_encoding_error")
+    if figures and (len(words) < 80 or figures > 1):
+        reasons.append("image_heavy_content")
+    if tables:
+        reasons.append("table_structure_requires_visual_reading")
+    if formula_like:
+        reasons.append("formula_structure_requires_visual_reading")
+    score = 1.0 - (0.55 if "very_little_native_text" in reasons else 0) - (0.35 if "possible_ocr_or_encoding_error" in reasons else 0) - (0.20 if "image_heavy_content" in reasons else 0) - (0.10 if tables else 0) - (0.10 if formula_like else 0)
+    return {
+        "score": round(max(0.0, min(1.0, score)), 2), "native_character_count": len(text),
+        "native_word_count": len(words), "native_figure_count": figures, "native_table_count": len(tables),
+        "formula_detected": formula_like, "reasons": reasons, "vision_required": bool(reasons),
+        "review_required": bool(reasons), "method": "native_text" if not reasons else "native_text_then_visual",
+    }
+
+
 async def _read_image(image: bytes, settings: Settings) -> str:
     return await read_image(image, settings)
 
@@ -388,6 +417,9 @@ def text_unit(data: bytes) -> dict[str, Any]:
         "selected_text": text,
         "image": None,
         "requires_image": False,
+        # Text files have no rendered-page evidence, so retain the existing
+        # explicit review path rather than silently changing their release rule.
+        "requires_review": True,
         "encoding": encoding,
         "bom_hex": bom.hex(),
         "line_endings": sorted(set(endings)),
@@ -559,6 +591,7 @@ async def extract_document(
         else:
             with Image.open(io.BytesIO(image)) as bitmap:
                 width, height = bitmap.size
+            quality = native_page_quality(native, details)
             page = {
                 "number": number,
                 "source_page_index": number - 1,
@@ -571,36 +604,39 @@ async def extract_document(
                 "image_sha256": hashlib.sha256(image).hexdigest(),
                 "width_px": width,
                 "height_px": height,
-                "requires_image": True,
-                "selected_text": None,
+                # The rendered source image is always retained as evidence, but
+                # vision is used only when native text is poor or structure needs it.
+                "requires_image": quality["vision_required"],
+                "requires_review": quality["review_required"],
+                "quality": quality,
+                "selected_text": native.strip() if not quality["vision_required"] else None,
+                "visual_text": None,
+                "blocks": [],
+                "inventory_complete": not quality["vision_required"],
                 "config_sha256": record["config_sha256"],
                 **details,
             }
-            if "vision_capability" not in record:
+            if quality["vision_required"] and "vision_capability" not in record:
                 probe, pixels = await verify_image_capability(settings)
                 record["vision_capability"] = probe
                 artifacts["capability/image.png"] = pixels
                 artifacts["capability/result.json"] = json.dumps(probe, sort_keys=True).encode()
-            page["vision_capability"] = record["vision_capability"]
-            if record["vision_capability"]["status"] == "PASSED":
-                visual = await read_page(image, number, settings)
-            else:
-                visual = {
-                    "blocks": [],
-                    "vision_attempts": [],
-                    "visual_text": "",
-                    "inventory_complete": False,
-                    "problems": [
-                        {
-                            "code": "VISION_CAPABILITY_FAILED",
-                            "message": "NVIDIA image-content capability probe failed",
-                            "technical": True,
-                        }
-                    ],
-                }
-            for problem in visual.pop("problems"):
-                issue(number, **problem)
-            page.update(visual)
+            if quality["vision_required"]:
+                page["vision_capability"] = record["vision_capability"]
+                if record["vision_capability"]["status"] == "PASSED":
+                    visual = await read_page(image, number, settings)
+                else:
+                    visual = {
+                        "blocks": [], "vision_attempts": [], "visual_text": "", "inventory_complete": False,
+                        "problems": [{"code": "VISION_CAPABILITY_FAILED", "message": "NVIDIA image-content capability probe failed", "technical": True}],
+                    }
+                for problem in visual.pop("problems"):
+                    issue(number, **problem)
+                page.update(visual)
+                if page.get("visual_text"):
+                    page["quality"]["method"] = "native_text_plus_vision"
+            for reason in quality["reasons"]:
+                issue(number, "LOW_EXTRACTION_QUALITY", f"Page quality signal: {reason}")
             page["coordinate_system"] = "rendered_image_pixels_top_left"
             page["transform_id"] = digest(
                 {
@@ -647,14 +683,15 @@ async def extract_document(
                     "question",
                     "answer_key",
                 }
-            for native_block in page.get("native_blocks", []):
-                if not any(inside(native_block["bbox_px"], b["bbox_px"]) for b in leaves):
-                    issue(
-                        number,
-                        "NATIVE_REGION_UNACCOUNTED",
-                        f"Native object {native_block['id']} is absent from the visual inventory",
-                    )
-            if native and not same_text(native, page["visual_text"]):
+            if page["requires_image"]:
+                for native_block in page.get("native_blocks", []):
+                    if not any(inside(native_block["bbox_px"], b["bbox_px"]) for b in leaves):
+                        issue(
+                            number,
+                            "NATIVE_REGION_UNACCOUNTED",
+                            f"Native object {native_block['id']} is absent from the visual inventory",
+                        )
+            if page.get("visual_text") and native and not same_text(native, page["visual_text"]):
                 issue(
                     number,
                     disagreement(native, page["visual_text"]),
@@ -700,18 +737,17 @@ async def extract_document(
                 page["selected_text"] = "\n".join(b["selected_text"] for b in leaves)
             elif page.get("blank") and not native:
                 page["selected_text"] = ""
-            page["requires_second_review"] = critical_page(page)
+            page["requires_second_review"] = critical_page(page) and page["requires_review"]
             disputed = {
                 i["block_id"] for i in issues[start:] if i.get("block_id") and "CONFLICT" in i["code"]
             }
-            await recover_disputes(
-                page,
-                image,
-                disputed,
-                settings,
-                settings.extraction_page_timeout_seconds - (time.monotonic() - started),
-            )
-            if not issues[start:]:
+            if page["requires_image"]:
+                await recover_disputes(
+                    page, image, disputed, settings,
+                    settings.extraction_page_timeout_seconds - (time.monotonic() - started),
+                )
+            page["requires_review"] = bool(page["requires_review"] or issues[start:])
+            if page["requires_review"] and not issues[start:]:
                 issue(
                     number,
                     "SOURCE_REVIEW_REQUIRED",
@@ -947,7 +983,10 @@ async def extract_document(
             for name in ("native_extract", "render", "visual_inventory", "region_reading", "reconcile")
         ]
     )
-    record["stages"].append({"stage": "human_review", "status": "pending"})
+    record["review_status"] = (
+        "needs_review" if any(page.get("requires_review") for page in pages) else "verified_release"
+    )
+    record["stages"].append({"stage": "human_review", "status": "pending" if record["review_status"] == "needs_review" else "not_required"})
     package = ExtractionPackage(record, artifacts)
     package.refresh()
     return package

@@ -599,40 +599,29 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
     import re
 
     from northstar_api.config import get_settings
-    from northstar_api.modules.knowledge.retrieval import _cosine, _rerank
-    from northstar_api.services.llm import nvidia_adapter
+    from northstar_api.modules.knowledge.retrieval import _rerank
 
     if context.release_id is None:
         return []
     settings = get_settings()
-    model = model or nvidia_adapter
     candidate_limit = max(1, min(candidate_limit, 200))
     result_limit = max(1, min(result_limit, 30))
-    vector = await model.embed_query(query)
-    validate_vectors([vector], 1, settings.embedding_dimension)
     statement = authorized_entries(boundary, context)
     candidates: dict[str, Any] = {}
     if session.bind is not None and session.bind.dialect.name == "postgresql":
-        from pgvector.sqlalchemy import HALFVEC
-        distance = type_coerce(CourseIndexEntry.embedding.op("<=>")(bindparam("course_query_vector", vector, type_=HALFVEC(settings.embedding_dimension))), Float)
-        dense = (await session.execute(statement.add_columns(distance.label("distance")).order_by(distance).limit(candidate_limit))).all()
         ts_query = func.websearch_to_tsquery("simple", query)
         rank = func.ts_rank_cd(func.to_tsvector("simple", CourseIndexEntry.content), ts_query)
         lexical = (await session.execute(statement.add_columns(rank.label("rank")).where(ts_query.op("@@")(func.to_tsvector("simple", CourseIndexEntry.content))).order_by(rank.desc()).limit(candidate_limit))).all()
-        for rows, semantic in ((dense, True), (lexical, False)):
-            for entry, assignment, source, raw_score in rows:
-                score = max(0.0, 1.0 - float(raw_score)) if semantic else min(1.0, float(raw_score))
-                evidence = entry_evidence(entry, assignment, source, context, score)
-                previous = candidates.get(evidence.entity_id)
-                if previous is None or previous.score < score:
-                    candidates[evidence.entity_id] = evidence
+        for entry, assignment, source, raw_score in lexical:
+            evidence = entry_evidence(entry, assignment, source, context, min(1.0, float(raw_score)))
+            candidates[evidence.entity_id] = evidence
     else:
         # SQLite development fallback never loads another audience's content.
         rows = (await session.execute(statement.order_by(CourseIndexEntry.id).limit(5000))).all()
         terms = set(re.findall(r"\w+", query.casefold()))
         for entry, assignment, source in rows:
             words = set(re.findall(r"\w+", entry.content.casefold()))
-            score = max(len(terms & words) / max(1, len(terms | words)), max(0.0, _cosine(vector, list(entry.embedding))))
+            score = len(terms & words) / max(1, len(terms | words))
             candidates[str(entry.id)] = entry_evidence(entry, assignment, source, context, score)
     evidence = [e for e in candidates.values() if e.score >= settings.retrieval_min_score]
     # Only published, reviewed artifacts with ALL dependencies currently allowed.
@@ -683,4 +672,4 @@ async def revalidate_evidence(session: AsyncSession, boundary: Boundary, context
             if artifact_digest(artifact) != item.metadata.get("artifact_fingerprint"):
                 raise KnowledgePolicyError("A derived artifact changed while answering")
         elif item.source_id is not None or item.kind in {"fact", "chunk"}:
-            raise KnowledgePolicyError("Unscoped private evidence cannot enter an Education answer")
+                raise KnowledgePolicyError("Unscoped private evidence cannot enter an Education answer")

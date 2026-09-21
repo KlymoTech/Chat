@@ -13,6 +13,13 @@ from northstar_api.services.safe_fetch import fetch_public_text
 _SEARCH_URL = "https://api.duckduckgo.com/?format=json&no_html=1&no_redirect=1&q="
 _LITE_SEARCH_URL = "https://lite.duckduckgo.com/lite/"
 _SEARCH_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_FALLBACK_POLICIES = frozenset({"off", "related_only", "public"})
+
+
+def selected_web_fallback(security: object) -> str:
+    """Return the saved dropdown policy; malformed/legacy values fail closed."""
+    value = security.get("webFallback") if isinstance(security, dict) else None
+    return value if value in _FALLBACK_POLICIES else "off"
 
 
 def _allowed(url: str, domains: list[str], allow_public: bool) -> bool:

@@ -358,6 +358,38 @@ async def get_extraction(
     return (await _load_extraction(source)).record
 
 
+@router.get("/knowledge/{source_id}/extraction/source-pdf")
+async def get_extraction_source_pdf(
+    source_id: UUID, principal: KnowledgeViewPrincipal, session: DB
+) -> Response:
+    """Open the immutable PDF bytes that were used for this extraction revision."""
+    source = await _review_source(source_id, principal, session)
+    package = await _load_extraction(source)
+    original = package.images.get("source/original.pdf")
+    if original is None:
+        raise HTTPException(status_code=404, detail="The stored source is not a PDF")
+    safe_name = source.name.replace('"', "") or "source.pdf"
+    return Response(
+        content=original,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+    )
+
+
+@router.get("/knowledge/{source_id}/extraction/text")
+async def get_extraction_text(
+    source_id: UUID, principal: KnowledgeViewPrincipal, session: DB
+) -> Response:
+    """Download the canonical extracted text and structured review record."""
+    source = await _review_source(source_id, principal, session)
+    safe_name = source.name.replace('"', "") or "source"
+    return Response(
+        content=(await _load_extraction(source)).review_text(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}-extracted.txt"'},
+    )
+
+
 @router.get("/knowledge/{source_id}/extraction/pages/{page_number}")
 async def get_extraction_page(
     source_id: UUID, page_number: int, principal: KnowledgeViewPrincipal, session: DB

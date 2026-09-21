@@ -76,29 +76,16 @@ class RetrievalService:
         final_context_chunks: int | None = None,
     ) -> list[Evidence]:
         started = time.perf_counter()
-        query_embedding = await self.model.embed_query(query)
-        if session.bind and session.bind.dialect.name == "postgresql":
-            evidence = await self._postgres_retrieve(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                revision=revision,
-                query=query,
-                vector=query_embedding,
-                education_scope=education_scope,
-                candidate_limit=rerank_candidates,
-            )
-        else:
-            evidence = await self._portable_retrieve(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                revision=revision,
-                query=query,
-                vector=query_embedding,
-                education_scope=education_scope,
-                candidate_limit=rerank_candidates,
-            )
+        # Vectorless RAG: retrieval must not call an embedding provider.
+        evidence = await self._portable_retrieve(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            revision=revision,
+            query=query,
+            education_scope=education_scope,
+            candidate_limit=rerank_candidates,
+        )
         if education_scope is not None:
             evidence = await self._filter_assignment_blocks(
                 session,
@@ -320,24 +307,26 @@ class RetrievalService:
         agent_id: UUID,
         revision: int,
         query: str,
-        vector: list[float],
         education_scope: EducationRetrievalScope | None,
         candidate_limit: int | None,
     ) -> list[Evidence]:
+        # LEGACY PGVECTOR PATH — intentionally inactive and retained only for
+        # historical-reference compatibility. Do not call from vectorless RAG.
+        # `retrieve()` always uses `_portable_retrieve()` above, so normal PDF
+        # knowledge uses vectorless lexical retrieval and never calls this
+        # dense cosine-distance implementation.
         limit = candidate_limit or self.settings.retrieval_candidate_limit
         fact_filters = [
             KnowledgeFact.tenant_id == tenant_id,
             KnowledgeFact.agent_id == agent_id,
             KnowledgeFact.status == FactStatus.APPROVED,
             KnowledgeFact.revision <= revision,
-            KnowledgeFact.embedding_model == self.settings.nvidia_embedding_model,
         ]
         chunk_filters = [
             DocumentChunk.tenant_id == tenant_id,
             DocumentChunk.agent_id == agent_id,
             DocumentChunk.approved.is_(True),
             DocumentChunk.revision <= revision,
-            DocumentChunk.embedding_model == self.settings.nvidia_embedding_model,
         ]
         if education_scope is not None:
             fact_filters.extend(
@@ -362,6 +351,8 @@ class RetrievalService:
                 ]
             )
 
+        # Legacy pgvector cosine search (kept only as commented/inactive
+        # compatibility code; no active retrieval path reaches it).
         fact_distance = KnowledgeFact.embedding.cosine_distance(vector)
         fact_dense = (
             select(KnowledgeFact, KnowledgeSource.name, KnowledgeSource.url, fact_distance.label("distance"))
@@ -488,7 +479,6 @@ class RetrievalService:
         agent_id: UUID,
         revision: int,
         query: str,
-        vector: list[float],
         education_scope: EducationRetrievalScope | None,
         candidate_limit: int | None,
     ) -> list[Evidence]:
@@ -497,14 +487,12 @@ class RetrievalService:
             KnowledgeFact.agent_id == agent_id,
             KnowledgeFact.status == FactStatus.APPROVED,
             KnowledgeFact.revision <= revision,
-            KnowledgeFact.embedding_model == self.settings.nvidia_embedding_model,
         ]
         chunk_filters = [
             DocumentChunk.tenant_id == tenant_id,
             DocumentChunk.agent_id == agent_id,
             DocumentChunk.approved.is_(True),
             DocumentChunk.revision <= revision,
-            DocumentChunk.embedding_model == self.settings.nvidia_embedding_model,
         ]
         if education_scope is not None:
             fact_filters.extend(
@@ -529,7 +517,11 @@ class RetrievalService:
                 ]
             )
 
-        candidate_limit = candidate_limit or 500
+        # `candidate_limit` is the number of ranked candidates to retain, not
+        # a limit on the unordered database rows inspected.  Applying it to
+        # the raw query could hide a newer source behind the first pages of a
+        # different PDF before lexical scoring even began.
+        scan_limit = max(candidate_limit or 0, self.settings.knowledge_max_chunks)
         fact_rows = (
             await session.execute(
                 select(KnowledgeFact, KnowledgeSource.name, KnowledgeSource.url)
@@ -538,7 +530,7 @@ class RetrievalService:
                     *fact_filters,
                     or_(KnowledgeSource.id.is_(None), KnowledgeSource.status == KnowledgeStatus.READY),
                 )
-                .limit(candidate_limit)
+                .limit(scan_limit)
             )
         ).all()
         chunk_rows = (
@@ -546,18 +538,31 @@ class RetrievalService:
                 select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url)
                 .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
                 .where(*chunk_filters, KnowledgeSource.status == KnowledgeStatus.READY)
-                .limit(candidate_limit)
+                .limit(scan_limit)
             )
         ).all()
-        query_words = set(re.findall(r"\w+", query.casefold()))
+        # Score against the question terms, not against every word in a full
+        # document chunk.  Jaccard similarity (intersection / union) makes a
+        # genuine match in a long PDF look close to zero, which incorrectly
+        # rejects valid vectorless evidence at the configured minimum score.
+        stop_words = {
+            "a", "an", "and", "are", "as", "at", "be", "by", "do", "does",
+            "for", "from", "how", "i", "in", "is", "it", "of", "on", "or",
+            "the", "to", "was", "what", "when", "where", "which", "who", "why",
+            "with", "would",
+        }
+        query_words = {
+            word for word in re.findall(r"\w+", query.casefold()) if word not in stop_words
+        }
+        if not query_words:
+            query_words = set(re.findall(r"\w+", query.casefold()))
         candidates: list[Evidence] = []
         for kind, rows in (("fact", fact_rows), ("chunk", chunk_rows)):
             for entity, title, url in rows:
                 text = f"Q: {entity.question}\nA: {entity.answer}" if kind == "fact" else entity.content
                 words = set(re.findall(r"\w+", text.casefold()))
-                lexical = len(query_words & words) / max(1, len(query_words | words))
-                semantic = _cosine(vector, list(entity.embedding)) if entity.embedding is not None else 0.0
-                score = max(lexical, max(0.0, semantic))
+                lexical = len(query_words & words) / max(1, len(query_words))
+                score = lexical
                 if score >= self.settings.retrieval_min_score:
                     candidates.append(
                         Evidence(
@@ -569,15 +574,28 @@ class RetrievalService:
                             text=text,
                             score=score,
                             metadata=(entity.metadata_json if kind == "chunk" else entity.source_span) or {},
-                            dense_score=max(0.0, semantic),
                             lexical_score=lexical,
                             fusion_score=score,
                         )
                     )
-        return sorted(candidates, key=lambda item: item.score, reverse=True)
+        if not candidates:
+            return []
+        # A generic term (for example, "cells") can occur in an unrelated
+        # source. Keep evidence that is close to the best query-coverage
+        # match, rather than letting a weak partial match dilute the grounded
+        # context with another document.
+        best_score = max(item.score for item in candidates)
+        relevance_floor = max(self.settings.retrieval_min_score, best_score * 0.75)
+        return sorted(
+            (item for item in candidates if item.score >= relevance_floor),
+            key=lambda item: item.score,
+            reverse=True,
+        )
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
+    # Legacy helper for the inactive pgvector fusion implementation above.
+    # Vectorless RAG does not call this function.
     if not left or len(left) != len(right):
         return 0.0
     dot = sum(a * b for a, b in zip(left, right, strict=True))
@@ -587,7 +605,7 @@ def _cosine(left: list[float], right: list[float]) -> float:
 
 
 def _rerank(evidence: list[Evidence], query: str, limit: int) -> list[Evidence]:
-    """Cheap deterministic reranking after vector/lexical fusion.
+    """Cheap deterministic reranking after vectorless lexical retrieval.
 
     Exact terms and critical qualifiers receive a small boost. This improves
     latency versus a second model call while keeping numbers and NOT/EXCEPT

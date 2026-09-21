@@ -39,7 +39,7 @@ from northstar_api.services.localization import (
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
-from northstar_api.services.web_fallback import related_web_evidence
+from northstar_api.services.web_fallback import related_web_evidence, selected_web_fallback
 from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
 FAILED_RESPONSE_PLACEHOLDER = "The assistant could not complete this response."
@@ -218,7 +218,10 @@ class ChatCoordinator:
             await session.commit()
             web_evidence = False
             answer_mode = "abstained"
-            web_policy = (agent.security or {}).get("webFallback", "public")
+            # Every Support and Lead-generation answer starts with the same
+            # vectorless lexical retrieval. The saved dropdown controls only
+            # what may happen after that approved knowledge has no evidence.
+            web_policy = selected_web_fallback(agent.security)
             if not evidence and configured_greeting is None and web_policy in {"related_only", "public"}:
                 evidence = await related_web_evidence(
                     retrieval_query,
@@ -254,12 +257,15 @@ class ChatCoordinator:
                     answer = generated.content
                     grounding = validate_answer(answer, evidence)
                     if not grounding.allowed:
-                        # Grounding failure must not silently widen the answer
-                        # from retrieved evidence to uncited model knowledge.
-                        answer = localized_no_evidence(agent.language)
-                        evidence = []
-                        answer_mode = "abstained"
-                        CHAT_REQUESTS.labels("blocked_ungrounded").inc()
+                        # Do not turn a valid retrieval into a false "no
+                        # information" response merely because the model used
+                        # wording that the deterministic post-check cannot
+                        # verify.  Return the bounded, cited source excerpt;
+                        # this remains strictly grounded and does not widen the
+                        # answer to model knowledge.
+                        answer = _evidence_fallback(evidence[0], message)
+                        answer_mode = "grounded_fallback"
+                        CHAT_REQUESTS.labels("grounded_fallback").inc()
                     else:
                         CHAT_REQUESTS.labels("generated").inc()
                 except ModelUnavailableError:
@@ -740,11 +746,20 @@ class ChatCoordinator:
             await session.rollback()
 
 
-def _evidence_fallback(evidence: Evidence) -> str:
+def _evidence_fallback(evidence: Evidence, question: str = "") -> str:
     if evidence.kind == "fact" and "\nA: " in evidence.text:
         return evidence.text.split("\nA: ", 1)[1].strip()
     # Avoid dumping an entire document into the response.
     sentences = re.split(r"(?<=[.!?])\s+", evidence.text.strip())
+    if question:
+        stop_words = {"a", "an", "and", "are", "from", "is", "of", "the", "to", "what", "which"}
+        terms = {word for word in re.findall(r"\w+", question.casefold()) if word not in stop_words}
+        if terms:
+            start = max(
+                range(len(sentences)),
+                key=lambda index: len(terms & set(re.findall(r"\w+", sentences[index].casefold()))),
+            )
+            return " ".join(sentences[start : start + 3])[:1200]
     return " ".join(sentences[:3])[:1200]
 
 

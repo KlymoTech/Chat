@@ -239,7 +239,7 @@ def validate(record: dict[str, Any], artifacts: dict[str, bytes]) -> list[dict[s
     check(
         "visual_audit",
         [i["id"] for i in open_issues if i.get("technical")],
-        pending=any(p.get("requires_image") and not p.get("primary_review") for p in pages),
+        pending=any(p.get("requires_review") and not p.get("primary_review") for p in pages),
     )
     check(
         "document_continuity",
@@ -264,6 +264,8 @@ def validate(record: dict[str, Any], artifacts: dict[str, bytes]) -> list[dict[s
     check("export_consistency", projections)
     reviews = []
     for page in pages:
+        if not page.get("requires_review"):
+            continue
         primary, second = page.get("primary_review"), page.get("second_review")
         expected = review_digest(page)
         if (
