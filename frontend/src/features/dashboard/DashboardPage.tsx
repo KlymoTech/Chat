@@ -10,7 +10,7 @@ import { loadWorkspaceDashboardRuntime } from './dashboard.api';
 import type { DashboardData, WorkspaceDashboardRuntime } from './dashboard.types';
 import { widgetVisibleToViewer } from './dashboard.types';
 import { DashboardWidgetRenderer } from './widgets/DashboardWidgetRenderer';
-import './WorkspaceConfiguredDashboard.css';
+import './dashboard.css';
 
 export function DashboardPage({ brand }: { brand: ExtendedBranding }) {
   const { session } = useAuth();
