@@ -17,10 +17,13 @@ import { workspacePresentationKey, type WorkspaceSettings } from '@/lib/workspac
  */
 export function WorkspaceMembersPanel({ workspace }: { workspace: WorkspaceSettings }) {
   const context = `${workspacePresentationKey()}:${workspace.id}:${[...(workspace.permissions ?? [])].sort().join(',')}`;
+  const canView = workspace.permissions?.includes('members.view') ?? false;
   return <div key={context}>
     <WorkspaceTeamPanel workspace={workspace} />
-    <WorkspaceMemberDetailsPanel />
-    <WorkspaceMemberLifecyclePanel workspace={workspace} />
+    {canView ? <>
+      <WorkspaceMemberDetailsPanel />
+      <WorkspaceMemberLifecyclePanel workspace={workspace} />
+    </> : null}
   </div>;
 }
 
@@ -51,13 +54,18 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
       setMembers(nextMembers);
       setStates(Object.fromEntries(lifecycle.map((item) => [item.userId, item.status])));
     } catch (cause) {
-      if (!request.signal.aborted) setError(cause instanceof Error ? cause.message : 'Member lifecycle could not be loaded');
+      if (!request.signal.aborted) {
+        setMembers([]);
+        setStates({});
+        setTarget(null);
+        setError(cause instanceof Error ? cause.message : 'Member lifecycle could not be loaded');
+      }
     } finally { if (!request.signal.aborted) setLoading(false); }
   }, []);
 
   useEffect(() => {
     void load();
-    const unsubscribe = onWorkspaceMemberChanged(() => { void load(); });
+    const unsubscribe = onWorkspaceMemberChanged(() => { setTarget(null); void load(); });
     return () => { unsubscribe(); controller.current?.abort(); };
   }, [load]);
 
@@ -91,14 +99,14 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
         {loading ? <p role="status">Loading member lifecycle…</p> : null}
         {error && !target ? <div role="alert"><p>{error}</p><Button type="button" onClick={() => void load()}>Retry</Button></div> : null}
         {!loading && !error && members.length === 0 ? <p>No workspace members are available.</p> : null}
-        {!loading && members.length > 0 ? <div className="workspace-member-list">
+        {!loading && !error && members.length > 0 ? <div className="workspace-member-list">
           {members.map((member) => {
-            const status = states[member.userId] ?? 'active';
+            const status = states[member.userId];
             return <div key={member.userId}>
               <span className="mini-avatar">{member.name.charAt(0).toUpperCase()}</span>
               <span><strong>{member.name}{member.isSelf ? ' (you)' : ''}</strong><small>{member.email}</small></span>
-              <Badge tone={status === 'active' ? 'success' : 'warning'}>{status}</Badge>
-              {canManage && !member.isSelf ? <span className="workspace-member-list__actions">
+              <Badge tone={status === 'active' ? 'success' : status === 'suspended' ? 'warning' : 'neutral'}>{status ?? 'Unavailable'}</Badge>
+              {canManage && !member.isSelf && status ? <span className="workspace-member-list__actions">
                 {status === 'active'
                   ? <Button size="sm" variant="ghost" icon={PauseCircle} onClick={() => open(member, 'suspended')}>Suspend</Button>
                   : <Button size="sm" variant="ghost" icon={PlayCircle} onClick={() => open(member, 'active')}>Reactivate</Button>}
