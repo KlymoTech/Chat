@@ -15,7 +15,7 @@ from .contracts import DashboardSettings, RolesSettings, TeamsSettings
 from .repositories.workspace_write_lock import lock_workspace_settings
 from .security_policy import validate_business_timezone
 from .services.dashboard_service import update_workspace_dashboard
-from .services.role_service import update_workspace_roles
+from .services.role_service import update_workspace_roles, validate_workspace_role_assignments
 from .services.team_service import update_workspace_teams
 from .store import load_workspace, record_workspace_change, settings_document
 
@@ -61,39 +61,8 @@ async def _validate_roles(
     session: DBSession,
     workspace_id: UUID,
 ) -> None:
-    role_ids = [role.id for role in payload.custom_roles]
-    if len(role_ids) != len(set(role_ids)):
-        raise HTTPException(status_code=422, detail="Custom role identifiers must be unique")
-    known_roles = set(role_ids)
-    for role in payload.custom_roles:
-        if not set(role.permissions) <= set(principal.permissions):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Cannot delegate permissions not held by the current administrator ({role.name})",
-            )
-
-    requested_users = {_uuid(user_id, "member") for user_id in payload.member_role_ids}
-    if requested_users and not requested_users <= await _workspace_member_ids(session, principal, workspace_id):
-        raise HTTPException(
-            status_code=422,
-            detail="A custom role assignment references a member outside this workspace",
-        )
-    for assigned in payload.member_role_ids.values():
-        if not set(assigned) <= known_roles:
-            raise HTTPException(
-                status_code=422,
-                detail="A custom role assignment references an unknown role",
-            )
-
-    agent_ids: set[UUID] = set()
-    for role in payload.custom_roles:
-        for value in role.resources.selected.get("agents", []):
-            agent_ids.add(_uuid(value, "agent resource"))
-    if agent_ids and not agent_ids <= await _workspace_agent_ids(session, principal, workspace_id):
-        raise HTTPException(
-            status_code=422,
-            detail="A custom role references an agent outside this workspace",
-        )
+    """Compatibility entry point; the feature-owned service enforces role policy."""
+    await validate_workspace_role_assignments(payload, principal, session, workspace_id)
 
 
 async def _validate_teams(
