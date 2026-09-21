@@ -9,9 +9,10 @@ from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.models import Workspace
 from northstar_api.modules.branding.repositories import persist_branding_document
+from northstar_api.modules.branding.services import resolve_published_workspace_brand
 from northstar_api.security import Principal
 
-from .brand_cache import cache_workspace_brand, cached_workspace_brand, invalidate_brand_cache
+from .brand_cache import cache_version_brand, invalidate_brand_cache
 from .contracts import (
     BrandingSettingsView,
     BrandVersion,
@@ -82,6 +83,8 @@ async def _publish(
         [f"version:{version_number}"],
     )
     await session.commit()
+    payload = version.branding.model_dump(by_alias=True, mode="json")
+    await cache_version_brand(workspace.id, version_number, payload)
     await invalidate_brand_cache(
         workspace.id,
         hostnames=[item.hostname for item in document.domains.domains],
@@ -111,18 +114,7 @@ async def get_runtime_branding(
     session: DBSession,
 ) -> ExtendedBranding | None:
     _, workspace = await load_workspace(principal, session)
-    cached = await cached_workspace_brand(workspace.id)
-    if cached is not None:
-        try:
-            return ExtendedBranding.model_validate(cached)
-        except (TypeError, ValueError):
-            pass
-    published = settings_document(workspace).branding_published
-    if published is not None:
-        await cache_workspace_brand(
-            workspace.id,
-            published.model_dump(by_alias=True, mode="json"),
-        )
+    published, _ = await resolve_published_workspace_brand(session, workspace)
     return published
 
 
