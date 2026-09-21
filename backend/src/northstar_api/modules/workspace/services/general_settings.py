@@ -57,7 +57,7 @@ def record_general_settings_update(
         category="workspace",
         metadata={"fields": list(fields)},
     )
-    enqueue_event(
+    event = enqueue_event(
         session,
         tenant_id=tenant_id,
         aggregate_type="workspace",
@@ -65,4 +65,5 @@ def record_general_settings_update(
         event_type="workspace.settings.updated.v1",
         payload={"workspaceId": str(workspace_id), "fields": list(fields)},
     )
+    event.workspace_id = workspace_id
     return True
