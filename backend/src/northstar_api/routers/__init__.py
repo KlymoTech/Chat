@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 # settings module reuses its scoped loader while the migration remains
 # non-destructive.
 from northstar_api.routers import workspace
-from northstar_api.modules.workspace import router as workspace_settings_router
+from northstar_api.modules.workspace.router import router as workspace_settings_router
 from northstar_api.routers import (
     agents,
     analytics,
