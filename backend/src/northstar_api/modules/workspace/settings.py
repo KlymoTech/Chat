@@ -15,6 +15,7 @@ from .contracts import (
     SecuritySettings,
     WorkspaceSettingsBundle,
 )
+from .security_policy import normalize_trusted_domains, validate_business_timezone, validate_security_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -55,6 +56,7 @@ async def update_general(
     session: DBSession,
 ) -> GeneralSettings:
     _, workspace = await load_workspace(principal, session)
+    validate_business_timezone(payload.business_hours.timezone)
     document = settings_document(workspace)
     document.general = payload
     save_document(workspace, document)
@@ -75,6 +77,8 @@ async def update_security(
     principal: SettingsManagePrincipal,
     session: DBSession,
 ) -> SecuritySettings:
+    validate_security_settings(payload)
+    payload = normalize_trusted_domains(payload)
     _, workspace = await load_workspace(principal, session)
     document = settings_document(workspace)
     document.security = payload
