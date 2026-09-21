@@ -18,6 +18,7 @@ from northstar_api.models import (
     WorkspaceMembership,
     WorkspaceRole,
 )
+from northstar_api.modules.workspace.models.member_invitation_origin import WorkspaceMemberInvitationOrigin
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 from northstar_api.modules.workspace.services.admin_availability import available_workspace_admin_count
 from northstar_api.modules.workspace.services.ownership import WorkspaceOwnershipError, protect_workspace_owner
@@ -372,6 +373,15 @@ async def remove_workspace_member(
             WorkspaceMemberState.tenant_id == tenant_id,
             WorkspaceMemberState.workspace_id == workspace_id,
             WorkspaceMemberState.user_id == member_user_id,
+        )
+    )
+    # Explicitly clean this Workspace's proven invitation link in the same
+    # transaction; the database FK cascade also covers other deletion paths.
+    await session.execute(
+        delete(WorkspaceMemberInvitationOrigin).where(
+            WorkspaceMemberInvitationOrigin.tenant_id == tenant_id,
+            WorkspaceMemberInvitationOrigin.workspace_id == workspace_id,
+            WorkspaceMemberInvitationOrigin.user_id == member_user_id,
         )
     )
     _stage_member_event(
