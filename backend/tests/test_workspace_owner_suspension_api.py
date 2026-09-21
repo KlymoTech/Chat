@@ -4,7 +4,6 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from httpx import AsyncClient
-from sqlalchemy import select
 
 from northstar_api.database import SessionFactory
 from northstar_api.models import Role, TenantMembership, User, Workspace, WorkspaceMembership, WorkspaceRole
