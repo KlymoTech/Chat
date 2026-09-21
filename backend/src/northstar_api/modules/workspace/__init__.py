@@ -1,10 +1,9 @@
 """Workspace-owned feature modules.
 
-These modules extend the legacy workspace routers without replacing them. Existing
-routes remain authoritative for backward compatibility while new settings routes
-are grouped by business capability.
+The package intentionally does not import the FastAPI router eagerly. Workspace
+contracts and policy helpers are imported by authentication/services, so keeping
+this module side-effect free prevents circular imports during application startup.
+The API router is registered explicitly from ``northstar_api.routers``.
 """
 
-from northstar_api.modules.workspace.router import router
-
-__all__ = ["router"]
+__all__: list[str] = []
