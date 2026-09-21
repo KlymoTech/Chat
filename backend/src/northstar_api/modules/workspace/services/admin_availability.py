@@ -17,15 +17,16 @@ from northstar_api.modules.workspace.models.member_state import WorkspaceMemberS
 
 async def available_workspace_admin_count(
     session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID,
+    exclude_user_id: UUID | None = None,
 ) -> int:
-    """Count admins with an active account, org membership and unsuspended workspace access."""
+    """Count usable admins, optionally excluding an admin being removed or demoted."""
     suspended = select(WorkspaceMemberState.user_id).where(
         WorkspaceMemberState.tenant_id == tenant_id,
         WorkspaceMemberState.workspace_id == workspace_id,
         WorkspaceMemberState.user_id == WorkspaceMembership.user_id,
         WorkspaceMemberState.suspended_at.is_not(None),
     ).exists()
-    count = await session.scalar(
+    statement = (
         select(func.count())
         .select_from(WorkspaceMembership)
         .join(User, User.id == WorkspaceMembership.user_id)
@@ -42,4 +43,7 @@ async def available_workspace_admin_count(
             ~suspended,
         )
     )
+    if exclude_user_id is not None:
+        statement = statement.where(WorkspaceMembership.user_id != exclude_user_id)
+    count = await session.scalar(statement)
     return int(count or 0)
