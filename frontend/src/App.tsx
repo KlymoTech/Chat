@@ -6,6 +6,7 @@ import { MaterialmAppShell } from '@/components/materialm/MaterialmAppShell';
 import { EducationLayout } from '@/components/materialm/EducationLayout';
 import { useAuth } from '@/components/providers';
 import { OrganizationProfilePage, WorkspaceSetupGate, WorkspaceStarterPanel } from '@/components/WorkspaceSetup';
+import { WorkspaceGeneralRoute } from '@/features/workspace/general/WorkspaceGeneralRoute';
 
 const AgentBuilderPage = lazy(() => import('@/pages/AgentBuilderPage').then((module) => ({ default: module.AgentBuilderPage })));
 const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((module) => ({ default: module.AgentsPage })));
@@ -114,7 +115,7 @@ export function App() {
       <Route path="deploy" element={<DeployPage />} />
       <Route path="workspace" element={<WorkspacePage />} />
       <Route path="workspace/settings" element={<Navigate to="/workspace/settings/general" replace />} />
-      <Route path="workspace/settings/general" element={<WorkspacePage />} />
+      <Route path="workspace/settings/general" element={<WorkspaceGeneralRoute />} />
       <Route path="workspace/white-label" element={<WhiteLabelPage />} />
       <Route path="platform-admin" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
