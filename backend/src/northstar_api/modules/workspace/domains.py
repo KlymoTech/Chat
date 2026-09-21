@@ -16,6 +16,7 @@ from northstar_api.workers.celery_app import celery_app
 
 from .brand_cache import invalidate_brand_cache
 from .contracts import DomainCreate, DomainRecord, WorkspaceSettingsBundle
+from .domain_hostname import normalize_new_custom_domain_hostname
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -128,7 +129,10 @@ async def create_domain(
     if not entitlement_for_plan(tenant.plan).custom_domain_enabled:
         raise HTTPException(status_code=403, detail="Your plan does not include custom domains")
     document = settings_document(workspace)
-    normalized = DomainRecord.normalized_hostname(payload.hostname)
+    try:
+        normalized = normalize_new_custom_domain_hostname(payload.hostname)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     # Disabled domain rows still reserve their hostname in normalized storage.
     # Never attempt to insert a second row for the same hostname.
     if any(item.hostname == normalized for item in document.domains.domains):
