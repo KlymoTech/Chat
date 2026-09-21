@@ -18,36 +18,44 @@ import pytest
         from northstar_api.modules.workspace.services.settings_service import update_general_settings
         from northstar_api.modules.workspace.settings import update_general
         from northstar_api.modules.workspace.services.role_service import update_workspace_roles
-        from northstar_api.modules.workspace.access import update_roles
+        from northstar_api.modules.workspace.services.team_service import update_workspace_teams
+        from northstar_api.modules.workspace.access import update_roles, update_teams
         assert callable(ensure_ownership_transfer_allowed)
         assert callable(transfer_ownership)
         assert callable(update_general_settings)
         assert callable(update_general)
         assert callable(update_workspace_roles)
+        assert callable(update_workspace_teams)
         assert callable(update_roles)
+        assert callable(update_teams)
         """,
         """
-        from northstar_api.modules.workspace.access import update_roles
+        from northstar_api.modules.workspace.access import update_roles, update_teams
         from northstar_api.modules.workspace.settings import update_general
         from northstar_api.modules.workspace.members import transfer_ownership
         from northstar_api.modules.workspace.services.settings_service import update_general_settings
         from northstar_api.modules.workspace.services.member_service import ensure_ownership_transfer_allowed
         from northstar_api.modules.workspace.services.role_service import update_workspace_roles
+        from northstar_api.modules.workspace.services.team_service import update_workspace_teams
         assert callable(ensure_ownership_transfer_allowed)
         assert callable(transfer_ownership)
         assert callable(update_general_settings)
         assert callable(update_general)
         assert callable(update_workspace_roles)
+        assert callable(update_workspace_teams)
         assert callable(update_roles)
+        assert callable(update_teams)
         """,
         """
         from northstar_api.routers import api_router
         from northstar_api.modules.workspace.services.member_service import ensure_ownership_transfer_allowed
         from northstar_api.modules.workspace.services.settings_service import update_general_settings
         from northstar_api.modules.workspace.services.role_service import update_workspace_roles
+        from northstar_api.modules.workspace.services.team_service import update_workspace_teams
         assert callable(ensure_ownership_transfer_allowed)
         assert callable(update_general_settings)
         assert callable(update_workspace_roles)
+        assert callable(update_workspace_teams)
         assert any(route.path == "/workspace/settings" for route in api_router.routes)
         """,
     ],
