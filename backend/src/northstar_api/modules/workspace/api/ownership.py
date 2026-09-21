@@ -5,7 +5,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import Field
 from sqlalchemy import select
 
 from northstar_api.dependencies import DBSession, require_permissions
