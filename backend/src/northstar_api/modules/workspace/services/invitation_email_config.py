@@ -31,7 +31,7 @@ def invitation_cipher(config: InvitationEmailConfig) -> Fernet | None:
         return None
     try:
         return Fernet(secret.get_secret_value().encode("ascii"))
-    except (ValueError, TypeError, UnicodeError) as exc:
+    except (ValueError, TypeError, UnicodeError):
         raise InvitationEmailConfigurationError(
             "WORKSPACE_INVITATION_DELIVERY_KEY must be a valid independent Fernet key"
         ) from None
