@@ -13,6 +13,7 @@ from northstar_api.security import Principal
 
 from .contracts import DashboardSettings, RolesSettings, TeamsSettings
 from .repositories.workspace_write_lock import lock_workspace_settings
+from .services.role_service import update_workspace_roles
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -145,10 +146,7 @@ async def update_roles(
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
     await _validate_roles(payload, principal, session, workspace.id)
-    document = settings_document(workspace)
-    before = document.roles.model_dump(by_alias=True, mode="json")
-    document.roles = payload
-    save_document(workspace, document)
+    before = update_workspace_roles(workspace, payload)
     record_workspace_change(
         session,
         principal,
