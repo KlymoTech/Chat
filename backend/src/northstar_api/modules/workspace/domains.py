@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
+from northstar_api.models import Workspace
 from northstar_api.modules.branding.repositories import persist_branding_document
 from northstar_api.security import Principal
 from northstar_api.workers.celery_app import celery_app
@@ -42,7 +43,7 @@ async def _mark_dispatch_failed(
     session: DBSession,
     principal: Principal,
     request: Request,
-    workspace,
+    workspace: Workspace,
     document: WorkspaceSettingsBundle,
     domain: DomainRecord,
     operation: str,
