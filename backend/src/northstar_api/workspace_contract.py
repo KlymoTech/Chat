@@ -6,16 +6,46 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator, model_validator
 
 from northstar_api.branding_validation import decode_raster
 from northstar_api.onboarding_contract import SetupContract
+
+
+class BusinessDay(SetupContract):
+    enabled: bool = False
+    opens: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    closes: str = Field(default="17:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+
+    @model_validator(mode="after")
+    def valid_opening_window(self) -> BusinessDay:
+        if self.enabled and self.opens == self.closes:
+            raise ValueError("Business opening and closing times must differ")
+        return self
+
+
+class BusinessHours(SetupContract):
+    monday: BusinessDay = Field(default_factory=lambda: BusinessDay(enabled=True))
+    tuesday: BusinessDay = Field(default_factory=lambda: BusinessDay(enabled=True))
+    wednesday: BusinessDay = Field(default_factory=lambda: BusinessDay(enabled=True))
+    thursday: BusinessDay = Field(default_factory=lambda: BusinessDay(enabled=True))
+    friday: BusinessDay = Field(default_factory=lambda: BusinessDay(enabled=True))
+    saturday: BusinessDay = Field(default_factory=BusinessDay)
+    sunday: BusinessDay = Field(default_factory=BusinessDay)
 
 
 class WorkspacePreferences(SetupContract):
     timezone: str = Field(default="Asia/Calcutta", min_length=2, max_length=80)
     default_language: str = Field(default="English", min_length=2, max_length=60)
     date_format: Literal["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"] = "DD/MM/YYYY"
+    industry: str = Field(default="", max_length=120)
+    country: str = Field(default="", max_length=80)
+    description: str = Field(default="", max_length=2000)
+    time_format: Literal["12h", "24h"] = "24h"
+    currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
+    week_start: Literal["monday", "saturday", "sunday"] = "monday"
+    workspace_icon: str = Field(default="", max_length=8)
+    business_hours: BusinessHours = Field(default_factory=BusinessHours)
 
     @field_validator("timezone")
     @classmethod
@@ -25,6 +55,11 @@ class WorkspacePreferences(SetupContract):
         except (ValueError, ZoneInfoNotFoundError) as exc:
             raise ValueError("Choose a valid IANA timezone") from exc
         return value
+
+    @field_validator("industry", "country", "description")
+    @classmethod
+    def strip_profile_text(cls, value: str) -> str:
+        return value.strip()
 
 
 class WorkspaceSecurityPolicy(SetupContract):
