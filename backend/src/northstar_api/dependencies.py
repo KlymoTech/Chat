@@ -17,6 +17,7 @@ from northstar_api.models import (
     Role, TenantMembership, User, Workspace, WorkspaceMemberAgentAccess,
     WorkspaceMembership, WorkspaceRole, WorkspaceStatus,
 )
+from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 from northstar_api.onboarding_models import OrganizationSetup
 from northstar_api.security import TENANT_ROLE_PERMISSIONS, WORKSPACE_ROLE_PERMISSIONS, Principal, decode_token
 from northstar_api.services.email_verification import email_is_verified
@@ -62,6 +63,18 @@ async def _agent_scope(session: AsyncSession, membership: WorkspaceMembership, u
     )))
 
 
+async def _workspace_membership_suspended(
+    session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID, user_id: UUID,
+) -> bool:
+    state = await session.scalar(select(WorkspaceMemberState).where(
+        WorkspaceMemberState.tenant_id == tenant_id,
+        WorkspaceMemberState.workspace_id == workspace_id,
+        WorkspaceMemberState.user_id == user_id,
+        WorkspaceMemberState.suspended_at.is_not(None),
+    ))
+    return state is not None
+
+
 async def authenticate_api_key(token: str, session: AsyncSession, *, request: Request | None = None) -> Principal:
     api_key = await find_active_workspace_api_key(session, token)
     if api_key is None or api_key.created_by_user_id is None:
@@ -77,6 +90,12 @@ async def authenticate_api_key(token: str, session: AsyncSession, *, request: Re
     ))
     if tenant_membership is None or workspace_membership is None:
         raise HTTPException(status_code=401, detail="API key access is unavailable")
+    await set_tenant_context(session, api_key.tenant_id)
+    if await _workspace_membership_suspended(
+        session, tenant_id=api_key.tenant_id, workspace_id=api_key.workspace_id,
+        user_id=api_key.created_by_user_id,
+    ):
+        raise HTTPException(status_code=403, detail="Workspace membership is suspended")
     if not await email_is_verified(session, api_key.created_by_user_id):
         raise HTTPException(status_code=403, detail="Email verification required")
     requested_workspace = request.headers.get("x-workspace-id", "").strip() if request else ""
@@ -89,7 +108,6 @@ async def authenticate_api_key(token: str, session: AsyncSession, *, request: Re
             raise HTTPException(status_code=403, detail="API key is scoped to a different workspace")
     api_key.last_used_at = datetime.now(UTC)
     await session.commit()
-    await set_tenant_context(session, api_key.tenant_id)
     service_workspace_role = WorkspaceRole.MANAGER if workspace_membership.role == WorkspaceRole.ADMIN else workspace_membership.role
     return Principal(
         user_id=api_key.created_by_user_id, tenant_id=api_key.tenant_id, role=Role.MEMBER,
@@ -152,6 +170,16 @@ async def authenticate_access_token(token: str, session: AsyncSession, *, reques
             raise HTTPException(status_code=403, detail="Workspace access is unavailable")
         return Principal(user_id=user_id, tenant_id=tenant_id, role=membership.role, token_id=payload["jti"],
                          permissions=TENANT_ROLE_PERMISSIONS[membership.role])
+    if await _workspace_membership_suspended(
+        session, tenant_id=tenant_id, workspace_id=workspace_membership.workspace_id,
+        user_id=user_id,
+    ):
+        if workspace_id is not None or not _allows_organization_context(request):
+            raise HTTPException(status_code=403, detail="Workspace membership is suspended")
+        return Principal(
+            user_id=user_id, tenant_id=tenant_id, role=membership.role,
+            token_id=payload["jti"], permissions=TENANT_ROLE_PERMISSIONS[membership.role],
+        )
     permissions = TENANT_ROLE_PERMISSIONS[membership.role] | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
     return Principal(
         user_id=user_id, tenant_id=tenant_id, role=membership.role, token_id=payload["jti"],

@@ -2,6 +2,7 @@ import { CircleAlert, Clock3, Mail, Pencil, RefreshCw, ShieldCheck, Trash2, User
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useToast } from '@/components/providers';
 import { Badge, Button, Card, Field, Modal, Switch } from '@/components/ui';
+import { emitWorkspaceMemberChanged } from '@/features/workspace/members/workspaceMemberEvents';
 import { api } from '@/lib/api';
 import { invitationDeliveryNotice, workspaceTeamApi, type WorkspaceAccessInput, type WorkspaceInvitation, type WorkspaceMember, type WorkspaceRole } from '@/lib/workspace-team-api';
 import { workspacePresentationKey, type WorkspaceSettings } from '@/lib/workspace-api';
@@ -100,6 +101,7 @@ function TeamPanel({ workspace }: { workspace: WorkspaceSettings }) {
       if (!alive.current) return;
       setInvitations((old) => [invitation, ...old.filter((item) => item.id !== invitation.id)]);
       setEmail(''); setInviteDraft(emptyAccess); setInviteOpen(false); notifyInvitation(invitation);
+      emitWorkspaceMemberChanged('invited');
     });
   }
   async function saveMember(event: FormEvent) {
@@ -110,6 +112,7 @@ function TeamPanel({ workspace }: { workspace: WorkspaceSettings }) {
       if (!alive.current) return;
       setMembers((old) => old.map((item) => item.userId === updated.userId ? updated : item));
       setEditing(null); pushToast(`${updated.name}'s access was updated`);
+      emitWorkspaceMemberChanged('member-updated');
     });
   }
   function remove(member: WorkspaceMember) {
@@ -119,6 +122,7 @@ function TeamPanel({ workspace }: { workspace: WorkspaceSettings }) {
       if (!alive.current) return;
       setMembers((old) => old.filter((item) => item.userId !== member.userId));
       pushToast(`${member.name} was removed from this workspace`);
+      emitWorkspaceMemberChanged('member-removed');
     });
   }
   function resend(invitation: WorkspaceInvitation) {
@@ -127,6 +131,7 @@ function TeamPanel({ workspace }: { workspace: WorkspaceSettings }) {
       const updated = await workspaceTeamApi.resendInvitation(invitation.id);
       if (!alive.current) return;
       setInvitations((old) => old.map((item) => item.id === updated.id ? updated : item)); notifyInvitation(updated);
+      emitWorkspaceMemberChanged('invitation-resent');
     });
   }
   function revoke(invitation: WorkspaceInvitation) {
@@ -136,6 +141,7 @@ function TeamPanel({ workspace }: { workspace: WorkspaceSettings }) {
       if (!alive.current) return;
       setInvitations((old) => old.map((item) => item.id === invitation.id ? { ...item, status: 'revoked' } : item));
       pushToast(`Invitation for ${invitation.email} was revoked`);
+      emitWorkspaceMemberChanged('invitation-revoked');
     });
   }
   function reload() { setEditing(null); setActionError(''); void load(); }

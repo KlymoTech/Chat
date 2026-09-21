@@ -18,6 +18,7 @@ from northstar_api.models import (
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
+from northstar_api.modules.workspace.services.invitation_email_delivery import dispatch_invitation_email_jobs
 from northstar_api.workers.facebook_messenger_tasks import send_facebook_messenger_message
 from northstar_api.workers.instagram_tasks import send_instagram_message
 from northstar_api.workers.slack_tasks import send_slack_message
@@ -488,6 +489,7 @@ async def dispatch_forever() -> None:
                             error=type(exc).__name__,
                             retry_in=delay,
                         )
+                dispatched += await dispatch_invitation_email_jobs(session, now=now)
                 await session.commit()
             if dispatched == 0:
                 try:

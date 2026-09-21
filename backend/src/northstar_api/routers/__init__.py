@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends
 
+from northstar_api.modules.workspace.api import member_details, member_lifecycle, ownership
+from northstar_api.modules.workspace.services.invitation_actor import capture_invitation_administrator
 from northstar_api.routers import (
     agents,
     analytics,
@@ -136,9 +138,17 @@ api_router.include_router(help.router)
 api_router.include_router(widget.router)
 api_router.include_router(whatsapp.router)
 api_router.include_router(chat.router)
-api_router.include_router(workspace_invitations.router)
+# Protected invitation routes alone capture the authenticated administrator. The
+# public invitation router remains unaffected and cannot provide a revoker.
+api_router.include_router(
+    workspace_invitations.router,
+    dependencies=[Depends(capture_invitation_administrator)],
+)
 api_router.include_router(workspace.router)
 api_router.include_router(workspace.collection_router)
+api_router.include_router(ownership.router)
+api_router.include_router(member_lifecycle.router)
+api_router.include_router(member_details.router)
 api_router.include_router(workspace_invitations.public_router)
 api_router.include_router(workspace_api_keys.router)
 api_router.include_router(billing.router)

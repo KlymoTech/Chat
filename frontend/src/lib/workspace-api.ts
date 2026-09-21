@@ -2,7 +2,22 @@ import { readStorage, writeStorage } from '@/lib/storage';
 
 export type DnsStatus = 'not-configured' | 'pending' | 'verified';
 export type WorkspaceRole = 'workspace_admin' | 'manager' | 'operator' | 'analyst' | 'viewer';
-export interface WorkspacePreferences { timezone: string; defaultLanguage: string; dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD' }
+export interface BusinessDay { enabled: boolean; opens: string; closes: string }
+export type BusinessHours = Record<'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday', BusinessDay>;
+export interface WorkspacePreferences {
+  timezone: string;
+  defaultLanguage: string;
+  dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD';
+  // Optional on the client for existing tests, older cached demo workspaces and integrations.
+  industry?: string;
+  country?: string;
+  description?: string;
+  timeFormat?: '12h' | '24h';
+  currency?: string;
+  weekStart?: 'monday' | 'saturday' | 'sunday';
+  workspaceIcon?: string;
+  businessHours?: BusinessHours;
+}
 export interface WorkspaceSecurityPolicy { sensitiveDataMasking: boolean; securityContact: string | null }
 export interface WhiteLabelSettings {
   companyName: string; logoDataUrl: string; faviconDataUrl: string; appIconDataUrl: string;
@@ -20,6 +35,13 @@ export interface WorkspaceSettings {
 export interface WorkspaceTeamMember { id: string; name: string; email: string; role: WorkspaceRole; tenantRole: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst'; status: 'active' }
 export interface WorkspaceTeamInvitation { id: string; email: string; role: WorkspaceRole; status: 'invited'; expiresAt: string; createdAt: string }
 export interface WorkspaceTeam { members: WorkspaceTeamMember[]; invitations: WorkspaceTeamInvitation[] }
+export interface WorkspaceOwner { ownerUserId: string | null; ownerName: string | null; creatorUserId: string | null }
+export interface WorkspaceOwnerTransfer {
+  expectedOwnerUserId: string;
+  targetUserId: string;
+  confirmation: 'TRANSFER';
+  reason: 'administrative_handover' | 'responsibility_change' | 'account_recovery';
+}
 export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel' | 'educationCreateUpsellLeads' | 'security'>>;
 export interface WorkspaceCreate { name: string; slug: string; timezone?: string; defaultLanguage?: string; dateFormat?: WorkspacePreferences['dateFormat'] }
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
@@ -30,10 +52,21 @@ export const WORKSPACE_CHANGED_EVENT = 'northstar:active-workspace-changed';
 export class WorkspaceRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'WorkspaceRequestError'; }
 }
+const defaultBusinessHours: BusinessHours = {
+  monday: { enabled: true, opens: '09:00', closes: '17:00' },
+  tuesday: { enabled: true, opens: '09:00', closes: '17:00' },
+  wednesday: { enabled: true, opens: '09:00', closes: '17:00' },
+  thursday: { enabled: true, opens: '09:00', closes: '17:00' },
+  friday: { enabled: true, opens: '09:00', closes: '17:00' },
+  saturday: { enabled: false, opens: '09:00', closes: '17:00' },
+  sunday: { enabled: false, opens: '09:00', closes: '17:00' },
+};
 const defaults: WorkspaceSettings = {
   id: 'workspace-demo', name: 'Northstar Workspace', slug: 'northstar', plan: 'business', memberCount: 1,
   educationCreateUpsellLeads: false, brandingPublished: false,
-  preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
+  preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY',
+    industry: '', country: '', description: '', timeFormat: '24h', currency: 'USD', weekStart: 'monday',
+    workspaceIcon: '', businessHours: defaultBusinessHours },
   security: { sensitiveDataMasking: true, securityContact: null },
   whiteLabel: { companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
     primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: null, supportUrl: '',
@@ -160,6 +193,17 @@ export const workspaceApi = {
   async getTeam(): Promise<WorkspaceTeam> {
     try { return await remote<WorkspaceTeam>('/workspace/team', 'GET'); }
     catch (error) { if (demoFallback(error)) return { members: [], invitations: [] }; throw error; }
+  },
+  async getOwner(signal?: AbortSignal): Promise<WorkspaceOwner> {
+    try { return await remote<WorkspaceOwner>('/workspace/owner', 'GET', undefined, true, signal); }
+    catch (error) {
+      if (demoFallback(error)) return { ownerUserId: null, ownerName: null, creatorUserId: null };
+      throw error;
+    }
+  },
+  async transferOwner(input: WorkspaceOwnerTransfer): Promise<WorkspaceOwner> {
+    // Never simulate a sensitive ownership transfer in demo mode or retry a write.
+    return remote<WorkspaceOwner>('/workspace/owner/transfer', 'POST', input);
   },
 };
 export const workspaceDefaults = defaults;
