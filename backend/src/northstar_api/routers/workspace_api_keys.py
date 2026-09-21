@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from northstar_api.dependencies import DBSession, require_permissions
+from northstar_api.modules.workspace.api_key_scopes import permissions_for_api_key_scopes
 from northstar_api.security import Principal
 from northstar_api.services.notifications import create_notification
 from northstar_api.services.workspace_api_keys import (
@@ -39,6 +40,7 @@ def _out(record: WorkspaceAPIKey) -> WorkspaceAPIKeyOut:
         id=record.id,
         name=record.name,
         prefix=record.prefix,
+        scopes=list(record.scopes or []),
         created_at=record.created_at,
         last_used_at=record.last_used_at,
     )
@@ -67,12 +69,16 @@ async def create_workspace_api_key(
 ) -> WorkspaceAPIKeyCreated:
     _require_interactive_session(principal)
     assert principal.workspace_id is not None
+    delegated = permissions_for_api_key_scopes(payload.scopes)
+    if not delegated <= principal.permissions:
+        raise HTTPException(status_code=403, detail="Cannot issue an API key with scopes outside your workspace permissions")
     issued = await issue_workspace_api_key(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
         created_by_user_id=principal.user_id,
         name=payload.name,
+        scopes=payload.scopes,
     )
     await create_notification(
         session,
@@ -80,13 +86,13 @@ async def create_workspace_api_key(
         workspace_id=principal.workspace_id,
         recipient_user_id=principal.user_id,
         title="API key created",
-        body=f"{issued.record.name} was created. Store the secret securely because it is shown only once.",
+        body=f"{issued.record.name} was created with {len(issued.record.scopes)} scopes. Store the secret securely because it is shown only once.",
         dedupe_key=f"api-key-created:{issued.record.id}",
         category="security",
         severity="info",
-        action_url="/workspace",
+        action_url="/workspace/settings/developer",
         action_label="Review API keys",
-        metadata={"apiKeyId": str(issued.record.id), "prefix": issued.record.prefix},
+        metadata={"apiKeyId": str(issued.record.id), "prefix": issued.record.prefix, "scopes": list(issued.record.scopes)},
     )
     await session.commit()
     await session.refresh(issued.record)
@@ -121,7 +127,7 @@ async def delete_workspace_api_key(
             dedupe_key=f"api-key-revoked:{revoked.id}",
             category="security",
             severity="warning",
-            action_url="/workspace",
+            action_url="/workspace/settings/developer",
             action_label="Review API keys",
             metadata={"apiKeyId": str(revoked.id), "prefix": revoked.prefix},
         )
