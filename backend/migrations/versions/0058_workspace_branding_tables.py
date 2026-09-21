@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0058_workspace_branding_tables"
 down_revision = "0057_workspace_conversation_assignments"
 branch_labels = None
 depends_on = None
 
-JSON = sa.JSON().with_variant(sa.dialects.postgresql.JSONB(), "postgresql")
+JSON = sa.JSON().with_variant(JSONB(), "postgresql")
 
 
 def _workspace_keys() -> list[sa.Column]:
