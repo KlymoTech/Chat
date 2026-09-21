@@ -21,12 +21,13 @@ async def test_extended_general_profile_persists_and_audits_only_field_names(
     tenant_id = UUID(original["tenantId"])
     profile = dict(original["preferences"])
     profile["industry"] = f"Education-{uuid4().hex[:8]}"
-    profile["country"] = "India"
-    profile["currency"] = "INR"
-    profile["weekStart"] = "sunday"
+    profile["country"] = "India" if profile["country"] != "India" else "Nepal"
+    profile["currency"] = "INR" if profile["currency"] != "INR" else "USD"
+    profile["weekStart"] = "sunday" if profile["weekStart"] != "sunday" else "monday"
+    new_opens = "08:00" if profile["businessHours"]["monday"]["opens"] != "08:00" else "09:00"
     profile["businessHours"] = {
         **profile["businessHours"],
-        "monday": {"enabled": True, "opens": "08:00", "closes": "18:00"},
+        "monday": {"enabled": True, "opens": new_opens, "closes": "18:00"},
     }
 
     async def snapshots() -> tuple[set[UUID], set[UUID]]:
@@ -50,8 +51,8 @@ async def test_extended_general_profile_persists_and_audits_only_field_names(
         assert changed.json()["preferences"]["industry"] == profile["industry"]
         persisted = await client.get("/api/v1/workspace", headers=auth_headers)
         assert persisted.status_code == 200, persisted.text
-        assert persisted.json()["preferences"]["businessHours"]["monday"]["opens"] == "08:00"
-        assert persisted.json()["preferences"]["currency"] == "INR"
+        assert persisted.json()["preferences"]["businessHours"]["monday"]["opens"] == new_opens
+        assert persisted.json()["preferences"]["currency"] == profile["currency"]
 
         audits, events = await snapshots()
         assert len(audits - previous_audits) == 1
