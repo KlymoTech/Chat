@@ -1,9 +1,27 @@
 """Feature-owned white-label/branding boundary.
 
-This package intentionally wraps the existing workspace branding implementation
-while the repository is migrated capability-by-capability.
+Keep router exports import-compatible without importing HTTP modules eagerly.
+The legacy Workspace branding module imports branding repositories/services
+before defining its router; eagerly importing branding.api here can otherwise
+re-enter that partially initialized module.
 """
 
-from .api import branding_router, domains_router, email_router
+from importlib import import_module
+from typing import cast
 
-__all__ = ["branding_router", "domains_router", "email_router"]
+from fastapi import APIRouter
+
+__all__ = [
+    "brand_draft_router",
+    "brand_versions_router",
+    "branding_router",
+    "domains_router",
+    "email_router",
+]
+
+
+def __getattr__(name: str) -> APIRouter:
+    """Resolve existing and canonical router exports only when requested."""
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return cast(APIRouter, getattr(import_module(f"{__name__}.api"), name))
