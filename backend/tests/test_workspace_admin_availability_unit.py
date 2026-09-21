@@ -42,6 +42,7 @@ async def test_last_available_admin_cannot_be_suspended(monkeypatch, available: 
     session = AsyncMock()
     session.scalar.return_value = SimpleNamespace(role=WorkspaceRole.ADMIN)
     session.get.return_value = None
+    session.add = Mock()
     with pytest.raises(WorkspaceMemberError) as exc:
         await member_lifecycle.set_member_suspended(
             session, tenant_id=uuid4(), workspace_id=uuid4(),
@@ -67,6 +68,7 @@ async def test_suspending_admin_when_another_is_available_preserves_audit(monkey
     session = AsyncMock()
     session.scalar.return_value = SimpleNamespace(role=WorkspaceRole.ADMIN)
     session.get.return_value = None
+    session.add = Mock()
     workspace_id = uuid4()
     result = await member_lifecycle.set_member_suspended(
         session, tenant_id=uuid4(), workspace_id=workspace_id,
@@ -92,6 +94,7 @@ async def test_suspending_non_admin_does_not_need_admin_count(monkeypatch) -> No
     session = AsyncMock()
     session.scalar.return_value = SimpleNamespace(role=WorkspaceRole.VIEWER)
     session.get.return_value = None
+    session.add = Mock()
     assert await member_lifecycle.set_member_suspended(
         session, tenant_id=uuid4(), workspace_id=uuid4(),
         actor_user_id=uuid4(), member_user_id=uuid4(),
