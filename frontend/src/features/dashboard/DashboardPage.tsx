@@ -13,6 +13,14 @@ import { DashboardWidgetRenderer } from './widgets/DashboardWidgetRenderer';
 import './dashboard.css';
 
 export function DashboardPage({ brand }: { brand: ExtendedBranding }) {
+  const { activeWorkspace } = useWorkspace();
+  // Remount every dashboard query together on workspace changes. The generic
+  // useApi hook retains its previous response while refetching, so a dependency
+  // change alone could briefly show another workspace's conversation/lead data.
+  return <WorkspaceDashboardContent key={activeWorkspace?.id ?? 'no-workspace'} brand={brand} />;
+}
+
+function WorkspaceDashboardContent({ brand }: { brand: ExtendedBranding }) {
   const { session } = useAuth();
   const { activeWorkspace } = useWorkspace();
   const agents = useApi(() => api.agents.list());
@@ -25,10 +33,11 @@ export function DashboardPage({ brand }: { brand: ExtendedBranding }) {
   useEffect(() => {
     const controller = new AbortController();
     void loadWorkspaceDashboardRuntime(controller.signal).then((value) => {
+      if (controller.signal.aborted) return;
       setRuntime(value);
       setRuntimeError('');
     }).catch((reason: unknown) => {
-      if (reason instanceof DOMException && reason.name === 'AbortError') return;
+      if (controller.signal.aborted || (reason instanceof DOMException && reason.name === 'AbortError')) return;
       setRuntimeError(reason instanceof Error ? reason.message : 'Dashboard profile context is unavailable');
     });
     return () => controller.abort();
