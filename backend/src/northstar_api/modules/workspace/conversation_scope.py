@@ -15,15 +15,17 @@ _SESSION_KEY = "workspace_conversation_assignment_scope"
 def set_conversation_assignment_scope(
     session: object,
     *,
+    tenant_id: UUID | None = None,
+    workspace_id: UUID | None = None,
     user_id: UUID | None = None,
     team_ids: frozenset[str] | None = None,
 ) -> None:
     """Attach conversation-assignment scope to the current database session.
 
-    With no user/team scope the assignment restriction is removed. Assigned
-    scope filters by ``assigned_user_id``; team scope filters by one of the
-    caller's workspace team IDs. Existing tenant/workspace/agent constraints
-    remain additional boundaries in the normal query pipeline.
+    With no assignment scope the restriction is removed. Assigned scope filters
+    by ``assigned_user_id``; team scope filters by one of the caller's workspace
+    team IDs. The tenant/workspace keys are required whenever a scope is active,
+    keeping the assignment lookup inside the same boundary as the conversation.
     """
     sync_session = getattr(session, "sync_session", session)
     info = getattr(sync_session, "info", None)
@@ -32,8 +34,10 @@ def set_conversation_assignment_scope(
     normalized_team_ids = frozenset(value for value in (team_ids or frozenset()) if value)
     if user_id is None and not normalized_team_ids:
         info.pop(_SESSION_KEY, None)
-    else:
-        info[_SESSION_KEY] = (user_id, normalized_team_ids)
+        return
+    if tenant_id is None or workspace_id is None:
+        raise ValueError("Tenant and workspace are required for conversation assignment scope")
+    info[_SESSION_KEY] = (tenant_id, workspace_id, user_id, normalized_team_ids)
 
 
 @event.listens_for(Session, "do_orm_execute")
@@ -45,7 +49,7 @@ def apply_conversation_assignment_scope(execute_state: object) -> None:
     scope = info.get(_SESSION_KEY)
     if scope is None:
         return
-    user_id, team_ids = scope
+    tenant_id, workspace_id, user_id, team_ids = scope
     predicates: list[object] = []
     if user_id is not None:
         predicates.append(WorkspaceConversationAssignment.assigned_user_id == user_id)
@@ -54,7 +58,9 @@ def apply_conversation_assignment_scope(execute_state: object) -> None:
     if not predicates:
         return
     assignment_ids = select(WorkspaceConversationAssignment.conversation_id).where(
-        or_(*predicates)
+        WorkspaceConversationAssignment.tenant_id == tenant_id,
+        WorkspaceConversationAssignment.workspace_id == workspace_id,
+        or_(*predicates),
     )
     execute_state.statement = execute_state.statement.options(  # type: ignore[attr-defined]
         with_loader_criteria(
