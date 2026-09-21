@@ -11,13 +11,14 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import (
     TenantMembership, User, Workspace, WorkspaceMembership, WorkspaceRole, WorkspaceStatus,
 )
+from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 from northstar_api.services.outbox import enqueue_event
 
 OwnershipReason = Literal["administrative_handover", "responsibility_change", "account_recovery"]
@@ -58,22 +59,33 @@ def select_owner_id(
     return eligible[0]
 
 
+def eligible_member_state_filter(tenant_id: UUID, workspace_id: UUID):
+    """Allow legacy members with no state row and explicitly active members only."""
+    return and_(
+        WorkspaceMemberState.tenant_id == tenant_id,
+        WorkspaceMemberState.workspace_id == workspace_id,
+        WorkspaceMemberState.user_id == User.id,
+    )
+
+
 async def resolve_workspace_owner(
     session: AsyncSession, *, tenant_id: UUID, workspace: Workspace,
 ) -> WorkspaceOwner | None:
-    """Scope by both tenant and workspace and ignore inactive/non-admin users."""
+    """Scope by tenant/workspace and exclude suspended or inactive administrators."""
     if workspace.tenant_id != tenant_id:
         return None
     rows = (await session.execute(
         select(User.id, User.name)
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
         .join(TenantMembership, TenantMembership.user_id == User.id)
+        .outerjoin(WorkspaceMemberState, eligible_member_state_filter(tenant_id, workspace.id))
         .where(
             WorkspaceMembership.tenant_id == tenant_id,
             WorkspaceMembership.workspace_id == workspace.id,
             WorkspaceMembership.role == WorkspaceRole.ADMIN,
             TenantMembership.tenant_id == tenant_id,
             User.is_active.is_(True),
+            WorkspaceMemberState.suspended_at.is_(None),
         )
         .order_by(WorkspaceMembership.created_at, User.id)
     )).all()
@@ -135,6 +147,7 @@ async def transfer_workspace_ownership(
         select(User.id, User.name)
         .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
         .join(TenantMembership, TenantMembership.user_id == User.id)
+        .outerjoin(WorkspaceMemberState, eligible_member_state_filter(tenant_id, workspace_id))
         .where(
             User.id == target_user_id,
             User.is_active.is_(True),
@@ -142,6 +155,7 @@ async def transfer_workspace_ownership(
             WorkspaceMembership.workspace_id == workspace_id,
             WorkspaceMembership.role == WorkspaceRole.ADMIN,
             TenantMembership.tenant_id == tenant_id,
+            WorkspaceMemberState.suspended_at.is_(None),
         )
     )).first()
     if target is None:
