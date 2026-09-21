@@ -4,12 +4,10 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from sqlalchemy import select, text
 
-from northstar_api.database import set_tenant_context
 from northstar_api.dependencies import DBSession
-from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.workspace.brand_cache import cache_domain_brand, cached_domain_brand
+from northstar_api.modules.workspace.domain_resolution import normalize_hostname, resolve_workspace_domain
 from northstar_api.modules.workspace.store import settings_document
 from northstar_api.onboarding_contract import SetupContract
 
@@ -31,40 +29,10 @@ class PublicBrandingResponse(SetupContract):
 
 
 def _hostname(value: str) -> str:
-    normalized = value.strip().lower().rstrip(".")
-    if not normalized or len(normalized) > 253 or "://" in normalized or "/" in normalized or " " in normalized:
-        raise HTTPException(status_code=400, detail="Invalid hostname")
-    return normalized
-
-
-async def _resolve_workspace(session: DBSession, hostname: str) -> Workspace | None:
-    if session.bind and session.bind.dialect.name == "postgresql":
-        row = (
-            await session.execute(
-                text(
-                    "SELECT tenant_id, workspace_id "
-                    "FROM northstar_resolve_workspace_domain(:hostname)"
-                ),
-                {"hostname": hostname},
-            )
-        ).mappings().first()
-        if row is None:
-            return None
-        await set_tenant_context(session, UUID(str(row["tenant_id"])))
-        return await session.scalar(
-            select(Workspace).where(
-                Workspace.id == UUID(str(row["workspace_id"])),
-                Workspace.tenant_id == UUID(str(row["tenant_id"])),
-                Workspace.status == WorkspaceStatus.ACTIVE,
-            )
-        )
-
-    workspaces = await session.scalars(select(Workspace).where(Workspace.status == WorkspaceStatus.ACTIVE))
-    for workspace in workspaces:
-        document = settings_document(workspace)
-        if any(item.hostname == hostname and item.status == "active" for item in document.domains.domains):
-            return workspace
-    return None
+    try:
+        return normalize_hostname(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid hostname") from None
 
 
 @router.get("/health", status_code=204)
@@ -85,7 +53,7 @@ async def public_branding(
         except (TypeError, ValueError):
             pass
 
-    workspace = await _resolve_workspace(session, normalized)
+    workspace = await resolve_workspace_domain(session, normalized)
     if workspace is None:
         raise HTTPException(status_code=404, detail="No active brand is configured for this domain")
     published = settings_document(workspace).branding_published
