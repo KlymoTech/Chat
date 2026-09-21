@@ -8,6 +8,7 @@ import {
   workspaceTeamApi,
   type WorkspaceMember,
   type WorkspaceMemberLifecycle,
+  type WorkspaceMemberStatus,
 } from '@/lib/workspace-team-api';
 import { workspacePresentationKey, type WorkspaceSettings } from '@/lib/workspace-api';
 
@@ -35,7 +36,7 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState<WorkspaceMember | null>(null);
-  const [nextStatus, setNextStatus] = useState<WorkspaceMemberLifecycle['status']>('suspended');
+  const [nextStatus, setNextStatus] = useState<WorkspaceMemberStatus>('suspended');
   const [reason, setReason] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const controller = useRef<AbortController | null>(null);
@@ -70,7 +71,7 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
     return () => { unsubscribe(); controller.current?.abort(); };
   }, [load]);
 
-  function open(member: WorkspaceMember, status: WorkspaceMemberLifecycle['status']) {
+  function open(member: WorkspaceMember, status: WorkspaceMemberStatus) {
     setTarget(member); setNextStatus(status); setReason(''); setConfirmation(''); setError('');
   }
 
@@ -110,7 +111,9 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
               {canManage && !member.isSelf && status ? <span className="workspace-member-list__actions">
                 {status === 'active'
                   ? <Button size="sm" variant="ghost" icon={PauseCircle} onClick={() => open(member, 'suspended')}>Suspend</Button>
-                  : <Button size="sm" variant="ghost" icon={PlayCircle} onClick={() => open(member, 'active')}>Reactivate</Button>}
+                  : status === 'suspended'
+                    ? <Button size="sm" variant="ghost" icon={PlayCircle} onClick={() => open(member, 'active')}>Reactivate</Button>
+                    : null}
               </span> : null}
             </div>;
           })}
