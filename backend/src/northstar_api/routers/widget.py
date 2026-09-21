@@ -120,12 +120,20 @@ async def _workspace_widget_appearance(session: AsyncSession, agent: Agent) -> A
     if published is None or not published.identity.branded_widget:
         return appearance
     widget = published.widget
+    translations = dict(appearance.translations)
+    translations["offlineMessage"] = widget.offline_message
     return appearance.model_copy(
         update={
-            "color": widget.launcher_color,
-            "font": widget.font,
+            "primary_color": widget.launcher_color,
+            "surface_color": widget.background,
+            "font_family": widget.font,
             "position": widget.position,
-            "welcomeMessage": widget.greeting,
+            "welcome_title": widget.header or appearance.welcome_title,
+            "welcome_message": widget.greeting,
+            "privacy_policy_url": widget.privacy_url or appearance.privacy_policy_url,
+            "widget_name": published.identity.company_name or appearance.widget_name,
+            "show_branding": not published.identity.remove_platform_branding,
+            "translations": translations,
         }
     )
 
