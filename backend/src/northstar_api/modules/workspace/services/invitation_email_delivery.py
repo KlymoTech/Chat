@@ -11,7 +11,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import get_settings
@@ -99,6 +99,38 @@ async def _mark_terminal_broker_failure(session: AsyncSession, job: WorkspaceInv
     )
 
 
+async def cancel_obsolete_invitation_email_jobs(
+    session: AsyncSession, *, now: datetime | None = None,
+) -> None:
+    """Scrub obsolete queued credentials without waiting for a worker or broker.
+
+    The invitation's own transition already records its audit event. This
+    internal cleanup is scoped to an exact matching tenant/workspace, pending
+    status, unexpired token generation; it never reads or logs ciphertext.
+    """
+    clock = now or datetime.now(UTC)
+    live_invitation = select(WorkspaceInvitation.id).where(
+        WorkspaceInvitation.id == WorkspaceInvitationEmailJob.invitation_id,
+        WorkspaceInvitation.tenant_id == WorkspaceInvitationEmailJob.tenant_id,
+        WorkspaceInvitation.workspace_id == WorkspaceInvitationEmailJob.workspace_id,
+        WorkspaceInvitation.token_hash == WorkspaceInvitationEmailJob.token_hash,
+        WorkspaceInvitation.status == WorkspaceInvitationStatus.PENDING,
+        WorkspaceInvitation.expires_at > clock,
+    ).exists()
+    await session.execute(
+        update(WorkspaceInvitationEmailJob)
+        .where(
+            WorkspaceInvitationEmailJob.status.in_(("queued", "failed")),
+            ~live_invitation,
+        )
+        .values(
+            status="cancelled", ciphertext=None, next_dispatch_at=None,
+            last_error="InvitationNoLongerDeliverable",
+        )
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def dispatch_invitation_email_jobs(session: AsyncSession, *, now: datetime | None = None) -> int:
     """Called inside the existing job-dispatcher DB transaction.
 
@@ -108,6 +140,8 @@ async def dispatch_invitation_email_jobs(session: AsyncSession, *, now: datetime
     from northstar_api.workers.workspace_invitation_email_tasks import send_workspace_invitation_email_task
 
     clock = now or datetime.now(UTC)
+    # Remove invalidated secrets even when RabbitMQ or its consumers are down.
+    await cancel_obsolete_invitation_email_jobs(session, now=clock)
     pending = (await session.scalars(
         select(WorkspaceInvitationEmailJob)
         .where(
