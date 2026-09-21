@@ -22,43 +22,47 @@ async def test_workspace_settings_are_isolated_between_workspaces(
 
     settings_response = await client.get("/api/v1/workspace/settings", headers=first_headers)
     assert settings_response.status_code == 200, settings_response.text
-    general = settings_response.json()["general"]
-    general.update(
-        {
-            "industry": "Education",
-            "country": "India",
-            "timeFormat": "12h",
-            "currency": "INR",
-            "weekStart": "monday",
-            "description": "Primary admissions workspace",
-            "workspaceIcon": "",
-            "businessHours": {
-                "enabled": True,
-                "timezone": "Asia/Kolkata",
-                "schedule": {"monday": ["09:00-17:00"]},
-            },
-        }
-    )
-    updated = await client.patch("/api/v1/workspace/settings/general", headers=first_headers, json=general)
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["industry"] == "Education"
-
-    created = await client.post(
-        "/api/v1/workspaces",
-        headers=auth_headers,
-        json={
-            "name": "Isolation Workspace",
-            "slug": "isolation-workspace-settings-test",
+    original_general = settings_response.json()["general"]
+    updated_general = {
+        **original_general,
+        "industry": "Education",
+        "country": "India",
+        "timeFormat": "12h",
+        "currency": "INR",
+        "weekStart": "monday",
+        "description": "Primary admissions workspace",
+        "workspaceIcon": "",
+        "businessHours": {
+            "enabled": True,
             "timezone": "Asia/Kolkata",
-            "defaultLanguage": "English",
-            "dateFormat": "DD/MM/YYYY",
+            "schedule": {"monday": ["09:00-17:00"]},
         },
-    )
-    assert created.status_code == 201, created.text
-    second_workspace_id = created.json()["id"]
-    second_headers = {**auth_headers, "X-Workspace-ID": second_workspace_id}
-
+    }
+    second_workspace_id: str | None = None
     try:
+        updated = await client.patch(
+            "/api/v1/workspace/settings/general",
+            headers=first_headers,
+            json=updated_general,
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["industry"] == "Education"
+
+        created = await client.post(
+            "/api/v1/workspaces",
+            headers=auth_headers,
+            json={
+                "name": "Isolation Workspace",
+                "slug": "isolation-workspace-settings-test",
+                "timezone": "Asia/Kolkata",
+                "defaultLanguage": "English",
+                "dateFormat": "DD/MM/YYYY",
+            },
+        )
+        assert created.status_code == 201, created.text
+        second_workspace_id = created.json()["id"]
+        second_headers = {**auth_headers, "X-Workspace-ID": second_workspace_id}
+
         second_settings = await client.get("/api/v1/workspace/settings", headers=second_headers)
         assert second_settings.status_code == 200, second_settings.text
         assert second_settings.json()["general"]["industry"] == ""
@@ -69,8 +73,14 @@ async def test_workspace_settings_are_isolated_between_workspaces(
         assert first_again.json()["general"]["industry"] == "Education"
         assert first_again.json()["general"]["description"] == "Primary admissions workspace"
     finally:
-        workspace_id = UUID(second_workspace_id)
-        async with SessionFactory() as session:
-            await session.execute(delete(WorkspaceMembership).where(WorkspaceMembership.workspace_id == workspace_id))
-            await session.execute(delete(Workspace).where(Workspace.id == workspace_id))
-            await session.commit()
+        await client.patch(
+            "/api/v1/workspace/settings/general",
+            headers=first_headers,
+            json=original_general,
+        )
+        if second_workspace_id is not None:
+            workspace_id = UUID(second_workspace_id)
+            async with SessionFactory() as session:
+                await session.execute(delete(WorkspaceMembership).where(WorkspaceMembership.workspace_id == workspace_id))
+                await session.execute(delete(Workspace).where(Workspace.id == workspace_id))
+                await session.commit()
