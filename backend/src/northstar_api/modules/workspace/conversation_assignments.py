@@ -16,6 +16,7 @@ from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 
 from .conversation_assignment_model import WorkspaceConversationAssignment
+from .member_state import is_member_suspended
 from .store import load_workspace, settings_document
 
 router = APIRouter(prefix="/conversation-assignments")
@@ -107,6 +108,7 @@ async def assignment_options(
                 role=membership.role.value,
             )
             for user, membership in rows
+            if not is_member_suspended(workspace.settings_json, user.id)
         ],
         teams=[
             ConversationAssignmentTeam(id=team.id, name=team.name)
@@ -151,7 +153,7 @@ async def save_assignment(
                 User.is_active.is_(True),
             )
         )
-        if member is None:
+        if member is None or is_member_suspended(workspace.settings_json, payload.user_id):
             raise HTTPException(
                 status_code=422,
                 detail="Assigned user must be an active workspace member",
