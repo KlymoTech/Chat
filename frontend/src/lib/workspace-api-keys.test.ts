@@ -13,7 +13,8 @@ describe('workspaceAPIKeyApi', () => {
 
   beforeEach(() => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'session-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    // The active workspace key is namespaced by the authenticated session.
+    sessionStorage.setItem('northstar.active-workspace::demo', 'workspace-1');
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -60,7 +61,7 @@ describe('workspaceAPIKeyApi', () => {
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/workspace/api-keys', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ name: 'Production 2' }),
+      body: JSON.stringify({ name: 'Production 2', scopes: ['conversations:read'] }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/workspace/api-keys/key-2', expect.objectContaining({
       method: 'DELETE',

@@ -26,13 +26,15 @@ export function WorkspaceAPIKeysPanel({ workspace }: { workspace: WorkspaceSetti
   useEffect(() => {
     if (!canView) return;
     let active = true;
-    const timer = window.setTimeout(() => setLoading(true), 0);
-    void workspaceAPIKeyApi.list()
-      .then((values) => { if (active) setKeys(values); })
-      .catch((error) => {
-        if (active) pushToast(error instanceof Error ? error.message : 'API keys could not be loaded', 'error');
-      })
-      .finally(() => { if (active) setLoading(false); });
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      void workspaceAPIKeyApi.list()
+        .then((values) => { if (active) setKeys(values); })
+        .catch((error) => {
+          if (active) pushToast(error instanceof Error ? error.message : 'API keys could not be loaded', 'error');
+        })
+        .finally(() => { if (active) setLoading(false); });
+    }, 0);
     return () => { active = false; window.clearTimeout(timer); };
   }, [canView, pushToast, workspace.id]);
 
