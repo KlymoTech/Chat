@@ -7,6 +7,7 @@ import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
 import { SubscriptionBillingPanel } from '@/components/SubscriptionBillingPanel';
 import { MFASecurityPanel } from '@/components/mfa-security-panel';
 import { workspaceApi, type WorkspaceSettings } from '@/lib/workspace-api';
+import { WorkspaceGeneralSettings } from './WorkspaceGeneralSettings';
 import { WorkspaceSettingsNavigation } from './WorkspaceSettingsNavigation';
 import { WorkspaceBrandingSettings } from './WorkspaceBrandingSettings';
 import { workspaceSettingsApi, type CapabilityCatalog, type CustomRole, type SettingsSection, type WorkspaceSettingsBundle, type WorkspaceTeam } from './workspaceSettings.api';
@@ -49,13 +50,13 @@ export function WorkspaceSettingsPage() {
     <div className="workspace-console-layout">
       <WorkspaceSettingsNavigation active={section} onSelect={(next) => navigate(`/workspace/settings/${next}`)} />
       <div className="workspace-console-content">
-        {section === 'general' ? <GeneralSection workspace={workspace} bundle={bundle} disabled={!canManage || saving} onWorkspace={setWorkspace} onBundle={setBundle} onSave={() => void save(
+        {section === 'general' ? <WorkspaceGeneralSettings workspace={workspace} bundle={bundle} disabled={!canManage || saving} onWorkspace={setWorkspace} onBundle={setBundle} onSave={() => void save(
           async () => {
             const updated = await workspaceApi.update({ name: workspace.name, slug: workspace.slug, preferences: workspace.preferences });
             await workspaceSettingsApi.saveGeneral(bundle.general); return updated;
           }, setWorkspace, 'Workspace general settings saved')} /> : null}
         {section === 'members' ? <WorkspaceTeamPanel workspace={workspace} /> : null}
-        {section === 'roles' ? <RolesSection value={bundle.roles.customRoles} catalog={capabilities} disabled={saving || !(workspace.permissions?.includes('roles.manage') ?? false)} onChange={(customRoles) => setBundle({ ...bundle, roles: { customRoles } })} onSave={() => void save(() => workspaceSettingsApi.saveRoles(bundle.roles), (roles) => setBundle({ ...bundle, roles }), 'Roles saved')} /> : null}
+        {section === 'roles' ? <RolesSection value={bundle.roles.customRoles} catalog={capabilities} disabled={saving || !(workspace.permissions?.includes('roles.manage') ?? false)} onChange={(customRoles) => setBundle({ ...bundle, roles: { ...bundle.roles, customRoles } })} onSave={() => void save(() => workspaceSettingsApi.saveRoles(bundle.roles), (roles) => setBundle({ ...bundle, roles }), 'Roles saved')} /> : null}
         {section === 'teams' ? <TeamsSection value={bundle.teams.teams} disabled={saving || !(workspace.permissions?.includes('teams.manage') ?? false)} onChange={(teams) => setBundle({ ...bundle, teams: { teams } })} onSave={() => void save(() => workspaceSettingsApi.saveTeams(bundle.teams), (teams) => setBundle({ ...bundle, teams }), 'Teams saved')} /> : null}
         {section === 'security' ? <SecuritySection workspace={workspace} bundle={bundle} disabled={!canManage || saving} onBundle={setBundle} onSave={() => void save(() => workspaceSettingsApi.saveSecurity(bundle.security), (security) => setBundle({ ...bundle, security }), 'Security policy saved')} /> : null}
         {section === 'notifications' ? <NotificationsSection bundle={bundle} disabled={!canManage || saving} onBundle={setBundle} onSave={() => void save(() => workspaceSettingsApi.saveNotifications(bundle.notifications), (notifications) => setBundle({ ...bundle, notifications }), 'Notification settings saved')} /> : null}
@@ -68,19 +69,6 @@ export function WorkspaceSettingsPage() {
       </div>
     </div>
   </div>;
-}
-
-function GeneralSection({ workspace, bundle, disabled, onWorkspace, onBundle, onSave }: { workspace: WorkspaceSettings; bundle: WorkspaceSettingsBundle; disabled: boolean; onWorkspace: (value: WorkspaceSettings) => void; onBundle: (value: WorkspaceSettingsBundle) => void; onSave: () => void }) {
-  const general = bundle.general;
-  return <Card className="workspace-panel"><div className="workspace-panel__body"><h3>General</h3><p>Identity and regional defaults for this workspace.</p>
-    <div className="two-fields"><Field label="Workspace name"><input disabled={disabled} value={workspace.name} onChange={(e) => onWorkspace({ ...workspace, name: e.target.value })} /></Field><Field label="Workspace slug"><input disabled={disabled} value={workspace.slug} onChange={(e) => onWorkspace({ ...workspace, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} /></Field></div>
-    <div className="two-fields"><Field label="Industry"><input disabled={disabled} value={general.industry} onChange={(e) => onBundle({ ...bundle, general: { ...general, industry: e.target.value } })} /></Field><Field label="Country"><input disabled={disabled} value={general.country} onChange={(e) => onBundle({ ...bundle, general: { ...general, country: e.target.value } })} /></Field></div>
-    <div className="two-fields"><Field label="Timezone"><input disabled={disabled} value={workspace.preferences.timezone} onChange={(e) => onWorkspace({ ...workspace, preferences: { ...workspace.preferences, timezone: e.target.value } })} /></Field><Field label="Language"><input disabled={disabled} value={workspace.preferences.defaultLanguage} onChange={(e) => onWorkspace({ ...workspace, preferences: { ...workspace.preferences, defaultLanguage: e.target.value } })} /></Field></div>
-    <div className="two-fields"><Field label="Currency"><input disabled={disabled} maxLength={3} value={general.currency} onChange={(e) => onBundle({ ...bundle, general: { ...general, currency: e.target.value.toUpperCase() } })} /></Field><Field label="Week start"><select disabled={disabled} value={general.weekStart} onChange={(e) => onBundle({ ...bundle, general: { ...general, weekStart: e.target.value as 'monday' | 'sunday' } })}><option value="monday">Monday</option><option value="sunday">Sunday</option></select></Field></div>
-    <Field label="Description"><textarea disabled={disabled} value={general.description} onChange={(e) => onBundle({ ...bundle, general: { ...general, description: e.target.value } })} /></Field>
-    <Switch checked={general.businessHours.enabled} disabled={disabled} onChange={(enabled) => onBundle({ ...bundle, general: { ...general, businessHours: { ...general.businessHours, enabled } } })} label="Business hours" description="Use workspace business hours for routing, widgets, and escalation policies." />
-    <div className="workspace-panel__actions"><Button disabled={disabled} onClick={onSave}>Save general settings</Button></div>
-  </div></Card>;
 }
 
 function RolesSection({ value, catalog, disabled, onChange, onSave }: { value: CustomRole[]; catalog: CapabilityCatalog; disabled: boolean; onChange: (value: CustomRole[]) => void; onSave: () => void }) {
