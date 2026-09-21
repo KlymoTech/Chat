@@ -6,7 +6,6 @@ from fastapi import Request
 
 from northstar_api.dependencies import DBSession
 from northstar_api.models import Workspace
-from northstar_api.routers.workspace import _load_workspace
 from northstar_api.security import Principal
 from northstar_api.workspace_contract import WhiteLabelWrite
 
@@ -15,6 +14,11 @@ from .events.administrative_events import emit_workspace_administrative_event
 
 
 async def load_workspace(principal: Principal, session: DBSession) -> tuple[Any, Workspace]:
+    # The legacy router package also registers the canonical Workspace API.
+    # Import its existing scoped loader at request time rather than during
+    # module initialization, so either import order avoids a router cycle.
+    from northstar_api.routers.workspace import _load_workspace
+
     tenant, workspace, _, _ = await _load_workspace(
         principal.tenant_id,
         principal.workspace_id,
