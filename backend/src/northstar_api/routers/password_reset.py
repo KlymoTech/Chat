@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from northstar_api.dependencies import DBSession
 from northstar_api.models import User
+from northstar_api.modules.workspace.domain_resolution import resolve_workspace_domain
 from northstar_api.password_reset_schemas import (
     PasswordResetAccepted,
     PasswordResetConfirm,
@@ -106,7 +107,9 @@ async def request_password_reset(
     try:
         issued = await issue_password_reset_token(session, user.id)
         await session.commit()
-        await send_password_reset_email(user, issued.token)
+        hostname = request.url.hostname or ""
+        workspace = await resolve_workspace_domain(session, hostname) if hostname else None
+        await send_password_reset_email(user, issued.token, workspace=workspace)
     except Exception as exc:
         await session.rollback()
         logger.error(
