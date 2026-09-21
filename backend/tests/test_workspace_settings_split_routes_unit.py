@@ -67,7 +67,11 @@ def test_settings_capabilities_preserve_handlers_models_and_nested_permissions()
         canonical = _route(capability, path, method)
         aggregate = _route(workspace_router, f"/workspace/settings{path}", method)
         assert original.endpoint is canonical.endpoint is aggregate.endpoint is handler
-        assert original.response_model is canonical.response_model is aggregate.response_model is response
+        # /capabilities has an inferred response model; compare it with the
+        # original rather than incorrectly assuming FastAPI sets it to None.
+        assert original.response_model == canonical.response_model == aggregate.response_model
+        if response is not None:
+            assert original.response_model is response
         assert original.status_code == canonical.status_code == aggregate.status_code
         assert original.name == canonical.name == aggregate.name
         assert _dependencies(original) == _dependencies(canonical) == _dependencies(aggregate)
