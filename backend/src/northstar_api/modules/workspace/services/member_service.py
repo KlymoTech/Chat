@@ -24,12 +24,24 @@ async def ensure_member_status_change_allowed(
     member_role: WorkspaceRole,
     status: Literal["active", "suspended"],
 ) -> None:
-    """Refuse suspension of the last active Workspace administrator.
+    """Preserve an active owner and at least one active Workspace administrator.
 
     The Workspace row must already be locked by the caller; read the current
     membership roles and the freshly reloaded status document together.
     """
-    if member_role != WorkspaceRole.ADMIN or status != "suspended":
+    if status != "suspended":
+        return
+
+    # The existing transfer-ownership endpoint points `created_by` at the
+    # new owner. Do not leave that owner suspended while another admin exists:
+    # transferring ownership first keeps the lifecycle internally consistent.
+    if workspace.created_by == member_user_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Transfer workspace ownership before suspending the current owner",
+        )
+
+    if member_role != WorkspaceRole.ADMIN:
         return
 
     administrator_ids = await session.scalars(
