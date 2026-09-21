@@ -6,10 +6,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
-from sqlalchemy import DateTime, ForeignKey, Index, String, delete, select
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import delete, select
 
-from northstar_api.database import Base
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import Conversation, User, WorkspaceMembership
@@ -17,31 +15,11 @@ from northstar_api.onboarding_contract import SetupContract
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 
+from .conversation_assignment_model import WorkspaceConversationAssignment
 from .store import load_workspace, settings_document
 
 router = APIRouter(prefix="/conversation-assignments")
 AssignmentPrincipal = Annotated[Principal, Depends(require_permissions("conversations.assign"))]
-
-
-class WorkspaceConversationAssignment(Base):
-    __tablename__ = "workspace_conversation_assignments"
-    __table_args__ = (
-        Index("ix_workspace_conversation_assignment_scope", "tenant_id", "workspace_id", "assigned_user_id"),
-    )
-
-    conversation_id: Mapped[UUID] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True
-    )
-    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
-    assigned_user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), index=True
-    )
-    assigned_team_id: Mapped[str | None] = mapped_column(String(100), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
-    )
 
 
 class ConversationAssignmentWrite(SetupContract):
@@ -73,7 +51,10 @@ async def _conversation(
     return conversation
 
 
-def _response(conversation_id: UUID, assignment: WorkspaceConversationAssignment | None) -> ConversationAssignmentOut:
+def _response(
+    conversation_id: UUID,
+    assignment: WorkspaceConversationAssignment | None,
+) -> ConversationAssignmentOut:
     return ConversationAssignmentOut(
         conversation_id=conversation_id,
         user_id=assignment.assigned_user_id if assignment else None,
@@ -90,7 +71,8 @@ async def get_assignment(
     await _conversation(session, principal, conversation_id)
     assignment = await session.get(WorkspaceConversationAssignment, conversation_id)
     if assignment is not None and (
-        assignment.tenant_id != principal.tenant_id or assignment.workspace_id != principal.workspace_id
+        assignment.tenant_id != principal.tenant_id
+        or assignment.workspace_id != principal.workspace_id
     ):
         assignment = None
     return _response(conversation_id, assignment)
@@ -107,7 +89,9 @@ async def save_assignment(
     _, workspace = await load_workspace(principal, session)
     if payload.user_id is not None:
         member = await session.scalar(
-            select(WorkspaceMembership).join(User, User.id == WorkspaceMembership.user_id).where(
+            select(WorkspaceMembership)
+            .join(User, User.id == WorkspaceMembership.user_id)
+            .where(
                 WorkspaceMembership.tenant_id == principal.tenant_id,
                 WorkspaceMembership.workspace_id == principal.workspace_id,
                 WorkspaceMembership.user_id == payload.user_id,
@@ -115,16 +99,26 @@ async def save_assignment(
             )
         )
         if member is None:
-            raise HTTPException(status_code=422, detail="Assigned user must be an active workspace member")
+            raise HTTPException(
+                status_code=422,
+                detail="Assigned user must be an active workspace member",
+            )
     team_id = (payload.team_id or "").strip() or None
     if team_id is not None:
         valid_team_ids = {team.id for team in settings_document(workspace).teams.teams}
         if team_id not in valid_team_ids:
-            raise HTTPException(status_code=422, detail="Assigned team does not exist in this workspace")
+            raise HTTPException(
+                status_code=422,
+                detail="Assigned team does not exist in this workspace",
+            )
 
     assignment = await session.get(WorkspaceConversationAssignment, conversation_id)
     before = {
-        "userId": str(assignment.assigned_user_id) if assignment and assignment.assigned_user_id else None,
+        "userId": (
+            str(assignment.assigned_user_id)
+            if assignment and assignment.assigned_user_id
+            else None
+        ),
         "teamId": assignment.assigned_team_id if assignment else None,
     }
     if payload.user_id is None and team_id is None:
@@ -169,7 +163,11 @@ async def save_assignment(
         aggregate_type="conversation",
         aggregate_id=conversation.id,
         event_type="workspace.conversation.assignment.updated.v1",
-        payload={"workspaceId": str(principal.workspace_id), "conversationId": str(conversation.id), **after},
+        payload={
+            "workspaceId": str(principal.workspace_id),
+            "conversationId": str(conversation.id),
+            **after,
+        },
     )
     await session.commit()
     return _response(conversation_id, saved)
@@ -184,7 +182,11 @@ async def clear_assignment(
     await _conversation(session, principal, conversation_id)
     assignment = await session.get(WorkspaceConversationAssignment, conversation_id)
     before = {
-        "userId": str(assignment.assigned_user_id) if assignment and assignment.assigned_user_id else None,
+        "userId": (
+            str(assignment.assigned_user_id)
+            if assignment and assignment.assigned_user_id
+            else None
+        ),
         "teamId": assignment.assigned_team_id if assignment else None,
     }
     await session.execute(
@@ -212,7 +214,10 @@ async def clear_assignment(
         aggregate_type="conversation",
         aggregate_id=conversation_id,
         event_type="workspace.conversation.assignment.cleared.v1",
-        payload={"workspaceId": str(principal.workspace_id), "conversationId": str(conversation_id)},
+        payload={
+            "workspaceId": str(principal.workspace_id),
+            "conversationId": str(conversation_id),
+        },
     )
     await session.commit()
     return ConversationAssignmentOut(conversation_id=conversation_id)
