@@ -13,6 +13,10 @@ from northstar_api.auth_session_schemas import AuthUserOut
 from northstar_api.config import get_settings
 from northstar_api.dependencies import CurrentPrincipal, DBSession, require_permissions
 from northstar_api.models import Tenant, Workspace
+from northstar_api.modules.workspace.services.invitation_email_delivery import (
+    WorkspaceInvitationEmailUnavailable,
+    stage_invitation_email,
+)
 from northstar_api.security import (
     Principal,
     create_access_token,
@@ -379,7 +383,13 @@ async def create_workspace_invitation(
             all_agents_access=payload.all_agents_access,
             agent_ids=payload.agent_ids,
         )
+        queued = stage_invitation_email(
+            session, invitation=issued.invitation, raw_token=issued.token,
+        )
         await session.commit()
+    except WorkspaceInvitationEmailUnavailable as exc:
+        await session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
     except WorkspaceInvitationError as exc:
         await session.rollback()
         raise _http_error(exc) from None
@@ -389,18 +399,19 @@ async def create_workspace_invitation(
             status_code=409,
             detail="A workspace invitation for this email is already being updated",
         ) from None
-    tenant_name, workspace_name = await _workspace_names(
-        session,
-        tenant_id=principal.tenant_id,
-        workspace_id=principal.workspace_id,
-    )
-    await _deliver_invitation(
-        session,
-        issued.invitation,
-        issued.token,
-        tenant_name=tenant_name,
-        workspace_name=workspace_name,
-    )
+    if not queued:
+        tenant_name, workspace_name = await _workspace_names(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
+        await _deliver_invitation(
+            session,
+            issued.invitation,
+            issued.token,
+            tenant_name=tenant_name,
+            workspace_name=workspace_name,
+        )
     return _invitation_out(issued.invitation, payload.agent_ids)
 
 
@@ -423,22 +434,29 @@ async def resend_invitation(
             invited_by_user_id=principal.user_id,
         )
         agent_ids = await list_invitation_agent_ids(session, [invitation_id])
+        queued = stage_invitation_email(
+            session, invitation=issued.invitation, raw_token=issued.token,
+        )
         await session.commit()
+    except WorkspaceInvitationEmailUnavailable as exc:
+        await session.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
     except WorkspaceInvitationError as exc:
         await session.rollback()
         raise _http_error(exc) from None
-    tenant_name, workspace_name = await _workspace_names(
-        session,
-        tenant_id=principal.tenant_id,
-        workspace_id=principal.workspace_id,
-    )
-    await _deliver_invitation(
-        session,
-        issued.invitation,
-        issued.token,
-        tenant_name=tenant_name,
-        workspace_name=workspace_name,
-    )
+    if not queued:
+        tenant_name, workspace_name = await _workspace_names(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+        )
+        await _deliver_invitation(
+            session,
+            issued.invitation,
+            issued.token,
+            tenant_name=tenant_name,
+            workspace_name=workspace_name,
+        )
     return _invitation_out(issued.invitation, agent_ids.get(invitation_id, []))
 
 
