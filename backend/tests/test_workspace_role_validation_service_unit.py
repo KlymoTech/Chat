@@ -113,17 +113,18 @@ async def test_role_assignment_rejects_member_from_other_workspace() -> None:
 
 @pytest.mark.asyncio
 async def test_role_assignment_rejects_unknown_role_id() -> None:
-    session = _ScopedSession()
+    member_id = uuid4()
+    session = _ScopedSession(members=(member_id,))
     role = _role()
     with pytest.raises(HTTPException) as error:
         await validate_workspace_role_assignments(
-            RolesSettings(custom_roles=[role], member_role_ids={str(uuid4()): ["missing"]}),
+            RolesSettings(custom_roles=[role], member_role_ids={str(member_id): ["missing"]}),
             _principal(),  # type: ignore[arg-type]
             session,  # type: ignore[arg-type]
             uuid4(),
         )
     assert error.value.status_code == 422
-    assert "outside this workspace" in error.value.detail
+    assert error.value.detail == "A custom role assignment references an unknown role"
     assert len(session.queries) == 1
 
 
