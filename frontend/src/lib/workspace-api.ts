@@ -35,6 +35,13 @@ export interface WorkspaceSettings {
 export interface WorkspaceTeamMember { id: string; name: string; email: string; role: WorkspaceRole; tenantRole: 'owner' | 'admin' | 'billing_admin' | 'security_admin' | 'member' | 'analyst'; status: 'active' }
 export interface WorkspaceTeamInvitation { id: string; email: string; role: WorkspaceRole; status: 'invited'; expiresAt: string; createdAt: string }
 export interface WorkspaceTeam { members: WorkspaceTeamMember[]; invitations: WorkspaceTeamInvitation[] }
+export interface WorkspaceOwner { ownerUserId: string | null; ownerName: string | null; creatorUserId: string | null }
+export interface WorkspaceOwnerTransfer {
+  expectedOwnerUserId: string;
+  targetUserId: string;
+  confirmation: 'TRANSFER';
+  reason: 'administrative_handover' | 'responsibility_change' | 'account_recovery';
+}
 export type WorkspacePatch = Partial<Pick<WorkspaceSettings, 'name' | 'slug' | 'preferences' | 'whiteLabel' | 'educationCreateUpsellLeads' | 'security'>>;
 export interface WorkspaceCreate { name: string; slug: string; timezone?: string; defaultLanguage?: string; dateFormat?: WorkspacePreferences['dateFormat'] }
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
@@ -186,6 +193,17 @@ export const workspaceApi = {
   async getTeam(): Promise<WorkspaceTeam> {
     try { return await remote<WorkspaceTeam>('/workspace/team', 'GET'); }
     catch (error) { if (demoFallback(error)) return { members: [], invitations: [] }; throw error; }
+  },
+  async getOwner(signal?: AbortSignal): Promise<WorkspaceOwner> {
+    try { return await remote<WorkspaceOwner>('/workspace/owner', 'GET', undefined, true, signal); }
+    catch (error) {
+      if (demoFallback(error)) return { ownerUserId: null, ownerName: null, creatorUserId: null };
+      throw error;
+    }
+  },
+  async transferOwner(input: WorkspaceOwnerTransfer): Promise<WorkspaceOwner> {
+    // Never simulate a sensitive ownership transfer in demo mode or retry a write.
+    return remote<WorkspaceOwner>('/workspace/owner/transfer', 'POST', input);
   },
 };
 export const workspaceDefaults = defaults;
