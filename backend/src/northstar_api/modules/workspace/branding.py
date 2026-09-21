@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.models import Workspace
+from northstar_api.modules.branding.repositories import persist_branding_document
 from northstar_api.security import Principal
 
 from .brand_cache import cache_workspace_brand, cached_workspace_brand, invalidate_brand_cache
@@ -72,6 +73,7 @@ async def _publish(
         "dnsStatus": "verified" if active_domain else "not-configured",
     }
     save_document(workspace, document)
+    await persist_branding_document(session, workspace, document, published_version=version)
     record_workspace_change(
         session,
         principal,
@@ -135,6 +137,7 @@ async def save_branding_draft(
     document = settings_document(workspace)
     document.branding_draft = payload
     save_document(workspace, document)
+    await persist_branding_document(session, workspace, document)
     record_workspace_change(
         session,
         principal,
