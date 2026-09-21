@@ -5,6 +5,7 @@ import html
 from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Mapping
+from urllib.parse import urlsplit, urlunsplit
 
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.models import Workspace
@@ -37,6 +38,28 @@ def _replace(value: str, context: Mapping[str, str]) -> str:
     return result
 
 
+def _workspace_action_url(workspace: Workspace, action_url: str) -> str:
+    """Route branded email actions through the workspace's active custom domain.
+
+    Domain ownership/TLS activation is server-controlled, so only a domain that
+    already reached the active state can replace the platform frontend host.
+    The original path, query string, and fragment/token are preserved.
+    """
+    if not action_url:
+        return ""
+    document = settings_document(workspace)
+    active_domain = next(
+        (domain.hostname for domain in document.domains.domains if domain.status == "active"),
+        "",
+    )
+    if not active_domain:
+        return action_url
+    parsed = urlsplit(action_url)
+    if parsed.scheme not in {"http", "https"}:
+        return action_url
+    return urlunsplit(("https", active_domain, parsed.path, parsed.query, parsed.fragment))
+
+
 def render_workspace_email(
     workspace: Workspace,
     template_name: str,
@@ -48,10 +71,12 @@ def render_workspace_email(
     fallback_body: str,
     fallback_button_label: str = "",
 ) -> RenderedWorkspaceEmail:
-    published = settings_document(workspace).branding_published
+    document = settings_document(workspace)
+    published = document.branding_published
     brand = published.email if published is not None and published.identity.branded_emails else None
     identity = published.identity if published is not None and published.identity.branded_emails else None
     company_name = identity.company_name if identity and identity.company_name else "Northstar"
+    action_url = _workspace_action_url(workspace, action_url) if brand is not None else action_url
     full_context = {"company_name": company_name, "workspace_name": workspace.name, **context}
     template = (
         brand.templates.get(template_name)
