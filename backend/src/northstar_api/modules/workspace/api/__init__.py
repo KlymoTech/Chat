@@ -8,6 +8,7 @@ be moved one capability at a time without changing application registration.
 from northstar_api.modules.branding.api import branding_router, domains_router, email_router
 from northstar_api.modules.workspace.access import router as access_router
 from northstar_api.modules.workspace.conversation_assignments import router as conversation_assignments_router
+from northstar_api.modules.workspace.dashboard_runtime import router as dashboard_runtime_router
 from northstar_api.modules.workspace.general import router as general_router
 from northstar_api.modules.workspace.members import router as members_router
 from northstar_api.modules.workspace.settings import router as settings_router
@@ -16,6 +17,7 @@ __all__ = [
     "access_router",
     "branding_router",
     "conversation_assignments_router",
+    "dashboard_runtime_router",
     "domains_router",
     "email_router",
     "general_router",
