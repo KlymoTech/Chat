@@ -13,6 +13,7 @@ async def test_disabled_member_lifecycle_is_consistent_and_tenant_scoped(
     from northstar_api.models import (
         Role, TenantMembership, User, WorkspaceMembership, WorkspaceRole,
     )
+    from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 
     current = await client.get("/api/v1/workspace", headers=auth_headers)
     assert current.status_code == 200, current.text
@@ -42,6 +43,21 @@ async def test_disabled_member_lifecycle_is_consistent_and_tenant_scoped(
         assert details.status_code == 200, details.text
         detail = next(item for item in details.json() if item["userId"] == str(member_id))
         assert detail["status"] == state["status"]
+
+        suspended = await client.post(
+            f"/api/v1/workspace/members/{member_id}/suspend", headers=headers,
+            json={"reason": "Preserve suspension after account restore", "confirmation": "SUSPEND"},
+        )
+        assert suspended.status_code == 200, suspended.text
+        assert suspended.json() == {"userId": str(member_id), "status": "disabled"}
+        async with SessionFactory() as session:
+            workspace_state = await session.get(WorkspaceMemberState, (UUID(workspace_id), member_id))
+            assert workspace_state is not None and workspace_state.suspended_at is not None
+        lifecycle_after = await client.get("/api/v1/workspace/members/lifecycle", headers=headers)
+        assert lifecycle_after.status_code == 200, lifecycle_after.text
+        assert next(item for item in lifecycle_after.json() if item["userId"] == str(member_id))[
+            "status"
+        ] == "disabled"
 
         other = await client.post("/api/v1/workspaces", headers=auth_headers, json={
             "name": "Lifecycle status isolation",
