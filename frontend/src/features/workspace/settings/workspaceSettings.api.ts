@@ -4,7 +4,14 @@ import { readStorage } from '@/lib/storage';
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
 
-export type SettingsSection = 'general' | 'members' | 'roles' | 'teams' | 'security' | 'notifications' | 'channels' | 'integrations' | 'developer' | 'audit' | 'billing' | 'branding';
+export type SettingsSection =
+  | 'general' | 'members' | 'roles' | 'teams'
+  | 'branding' | 'dashboard' | 'widget' | 'email'
+  | 'channels' | 'notifications' | 'business-hours'
+  | 'integrations' | 'crm' | 'apps' | 'webhooks'
+  | 'security' | 'mfa' | 'sessions' | 'audit'
+  | 'developer' | 'api-keys' | 'oauth-apps' | 'api-logs'
+  | 'billing' | 'usage';
 export type BusinessHours = { enabled: boolean; timezone: string; schedule: Record<string, string[]> };
 export type WorkspaceGeneralMetadata = { workspaceId: string; tenantId: string; organization: string; status: string; owner: { id: string; name: string; email: string } | null };
 export type GeneralSettings = { industry: string; country: string; timeFormat: '12h' | '24h'; currency: string; weekStart: 'monday' | 'sunday'; description: string; workspaceIcon: string; businessHours: BusinessHours };
