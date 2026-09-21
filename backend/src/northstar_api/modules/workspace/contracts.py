@@ -83,6 +83,7 @@ class CustomRole(SetupContract):
 
 class RolesSettings(SetupContract):
     custom_roles: list[CustomRole] = Field(default_factory=list, max_length=100)
+    member_role_ids: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class WorkspaceTeam(SetupContract):
