@@ -13,6 +13,10 @@ from northstar_api.onboarding_contract import SetupContract
 from northstar_api.security import Principal
 
 from .repositories.workspace_write_lock import lock_workspace_settings
+from .services.member_service import (
+    ensure_member_status_change_allowed,
+    ensure_ownership_transfer_allowed,
+)
 from .store import load_workspace, record_workspace_change
 
 router = APIRouter()
@@ -127,20 +131,9 @@ async def _set_member_status(
     # last-active-admin invariant or writing workspaceMemberStatusV1.
     await lock_workspace_settings(session, workspace)
     membership, user = await _require_member(session, workspace, member_user_id)
-    if membership.role == WorkspaceRole.ADMIN and status == "suspended":
-        active_admins = list(
-            await session.scalars(
-                select(WorkspaceMembership.user_id).where(
-                    WorkspaceMembership.tenant_id == workspace.tenant_id,
-                    WorkspaceMembership.workspace_id == workspace.id,
-                    WorkspaceMembership.role == WorkspaceRole.ADMIN,
-                )
-            )
-        )
-        statuses = member_statuses(workspace.settings_json)
-        active_admins = [user_id for user_id in active_admins if statuses.get(str(user_id)) != "suspended"]
-        if len(active_admins) <= 1:
-            raise HTTPException(status_code=409, detail="The workspace must keep at least one active administrator")
+    await ensure_member_status_change_allowed(
+        session, workspace, member_user_id, membership.role, status
+    )
     _save_status(workspace, member_user_id, status)
     record_workspace_change(
         session,
@@ -188,8 +181,7 @@ async def transfer_ownership(
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
     membership, user = await _require_member(session, workspace, member_user_id)
-    if is_member_suspended(workspace.settings_json, member_user_id):
-        raise HTTPException(status_code=409, detail="Reactivate the member before transferring ownership")
+    ensure_ownership_transfer_allowed(workspace, member_user_id)
     membership.role = WorkspaceRole.ADMIN
     workspace.created_by = member_user_id
     record_workspace_change(
