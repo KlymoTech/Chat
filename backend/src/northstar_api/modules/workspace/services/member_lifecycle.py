@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.lead_crm.audit import record_audit_event
-from northstar_api.models import WorkspaceMembership, WorkspaceRole
+from northstar_api.models import User, WorkspaceMembership, WorkspaceRole
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
 from northstar_api.modules.workspace.services.admin_availability import available_workspace_admin_count
 from northstar_api.modules.workspace.services.ownership import (
@@ -74,6 +74,18 @@ async def set_member_suspended(
     ).with_for_update())
     if membership is None:
         raise WorkspaceMemberError("Workspace member not found", status_code=404)
+
+    # A workspace-only reactivation cannot enable a globally disabled account.
+    # Check under the same transaction and fail before changing state or audit.
+    if not suspended:
+        account_active = await session.scalar(select(User.is_active).where(
+            User.id == member_user_id,
+        ).with_for_update())
+        if account_active is not True:
+            raise WorkspaceMemberError(
+                "The account is disabled; workspace reactivation cannot restore access",
+                status_code=409,
+            )
 
     now = datetime.now(UTC)
     state = await session.get(WorkspaceMemberState, (workspace_id, member_user_id))
