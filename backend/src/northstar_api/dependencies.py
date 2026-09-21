@@ -25,7 +25,7 @@ from northstar_api.models import (
 )
 from northstar_api.modules.workspace.api_key_scopes import permissions_for_api_key_scopes
 from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
-from northstar_api.modules.workspace.conversation_scope import set_assigned_conversation_scope
+from northstar_api.modules.workspace.conversation_scope import set_conversation_assignment_scope
 from northstar_api.modules.workspace.member_state import is_member_suspended
 from northstar_api.modules.workspace.security_policy import (
     enforce_network_security,
@@ -105,7 +105,7 @@ def _workspace_settings(workspace: Workspace) -> WorkspaceSettingsBundle:
 def _custom_role_context(
     workspace: Workspace,
     user_id: UUID,
-) -> tuple[frozenset[str], frozenset[UUID] | None, bool]:
+) -> tuple[frozenset[str], frozenset[UUID] | None, bool, frozenset[str]]:
     settings = _workspace_settings(workspace)
     assigned = set(settings.roles.member_role_ids.get(str(user_id), []))
     roles = [role for role in settings.roles.custom_roles if role.id in assigned]
@@ -130,12 +130,14 @@ def _custom_role_context(
     conversation_scopes = {
         role.resources.conversation_scope for role in roles
     }
+    team_ids: set[str] = set()
     if "all" not in conversation_scopes and "team" in conversation_scopes:
         team_agent_ids: set[UUID] = set()
         user_key = str(user_id)
         for team in settings.teams.teams:
             if user_key not in set(team.member_ids) | set(team.manager_ids):
                 continue
+            team_ids.add(team.id)
             for value in team.agent_ids:
                 try:
                     team_agent_ids.add(UUID(value))
@@ -155,7 +157,12 @@ def _custom_role_context(
         and "team" not in conversation_scopes
         and "all" not in conversation_scopes
     )
-    return permissions, custom_agent_scope, assigned_conversations_only
+    return (
+        permissions,
+        custom_agent_scope,
+        assigned_conversations_only,
+        frozenset(team_ids),
+    )
 
 
 def _merge_agent_scope(
@@ -223,7 +230,7 @@ async def authenticate_api_key(
     api_key.last_used_at = datetime.now(UTC)
     await session.commit()
     await set_tenant_context(session, api_key.tenant_id)
-    set_assigned_conversation_scope(session, None)
+    set_conversation_assignment_scope(session)
     service_workspace_role = (
         WorkspaceRole.MANAGER
         if workspace_membership.role == WorkspaceRole.ADMIN
@@ -325,7 +332,7 @@ async def authenticate_access_token(
     if not workspace_membership:
         if workspace_id is not None or not _allows_organization_context(request):
             raise HTTPException(status_code=403, detail="Workspace access is unavailable")
-        set_assigned_conversation_scope(session, None)
+        set_conversation_assignment_scope(session)
         return Principal(
             user_id=user_id,
             tenant_id=tenant_id,
@@ -348,19 +355,22 @@ async def authenticate_access_token(
     if is_member_suspended(workspace.settings_json, user_id):
         raise HTTPException(status_code=403, detail="Workspace membership is suspended")
     enforce_request_security(workspace, user, workspace_membership.role, payload, request)
-    custom_permissions, custom_agent_scope, assigned_conversations_only = _custom_role_context(
-        workspace,
-        user_id,
-    )
+    (
+        custom_permissions,
+        custom_agent_scope,
+        assigned_conversations_only,
+        team_conversation_ids,
+    ) = _custom_role_context(workspace, user_id)
     permissions = (
         TENANT_ROLE_PERMISSIONS[membership.role]
         | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
         | custom_permissions
     )
     membership_agent_scope = await _agent_scope(session, workspace_membership, user_id)
-    set_assigned_conversation_scope(
+    set_conversation_assignment_scope(
         session,
-        user_id if assigned_conversations_only else None,
+        user_id=user_id if assigned_conversations_only else None,
+        team_ids=team_conversation_ids,
     )
     return Principal(
         user_id=user_id,
