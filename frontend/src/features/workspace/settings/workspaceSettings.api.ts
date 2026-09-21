@@ -25,6 +25,7 @@ export type DashboardAppearance = { sidebarLogo: string; sidebarStyle: 'solid' |
 export type AuthBranding = { loginLogo: string; loginBackground: string; loginTitle: string; loginDescription: string; signupTitle: string; forgotPasswordTitle: string; resetPasswordTitle: string; mfaTitle: string; invitationTitle: string; termsUrl: string; privacyUrl: string; supportUrl: string; footer: string };
 export type EmailTemplate = { subject: string; heading: string; body: string; buttonLabel: string };
 export type EmailBranding = { logo: string; senderName: string; replyTo: string | null; footer: string; enabledTemplates: string[]; templates: Record<string, EmailTemplate> };
+export type EmailPreview = { subject: string; text: string; html: string };
 export type WidgetBranding = { launcherIcon: string; launcherColor: string; position: 'bottom-left' | 'bottom-right'; greeting: string; widgetLogo: string; header: string; background: string; userMessageColor: string; agentMessageColor: string; agentAvatar: string; botAvatar: string; font: 'Inter' | 'DM Sans' | 'Manrope' | 'System UI'; privacyUrl: string; poweredByLabel: string; businessHours: BusinessHours; offlineMessage: string };
 export type ExtendedBranding = { identity: LegacyBrandIdentity; assets: BrandAssets; colors: BrandColors; typography: BrandTypography; appearance: DashboardAppearance; dashboard: DashboardSettings; authentication: AuthBranding; email: EmailBranding; widget: WidgetBranding; navigation: Record<string, unknown> };
 export type BrandVersion = { version: number; createdBy: string; publishedAt: string; changeNote: string; branding: ExtendedBranding };
@@ -67,6 +68,8 @@ export const workspaceSettingsApi = {
   saveBrandDraft: (value: ExtendedBranding) => request<ExtendedBranding>('/workspace/settings/branding/draft', 'PATCH', value),
   publishBrand: (changeNote: string) => request<BrandVersion>('/workspace/settings/branding/publish', 'POST', { changeNote }),
   rollbackBrand: (version: number, changeNote = 'Rollback') => request<BrandVersion>('/workspace/settings/branding/rollback', 'POST', { version, changeNote }),
+  previewEmail: (templateName: string, email: EmailBranding) => request<EmailPreview>('/workspace/settings/branding/email/preview', 'POST', { templateName, email }),
+  testEmail: (templateName: string, email: EmailBranding, recipient: string) => request<EmailPreview>('/workspace/settings/branding/email/test', 'POST', { templateName, email, recipient }),
   createDomain: (hostname: string) => request<DomainRecord>('/workspace/settings/domains', 'POST', { hostname }),
   verifyDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/verification-start`, 'POST'),
   activateDomain: (id: string) => request<DomainRecord>(`/workspace/settings/domains/${id}/activation-check`, 'POST'),
