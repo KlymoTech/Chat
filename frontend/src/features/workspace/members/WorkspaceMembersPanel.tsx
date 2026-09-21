@@ -12,6 +12,8 @@ import {
 } from '@/lib/workspace-team-api';
 import { workspacePresentationKey, type WorkspaceSettings } from '@/lib/workspace-api';
 
+type LifecycleMember = Pick<WorkspaceMember, 'userId' | 'name' | 'email' | 'isSelf'>;
+
 /**
  * Incremental migration wrapper. Existing invitation/role/resource-scope behavior
  * remains in WorkspaceTeamPanel while member lifecycle state is owned here.
@@ -30,12 +32,12 @@ export function WorkspaceMembersPanel({ workspace }: { workspace: WorkspaceSetti
 }
 
 function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSettings }) {
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [members, setMembers] = useState<LifecycleMember[]>([]);
   const [states, setStates] = useState<Record<string, WorkspaceMemberLifecycle['status']>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [target, setTarget] = useState<WorkspaceMember | null>(null);
+  const [target, setTarget] = useState<LifecycleMember | null>(null);
   const [nextStatus, setNextStatus] = useState<WorkspaceMemberStatus>('suspended');
   const [reason, setReason] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -48,12 +50,22 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
     controller.current = request;
     setLoading(true); setError('');
     try {
-      const [nextMembers, lifecycle] = await Promise.all([
+      const [nextMembers, lifecycle, memberDetails] = await Promise.all([
         workspaceTeamApi.listMembers(request.signal),
         workspaceTeamApi.listMemberLifecycle(request.signal),
+        workspaceTeamApi.listMemberDetails(request.signal),
       ]);
       if (request.signal.aborted) return;
-      setMembers(nextMembers);
+      // The legacy members endpoint excludes globally disabled users. Keep it
+      // unchanged for existing access editors, but show those users here using
+      // the already permission-protected, workspace-scoped details endpoint.
+      const known = new Set(nextMembers.map((member) => member.userId));
+      setMembers([
+        ...nextMembers,
+        ...memberDetails.filter((member) => !known.has(member.userId)).map((member) => ({
+          userId: member.userId, name: member.name, email: member.email, isSelf: false,
+        })),
+      ]);
       setStates(Object.fromEntries(lifecycle.map((item) => [item.userId, item.status])));
     } catch (cause) {
       if (!request.signal.aborted) {
@@ -71,7 +83,7 @@ function WorkspaceMemberLifecyclePanel({ workspace }: { workspace: WorkspaceSett
     return () => { unsubscribe(); controller.current?.abort(); };
   }, [load]);
 
-  function open(member: WorkspaceMember, status: WorkspaceMemberStatus) {
+  function open(member: LifecycleMember, status: WorkspaceMemberStatus) {
     setTarget(member); setNextStatus(status); setReason(''); setConfirmation(''); setError('');
   }
 
