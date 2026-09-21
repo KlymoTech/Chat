@@ -57,8 +57,8 @@ describe('WorkspaceGeneralPanel', () => {
     expect(screen.getByRole('status').textContent).toMatch(/only a workspace administrator/);
     expect((screen.getByLabelText('Workspace name') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText('Workspace slug') as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText('Timezone') as HTMLSelectElement).disabled).toBe(true);
-    expect((screen.getByLabelText('Default workspace language') as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Timezone') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Default workspace language') as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Save workspace' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Save workspace' }));
     expect(setWorkspace).not.toHaveBeenCalled();
@@ -74,5 +74,22 @@ describe('WorkspaceGeneralPanel', () => {
     expect(slug.maxLength).toBe(80);
     expect(slug.pattern).toBe('[a-z0-9]+(-[a-z0-9]+)*');
     expect(name.required && slug.required).toBe(true);
+  });
+
+  it('preserves custom regional values and shows the workspace icon without overwriting branding', () => {
+    const setWorkspace = vi.fn();
+    const custom = { ...workspace, preferences: {
+      ...workspace.preferences, timezone: 'Pacific/Auckland', defaultLanguage: 'Portuguese', workspaceIcon: '🎓',
+    } };
+    render(<WorkspaceGeneralPanel workspace={custom} setWorkspace={setWorkspace} onSave={vi.fn()} saving={false} ownerInitial="N" />);
+    const timezone = screen.getByLabelText('Timezone') as HTMLInputElement;
+    const language = screen.getByLabelText('Default workspace language') as HTMLInputElement;
+    expect(timezone.value).toBe('Pacific/Auckland');
+    expect(language.value).toBe('Portuguese');
+    expect(screen.getByText('🎓')).toBeTruthy();
+    fireEvent.change(timezone, { target: { value: 'Europe/Paris' } });
+    expect(setWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      preferences: expect.objectContaining({ timezone: 'Europe/Paris', defaultLanguage: 'Portuguese' }),
+    }));
   });
 });
