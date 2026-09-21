@@ -12,7 +12,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import structlog
-from cryptography.fernet import InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
