@@ -11,7 +11,10 @@ import { WorkspaceAPIKeysPanel } from '@/components/WorkspaceAPIKeysPanel';
 import { WorkspaceNavigation } from '@/components/workspace-navigation';
 import { WorkspaceTeamPanel } from '@/components/WorkspaceTeamPanel';
 import { WorkspaceGeneralPanel } from '@/features/workspace/general/WorkspaceGeneralPanel';
-import { workspaceApi, type WorkspaceSettings } from '@/lib/workspace-api';
+import {
+  activeWorkspaceId, workspaceApi, workspacePresentationKey, WORKSPACE_CHANGED_EVENT,
+  type WorkspaceSettings,
+} from '@/lib/workspace-api';
 import '@/pages/WorkspaceTeam.css';
 
 export function WorkspacePage() {
@@ -24,13 +27,28 @@ export function WorkspacePage() {
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [loadRevision, setLoadRevision] = useState(0);
 
+  // A workspace selection is not a cosmetic change: never carry the previous
+  // workspace's editable form into a newly selected workspace.
+  useEffect(() => {
+    const selectionChanged = () => {
+      setWorkspace(null);
+      setLoadingError(null);
+      setLoadRevision((value) => value + 1);
+    };
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, selectionChanged);
+    return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, selectionChanged);
+  }, []);
+
   useEffect(() => {
     let active = true;
+    const selectedId = activeWorkspaceId();
+    const identity = workspacePresentationKey();
+    const sameContext = () => selectedId === activeWorkspaceId() && identity === workspacePresentationKey();
     setLoadingError(null);
     void workspaceApi.get().then((result) => {
-      if (active) setWorkspace(result);
+      if (active && sameContext()) setWorkspace(result);
     }).catch((error: unknown) => {
-      if (active) setLoadingError(error instanceof Error ? error.message : 'Workspace settings could not be loaded');
+      if (active && sameContext()) setLoadingError(error instanceof Error ? error.message : 'Workspace settings could not be loaded');
     });
     return () => { active = false; };
   }, [loadRevision]);
@@ -39,6 +57,12 @@ export function WorkspacePage() {
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
     if (!workspace) return;
+    if (!workspace.permissions?.includes('workspace.update') && workspace.id !== 'workspace-demo') {
+      pushToast('You do not have permission to update workspace settings', 'error');
+      return;
+    }
+    const selectedId = activeWorkspaceId();
+    const identity = workspacePresentationKey();
     setSaving(true);
     try {
       const saved = await workspaceApi.update({
@@ -47,9 +71,14 @@ export function WorkspacePage() {
         preferences: workspace.preferences,
         educationCreateUpsellLeads: workspace.educationCreateUpsellLeads,
       });
-      setWorkspace(saved); pushToast('Workspace settings saved');
+      if (selectedId === activeWorkspaceId() && identity === workspacePresentationKey()) {
+        setWorkspace(saved);
+        pushToast('Workspace settings saved');
+      }
     } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
+      if (selectedId === activeWorkspaceId() && identity === workspacePresentationKey()) {
+        pushToast(error instanceof Error ? error.message : 'Workspace settings could not be saved', 'error');
+      }
     } finally { setSaving(false); }
   }
 
