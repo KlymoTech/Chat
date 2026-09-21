@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 
 from .api import (
-    branding_router,
+    brand_draft_router,
+    brand_versions_router,
     conversation_assignments_router,
     dashboard_runtime_router,
     dashboard_settings_router,
@@ -35,6 +36,9 @@ router.include_router(teams_router)
 router.include_router(dashboard_settings_router)
 router.include_router(conversation_assignments_router)
 router.include_router(dashboard_runtime_router)
-router.include_router(branding_router)
+# Draft and published branding have separate canonical boundaries; retain the
+# original combined branding_router for import compatibility, not registration.
+router.include_router(brand_draft_router)
+router.include_router(brand_versions_router)
 router.include_router(domains_router)
 router.include_router(email_router)
