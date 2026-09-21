@@ -17,6 +17,7 @@ from northstar_api.models import (
     Role, TenantMembership, User, Workspace, WorkspaceMemberAgentAccess,
     WorkspaceMembership, WorkspaceRole, WorkspaceStatus,
 )
+from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
 from northstar_api.onboarding_models import OrganizationSetup
 from northstar_api.security import TENANT_ROLE_PERMISSIONS, WORKSPACE_ROLE_PERMISSIONS, Principal, decode_token
 from northstar_api.services.email_verification import email_is_verified
@@ -60,6 +61,23 @@ async def _agent_scope(session: AsyncSession, membership: WorkspaceMembership, u
         WorkspaceMemberAgentAccess.workspace_id == membership.workspace_id,
         WorkspaceMemberAgentAccess.user_id == user_id,
     )))
+
+
+def _custom_role_permissions(workspace: Workspace, user_id: UUID) -> frozenset[str]:
+    raw = dict(workspace.settings_json or {}).get("workspaceSettingsV2", {})
+    try:
+        settings = WorkspaceSettingsBundle.model_validate(raw)
+    except (TypeError, ValueError):
+        return frozenset()
+    assigned = set(settings.roles.member_role_ids.get(str(user_id), []))
+    if not assigned:
+        return frozenset()
+    return frozenset(
+        permission
+        for role in settings.roles.custom_roles
+        if role.id in assigned
+        for permission in role.permissions
+    )
 
 
 async def authenticate_api_key(token: str, session: AsyncSession, *, request: Request | None = None) -> Principal:
@@ -152,7 +170,20 @@ async def authenticate_access_token(token: str, session: AsyncSession, *, reques
             raise HTTPException(status_code=403, detail="Workspace access is unavailable")
         return Principal(user_id=user_id, tenant_id=tenant_id, role=membership.role, token_id=payload["jti"],
                          permissions=TENANT_ROLE_PERMISSIONS[membership.role])
-    permissions = TENANT_ROLE_PERMISSIONS[membership.role] | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
+    workspace = await session.scalar(
+        select(Workspace).where(
+            Workspace.id == workspace_membership.workspace_id,
+            Workspace.tenant_id == tenant_id,
+            Workspace.status == WorkspaceStatus.ACTIVE,
+        )
+    )
+    if workspace is None:
+        raise HTTPException(status_code=403, detail="Workspace access is unavailable")
+    permissions = (
+        TENANT_ROLE_PERMISSIONS[membership.role]
+        | WORKSPACE_ROLE_PERMISSIONS[workspace_membership.role]
+        | _custom_role_permissions(workspace, user_id)
+    )
     return Principal(
         user_id=user_id, tenant_id=tenant_id, role=membership.role, token_id=payload["jti"],
         workspace_id=workspace_membership.workspace_id, workspace_role=workspace_membership.role,
