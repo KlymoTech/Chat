@@ -29,6 +29,22 @@ GENERAL_PREFERENCE_FIELDS: Mapping[str, str] = {
 _AUDITABLE_FIELDS = GENERAL_SETTING_FIELDS | frozenset(GENERAL_PREFERENCE_FIELDS)
 
 
+def normalize_workspace_name(value: str | None) -> str | None:
+    """Validate the persisted form, not just the untrimmed request length.
+
+    Both workspace creation and profile updates trim names before saving. A
+    whitespace-only or single-visible-character name must not become an empty
+    or invalid database value after Pydantic's length check has already passed.
+    Preserve optional ``None`` in PATCH for backwards compatibility.
+    """
+    if value is None:
+        return None
+    normalized = value.strip()
+    if len(normalized) < 2:
+        raise ValueError("Workspace name must contain at least two visible characters")
+    return normalized
+
+
 def changed_general_fields(
     before: Mapping[str, object], after: Mapping[str, object],
 ) -> tuple[str, ...]:
