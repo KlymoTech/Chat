@@ -14,7 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.models import Workspace, WorkspaceMembership, WorkspaceRole
-
 from northstar_api.modules.workspace.member_state import is_member_suspended, member_statuses
 
 
@@ -42,9 +41,7 @@ async def ensure_member_status_change_allowed(
     )
     statuses = member_statuses(workspace.settings_json)
     active_administrator_ids = {
-        user_id
-        for user_id in administrator_ids
-        if statuses.get(str(user_id)) != "suspended"
+        user_id for user_id in administrator_ids if statuses.get(str(user_id)) != "suspended"
     }
     if member_user_id in active_administrator_ids and len(active_administrator_ids) <= 1:
         raise HTTPException(
