@@ -49,6 +49,7 @@ async def issue_workspace_api_key(
     workspace_id: UUID,
     created_by_user_id: UUID,
     name: str,
+    scopes: list[str],
 ) -> IssuedWorkspaceAPIKey:
     secret, prefix, secret_hash = generate_api_key()
     record = WorkspaceAPIKey(
@@ -58,6 +59,7 @@ async def issue_workspace_api_key(
         name=" ".join(name.split()),
         prefix=prefix,
         secret_hash=secret_hash,
+        scopes=list(dict.fromkeys(scopes)),
     )
     session.add(record)
     await session.flush()
