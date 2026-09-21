@@ -7,6 +7,7 @@ This document describes the workspace-owned implementation on the `workspace-23-
 Implemented in this branch:
 
 - 23 — backend workspace/branding feature module boundaries
+- 24–26 — canonical WhatsApp module boundaries and durable message/status/template pipelines
 - 27–28 — configurable workspace dashboard architecture and feature-owned frontend structure
 - 29–30 — tenant/workspace-scoped normalized branding persistence with compatibility dual-write
 - 32 — grouped workspace Settings information architecture
@@ -17,15 +18,14 @@ Implemented in this branch:
 - 40 — typed workspace domain events through the existing outbox
 - 41 — asynchronous branding/domain operations using the existing Celery/RabbitMQ worker system
 - 42–44 — staged migration rules, completion documentation and regression coverage
+- 31 — isolated platform-admin control plane, entitlement/configuration visibility, audited lifecycle controls and time-boxed support sessions
 
-Intentionally outside this workspace-only branch:
+Repository-wide CRM/Education/Agents/Leads/Conversations reorganizations beyond the workspace
+boundaries remain outside this plan. Their existing compatibility adapters continue to be used.
 
-- 24–26 — WhatsApp module reorganization and message pipelines
-- 31 — Super Admin/platform-role isolation
-- platform-admin control-plane work
-- CRM/Education/Agents/Leads/Conversations repository-wide reorganizations beyond the workspace boundaries needed here
-
-Those areas remain separately owned and are not silently modified by this branch.
+The former teammate-owned WhatsApp and platform-admin boundaries are now included as additive
+extensions: legacy imports/routes remain available, while new code uses the canonical namespaces
+and the platform control plane is isolated from workspace context requirements.
 
 ## 23. Backend module structure
 
@@ -355,9 +355,16 @@ This branch intentionally does **not** delete the old workspace/settings/brandin
 - cache invalidation — implemented post-commit
 - entitlement enforcement — backend enforced
 
-### Explicit exclusions
+### Platform administration and WhatsApp extensions
 
-Super Admin completion criteria do not apply to this workspace-only branch. WhatsApp module restructuring/flows (items 24–26) are also excluded for teammate ownership.
+- platform-admin routes are guarded by the platform-admin allowlist, reject API keys, and do not
+  inherit a workspace header or workspace setup gate
+- tenant subscription/lifecycle changes and support sessions require a reason and durable audit
+  metadata; support tokens are short-lived, tagged, and revocable
+- the canonical WhatsApp namespace owns Graph/accounts/messages/status/templates boundaries while
+  legacy service imports remain compatibility adapters
+- inbound/outbound WhatsApp work remains on the dedicated durable worker path, separate from
+  document ingestion and protected by workspace/connection scoping
 
 ## Validation checklist before merge
 

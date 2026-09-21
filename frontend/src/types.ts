@@ -19,6 +19,11 @@ export interface Session {
   refreshToken?: string;
   user: User;
   expiresAt: string;
+  impersonation?: {
+    id: string;
+    platformActorId: string;
+    actingAsUserId: string;
+  };
 }
 
 export interface WhatsAppMessageSettings {

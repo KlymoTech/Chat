@@ -43,7 +43,7 @@ Viewer = Annotated[Principal, Depends(require_permissions("education.view"))]
 async def enrollment_readiness(agent_id: UUID, request: Request, principal: Viewer, session: DB):
     from sqlalchemy import func
 
-    from northstar_api.services.whatsapp import token_expiry_is_current
+    from northstar_api.modules.whatsapp.graph import token_expiry_is_current
 
     agent = await scoped_bot(session, principal, agent_id)
     identities = (

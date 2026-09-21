@@ -3,13 +3,20 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge, Button, Card, PageLoader } from '@/components/ui';
+import { useAuth, useToast } from '@/components/providers';
+import type { User } from '@/types';
 import {
   platformAdminApi,
   type PlatformOverview,
   type PlatformTenantDetail,
   type PlatformTenantSummary,
+  type PlatformTenantUser,
+  type PlatformEntitlement,
+  type PlatformConfiguration,
 } from '@/lib/platform-admin-api';
+import { persistActiveWorkspace } from '@/lib/workspace-api';
 
 function formatPlan(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -27,7 +34,12 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
 }
 
 export function PlatformAdminPage() {
+  const { session, assumeSession } = useAuth();
+  const { pushToast } = useToast();
+  const navigate = useNavigate();
   const [overview, setOverview] = useState<PlatformOverview | null>(null);
+  const [entitlements, setEntitlements] = useState<PlatformEntitlement[]>([]);
+  const [configuration, setConfiguration] = useState<PlatformConfiguration | null>(null);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -37,6 +49,10 @@ export function PlatformAdminPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
+  const [operationReason, setOperationReason] = useState('');
+  const [operationBusy, setOperationBusy] = useState(false);
+  const [planDraft, setPlanDraft] = useState('starter');
+  const [statusDraft, setStatusDraft] = useState('active');
 
   useEffect(() => {
     let active = true;
@@ -50,6 +66,8 @@ export function PlatformAdminPage() {
       setOverview(nextOverview);
       setTenants(nextTenants.items);
       setTotal(nextTenants.total);
+      void platformAdminApi.entitlements().then((value) => { if (active) setEntitlements(value); }).catch(() => undefined);
+      void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
     }).catch((reason) => {
       if (!active) return;
       setError(reason instanceof Error ? reason.message : 'Platform control plane could not be loaded');
@@ -64,7 +82,7 @@ export function PlatformAdminPage() {
     let active = true;
     setDetailLoading(true);
     void platformAdminApi.tenant(selectedTenantId)
-      .then((value) => { if (active) setDetail(value); })
+      .then((value) => { if (active) { setDetail(value); setPlanDraft(value.plan); setStatusDraft(value.subscriptionStatus); } })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : 'Tenant detail could not be loaded'); })
       .finally(() => { if (active) setDetailLoading(false); });
     return () => { active = false; };
@@ -75,6 +93,56 @@ export function PlatformAdminPage() {
     setSelectedTenantId(null);
     setDetail(null);
     setAppliedQuery(query.trim());
+  };
+
+  const updateLifecycle = async (action: 'suspend' | 'reactivate') => {
+    if (!selectedTenantId || operationReason.trim().length < 5) return;
+    if (!window.confirm(`Are you sure you want to ${action} this tenant?`)) return;
+    setOperationBusy(true);
+    try {
+      const next = await platformAdminApi.updateLifecycle(selectedTenantId, action, operationReason.trim());
+      setDetail(next);
+      setOperationReason('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Tenant operation failed');
+    } finally { setOperationBusy(false); }
+  };
+
+  const updateSubscription = async () => {
+    if (!selectedTenantId || operationReason.trim().length < 5) return;
+    if (!window.confirm('Apply this subscription change?')) return;
+    setOperationBusy(true);
+    try {
+      const next = await platformAdminApi.updateSubscription(selectedTenantId, { plan: planDraft, status: statusDraft, reason: operationReason.trim() });
+      setDetail(next);
+      setOperationReason('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Subscription update failed');
+    } finally { setOperationBusy(false); }
+  };
+
+  const startSupportSession = async (user: PlatformTenantUser) => {
+    if (!detail || !session) return;
+    const workspace = detail.workspaces.find((item) => item.status === 'active');
+    if (!workspace) { pushToast('This tenant has no workspace available for support access', 'error'); return; }
+    if (!window.confirm(`Start a support session as ${user.name}?`)) return;
+    setOperationBusy(true);
+    try {
+      const result = await platformAdminApi.startImpersonation({
+        tenantId: detail.id, workspaceId: workspace.id, userId: user.id,
+        reason: operationReason.trim(),
+      });
+      persistActiveWorkspace(workspace.id);
+      assumeSession({
+        accessToken: result.accessToken,
+        expiresAt: result.expiresAt,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role as User['role'], emailVerified: user.isActive },
+        impersonation: { id: result.impersonationId, platformActorId: session.user.id, actingAsUserId: user.id },
+      });
+      navigate('/');
+    } catch (reason) {
+      pushToast(reason instanceof Error ? reason.message : 'Support session could not be started', 'error');
+    } finally { setOperationBusy(false); }
   };
 
   if (loading && !overview) return <PageLoader />;
@@ -103,7 +171,7 @@ export function PlatformAdminPage() {
 
   return <div className="page">
     <div className="page-heading page-heading--split">
-      <div><span className="page-kicker">Northstar platform</span><h2>Control plane</h2><p>Read-only tenant, billing, operational health, CRM, channel and audit visibility.</p></div>
+      <div><span className="page-kicker">Northstar platform</span><h2>Control plane</h2><p>Tenant, billing, operational health, entitlements, support, and audit controls.</p></div>
       <Badge tone={statusTone(operations?.status ?? 'unknown')}>{formatPlan(operations?.status ?? 'Loading')}</Badge>
     </div>
 
@@ -125,6 +193,16 @@ export function PlatformAdminPage() {
       </div>
     </Card>
 
+    {entitlements.length ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Feature entitlements</h3><p>Server-owned plan limits and capabilities used for enforcement.</p></div></div>
+      <div className="workspace-plan-grid">{entitlements.map((item) => <div key={item.plan}><small>{formatPlan(item.plan)}</small><strong>{item.workspaceLimit == null ? 'Unlimited' : `${item.workspaceLimit} workspaces`}</strong><small>{item.agentLimit == null ? 'Unlimited agents' : `${item.agentLimit} agents`} · {item.memberLimit == null ? 'Unlimited members' : `${item.memberLimit} members`}</small><small>{item.crmEnabled ? 'CRM' : 'No CRM'} · {item.whiteLabelEnabled ? 'White label' : 'Platform brand'}</small></div>)}</div>
+    </Card> : null}
+
+    {configuration ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Runtime configuration</h3><p>Non-secret flags and limits currently enforced by the backend.</p></div></div>
+      <div className="workspace-plan-grid"><Metric label="Environment" value={configuration.appEnv} /><Metric label="Background dispatch" value={configuration.backgroundDispatchEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Kafka analytics" value={configuration.kafkaEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Course isolation" value={configuration.educationMultiCourseEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Impersonation TTL" value={`${configuration.platformImpersonationTtlMinutes} minutes`} /><Metric label="Retrieval context" value={`${configuration.retrievalContextLimit} chunks / ${configuration.retrievalCandidateLimit} candidates`} /></div>
+    </Card> : null}
+
     <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Plans & subscriptions</h3><p>Current tenant subscription lifecycle distribution.</p></div><Database /></div>
       <div className="workspace-plan-grid">
@@ -138,7 +216,7 @@ export function PlatformAdminPage() {
 
     <Card className="agents-snapshot">
       <div className="card-heading">
-        <div><h3>Tenant administration</h3><p>{total.toLocaleString()} customer accounts · read-only support view</p></div>
+        <div><h3>Tenant administration</h3><p>{total.toLocaleString()} customer accounts · audited support control plane</p></div>
         <form onSubmit={submitSearch} style={{ display: 'flex', gap: 8 }}><input aria-label="Search tenants" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tenant or slug" /><Button type="submit" variant="secondary" icon={Search}>Search</Button></form>
       </div>
       <div className="agent-row-list">
@@ -156,7 +234,10 @@ export function PlatformAdminPage() {
     {selectedTenantId ? <Card className="workspace-panel">
       {detailLoading || !detail ? <div className="workspace-empty-row"><Activity /><span><strong>Loading tenant support view…</strong></span></div> : <>
         <div className="card-heading"><div><h3>{detail.name}</h3><p>{detail.slug} · created {formatDate(detail.createdAt)}</p></div><Badge tone={statusTone(detail.subscriptionStatus)}>{formatPlan(detail.plan)} · {formatPlan(detail.subscriptionStatus)}</Badge></div>
-        <div className="workspace-panel__body"><div className="workspace-empty-row"><Database /><span><strong>Billing</strong><small>Provider: {detail.provider ? formatPlan(detail.provider) : 'Not connected'}</small><small>Period end: {formatDate(detail.currentPeriodEnd)}</small><small>{detail.cancelAtPeriodEnd ? 'Cancellation scheduled' : 'No scheduled cancellation'}</small></span></div></div>
+        <div className="workspace-panel__actions"><input aria-label="Administrative reason" value={operationReason} onChange={(event) => setOperationReason(event.target.value)} placeholder="Reason for this tenant or support action" minLength={5} /><Button variant="secondary" disabled={operationBusy || operationReason.trim().length < 5} onClick={() => void updateLifecycle(detail.workspaces.some((item) => item.status === 'active') ? 'suspend' : 'reactivate')}>{operationBusy ? 'Applying…' : detail.workspaces.some((item) => item.status === 'active') ? 'Suspend tenant' : 'Reactivate tenant'}</Button></div>
+        <div className="workspace-panel__body"><div className="workspace-empty-row"><Database /><span><strong>Billing</strong><small>Provider: {detail.provider ? formatPlan(detail.provider) : 'Not connected'}</small><small>Period end: {formatDate(detail.currentPeriodEnd)}</small><small>{detail.cancelAtPeriodEnd ? 'Cancellation scheduled' : 'No scheduled cancellation'}</small></span></div><div className="workspace-panel__actions"><label>Plan<select value={planDraft} onChange={(event) => setPlanDraft(event.target.value)}><option value="free">Free</option><option value="starter">Starter</option><option value="professional">Professional</option><option value="business">Business</option><option value="enterprise">Enterprise</option></select></label><label>Status<select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}><option value="trial">Trial</option><option value="active">Active</option><option value="past_due">Past due</option><option value="suspended">Suspended</option><option value="cancelled">Cancelled</option></select></label><Button variant="secondary" disabled={operationBusy || operationReason.trim().length < 5} onClick={() => void updateSubscription()}>Update subscription</Button></div></div>
+        <div className="card-heading"><div><h3>Tenant users</h3><p>Membership and account state; credentials are never exposed.</p></div></div>
+        <div className="agent-row-list">{(detail.users ?? []).map((user) => <div className="agent-row" key={user.id}><span className="agent-avatar">{user.name.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{user.name}</strong><small>{user.email} · {formatPlan(user.role)}</small></span><span className="agent-row__status"><Badge tone={user.isActive ? 'success' : 'danger'}>{user.isActive ? 'Active' : 'Disabled'}</Badge></span><Button variant="secondary" disabled={operationBusy || operationReason.trim().length < 5 || !user.isActive || !(detail.workspaces ?? []).some((item) => item.status === 'active')} onClick={() => void startSupportSession(user)}>Support session</Button></div>)}{!(detail.users ?? []).length ? <div className="mini-empty"><UsersRound /><p>No tenant users found.</p></div> : null}</div>
         <div className="card-heading"><div><h3>Workspaces</h3><p>Operational footprint for this tenant.</p></div></div>
         <div className="agent-row-list">{detail.workspaces.map((workspace) => <div className="agent-row" key={workspace.id}><span className="agent-avatar">{workspace.name.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{workspace.name}</strong><small>{workspace.slug} · {formatPlan(workspace.status)}</small></span><span className="agent-row__metric"><small>Members</small><strong>{workspace.memberCount}</strong></span><span className="agent-row__metric"><small>Agents</small><strong>{workspace.agentCount}</strong></span><span className="agent-row__metric"><small>Conversations</small><strong>{workspace.conversationCount}</strong></span></div>)}</div>
         <div className="card-heading"><div><h3>Recent audit/support context</h3><p>Metadata only; payload bodies remain in the tenant audit system.</p></div></div>
@@ -166,6 +247,6 @@ export function PlatformAdminPage() {
   </div>;
 }
 
-function Metric({ label, value, note }: { label: string; value: number; note?: string }) {
+function Metric({ label, value, note }: { label: string; value: number | string; note?: string }) {
   return <div><small>{label}</small><strong>{value.toLocaleString()}</strong>{note ? <small>{note}</small> : null}</div>;
 }

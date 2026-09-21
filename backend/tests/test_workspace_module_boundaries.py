@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from northstar_api.modules.branding import branding_router, domains_router, email_router
+from northstar_api.modules.branding.api.domain_routes import router as canonical_domains_router
 from northstar_api.modules.workspace.api import (
     access_router,
     conversation_assignments_router,
@@ -34,6 +35,7 @@ def test_workspace_feature_boundaries_are_importable() -> None:
         email_router,
     ]
     assert all(isinstance(value, APIRouter) for value in routers)
+    assert canonical_domains_router is domains_router
     assert WorkspaceConversationAssignment.__tablename__ == "workspace_conversation_assignments"
     assert "workspace.view" in WORKSPACE_PERMISSIONS
     assert callable(settings_document)

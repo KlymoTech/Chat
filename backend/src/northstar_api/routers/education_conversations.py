@@ -13,10 +13,10 @@ from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.models import Channel, Conversation, ConversationState, Message
+from northstar_api.modules.whatsapp.status import attach_whatsapp_message_status
 from northstar_api.schemas import CitationOut, ConversationOut, MessageOut, PageResult
 from northstar_api.security import Principal
 from northstar_api.services.conversation_lead_status import attach_lead_status
-from northstar_api.services.whatsapp_message_status import attach_whatsapp_message_status
 
 router = APIRouter(prefix="/education/conversations", tags=["education"])
 DB = Annotated[AsyncSession, Depends(get_session)]

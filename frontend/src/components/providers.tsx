@@ -6,10 +6,14 @@ import { signupApi, type SignupInput } from '@/lib/signup-api';
 import { activeWorkspaceId, persistActiveWorkspace, workspaceApi, workspacePresentationKey, retryableWorkspaceRead, type WorkspaceCreate, type WorkspaceSettings } from '@/lib/workspace-api';
 import type { Session } from '@/types';
 
+const SUPPORT_RETURN_SESSION_KEY = 'northstar.support.return-session';
+const SUPPORT_RETURN_WORKSPACE_KEY = 'northstar.support.return-workspace';
+
 interface AuthContextValue {
   session: Session | null; login: (email: string, password: string) => Promise<LoginResult>;
   completeMFA: (challengeToken: string, factor: MFAFactor) => Promise<Session>;
   signup: (input: SignupInput) => Promise<Session>; logout: () => Promise<void>;
+  assumeSession: (next: Session) => void; restoreSession: () => boolean;
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -27,7 +31,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const signup = useCallback(async (input: SignupInput) => { const next = await signupApi.signup(input); setSession(next); return next; }, []);
   const logout = useCallback(async () => { await api.auth.logout(); setSession(null); }, []);
-  const value = useMemo(() => ({ session, login, completeMFA, signup, logout }), [session, login, completeMFA, signup, logout]);
+  const assumeSession = useCallback((next: Session) => {
+    const current = api.auth.session();
+    if (current && !current.impersonation) {
+      try { sessionStorage.setItem(SUPPORT_RETURN_SESSION_KEY, JSON.stringify(current)); } catch { /* Storage may be unavailable. */ }
+      const workspaceId = activeWorkspaceId();
+      if (workspaceId) { try { sessionStorage.setItem(SUPPORT_RETURN_WORKSPACE_KEY, workspaceId); } catch { /* Storage may be unavailable. */ } }
+    }
+    api.auth.adopt(next);
+    setSession(next);
+  }, []);
+  const restoreSession = useCallback(() => {
+    try {
+      const raw = sessionStorage.getItem(SUPPORT_RETURN_SESSION_KEY);
+      if (!raw) return false;
+      const original = JSON.parse(raw) as Session;
+      sessionStorage.removeItem(SUPPORT_RETURN_SESSION_KEY);
+      const workspaceId = sessionStorage.getItem(SUPPORT_RETURN_WORKSPACE_KEY);
+      if (workspaceId) { persistActiveWorkspace(workspaceId); sessionStorage.removeItem(SUPPORT_RETURN_WORKSPACE_KEY); }
+      api.auth.adopt(original);
+      setSession(original);
+      return true;
+    } catch { return false; }
+  }, []);
+  const value = useMemo(() => ({ session, login, completeMFA, signup, logout, assumeSession, restoreSession }), [session, login, completeMFA, signup, logout, assumeSession, restoreSession]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth(): AuthContextValue { const value = useContext(AuthContext); if (!value) throw new Error('useAuth must be used inside AuthProvider'); return value; }

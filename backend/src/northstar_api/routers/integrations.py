@@ -36,17 +36,17 @@ from northstar_api.schemas import (
     WhatsAppConnectionOut,
     WhatsAppStatusOut,
 )
-from northstar_api.security import Principal, create_whatsapp_signup_token, decode_token
-from northstar_api.services.outbox import enqueue_event
-from northstar_api.services.rate_limit import redis_services
-from northstar_api.services.whatsapp import (
+from northstar_api.modules.whatsapp.accounts import connection_client
+from northstar_api.modules.whatsapp.graph import (
     WhatsAppConfigurationError,
     WhatsAppGraphError,
     token_cipher,
     token_expiry_is_current,
     whatsapp_client,
 )
-from northstar_api.services.whatsapp_accounts import connection_client
+from northstar_api.security import Principal, create_whatsapp_signup_token, decode_token
+from northstar_api.services.outbox import enqueue_event
+from northstar_api.services.rate_limit import redis_services
 from northstar_api.workers.tasks import whatsapp_thread_lock_key
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -348,7 +348,7 @@ async def get_whatsapp_status(principal: IntegrationsViewPrincipal, session: DB)
 async def whatsapp_templates(
     agent_id: UUID, principal: IntegrationsViewPrincipal, session: DB
 ) -> list[dict[str, Any]]:
-    from northstar_api.services.whatsapp_templates import template_fields
+    from northstar_api.modules.whatsapp.templates import template_fields
 
     connection = await session.scalar(
         select(WhatsAppConnection).where(

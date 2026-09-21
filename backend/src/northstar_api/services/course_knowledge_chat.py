@@ -17,6 +17,7 @@ from northstar_api.education_conversation_context import EducationConversationCo
 from northstar_api.models import Agent, Channel, ConversationState, Message, MessageRole
 from northstar_api.modules.knowledge.grounding import blocked_topic, validate_answer
 from northstar_api.modules.knowledge.retrieval import Evidence
+from northstar_api.modules.whatsapp.messages import format_whatsapp_reply
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.chat import ChatCoordinator, PreparedChat, ReservedChat, whatsapp_welcome
@@ -31,7 +32,6 @@ from northstar_api.services.course_knowledge_policy import KnowledgePolicyError
 from northstar_api.services.llm import ModelUnavailableError
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.web_fallback import related_web_evidence
-from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
 
 async def course_history(

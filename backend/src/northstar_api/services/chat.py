@@ -27,6 +27,7 @@ from northstar_api.models import (
 )
 from northstar_api.modules.knowledge.grounding import blocked_topic, validate_answer
 from northstar_api.modules.knowledge.retrieval import Evidence, RetrievalService, retrieval_service
+from northstar_api.modules.whatsapp.messages import format_whatsapp_reply
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
@@ -40,7 +41,6 @@ from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import RedisServices, redis_services
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.web_fallback import related_web_evidence
-from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
 FAILED_RESPONSE_PLACEHOLDER = "The assistant could not complete this response."
 
@@ -175,6 +175,7 @@ class ChatCoordinator:
                 conversation_id=reservation.conversation_id,
                 message=raw_message,
                 channel=channel.value,
+                include_fallback=False,
             )
             if workflow_reply:
                 prepared = await self._complete_exchange(
@@ -227,6 +228,26 @@ class ChatCoordinator:
                 )
                 web_evidence = bool(evidence)
             if not evidence:
+                workflow_reply = await match_bot_workflow(
+                    session,
+                    tenant_id=tenant_id,
+                    workspace_id=agent.workspace_id,
+                    agent_id=agent.id,
+                    conversation_id=reservation.conversation_id,
+                    message=raw_message,
+                    channel=channel.value,
+                )
+                if workflow_reply:
+                    prepared = await self._complete_exchange(
+                        session, tenant_id=tenant_id, agent=agent, reservation=reservation,
+                        question=message, answer=workflow_reply.content, evidence=[],
+                        latency_ms=round((time.perf_counter() - started) * 1000), show_citations=False,
+                        message_format=workflow_reply.message_format,
+                        answer_mode="workflow",
+                    )
+                    CHAT_REQUESTS.labels("workflow").inc()
+                    CHAT_DURATION.observe(time.perf_counter() - started)
+                    return replace(prepared, display_question=display_question)
                 if web_policy == "public":
                     answer = await self._general_answer(agent, message, conversation_history)
                     answer_mode = "general_assistance"

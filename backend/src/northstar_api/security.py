@@ -37,6 +37,8 @@ class Principal:
     workspace_role: WorkspaceRole | None = None
     permissions: frozenset[str] = field(default_factory=frozenset)
     agent_ids: frozenset[UUID] | None = None
+    platform_actor_id: UUID | None = None
+    impersonation_id: str | None = None
 
     def can(self, permission: str) -> bool:
         return permits(permission, self.role.value, self.permissions, has_workspace=self.workspace_id is not None)
@@ -95,11 +97,18 @@ def create_access_token(
     settings: Settings | None = None,
     *,
     credential_version: int = 0,
+    platform_actor_id: UUID | None = None,
+    impersonation_id: str | None = None,
+    ttl_minutes: int | None = None,
 ) -> tuple[str, datetime]:
     config = settings or get_settings()
     return _token(
-        str(user_id), "access", timedelta(minutes=config.jwt_access_ttl_minutes),
-        {"tid": str(tenant_id), "role": role.value, "cv": credential_version}, config,
+        str(user_id), "access", timedelta(minutes=ttl_minutes or config.jwt_access_ttl_minutes),
+        {
+            "tid": str(tenant_id), "role": role.value, "cv": credential_version,
+            **({"platformActorId": str(platform_actor_id)} if platform_actor_id else {}),
+            **({"impersonationId": impersonation_id} if impersonation_id else {}),
+        }, config,
     )
 
 

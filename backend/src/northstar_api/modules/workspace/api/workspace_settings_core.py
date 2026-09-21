@@ -11,7 +11,7 @@ from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
 from northstar_api.modules.workspace.settings import get_capabilities, get_settings
 
 router = APIRouter()
-router.get("", response_model=WorkspaceSettingsBundle)(get_settings)
+router.get("/", response_model=WorkspaceSettingsBundle)(get_settings)
 router.get("/capabilities")(get_capabilities)
 
 __all__ = ["router"]

@@ -68,8 +68,10 @@ async def get_current_principal(
         select(OrganizationSetup).where(OrganizationSetup.tenant_id == principal.tenant_id)
     )
     if setup is not None and setup.required and not setup.profile_complete:
-        safe_read = request.method in {"GET", "HEAD"} and path in setup_paths
-        if not safe_read and not path.startswith(("/auth/", "/organization/", "/billing/")):
+        safe_read = request.method in {"GET", "HEAD"} and (
+            path in setup_paths or path.startswith("/platform-admin")
+        )
+        if not safe_read and not path.startswith(("/auth/", "/organization/", "/billing/", "/platform-admin")):
             raise HTTPException(
                 status_code=428,
                 detail="Complete your organization profile before using workspace resources",
@@ -267,7 +269,7 @@ def _allows_organization_context(request: Request | None) -> bool:
         "/auth/logout",
         "/me/organizations",
         "/auth/select-organization",
-    } or path.startswith(("/billing/", "/organization/"))
+    } or path.startswith(("/billing/", "/organization/", "/platform-admin"))
 
 
 async def authenticate_access_token(
@@ -286,6 +288,10 @@ async def authenticate_access_token(
     try:
         if await redis_services.client.exists(f"northstar:revoked:{payload['jti']}"):
             raise HTTPException(status_code=401, detail="Access token was revoked")
+        if payload.get("impersonationId") and await redis_services.client.exists(
+            f"northstar:impersonation:revoked:{payload['impersonationId']}"
+        ):
+            raise HTTPException(status_code=401, detail="Support session has ended")
     except RedisError:
         if not redis_services.settings.rate_limit_fail_open:
             raise HTTPException(status_code=503, detail="Session service unavailable") from None
@@ -339,6 +345,8 @@ async def authenticate_access_token(
             role=membership.role,
             token_id=payload["jti"],
             permissions=TENANT_ROLE_PERMISSIONS[membership.role],
+            platform_actor_id=UUID(payload["platformActorId"]) if payload.get("platformActorId") else None,
+            impersonation_id=str(payload["impersonationId"]) if payload.get("impersonationId") else None,
         )
     workspace = await session.scalar(
         select(Workspace).where(
@@ -383,6 +391,8 @@ async def authenticate_access_token(
         workspace_role=workspace_membership.role,
         permissions=permissions,
         agent_ids=_merge_agent_scope(membership_agent_scope, custom_agent_scope),
+        platform_actor_id=UUID(payload["platformActorId"]) if payload.get("platformActorId") else None,
+        impersonation_id=str(payload["impersonationId"]) if payload.get("impersonationId") else None,
     )
 
 

@@ -26,16 +26,16 @@ from northstar_api.models import (
     WhatsAppOutboundDelivery,
 )
 from northstar_api.modules.knowledge.ingestion import ExtractionYield, ingest_source_async
-from northstar_api.schemas import ChatStreamRequest
-from northstar_api.services.chat import FAILED_RESPONSE_PLACEHOLDER, chat_coordinator
-from northstar_api.services.entitlements import EntitlementError, require_capacity
-from northstar_api.services.whatsapp import (
+from northstar_api.modules.whatsapp.accounts import connection_client
+from northstar_api.modules.whatsapp.graph import (
     WhatsAppGraphError,
     split_whatsapp_text,
     token_expiry_is_current,
 )
-from northstar_api.services.whatsapp_accounts import connection_client
-from northstar_api.services.whatsapp_templates import build_template
+from northstar_api.modules.whatsapp.templates import build_template
+from northstar_api.schemas import ChatStreamRequest
+from northstar_api.services.chat import FAILED_RESPONSE_PLACEHOLDER, chat_coordinator
+from northstar_api.services.entitlements import EntitlementError, require_capacity
 from northstar_api.workers.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)

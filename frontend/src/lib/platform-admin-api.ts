@@ -65,6 +65,48 @@ export interface PlatformWorkspaceSummary {
   createdAt: string;
 }
 
+export interface PlatformEntitlement {
+  plan: string;
+  workspaceLimit: number | null;
+  agentLimit: number | null;
+  memberLimit: number | null;
+  conversationLimitMonthly: number | null;
+  tokenLimitMonthly: number | null;
+  storageLimitBytes: number | null;
+  allowedChannels: string[];
+  crmEnabled: boolean;
+  apiEnabled: boolean;
+  whiteLabelEnabled: boolean;
+  customDomainEnabled: boolean;
+  brandedEmailEnabled: boolean;
+  removePlatformMarkEnabled: boolean;
+}
+
+export interface PlatformConfiguration {
+  appEnv: string;
+  appApiPrefix: string;
+  backgroundDispatchEnabled: boolean;
+  kafkaEnabled: boolean;
+  educationMultiCourseEnabled: boolean;
+  requireNvidia: boolean;
+  allowDeterministicEmbeddings: boolean;
+  platformImpersonationTtlMinutes: number;
+  rateLimitFailOpen: boolean;
+  retrievalCandidateLimit: number;
+  retrievalContextLimit: number;
+  knowledgeMaxPdfPages: number;
+  knowledgeMaxChunks: number;
+}
+
+export interface PlatformTenantUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface PlatformAuditSummary {
   id: string;
   action: string;
@@ -82,7 +124,17 @@ export interface PlatformTenantDetail extends PlatformTenantSummary {
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   workspaces: PlatformWorkspaceSummary[];
+  users: PlatformTenantUser[];
   recentAudit: PlatformAuditSummary[];
+}
+
+export interface PlatformImpersonationSession {
+  accessToken: string;
+  expiresAt: string;
+  tenantId: string;
+  workspaceId: string;
+  userId: string;
+  impersonationId: string;
 }
 
 export interface PlatformTenantList {
@@ -102,20 +154,22 @@ class PlatformAdminRequestError extends Error {
   }
 }
 
-function headers(): Record<string, string> {
+function headers(path: string): Record<string, string> {
   const session = readStorage<Session | null>(SESSION_KEY, null);
   const workspaceId = activeWorkspaceId();
+  const platformScope = path.startsWith('/platform-admin');
   return {
     Accept: 'application/json',
     ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
-    ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
+    ...(!platformScope && workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
   };
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
+    ...init,
     credentials: 'include',
-    headers: headers(),
+    headers: { ...headers(path), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
@@ -124,6 +178,7 @@ async function request<T>(path: string): Promise<T> {
       response.status,
     );
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -146,6 +201,14 @@ export const platformAdminApi = {
     return request<PlatformOverview>('/platform-admin/overview');
   },
 
+  entitlements(): Promise<PlatformEntitlement[]> {
+    return request<PlatformEntitlement[]>('/platform-admin/entitlements');
+  },
+
+  configuration(): Promise<PlatformConfiguration> {
+    return request<PlatformConfiguration>('/platform-admin/configuration');
+  },
+
   tenants(search = '', limit = 50, offset = 0): Promise<PlatformTenantList> {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (search.trim()) params.set('search', search.trim());
@@ -154,5 +217,29 @@ export const platformAdminApi = {
 
   tenant(tenantId: string): Promise<PlatformTenantDetail> {
     return request<PlatformTenantDetail>(`/platform-admin/tenants/${encodeURIComponent(tenantId)}`);
+  },
+
+  updateLifecycle(tenantId: string, action: 'suspend' | 'reactivate', reason: string): Promise<PlatformTenantDetail> {
+    return request<PlatformTenantDetail>(`/platform-admin/tenants/${encodeURIComponent(tenantId)}/lifecycle`, {
+      method: 'PATCH', body: JSON.stringify({ action, reason }),
+    });
+  },
+
+  updateSubscription(tenantId: string, value: { plan: string; status: string; reason: string }): Promise<PlatformTenantDetail> {
+    return request<PlatformTenantDetail>(`/platform-admin/tenants/${encodeURIComponent(tenantId)}/subscription`, {
+      method: 'PATCH', body: JSON.stringify(value),
+    });
+  },
+
+  startImpersonation(value: { tenantId: string; workspaceId: string; userId: string; reason: string }): Promise<PlatformImpersonationSession> {
+    return request<PlatformImpersonationSession>('/platform-admin/impersonation', {
+      method: 'POST', body: JSON.stringify(value),
+    });
+  },
+
+  endImpersonation(impersonationId: string, reason: string): Promise<void> {
+    return request<void>(`/platform-admin/impersonation/${encodeURIComponent(impersonationId)}/end`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    });
   },
 };

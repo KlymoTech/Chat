@@ -20,7 +20,7 @@ function savedCollapsed(): boolean {
 
 /** Responsive academy shell sharing the existing business pages, providers and APIs. */
 export function MaterialmAppShell() {
-  const { session, logout } = useAuth();
+  const { session, logout, restoreSession } = useAuth();
   const { activeWorkspace, workspaces, selectWorkspace } = useWorkspace();
   const { pushToast } = useToast();
   const location = useLocation();
@@ -100,12 +100,19 @@ export function MaterialmAppShell() {
   }, [accountOpen]);
 
   async function signOut() {
-    try { await logout(); navigate('/login'); }
+    try {
+      if (session?.impersonation) {
+        await platformAdminApi.endImpersonation(session.impersonation.id, 'Support session ended by operator');
+        if (restoreSession()) { navigate('/platform-admin'); return; }
+      }
+      await logout(); navigate('/login');
+    }
     catch (error) { pushToast(error instanceof Error ? error.message : 'Sign out failed', 'error'); }
   }
 
   return <div className={`mm-shell academy-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
     <a className="mm-skip" href="#mm-main-content">Skip to content</a>
+    {session?.impersonation ? <div role="status" className="support-impersonation-banner"><ShieldCheck aria-hidden="true" /><span><strong>Support session active</strong> · You are acting as {session.user.email}. This session expires automatically.</span><button type="button" onClick={() => void signOut()}>Exit support session</button></div> : null}
     <aside className="mm-sidebar" aria-label="Primary navigation">
       <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} light /></Link>
       <MaterialmSidebarLinks items={items} />

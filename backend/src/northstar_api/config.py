@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     jwt_issuer: str = "northstar-api"
     jwt_audience: str = "northstar-web"
     jwt_access_ttl_minutes: int = 30
+    platform_impersonation_ttl_minutes: int = Field(default=15, ge=5, le=120)
     jwt_refresh_ttl_days: int = 14
 
     nvidia_api_key: SecretStr | None = None

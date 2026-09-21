@@ -26,3 +26,20 @@ def test_access_token_is_typed_and_scoped() -> None:
     assert expiration > datetime.now(UTC)
     with pytest.raises(ValueError):
         decode_token(token, "widget")
+
+
+def test_impersonation_access_tokens_can_use_a_short_expiry() -> None:
+    user_id, tenant_id, actor_id = uuid4(), uuid4(), uuid4()
+    token, expiration = create_access_token(
+        user_id,
+        tenant_id,
+        Role.MEMBER,
+        platform_actor_id=actor_id,
+        impersonation_id="imp_test",
+        ttl_minutes=5,
+    )
+    claims = decode_token(token, "access")
+    assert claims["platformActorId"] == str(actor_id)
+    assert claims["impersonationId"] == "imp_test"
+    assert 290 <= claims["exp"] - claims["iat"] <= 310
+    assert expiration > datetime.now(UTC)

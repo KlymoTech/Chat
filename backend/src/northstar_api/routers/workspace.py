@@ -196,6 +196,8 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
             raise HTTPException(status_code=403, detail="Interactive branding publication permission required")
         brand = payload.white_label.model_dump(by_alias=True, mode="json")
         policy = entitlement_for_plan(tenant.plan)
+        if not policy.white_label_enabled:
+            raise HTTPException(status_code=403, detail="White label branding is not available on your plan")
         previous = workspace.branding_json or {}
         for field, included in (("brandedEmails", policy.branded_email_enabled), ("removePlatformBranding", policy.remove_platform_mark_enabled)):
             if brand[field] and not previous.get(field, False) and not included:

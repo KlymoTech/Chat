@@ -24,8 +24,8 @@ from northstar_api.models import (
     WhatsAppDeliveryReceipt,
     WhatsAppInboundMessage,
 )
-from northstar_api.services.whatsapp import token_expiry_is_current
-from northstar_api.services.whatsapp_accounts import account_client
+from northstar_api.modules.whatsapp.accounts import account_client
+from northstar_api.modules.whatsapp.graph import token_expiry_is_current
 from northstar_api.workers.tasks import process_whatsapp_inbound
 
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["whatsapp-webhook"])

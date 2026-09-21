@@ -155,8 +155,10 @@ class AgentModelProfile(APIModel):
     max_tokens: int = Field(default=16_384, ge=64, le=32_768)
     enable_thinking: bool = True
     citation_mode: Literal["always", "when-available", "off"] = "when-available"
-    rerank_candidates: int = Field(default=60, ge=10, le=100)
-    final_context_chunks: int = Field(default=8, ge=2, le=20)
+    # Retrieval tuning is persisted for the vectorless RAG pipeline but is an
+    # internal control, not part of the public agent model contract.
+    rerank_candidates: int = Field(default=60, ge=10, le=100, exclude=True)
+    final_context_chunks: int = Field(default=8, ge=2, le=20, exclude=True)
 
 
 class AgentSecurity(APIModel):

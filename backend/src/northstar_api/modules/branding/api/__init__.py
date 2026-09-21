@@ -5,7 +5,7 @@ canonical capability routers so no branding endpoint is registered twice.
 """
 
 from northstar_api.modules.workspace.branding import router as branding_router
-from northstar_api.modules.workspace.domains import router as domains_router
+from .domain_routes import router as domains_router
 from northstar_api.modules.workspace.email_routes import router as email_router
 
 from .brand_draft import router as brand_draft_router

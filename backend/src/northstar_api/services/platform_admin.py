@@ -33,6 +33,7 @@ from northstar_api.platform_admin_schemas import (
     PlatformTenantDetailOut,
     PlatformTenantListOut,
     PlatformTenantSummaryOut,
+    PlatformTenantUserOut,
     PlatformWorkspaceSummaryOut,
 )
 from northstar_api.subscriptions import TenantSubscription
@@ -339,6 +340,25 @@ async def get_platform_tenant(
         )
         for workspace in workspaces
     ]
+    tenant_users = (
+        await session.execute(
+            select(User, TenantMembership)
+            .join(TenantMembership, TenantMembership.user_id == User.id)
+            .where(TenantMembership.tenant_id == tenant_id)
+            .order_by(User.created_at, User.id)
+        )
+    ).all()
+    users_out = [
+        PlatformTenantUserOut(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            role=_value(membership.role),
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )
+        for user, membership in tenant_users
+    ]
     audit_values = list(
         await session.scalars(
             select(IntegrationAuditEvent)
@@ -367,5 +387,6 @@ async def get_platform_tenant(
         current_period_end=subscription.current_period_end if subscription else None,
         cancel_at_period_end=subscription.cancel_at_period_end if subscription else False,
         workspaces=workspace_out,
+        users=users_out,
         recent_audit=recent_audit,
     )

@@ -107,7 +107,10 @@ done < <(find backend/src/northstar_api/modules/workspace backend/src/northstar_
 # infrastructure boundaries and previously produced confusing empty folders.
 legacy_roots=(apps deploy infra services)
 for path in "${legacy_roots[@]}"; do
-  if [[ -e "$path" ]]; then
+  # Local development environments may expose canonical folders through a
+  # symlink/junction compatibility alias. Do not delete or reject those
+  # aliases; only a real repository directory violates this contract.
+  if [[ -e "$path" && ! -L "$path" ]]; then
     echo "Architecture contract violation: obsolete root exists: $path" >&2
     echo "Use frontend/, backend/, kubernetes/, or infrastructure/ instead." >&2
     exit 1
