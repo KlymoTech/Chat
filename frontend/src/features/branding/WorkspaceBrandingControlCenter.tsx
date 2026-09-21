@@ -91,9 +91,9 @@ export function WorkspaceBrandingControlCenter({ bundle, onChange, permissions }
     {surface === 'domains' ? canDomains ? <BrandDomainsSettings bundle={bundle} onChange={onChange} /> : <DomainReadOnly bundle={bundle} /> : null}
     {surface === 'versions' ? <BrandVersionsSettings versions={bundle.brandingVersions} busy={busy} canRollback={canPublish} onRollback={(version) => void rollback(version)} /> : null}
 
-    {canEdit && !['domains', 'versions'].includes(surface) ? <Card className="workspace-panel"><div className="workspace-panel__body">
+    {(canEdit || canPublish) && !['domains', 'versions'].includes(surface) ? <Card className="workspace-panel"><div className="workspace-panel__body">
       <Field label="Publication note"><input value={note} maxLength={500} placeholder="Describe this production brand change" onChange={(event) => setNote(event.target.value)} /></Field>
-      <div className="workspace-panel__actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => void saveDraft()}>Save draft</Button>{canPublish ? <Button type="button" disabled={busy || !dirty} onClick={() => { if (window.confirm('Publish this branding draft to production?')) void publish(); }}>Publish brand</Button> : null}</div>
+      <div className="workspace-panel__actions">{canEdit ? <Button type="button" variant="secondary" disabled={busy} onClick={() => void saveDraft()}>Save draft</Button> : null}{canPublish ? <Button type="button" disabled={busy || !dirty} onClick={() => { if (window.confirm('Publish this branding draft to production?')) void publish(); }}>Publish brand</Button> : null}</div>
     </div></Card> : null}
   </div>;
 }
