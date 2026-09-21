@@ -17,6 +17,7 @@ from northstar_api.models import (
     Role, TenantMembership, User, Workspace, WorkspaceMemberAgentAccess,
     WorkspaceMembership, WorkspaceRole, WorkspaceStatus,
 )
+from northstar_api.modules.workspace.api_key_scopes import permissions_for_api_key_scopes
 from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
 from northstar_api.modules.workspace.member_state import is_member_suspended
 from northstar_api.modules.workspace.security_policy import enforce_network_security, enforce_request_security
@@ -135,10 +136,12 @@ async def authenticate_api_key(token: str, session: AsyncSession, *, request: Re
     await session.commit()
     await set_tenant_context(session, api_key.tenant_id)
     service_workspace_role = WorkspaceRole.MANAGER if workspace_membership.role == WorkspaceRole.ADMIN else workspace_membership.role
+    role_permissions = WORKSPACE_ROLE_PERMISSIONS[service_workspace_role]
+    scoped_permissions = permissions_for_api_key_scopes(list(api_key.scopes or []))
     return Principal(
         user_id=api_key.created_by_user_id, tenant_id=api_key.tenant_id, role=Role.MEMBER,
         token_id=f"api_key:{api_key.id}", workspace_id=api_key.workspace_id, workspace_role=service_workspace_role,
-        permissions=WORKSPACE_ROLE_PERMISSIONS[service_workspace_role],
+        permissions=role_permissions & scoped_permissions,
         agent_ids=await _agent_scope(session, workspace_membership, api_key.created_by_user_id),
     )
 
