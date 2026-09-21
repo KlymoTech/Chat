@@ -14,8 +14,8 @@ from sqlalchemy import select
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.models import User, WorkspaceMembership, WorkspaceRole
+from northstar_api.modules.workspace.models.member_invitation_origin import WorkspaceMemberInvitationOrigin
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
-from northstar_api.modules.workspace.services.member_provenance import current_membership_inviter
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.workspace_invitations import WorkspaceInvitation, WorkspaceInvitationStatus
@@ -49,12 +49,11 @@ def member_detail_status(
 async def list_member_details(
     principal: MemberViewPrincipal, session: DBSession,
 ) -> list[WorkspaceMemberDetailsOut]:
-    """Return members of the selected tenant/workspace, never global user lists.
+    """Return only current tenant/workspace members and proven invitation origins.
 
-    ``lastLoginAt`` describes account sign-in, not last Workspace activity;
-    ``invitedByUserId`` is null if the current membership cannot be related to
-    a recent accepted invitation (for example after removal and direct re-add).
-    Disabled accounts remain visible to administrators but cannot authenticate.
+    ``lastLoginAt`` is account-level, not last Workspace activity. Historical
+    invitations without a current membership link do not establish an inviter.
+    Disabled accounts remain visible to authorized readers but cannot log in.
     """
     assert principal.workspace_id is not None
     tenant_id, workspace_id = principal.tenant_id, principal.workspace_id
@@ -70,7 +69,6 @@ async def list_member_details(
     if not rows:
         return []
     user_ids = [membership.user_id for membership, _ in rows]
-    joined_at_by_user = {membership.user_id: membership.created_at for membership, _ in rows}
     suspended = set(await session.scalars(
         select(WorkspaceMemberState.user_id).where(
             WorkspaceMemberState.tenant_id == tenant_id,
@@ -79,33 +77,29 @@ async def list_member_details(
             WorkspaceMemberState.suspended_at.is_not(None),
         )
     ))
-    # An earlier accepted invitation cannot establish who invited a membership
-    # that was subsequently removed and re-added. Match the current join time.
-    invitations = (await session.execute(
+    # A link is created only by the invitation acceptance transaction and
+    # cascades away with the current membership. Scope and accepted identity
+    # are checked again rather than trusting an invitation ID in isolation.
+    linked_inviters = (await session.execute(
         select(
-            WorkspaceInvitation.accepted_by_user_id,
+            WorkspaceMemberInvitationOrigin.user_id,
             WorkspaceInvitation.invited_by_user_id,
-            WorkspaceInvitation.accepted_at,
+        )
+        .join(
+            WorkspaceInvitation,
+            WorkspaceInvitation.id == WorkspaceMemberInvitationOrigin.invitation_id,
         )
         .where(
+            WorkspaceMemberInvitationOrigin.tenant_id == tenant_id,
+            WorkspaceMemberInvitationOrigin.workspace_id == workspace_id,
+            WorkspaceMemberInvitationOrigin.user_id.in_(user_ids),
             WorkspaceInvitation.tenant_id == tenant_id,
             WorkspaceInvitation.workspace_id == workspace_id,
-            WorkspaceInvitation.accepted_by_user_id.in_(user_ids),
             WorkspaceInvitation.status == WorkspaceInvitationStatus.ACCEPTED,
+            WorkspaceInvitation.accepted_by_user_id == WorkspaceMemberInvitationOrigin.user_id,
         )
-        .order_by(WorkspaceInvitation.accepted_at.desc())
     )).all()
-    invited_by: dict[UUID, UUID] = {}
-    for user_id, inviter_id, accepted_at in invitations:
-        if user_id is None or user_id in invited_by:
-            continue
-        inviter = current_membership_inviter(
-            joined_at=joined_at_by_user[user_id],
-            accepted_at=accepted_at,
-            inviter_id=inviter_id,
-        )
-        if inviter is not None:
-            invited_by[user_id] = inviter
+    invited_by: dict[UUID, UUID | None] = dict(linked_inviters)
     return [
         WorkspaceMemberDetailsOut(
             user_id=membership.user_id,
