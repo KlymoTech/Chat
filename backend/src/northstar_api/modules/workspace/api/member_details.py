@@ -29,7 +29,7 @@ class WorkspaceMemberDetailsOut(APIModel):
     name: str
     email: str
     role: WorkspaceRole
-    status: Literal["active", "suspended"]
+    status: Literal["active", "suspended", "disabled"]
     mfa_enabled: bool
     last_login_at: datetime | None
     invited_by_user_id: UUID | None
@@ -45,6 +45,7 @@ async def list_member_details(
     ``lastLoginAt`` describes account sign-in, not last Workspace activity;
     ``invitedByUserId`` is null if the current membership cannot be related to
     a recent accepted invitation (for example after removal and direct re-add).
+    Disabled accounts remain visible to administrators but cannot authenticate.
     """
     assert principal.workspace_id is not None
     tenant_id, workspace_id = principal.tenant_id, principal.workspace_id
@@ -54,7 +55,6 @@ async def list_member_details(
         .where(
             WorkspaceMembership.tenant_id == tenant_id,
             WorkspaceMembership.workspace_id == workspace_id,
-            User.is_active.is_(True),
         )
         .order_by(WorkspaceMembership.created_at, User.email)
     )).all()
@@ -103,7 +103,10 @@ async def list_member_details(
             name=user.name,
             email=user.email,
             role=membership.role,
-            status="suspended" if membership.user_id in suspended else "active",
+            status=(
+                "disabled" if not user.is_active else
+                "suspended" if membership.user_id in suspended else "active"
+            ),
             mfa_enabled=user.mfa_enabled,
             last_login_at=user.last_login_at,
             invited_by_user_id=invited_by.get(membership.user_id),
