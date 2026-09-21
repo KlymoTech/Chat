@@ -17,11 +17,19 @@ def test_transferred_owner_takes_precedence_over_creator() -> None:
     assert select_owner_id(str(next_owner), creator, (creator, next_owner)) == next_owner
 
 
-def test_unknown_or_invalid_configured_owner_never_grants_access_to_nonadmin() -> None:
+def test_unknown_or_invalid_configured_owner_never_reassigns_ownership() -> None:
     creator, other = uuid4(), uuid4()
-    assert select_owner_id(str(uuid4()), creator, (creator, other)) == creator
-    assert select_owner_id("not-a-uuid", creator, (other,)) == other
+    assert select_owner_id(str(uuid4()), creator, (creator, other)) is None
+    assert select_owner_id("not-a-uuid", creator, (other,)) is None
+    assert select_owner_id("", creator, (creator, other)) is None
     assert select_owner_id(None, creator, ()) is None
+
+
+def test_recorded_owner_losing_admin_access_never_restores_creator_ownership() -> None:
+    creator, transferred_owner, other = uuid4(), uuid4(), uuid4()
+    assert select_owner_id(str(transferred_owner), creator, (creator, other)) is None
+    assert select_owner_id(str(transferred_owner), creator, (creator,)) is None
+    assert select_owner_id(str(transferred_owner), creator, ()) is None
 
 
 def test_no_creator_or_configured_owner_uses_first_eligible_administrator() -> None:
