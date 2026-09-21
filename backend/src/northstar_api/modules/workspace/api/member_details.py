@@ -36,6 +36,15 @@ class WorkspaceMemberDetailsOut(APIModel):
     joined_at: datetime
 
 
+def member_detail_status(
+    *, account_active: bool, suspended: bool,
+) -> Literal["active", "suspended", "disabled"]:
+    """An unavailable global account must never be presented as active."""
+    if not account_active:
+        return "disabled"
+    return "suspended" if suspended else "active"
+
+
 @router.get("/details", response_model=list[WorkspaceMemberDetailsOut])
 async def list_member_details(
     principal: MemberViewPrincipal, session: DBSession,
@@ -103,9 +112,9 @@ async def list_member_details(
             name=user.name,
             email=user.email,
             role=membership.role,
-            status=(
-                "disabled" if not user.is_active else
-                "suspended" if membership.user_id in suspended else "active"
+            status=member_detail_status(
+                account_active=user.is_active,
+                suspended=membership.user_id in suspended,
             ),
             mfa_enabled=user.mfa_enabled,
             last_login_at=user.last_login_at,
