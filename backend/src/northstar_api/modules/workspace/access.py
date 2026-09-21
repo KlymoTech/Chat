@@ -26,6 +26,29 @@ def _uuid(value: str, label: str) -> UUID:
         raise HTTPException(status_code=422, detail=f"Invalid {label} identifier") from None
 
 
+async def _workspace_member_ids(session: DBSession, principal: Principal, workspace_id: UUID) -> set[UUID]:
+    return set(
+        await session.scalars(
+            select(WorkspaceMembership.user_id).where(
+                WorkspaceMembership.tenant_id == principal.tenant_id,
+                WorkspaceMembership.workspace_id == workspace_id,
+            )
+        )
+    )
+
+
+async def _workspace_agent_ids(session: DBSession, principal: Principal, workspace_id: UUID) -> set[UUID]:
+    return set(
+        await session.scalars(
+            select(Agent.id).where(
+                Agent.tenant_id == principal.tenant_id,
+                Agent.workspace_id == workspace_id,
+                Agent.deleted_at.is_(None),
+            )
+        )
+    )
+
+
 async def _validate_roles(
     payload: RolesSettings,
     principal: Principal,
@@ -41,18 +64,8 @@ async def _validate_roles(
             raise HTTPException(status_code=403, detail=f"Cannot delegate permissions not held by the current administrator ({role.name})")
 
     requested_users = {_uuid(user_id, "member") for user_id in payload.member_role_ids}
-    if requested_users:
-        available_users = set(
-            await session.scalars(
-                select(WorkspaceMembership.user_id).where(
-                    WorkspaceMembership.tenant_id == principal.tenant_id,
-                    WorkspaceMembership.workspace_id == workspace_id,
-                    WorkspaceMembership.user_id.in_(requested_users),
-                )
-            )
-        )
-        if available_users != requested_users:
-            raise HTTPException(status_code=422, detail="A custom role assignment references a member outside this workspace")
+    if requested_users and not requested_users <= await _workspace_member_ids(session, principal, workspace_id):
+        raise HTTPException(status_code=422, detail="A custom role assignment references a member outside this workspace")
     for assigned in payload.member_role_ids.values():
         if not set(assigned) <= known_roles:
             raise HTTPException(status_code=422, detail="A custom role assignment references an unknown role")
@@ -61,19 +74,39 @@ async def _validate_roles(
     for role in payload.custom_roles:
         for value in role.resources.selected.get("agents", []):
             agent_ids.add(_uuid(value, "agent resource"))
-    if agent_ids:
-        available_agents = set(
-            await session.scalars(
-                select(Agent.id).where(
-                    Agent.tenant_id == principal.tenant_id,
-                    Agent.workspace_id == workspace_id,
-                    Agent.id.in_(agent_ids),
-                    Agent.deleted_at.is_(None),
-                )
-            )
-        )
-        if available_agents != agent_ids:
-            raise HTTPException(status_code=422, detail="A custom role references an agent outside this workspace")
+    if agent_ids and not agent_ids <= await _workspace_agent_ids(session, principal, workspace_id):
+        raise HTTPException(status_code=422, detail="A custom role references an agent outside this workspace")
+
+
+async def _validate_teams(
+    payload: TeamsSettings,
+    principal: Principal,
+    session: DBSession,
+    workspace_id: UUID,
+    roles: RolesSettings,
+) -> None:
+    ids = [team.id for team in payload.teams]
+    names = [team.name.casefold() for team in payload.teams]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=422, detail="Team identifiers must be unique")
+    if len(names) != len(set(names)):
+        raise HTTPException(status_code=422, detail="Team names must be unique in a workspace")
+
+    workspace_members = await _workspace_member_ids(session, principal, workspace_id)
+    workspace_agents = await _workspace_agent_ids(session, principal, workspace_id)
+    custom_roles = {role.id for role in roles.custom_roles}
+    for team in payload.teams:
+        members = {_uuid(value, "team member") for value in team.member_ids}
+        managers = {_uuid(value, "team manager") for value in team.manager_ids}
+        agents = {_uuid(value, "team agent") for value in team.agent_ids}
+        if not members <= workspace_members or not managers <= workspace_members:
+            raise HTTPException(status_code=422, detail=f"Team {team.name} references a member outside this workspace")
+        if not managers <= members:
+            raise HTTPException(status_code=422, detail=f"Team {team.name} managers must also be team members")
+        if not agents <= workspace_agents:
+            raise HTTPException(status_code=422, detail=f"Team {team.name} references an agent outside this workspace")
+        if not set(team.role_ids) <= custom_roles:
+            raise HTTPException(status_code=422, detail=f"Team {team.name} references an unknown custom role")
 
 
 @router.patch("/roles", response_model=RolesSettings)
@@ -106,6 +139,7 @@ async def update_teams(
 ) -> TeamsSettings:
     _, workspace = await load_workspace(principal, session)
     document = settings_document(workspace)
+    await _validate_teams(payload, principal, session, workspace.id, document.roles)
     document.teams = payload
     save_document(workspace, document)
     record_workspace_change(
