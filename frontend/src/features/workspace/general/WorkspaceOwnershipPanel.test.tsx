@@ -41,6 +41,7 @@ describe('WorkspaceOwnershipPanel', () => {
     });
     render(<WorkspaceOwnershipPanel workspaceId="workspace-1" currentUserId="owner-a" canManage />);
     expect(await screen.findByText('Owner A')).toBeTruthy();
+    fireEvent.click(screen.getByText('Transfer workspace ownership'));
     expect(await screen.findByRole('option', { name: /Owner B/ })).toBeTruthy();
     const confirmButton = screen.getByRole('button', { name: 'Confirm ownership transfer' }) as HTMLButtonElement;
     expect(confirmButton.disabled).toBe(true);
@@ -62,6 +63,7 @@ describe('WorkspaceOwnershipPanel', () => {
     vi.mocked(workspaceApi.getTeam).mockResolvedValue({ members: [admin], invitations: [] });
     vi.mocked(workspaceApi.transferOwner).mockRejectedValue(new Error('Workspace owner changed; reload before transferring'));
     render(<WorkspaceOwnershipPanel workspaceId="workspace-1" currentUserId="owner-a" canManage />);
+    fireEvent.click(await screen.findByText('Transfer workspace ownership'));
     await screen.findByRole('option', { name: /Owner B/ });
     fireEvent.change(screen.getByLabelText('New workspace owner'), { target: { value: 'owner-b' } });
     fireEvent.change(screen.getByLabelText('Transfer reason'), { target: { value: 'responsibility_change' } });
