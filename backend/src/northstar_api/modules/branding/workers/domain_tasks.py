@@ -10,7 +10,11 @@ from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context, tenant_context
 from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.modules.branding.repositories import persist_branding_document
-from northstar_api.modules.branding.services.domain_service import check_domain_tls, verify_domain_txt
+from northstar_api.modules.branding.services.domain_service import (
+    TLS_ELIGIBLE_DOMAIN_STATUSES,
+    check_domain_tls,
+    verify_domain_txt,
+)
 from northstar_api.modules.workspace.brand_cache import invalidate_brand_cache
 from northstar_api.modules.workspace.contracts import DomainRecord, WorkspaceSettingsBundle
 from northstar_api.modules.workspace.events.administrative_events import emit_workspace_administrative_event
@@ -127,7 +131,9 @@ async def _run_tls_check(tenant_id: str, workspace_id: str, domain_id: str) -> N
             if workspace is None or document is None or domain is None:
                 return
             hostname = domain.hostname
-            if domain.status not in {"verified", "certificate_pending", "failed"}:
+            # Recheck durable state when executing a queued job. A failed
+            # dispatch/DNS operation must not bypass ownership verification.
+            if domain.status not in TLS_ELIGIBLE_DOMAIN_STATUSES:
                 return
             ready, reason = await check_domain_tls(hostname)
             if ready:
