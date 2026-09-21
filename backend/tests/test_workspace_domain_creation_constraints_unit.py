@@ -42,6 +42,9 @@ def _setup(monkeypatch: pytest.MonkeyPatch, document: WorkspaceSettingsBundle):
     async def load_workspace(_principal: object, _session: object):
         return SimpleNamespace(plan="custom-plan"), workspace
 
+    async def lock_workspace_settings(_session: object, _workspace: object) -> None:
+        return None
+
     async def persist(*_args: object, **_kwargs: object) -> None:
         side_effects.append("persist")
 
@@ -49,6 +52,7 @@ def _setup(monkeypatch: pytest.MonkeyPatch, document: WorkspaceSettingsBundle):
         side_effects.append("invalidate")
 
     monkeypatch.setattr(domains, "load_workspace", load_workspace)
+    monkeypatch.setattr(domains, "lock_workspace_settings", lock_workspace_settings)
     monkeypatch.setattr(domains, "entitlement_for_plan", lambda _plan: SimpleNamespace(custom_domain_enabled=True))
     monkeypatch.setattr(domains, "settings_document", lambda _workspace: document)
     monkeypatch.setattr(domains, "save_document", lambda *_args: side_effects.append("save"))
