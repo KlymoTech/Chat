@@ -19,7 +19,6 @@ from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.email_verification import EmailVerificationState, EmailVerificationToken
 from northstar_api.models import User, Workspace
-from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +58,8 @@ async def issue_verification_token(
     *,
     settings: EmailSettings | None = None,
 ) -> IssuedVerification:
+    from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
+
     config = settings or get_email_settings()
     now = datetime.now(UTC)
     state = await ensure_unverified_state(session, user_id)

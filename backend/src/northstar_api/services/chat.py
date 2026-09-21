@@ -29,7 +29,7 @@ from northstar_api.modules.knowledge.grounding import blocked_topic, validate_an
 from northstar_api.modules.knowledge.retrieval import Evidence, RetrievalService, retrieval_service
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
-from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter
+from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter, runtime_model_profile
 from northstar_api.services.localization import (
     localized_appearance,
     localized_no_evidence,
@@ -222,6 +222,9 @@ class ChatCoordinator:
             # vectorless lexical retrieval. The saved dropdown controls only
             # what may happen after that approved knowledge has no evidence.
             web_policy = selected_web_fallback(agent.security)
+            configured_internet = str((agent.model_profile or {}).get("internetAccess", ""))
+            if configured_internet in {"none", "allowlisted", "public"}:
+                web_policy = {"none": "off", "allowlisted": "related_only", "public": "public"}[configured_internet]
             if not evidence and configured_greeting is None and web_policy in {"related_only", "public"}:
                 evidence = await related_web_evidence(
                     retrieval_query,
@@ -231,7 +234,14 @@ class ChatCoordinator:
                 web_evidence = bool(evidence)
             if not evidence:
                 if web_policy == "public":
-                    answer = await self._general_answer(agent, message, conversation_history)
+                    try:
+                        runtime_profile = await runtime_model_profile(session, agent)
+                    except ModelUnavailableError:
+                        raise HTTPException(
+                            status_code=503,
+                            detail="The selected AI provider connection is unavailable",
+                        ) from None
+                    answer = await self._general_answer(agent, message, conversation_history, runtime_profile)
                     answer_mode = "general_assistance"
                     CHAT_REQUESTS.labels("general_knowledge").inc()
                 else:
@@ -244,6 +254,7 @@ class ChatCoordinator:
                     for index, item in enumerate(evidence, start=1)
                 )
                 try:
+                    runtime_profile = await runtime_model_profile(session, agent)
                     generated = await self.model.generate_grounded(
                         instructions=agent.instructions,
                         question=message,
@@ -251,7 +262,7 @@ class ChatCoordinator:
                         conversation_history=conversation_history,
                         language=agent.language,
                         tone=agent.tone.value,
-                        model_profile=agent.model_profile,
+                        model_profile=runtime_profile,
                         allow_external_evidence=web_evidence,
                     )
                     answer = generated.content
@@ -316,7 +327,7 @@ class ChatCoordinator:
         except ModelUnavailableError:
             return localized_question_fallback(question, agent.language)
 
-    async def _general_answer(self, agent: Agent, question: str, conversation_history: str) -> str:
+    async def _general_answer(self, agent: Agent, question: str, conversation_history: str, model_profile: dict[str, Any] | None = None) -> str:
         generator = getattr(self.model, "generate_general", None)
         if generator is None:
             return localized_no_evidence(agent.language)
@@ -327,7 +338,7 @@ class ChatCoordinator:
                 conversation_history=conversation_history,
                 language=agent.language,
                 tone=agent.tone.value,
-                model_profile=agent.model_profile,
+                model_profile=model_profile or agent.model_profile,
             )
         except ModelUnavailableError:
             if getattr(getattr(self.model, "settings", None), "require_nvidia", False):

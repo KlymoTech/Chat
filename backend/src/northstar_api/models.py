@@ -310,6 +310,7 @@ def default_model_profile() -> dict[str, Any]:
     return {
         "provider": "nvidia",
         "model": settings.nvidia_model,
+        "internetAccess": "none",
         "temperature": settings.nvidia_temperature,
         "topP": settings.nvidia_top_p,
         "maxTokens": settings.nvidia_max_tokens,
@@ -368,6 +369,30 @@ class Agent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         back_populates="agent", cascade="all, delete-orphan"
     )
     conversations: Mapped[list[Conversation]] = relationship(back_populates="agent")
+
+
+class LLMConnection(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Workspace-scoped model provider credentials.
+
+    ``credentials_encrypted`` contains an authenticated ciphertext payload such
+    as ``{"apiKey": "…"}``; it is never serialized to the browser. Agents keep
+    only the connection id in their model profile.
+    """
+
+    __tablename__ = "llm_connections"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_llm_connections_workspace_name"),
+        Index("ix_llm_connections_scope", "tenant_id", "workspace_id", "provider"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    provider: Mapped[str] = mapped_column(String(40))
+    endpoint_url: Mapped[str] = mapped_column(String(500))
+    credentials_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="configured")
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
 
 
 class KnowledgeSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):

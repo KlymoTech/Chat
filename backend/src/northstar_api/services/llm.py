@@ -2,16 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.config import Settings, get_settings
+from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
+from northstar_api.llm_providers import ProviderId
 from northstar_api.metrics import MODEL_ERRORS
+from northstar_api.models import Agent, LLMConnection
 from northstar_api.services.localization import localized_no_evidence
 
 logger = structlog.get_logger(__name__)
@@ -72,10 +79,167 @@ def _strip_hidden_reasoning(value: str) -> str:
     return value.strip()
 
 
+@dataclass(frozen=True, slots=True)
+class _HTTPChunk:
+    content: str
+    additional_kwargs: dict[str, Any]
+
+
+def _message_text(message: Any) -> str:
+    return _chunk_text(message)
+
+
+class _ProviderHTTPClient:
+    """Small streaming client for OpenAI-compatible, Claude, and Gemini APIs.
+
+    We use the wire protocols directly so users do not need provider SDKs in the
+    server image. Every request is made by the API server with the encrypted
+    connection credential; browser code never calls provider URLs.
+    """
+
+    def __init__(self, *, provider: ProviderId, model: str, base_url: str, api_key: str | None, temperature: float, top_p: float, max_tokens: int) -> None:
+        self.provider = provider
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.temperature = temperature
+        self.top_p = top_p
+        self.max_tokens = max_tokens
+
+    async def astream(self, messages: list[Any]):
+        if self.provider == "anthropic":
+            async for chunk in self._anthropic(messages):
+                yield chunk
+            return
+        if self.provider == "google":
+            async for chunk in self._google(messages):
+                yield chunk
+            return
+        async for chunk in self._openai_compatible(messages):
+            yield chunk
+
+    @staticmethod
+    def _system_and_messages(messages: list[Any]) -> tuple[str, list[dict[str, str]]]:
+        system: list[str] = []
+        values: list[dict[str, str]] = []
+        for item in messages:
+            role = "assistant" if getattr(item, "type", "") == "ai" else "user"
+            text = _message_text(item)
+            if isinstance(item, SystemMessage):
+                system.append(text)
+            else:
+                values.append({"role": role, "content": text})
+        return "\n\n".join(system), values
+
+    async def _openai_compatible(self, messages: list[Any]):
+        headers = {"Accept": "text/event-stream", "Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        system, values = self._system_and_messages(messages)
+        wire_messages = ([{"role": "system", "content": system}] if system else []) + values
+        payload = {
+            "model": self.model,
+            "messages": wire_messages,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_tokens": self.max_tokens,
+            "stream": True,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{self.base_url}/chat/completions", headers=headers, json=payload) as response:
+                    if response.status_code >= 400:
+                        raise RuntimeError(f"provider returned HTTP {response.status_code}")
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if raw == "[DONE]":
+                            break
+                        try:
+                            value = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        choice = (value.get("choices") or [{}])[0]
+                        delta = choice.get("delta") or {}
+                        text = delta.get("content") or ""
+                        if text:
+                            yield _HTTPChunk(str(text), {"reasoning_content": delta.get("reasoning_content")})
+        except Exception as exc:
+            raise ModelUnavailableError("Provider chat request failed") from exc
+
+    async def _anthropic(self, messages: list[Any]):
+        system, values = self._system_and_messages(messages)
+        headers = {
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+        }
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        endpoint = self.base_url if self.base_url.endswith("/v1") else f"{self.base_url}/v1"
+        payload = {"model": self.model, "max_tokens": self.max_tokens, "messages": values, "stream": True}
+        if system:
+            payload["system"] = system
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                async with client.stream("POST", f"{endpoint}/messages", headers=headers, json=payload) as response:
+                    if response.status_code >= 400:
+                        raise RuntimeError(f"provider returned HTTP {response.status_code}")
+                    event = ""
+                    async for line in response.aiter_lines():
+                        if line.startswith("event:"):
+                            event = line[6:].strip()
+                        elif line.startswith("data:") and event == "content_block_delta":
+                            try:
+                                value = json.loads(line[5:].strip())
+                            except json.JSONDecodeError:
+                                continue
+                            text = str((value.get("delta") or {}).get("text") or "")
+                            if text:
+                                yield _HTTPChunk(text, {})
+        except Exception as exc:
+            raise ModelUnavailableError("Anthropic chat request failed") from exc
+
+    async def _google(self, messages: list[Any]):
+        system, values = self._system_and_messages(messages)
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["x-goog-api-key"] = self.api_key
+        contents = [{"role": "model" if item["role"] == "assistant" else "user", "parts": [{"text": item["content"]}]} for item in values]
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"temperature": self.temperature, "topP": self.top_p, "maxOutputTokens": self.max_tokens},
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                endpoint = f"{self.base_url}/models/{self.model}:streamGenerateContent?alt=sse"
+                async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
+                    if response.status_code >= 400:
+                        raise RuntimeError(f"provider returned HTTP {response.status_code}")
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            value = json.loads(line[5:].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        candidates = value.get("candidates") or []
+                        parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+                        for part in parts:
+                            text = str(part.get("text") or "")
+                            if text:
+                                yield _HTTPChunk(text, {})
+        except Exception as exc:
+            raise ModelUnavailableError("Gemini chat request failed") from exc
+
+
 class NvidiaModelAdapter:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self._chat_clients: dict[tuple[str, float, float, int, bool], Any] = {}
+        self._chat_clients: dict[tuple[str, str, str, float, float, int, bool], Any] = {}
         self._embeddings: Any | None = None
         self._request_slots = asyncio.Semaphore(self.settings.model_concurrency_per_process)
 
@@ -83,36 +247,49 @@ class NvidiaModelAdapter:
     def configured(self) -> bool:
         return bool(self.settings.nvidia_api_key)
 
-    def _api_key(self) -> str:
+    def _api_key(self, profile: dict[str, Any] | None = None) -> str:
+        selected = profile or {}
+        runtime_key = selected.get("_apiKey")
+        if runtime_key:
+            return str(runtime_key)
         api_key = self.settings.nvidia_api_key
         if api_key is None:
             raise ModelUnavailableError("NVIDIA model is not configured")
         return api_key.get_secret_value()
 
     def _chat_client(self, profile: dict[str, Any] | None = None) -> Any:
-        if not self.configured:
-            raise ModelUnavailableError("NVIDIA model is not configured")
         selected = profile or {}
+        provider = str(selected.get("provider", "nvidia"))
         model = str(selected.get("model", self.settings.nvidia_model))
-        if model != self.settings.nvidia_model:
-            raise ModelUnavailableError("The requested model is not enabled for this deployment")
         temperature = float(selected.get("temperature", self.settings.nvidia_temperature))
         top_p = float(selected.get("topP", self.settings.nvidia_top_p))
         max_tokens = int(selected.get("maxTokens", self.settings.nvidia_max_tokens))
         enable_thinking = bool(selected.get("enableThinking", self.settings.nvidia_enable_thinking))
-        cache_key = (model, temperature, top_p, max_tokens, enable_thinking)
+        base_url = str(selected.get("_baseUrl", self.settings.nvidia_base_url))
+        api_key = selected.get("_apiKey") or (self.settings.nvidia_api_key.get_secret_value() if self.settings.nvidia_api_key else None)
+        if provider != "nvidia" and not api_key and provider != "ollama" and provider != "openai-compatible":
+            raise ModelUnavailableError(f"{provider} model is not configured")
+        if provider == "nvidia" and not api_key:
+            raise ModelUnavailableError("NVIDIA model is not configured")
+        cache_key = (provider, model, base_url, temperature, top_p, max_tokens, enable_thinking)
         if cache_key not in self._chat_clients:
-            from langchain_nvidia_ai_endpoints import ChatNVIDIA
+            if provider != "nvidia":
+                self._chat_clients[cache_key] = _ProviderHTTPClient(
+                    provider=provider, model=model, base_url=base_url, api_key=str(api_key) if api_key else None,
+                    temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                )
+            else:
+                from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
-            self._chat_clients[cache_key] = ChatNVIDIA(
-                model=model,
-                api_key=self._api_key(),
-                base_url=self.settings.nvidia_base_url,
-                temperature=temperature,
-                top_p=top_p,
-                max_completion_tokens=max_tokens,
-                model_kwargs={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-            )
+                self._chat_clients[cache_key] = ChatNVIDIA(
+                    model=model,
+                    api_key=str(api_key),
+                    base_url=base_url,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_completion_tokens=max_tokens,
+                    model_kwargs={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+                )
         return self._chat_clients[cache_key]
 
     def _embedding_client(self) -> Any:
@@ -260,7 +437,7 @@ Return only the final answer for the user. Do not include analysis or hidden rea
         answer = _strip_hidden_reasoning("".join(visible_parts))
         if not answer:
             raise ModelUnavailableError("NVIDIA returned an empty answer")
-        return GeneratedAnswer(content=answer, model=self.settings.nvidia_model)
+        return GeneratedAnswer(content=answer, model=str((model_profile or {}).get("model", self.settings.nvidia_model)))
 
     async def generate_general(
         self,
@@ -312,7 +489,7 @@ Return only the final answer for the user. Do not include analysis or hidden rea
         answer = _strip_hidden_reasoning("".join(visible_parts))
         if not answer:
             raise ModelUnavailableError("NVIDIA returned an empty answer")
-        return GeneratedAnswer(content=answer, model=self.settings.nvidia_model)
+        return GeneratedAnswer(content=answer, model=str((model_profile or {}).get("model", self.settings.nvidia_model)))
 
     async def translate_for_display(
         self,
@@ -365,6 +542,36 @@ def deterministic_embedding(text: str, dimensions: int) -> list[float]:
         vector[index] += sign
     norm = math.sqrt(sum(value * value for value in vector)) or 1.0
     return [value / norm for value in vector]
+
+
+async def runtime_model_profile(session: AsyncSession, agent: Agent) -> dict[str, Any]:
+    """Resolve an agent profile without exposing provider credentials."""
+
+    profile = dict(agent.model_profile or {})
+    provider = str(profile.get("provider", "nvidia"))
+    connection_id = profile.get("connectionId") or profile.get("connection_id")
+    if not connection_id:
+        return profile
+    try:
+        connection = await session.scalar(
+            select(LLMConnection).where(
+                LLMConnection.id == connection_id,
+                LLMConnection.tenant_id == agent.tenant_id,
+                LLMConnection.workspace_id == agent.workspace_id,
+            )
+        )
+    except (TypeError, ValueError):
+        raise ModelUnavailableError("The saved provider connection id is invalid") from None
+    if connection is None or connection.provider != provider:
+        raise ModelUnavailableError("The saved provider connection is unavailable")
+    profile["_baseUrl"] = connection.endpoint_url
+    if connection.credentials_encrypted:
+        try:
+            credentials = credential_store.decrypt(connection.credentials_encrypted)
+        except CredentialStoreError as exc:
+            raise ModelUnavailableError("The saved provider credentials cannot be decrypted") from exc
+        profile["_apiKey"] = str(credentials.get("apiKey") or "")
+    return profile
 
 
 nvidia_adapter = NvidiaModelAdapter()

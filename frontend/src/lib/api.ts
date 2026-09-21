@@ -106,7 +106,7 @@ async function refreshSession(active: Session): Promise<Session> {
   }
 }
 
-async function request<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: ApiRequestInit = {}): Promise<T> {
   const { skipAuth = false, skipRefresh = false, ...init } = options;
   const active = session();
   const workspaceId = activeWorkspaceId();

@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.models import User, Workspace
-from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
 from northstar_api.password_reset import PasswordCredentialState, PasswordResetToken
 from northstar_api.security import hash_password, verify_password
 from northstar_api.services.email_verification import _smtp_send
@@ -144,6 +143,8 @@ async def send_password_reset_email(
     workspace: Workspace | None = None,
     settings: EmailSettings | None = None,
 ) -> None:
+    from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
+
     config = settings or get_email_settings()
     url = password_reset_url(raw_token, config)
     if workspace is not None:

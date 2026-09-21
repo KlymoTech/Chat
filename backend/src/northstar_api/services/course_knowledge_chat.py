@@ -28,7 +28,7 @@ from northstar_api.services.course_knowledge import (
     revalidate_evidence,
 )
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError
-from northstar_api.services.llm import ModelUnavailableError
+from northstar_api.services.llm import ModelUnavailableError, runtime_model_profile
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.web_fallback import related_web_evidence, selected_web_fallback
 from northstar_api.services.whatsapp_messages import format_whatsapp_reply
@@ -247,6 +247,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                     f"COMMON INSTRUCTIONS: {agent.instructions}"
                 )
                 if evidence:
+                    runtime_profile = await runtime_model_profile(session, agent)
                     evidence_text = "\n\n".join(
                         f"[S{i} | {e.title} | source references: {e.metadata.get('source_references', e.metadata.get('source_block_ids', []))}]\n{e.text}"
                         for i, e in enumerate(evidence, 1)
@@ -258,7 +259,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                         conversation_history=history,
                         language=agent.language,
                         tone=agent.tone.value,
-                        model_profile=agent.model_profile,
+                        model_profile=runtime_profile,
                         allow_external_evidence=False,
                     )
                     answer = generated.content
@@ -274,6 +275,13 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                     # selected enrollment/course. Reuse the saved dropdown only
                     # after no authorized course evidence was found.
                     policy = selected_web_fallback(agent.security)
+                    configured_access = (agent.model_profile or {}).get("internetAccess")
+                    if configured_access in {"none", "allowlisted", "public"}:
+                        policy = {
+                            "none": "off",
+                            "allowlisted": "related_only",
+                            "public": "public",
+                        }[configured_access]
                     external = []
                     if policy in {"public", "related_only"}:
                         external = await related_web_evidence(
@@ -282,6 +290,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                             allow_public=policy == "public",
                         )
                     if external:
+                        runtime_profile = await runtime_model_profile(session, agent)
                         generated = await self.model.generate_grounded(
                             instructions=instructions,
                             question=message,
@@ -291,7 +300,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                             conversation_history="",
                             language=agent.language,
                             tone=agent.tone.value,
-                            model_profile=agent.model_profile,
+                            model_profile=runtime_profile,
                             allow_external_evidence=True,
                         )
                         if validate_answer(generated.content, external).allowed:
@@ -299,7 +308,8 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                         else:
                             answer = "No reliable answer was found in the permitted sources."
                     elif policy == "public":
-                        answer = await self._general_answer(agent, message, "")
+                        runtime_profile = await runtime_model_profile(session, agent)
+                        answer = await self._general_answer(agent, message, "", runtime_profile)
                     else:
                         answer = "Your institute has not published sufficient authorized material for this question. Please ask your teacher."
                     answer = f"{context.course_name}: not verified against your published course material. This question has been sent for teacher review.\n\n{answer}"

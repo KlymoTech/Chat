@@ -62,7 +62,7 @@ def _visible_bundle(document: WorkspaceSettingsBundle, principal: Principal) -> 
     return visible
 
 
-@router.get("", response_model=WorkspaceSettingsBundle)
+@router.get("/", response_model=WorkspaceSettingsBundle)
 async def get_settings(principal: CurrentPrincipal, session: DBSession) -> WorkspaceSettingsBundle:
     _, workspace = await load_workspace(principal, session)
     return _visible_bundle(settings_document(workspace), principal)

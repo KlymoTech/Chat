@@ -26,7 +26,6 @@ from northstar_api.models import (
     WorkspaceRole,
     WorkspaceStatus,
 )
-from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
 from northstar_api.modules.workspace.security_policy import email_domain_allowed, required_password_length
 from northstar_api.security import hash_password
 from northstar_api.services.email_verification import _smtp_send
@@ -559,6 +558,8 @@ async def send_workspace_invitation_email(
     workspace: Workspace | None = None,
     settings: EmailSettings | None = None,
 ) -> None:
+    from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
+
     config = settings or get_email_settings()
     url = workspace_invitation_url(raw_token, config)
     if workspace is not None:

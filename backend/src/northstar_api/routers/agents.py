@@ -14,12 +14,14 @@ from northstar_api.config import get_settings
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.channel_scope import AgentChannelBinding
+from northstar_api.llm_providers import PROVIDER_BY_ID
 from northstar_api.models import (
     Agent,
     AgentStatus,
     Conversation,
     ConversationState,
     KnowledgeSource,
+    LLMConnection,
     WhatsAppConnection,
     default_appearance,
     default_security,
@@ -604,13 +606,35 @@ async def update_agent(
                 },
             )
     if "model" in patch:
-        configured_model = get_settings().nvidia_model
-        if payload.model and payload.model.model != configured_model:
-            raise HTTPException(
-                status_code=422, detail=f"This deployment only permits model {configured_model}"
-            )
         assert payload.model is not None
+        if payload.model.provider not in PROVIDER_BY_ID:
+            raise HTTPException(status_code=422, detail="Unsupported model provider")
+        if payload.model.provider != "nvidia" and payload.model.connection_id is None:
+            raise HTTPException(status_code=422, detail="Select a saved provider connection for this model")
+        if payload.model.connection_id is not None:
+            connection = await session.scalar(
+                select(LLMConnection).where(
+                    LLMConnection.id == payload.model.connection_id,
+                    LLMConnection.tenant_id == agent.tenant_id,
+                    LLMConnection.workspace_id == agent.workspace_id,
+                )
+            )
+            if connection is None:
+                raise HTTPException(status_code=422, detail="Selected provider connection was not found")
+            if connection.provider != payload.model.provider:
+                raise HTTPException(status_code=422, detail="Provider connection does not match the selected model")
         agent.model_profile = payload.model.model_dump(by_alias=True)
+        # Keep one authoritative, visible internet policy. The model dropdown
+        # maps to the existing bounded web retrieval policy; models never get
+        # arbitrary server-side network access.
+        internet_policy = {
+            "none": "off",
+            "allowlisted": "related_only",
+            "public": "public",
+        }[payload.model.internet_access]
+        security = deepcopy(agent.security)
+        security["webFallback"] = internet_policy
+        agent.security = security
         patch.pop("model")
     if "appearance" in patch:
         assert payload.appearance is not None
@@ -622,6 +646,17 @@ async def update_agent(
         assert payload.security is not None
         agent.security = payload.security.model_dump(by_alias=True)
         patch.pop("security")
+        # A full agent save includes both objects. The model dropdown is the
+        # canonical internet policy, so do not let a stale security snapshot
+        # overwrite the newly selected provider access level.
+        if "model" in payload.model_fields_set and payload.model is not None:
+            security = deepcopy(agent.security)
+            security["webFallback"] = {
+                "none": "off",
+                "allowlisted": "related_only",
+                "public": "public",
+            }[payload.model.internet_access]
+            agent.security = security
     if "language" in patch and "appearance" not in payload.model_fields_set:
         next_appearance = deepcopy(agent.appearance)
         next_appearance.update(localized_appearance(str(patch["language"])))

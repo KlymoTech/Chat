@@ -65,8 +65,10 @@ export interface AgentAppearance {
 }
 
 export interface AgentModel {
-  provider: 'nvidia';
+  provider: 'nvidia' | 'openai' | 'anthropic' | 'google' | 'ollama' | 'openai-compatible';
   model: string;
+  connectionId?: string | null;
+  internetAccess?: 'none' | 'allowlisted' | 'public';
   temperature: number;
   topP: number;
   maxTokens: number;

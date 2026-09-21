@@ -148,8 +148,10 @@ class AgentAppearance(APIModel):
 
 
 class AgentModelProfile(APIModel):
-    provider: Literal["nvidia"] = "nvidia"
+    provider: Literal["nvidia", "openai", "anthropic", "google", "ollama", "openai-compatible"] = "nvidia"
     model: str = "nvidia/nemotron-3-ultra-550b-a55b"
+    connection_id: UUID | None = None
+    internet_access: Literal["none", "allowlisted", "public"] = "none"
     temperature: float = Field(default=1, ge=0, le=2)
     top_p: float = Field(default=0.95, gt=0, le=1)
     max_tokens: int = Field(default=16_384, ge=64, le=32_768)
@@ -157,6 +159,14 @@ class AgentModelProfile(APIModel):
     citation_mode: Literal["always", "when-available", "off"] = "when-available"
     rerank_candidates: int = Field(default=60, ge=10, le=100)
     final_context_chunks: int = Field(default=8, ge=2, le=20)
+
+    @field_validator("model")
+    @classmethod
+    def normalize_model_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 240:
+            raise ValueError("model id is required and must be at most 240 characters")
+        return normalized
 
 
 class AgentSecurity(APIModel):

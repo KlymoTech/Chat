@@ -61,6 +61,7 @@ from northstar_api.routers import (
     knowledge,
     lead_layout,
     leads,
+    llm_connections,
     mfa,
     notifications,
     onboarding,
@@ -112,6 +113,7 @@ api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
 api_router.include_router(lead_layout.router)
 api_router.include_router(leads.router)
+api_router.include_router(llm_connections.router)
 api_router.include_router(qualification.router)
 api_router.include_router(crm_scoped.router)
 api_router.include_router(crm_workspace_settings.router)
