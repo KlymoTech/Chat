@@ -14,8 +14,9 @@ from northstar_api.modules.workspace.contracts import WorkspaceSettingsBundle
 
 
 class _Session:
-    def __init__(self, latest: dict[str, object]):
+    def __init__(self, latest: dict[str, object], *, latest_owner=None):
         self.latest = latest
+        self.latest_owner = latest_owner
         self.refreshes: list[tuple[str, ...]] = []
         self.commits = 0
 
@@ -24,6 +25,8 @@ class _Session:
         self.refreshes.append(tuple(attribute_names))
         workspace.settings_json = self.latest
         workspace.status = WorkspaceStatus.ACTIVE
+        if self.latest_owner is not None:
+            workspace.created_by = self.latest_owner
 
     async def commit(self):
         self.commits += 1
@@ -88,7 +91,7 @@ async def test_suspend_preserves_other_users_and_concurrent_settings(
     }
     assert workspace.settings_json["otherSetting"] == {"preserve": True}
     assert "workspaceSettingsV2" in workspace.settings_json
-    assert session.refreshes == [("settings_json", "branding_json", "status")]
+    assert session.refreshes == [("settings_json", "branding_json", "status", "created_by")]
     assert session.commits == 1
 
 
@@ -111,5 +114,31 @@ async def test_ownership_transfer_refuses_newly_suspended_member(
     assert error.value.status_code == 409
     assert membership.role == WorkspaceRole.VIEWER
     assert workspace.created_by != target_id
-    assert session.refreshes == [("settings_json", "branding_json", "status")]
+    assert session.refreshes == [("settings_json", "branding_json", "status", "created_by")]
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_suspension_refuses_owner_transferred_during_scoped_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace()
+    former_owner = uuid4()
+    workspace.created_by = former_owner
+    target_id, _ = _mock_membership(monkeypatch, workspace, role=WorkspaceRole.MANAGER)
+    session = _Session({"workspaceMemberStatusV1": {}}, latest_owner=target_id)
+    principal = SimpleNamespace(user_id=former_owner)
+
+    with pytest.raises(HTTPException) as error:
+        await members.suspend_member(
+            target_id,
+            principal,  # type: ignore[arg-type]
+            session,  # type: ignore[arg-type]
+        )
+
+    assert error.value.status_code == 409
+    assert "Transfer workspace ownership" in error.value.detail
+    assert workspace.created_by == target_id
+    assert workspace.settings_json["workspaceMemberStatusV1"] == {}
+    assert session.refreshes == [("settings_json", "branding_json", "status", "created_by")]
     assert session.commits == 0
