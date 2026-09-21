@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.models import Agent, WorkspaceMembership
+from northstar_api.modules.branding.repositories import persist_branding_document
 from northstar_api.security import Principal
 
 from .contracts import DashboardSettings, RolesSettings, TeamsSettings
@@ -61,21 +62,33 @@ async def _validate_roles(
     known_roles = set(role_ids)
     for role in payload.custom_roles:
         if not set(role.permissions) <= set(principal.permissions):
-            raise HTTPException(status_code=403, detail=f"Cannot delegate permissions not held by the current administrator ({role.name})")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cannot delegate permissions not held by the current administrator ({role.name})",
+            )
 
     requested_users = {_uuid(user_id, "member") for user_id in payload.member_role_ids}
     if requested_users and not requested_users <= await _workspace_member_ids(session, principal, workspace_id):
-        raise HTTPException(status_code=422, detail="A custom role assignment references a member outside this workspace")
+        raise HTTPException(
+            status_code=422,
+            detail="A custom role assignment references a member outside this workspace",
+        )
     for assigned in payload.member_role_ids.values():
         if not set(assigned) <= known_roles:
-            raise HTTPException(status_code=422, detail="A custom role assignment references an unknown role")
+            raise HTTPException(
+                status_code=422,
+                detail="A custom role assignment references an unknown role",
+            )
 
     agent_ids: set[UUID] = set()
     for role in payload.custom_roles:
         for value in role.resources.selected.get("agents", []):
             agent_ids.add(_uuid(value, "agent resource"))
     if agent_ids and not agent_ids <= await _workspace_agent_ids(session, principal, workspace_id):
-        raise HTTPException(status_code=422, detail="A custom role references an agent outside this workspace")
+        raise HTTPException(
+            status_code=422,
+            detail="A custom role references an agent outside this workspace",
+        )
 
 
 async def _validate_teams(
@@ -100,32 +113,51 @@ async def _validate_teams(
         managers = {_uuid(value, "team manager") for value in team.manager_ids}
         agents = {_uuid(value, "team agent") for value in team.agent_ids}
         if not members <= workspace_members or not managers <= workspace_members:
-            raise HTTPException(status_code=422, detail=f"Team {team.name} references a member outside this workspace")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Team {team.name} references a member outside this workspace",
+            )
         if not managers <= members:
-            raise HTTPException(status_code=422, detail=f"Team {team.name} managers must also be team members")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Team {team.name} managers must also be team members",
+            )
         if not agents <= workspace_agents:
-            raise HTTPException(status_code=422, detail=f"Team {team.name} references an agent outside this workspace")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Team {team.name} references an agent outside this workspace",
+            )
         if not set(team.role_ids) <= custom_roles:
-            raise HTTPException(status_code=422, detail=f"Team {team.name} references an unknown custom role")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Team {team.name} references an unknown custom role",
+            )
 
 
 @router.patch("/roles", response_model=RolesSettings)
 async def update_roles(
     payload: RolesSettings,
+    request: Request,
     principal: RolesManagePrincipal,
     session: DBSession,
 ) -> RolesSettings:
     _, workspace = await load_workspace(principal, session)
     await _validate_roles(payload, principal, session, workspace.id)
     document = settings_document(workspace)
+    before = document.roles.model_dump(by_alias=True, mode="json")
     document.roles = payload
     save_document(workspace, document)
     record_workspace_change(
         session,
         principal,
         workspace,
-        "workspace.roles.updated",
+        "workspace.role.updated",
         [role.id for role in payload.custom_roles],
+        resource_type="workspace_roles",
+        resource_id=str(workspace.id),
+        before=before,
+        after=payload.model_dump(by_alias=True, mode="json"),
+        request=request,
     )
     await session.commit()
     return payload
@@ -134,12 +166,14 @@ async def update_roles(
 @router.patch("/teams", response_model=TeamsSettings)
 async def update_teams(
     payload: TeamsSettings,
+    request: Request,
     principal: TeamsManagePrincipal,
     session: DBSession,
 ) -> TeamsSettings:
     _, workspace = await load_workspace(principal, session)
     document = settings_document(workspace)
     await _validate_teams(payload, principal, session, workspace.id, document.roles)
+    before = document.teams.model_dump(by_alias=True, mode="json")
     document.teams = payload
     save_document(workspace, document)
     record_workspace_change(
@@ -148,6 +182,11 @@ async def update_teams(
         workspace,
         "workspace.teams.updated",
         [team.id for team in payload.teams],
+        resource_type="workspace_teams",
+        resource_id=str(workspace.id),
+        before=before,
+        after=payload.model_dump(by_alias=True, mode="json"),
+        request=request,
     )
     await session.commit()
     return payload
@@ -156,20 +195,28 @@ async def update_teams(
 @router.patch("/dashboard", response_model=DashboardSettings)
 async def update_dashboard(
     payload: DashboardSettings,
+    request: Request,
     principal: BrandEditPrincipal,
     session: DBSession,
 ) -> DashboardSettings:
     _, workspace = await load_workspace(principal, session)
     document = settings_document(workspace)
+    before = document.dashboard.model_dump(by_alias=True, mode="json")
     document.dashboard = payload
     document.branding_draft.dashboard = payload
     save_document(workspace, document)
+    await persist_branding_document(session, workspace, document)
     record_workspace_change(
         session,
         principal,
         workspace,
         "workspace.dashboard.updated",
         [widget.id for widget in payload.widgets],
+        resource_type="workspace_dashboard_layout",
+        resource_id=str(workspace.id),
+        before=before,
+        after=payload.model_dump(by_alias=True, mode="json"),
+        request=request,
     )
     await session.commit()
     return payload
