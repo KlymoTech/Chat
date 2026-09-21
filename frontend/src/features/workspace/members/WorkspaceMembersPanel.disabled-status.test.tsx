@@ -48,3 +48,20 @@ it('retains Reactivate for a workspace-suspended active account', async () => {
   render(<WorkspaceMembersPanel workspace={workspace} />);
   expect(await screen.findByRole('button', { name: 'Reactivate' })).toBeTruthy();
 });
+
+it('shows a disabled member omitted by the legacy active-account-only endpoint', async () => {
+  vi.mocked(workspaceTeamApi.listMembers).mockResolvedValue([]);
+  vi.mocked(workspaceTeamApi.listMemberLifecycle).mockResolvedValue([
+    { userId: member.userId, status: 'disabled' },
+  ]);
+  vi.mocked(workspaceTeamApi.listMemberDetails).mockResolvedValue([{
+    userId: member.userId, name: member.name, email: member.email,
+    role: member.role, status: 'disabled', mfaEnabled: false,
+    lastLoginAt: null, invitedByUserId: null, joinedAt: member.joinedAt,
+  }]);
+  render(<WorkspaceMembersPanel workspace={workspace} />);
+  expect((await screen.findAllByText('Disabled member')).length).toBeGreaterThanOrEqual(2);
+  expect((await screen.findAllByText('disabled')).length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByRole('button', { name: 'Reactivate' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+});
