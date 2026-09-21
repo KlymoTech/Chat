@@ -128,7 +128,10 @@ async def test_dispatch_failure_does_not_overwrite_newer_status(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation,queued_status", [("verification", "verifying"), ("activation", "certificate_pending")])
+@pytest.mark.parametrize(
+    "operation,queued_status",
+    [("verification", "verifying"), ("activation", "certificate_pending")],
+)
 async def test_dispatch_failure_ignores_removed_domain_and_archived_workspace(
     monkeypatch: pytest.MonkeyPatch, operation: str, queued_status: str
 ) -> None:
@@ -160,7 +163,10 @@ async def test_dispatch_failure_ignores_replaced_verification_credentials(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation,queued_status", [("verification", "verifying"), ("activation", "certificate_pending")])
+@pytest.mark.parametrize(
+    "operation,queued_status",
+    [("verification", "verifying"), ("activation", "certificate_pending")],
+)
 async def test_unchanged_failed_dispatch_persists_and_audits_without_discarding_other_domains(
     monkeypatch: pytest.MonkeyPatch, operation: str, queued_status: str
 ) -> None:
