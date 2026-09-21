@@ -1,9 +1,9 @@
 """Current-key encryption and bounded previous-key decryption for queued invites."""
 from __future__ import annotations
 
-import pytest
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from pydantic import SecretStr
+import pytest
 
 from northstar_api.modules.workspace.services.invitation_email_config import (
     InvitationEmailConfig,
