@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from northstar_api.auth_session_schemas import AuthUserOut
 from northstar_api.config import get_settings
 from northstar_api.dependencies import CurrentPrincipal, DBSession, require_permissions
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import Tenant, Workspace
 from northstar_api.security import (
     Principal,
@@ -19,6 +20,7 @@ from northstar_api.security import (
     create_refresh_token,
     decode_token,
 )
+from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.password_reset import credential_version
 from northstar_api.services.rate_limit import SessionStoreUnavailable, redis_services
 from northstar_api.services.workspace_invitations import (
@@ -74,6 +76,38 @@ def _http_error(exc: WorkspaceInvitationError | WorkspaceMemberError) -> HTTPExc
 
 def _identifier(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+
+
+def _record_member_event(
+    session: DBSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    actor_user_id: UUID,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    record_audit_event(
+        session,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        category="workspace",
+        metadata=metadata or {},
+    )
+    enqueue_event(
+        session,
+        tenant_id=tenant_id,
+        aggregate_type=entity_type,
+        aggregate_id=workspace_id,
+        event_type=f"{action}.v1",
+        payload={"workspaceId": str(workspace_id), "entityId": entity_id},
+    )
 
 
 async def _enforce_public_rate_limit(
@@ -177,6 +211,16 @@ async def _session_response(
             refresh_claims["jti"],
             get_settings().jwt_refresh_ttl_days * 86_400,
         )
+        _record_member_event(
+            session,
+            tenant_id=accepted.tenant.id,
+            workspace_id=accepted.workspace.id,
+            actor_user_id=accepted.user.id,
+            action="workspace.member.joined",
+            entity_type="workspace_member",
+            entity_id=str(accepted.user.id),
+            metadata={"role": accepted.invitation.role.value},
+        )
         await session.commit()
     except SessionStoreUnavailable:
         await session.rollback()
@@ -199,23 +243,23 @@ async def _session_response(
     )
 
 
-async def _workspace_names(
+async def _workspace_context(
     session: DBSession,
     *,
     tenant_id: UUID,
     workspace_id: UUID,
-) -> tuple[str, str]:
+) -> tuple[str, Workspace]:
     row = (
         await session.execute(
-            select(Tenant.name, Workspace.name)
+            select(Tenant.name, Workspace)
             .join(Workspace, Workspace.tenant_id == Tenant.id)
             .where(Tenant.id == tenant_id, Workspace.id == workspace_id)
         )
     ).first()
     if row is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    tenant_name, workspace_name = row
-    return tenant_name, workspace_name
+    tenant_name, workspace = row
+    return tenant_name, workspace
 
 
 async def _deliver_invitation(
@@ -224,16 +268,17 @@ async def _deliver_invitation(
     raw_token: str,
     *,
     tenant_name: str,
-    workspace_name: str,
+    workspace: Workspace,
 ) -> None:
     delivery_error: Exception | None = None
     try:
         await send_workspace_invitation_email(
             recipient_email=invitation.email,
-            workspace_name=workspace_name,
+            workspace_name=workspace.name,
             tenant_name=tenant_name,
             role=invitation.role,
             raw_token=raw_token,
+            workspace=workspace,
         )
     except Exception as exc:
         delivery_error = exc
@@ -297,6 +342,16 @@ async def patch_workspace_member(
             all_agents_access=payload.all_agents_access,
             agent_ids=payload.agent_ids,
         )
+        _record_member_event(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            actor_user_id=principal.user_id,
+            action="workspace.member.updated",
+            entity_type="workspace_member",
+            entity_id=str(member_user_id),
+            metadata={"role": payload.role.value, "allAgentsAccess": payload.all_agents_access},
+        )
         await session.commit()
     except WorkspaceMemberError as exc:
         await session.rollback()
@@ -327,6 +382,15 @@ async def delete_workspace_member(
             workspace_id=principal.workspace_id,
             actor_user_id=principal.user_id,
             member_user_id=member_user_id,
+        )
+        _record_member_event(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            actor_user_id=principal.user_id,
+            action="workspace.member.removed",
+            entity_type="workspace_member",
+            entity_id=str(member_user_id),
         )
         await session.commit()
     except WorkspaceMemberError as exc:
@@ -379,6 +443,16 @@ async def create_workspace_invitation(
             all_agents_access=payload.all_agents_access,
             agent_ids=payload.agent_ids,
         )
+        _record_member_event(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            actor_user_id=principal.user_id,
+            action="workspace.member.invited",
+            entity_type="workspace_invitation",
+            entity_id=str(issued.invitation.id),
+            metadata={"role": payload.role.value},
+        )
         await session.commit()
     except WorkspaceInvitationError as exc:
         await session.rollback()
@@ -389,7 +463,7 @@ async def create_workspace_invitation(
             status_code=409,
             detail="A workspace invitation for this email is already being updated",
         ) from None
-    tenant_name, workspace_name = await _workspace_names(
+    tenant_name, workspace = await _workspace_context(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
@@ -399,7 +473,7 @@ async def create_workspace_invitation(
         issued.invitation,
         issued.token,
         tenant_name=tenant_name,
-        workspace_name=workspace_name,
+        workspace=workspace,
     )
     return _invitation_out(issued.invitation, payload.agent_ids)
 
@@ -423,11 +497,20 @@ async def resend_invitation(
             invited_by_user_id=principal.user_id,
         )
         agent_ids = await list_invitation_agent_ids(session, [invitation_id])
+        _record_member_event(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            actor_user_id=principal.user_id,
+            action="workspace.member.invitation.resent",
+            entity_type="workspace_invitation",
+            entity_id=str(invitation_id),
+        )
         await session.commit()
     except WorkspaceInvitationError as exc:
         await session.rollback()
         raise _http_error(exc) from None
-    tenant_name, workspace_name = await _workspace_names(
+    tenant_name, workspace = await _workspace_context(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
@@ -437,7 +520,7 @@ async def resend_invitation(
         issued.invitation,
         issued.token,
         tenant_name=tenant_name,
-        workspace_name=workspace_name,
+        workspace=workspace,
     )
     return _invitation_out(issued.invitation, agent_ids.get(invitation_id, []))
 
@@ -458,6 +541,15 @@ async def revoke_invitation(
             tenant_id=principal.tenant_id,
             workspace_id=principal.workspace_id,
             invitation_id=invitation_id,
+        )
+        _record_member_event(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            actor_user_id=principal.user_id,
+            action="workspace.member.invitation.revoked",
+            entity_type="workspace_invitation",
+            entity_id=str(invitation_id),
         )
         await session.commit()
     except WorkspaceInvitationError as exc:

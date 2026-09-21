@@ -9,6 +9,9 @@ export interface WorkspaceMember {
   userId: string; name: string; email: string; role: WorkspaceRole;
   allAgentsAccess: boolean; agentIds: string[]; joinedAt: string; isSelf: boolean;
 }
+export interface WorkspaceMemberLifecycle {
+  userId: string; status: 'active' | 'suspended'; mfaEnabled: boolean; lastActive: string | null; teamIds: string[];
+}
 export interface WorkspaceInvitation {
   id: string; email: string; role: WorkspaceRole; allAgentsAccess: boolean; agentIds: string[];
   status: WorkspaceInvitationStatus; expiresAt: string; lastSentAt: string | null;
@@ -78,11 +81,21 @@ async function request<T>(path: string, options: {
 
 export const workspaceTeamApi = {
   listMembers: (signal?: AbortSignal) => request<WorkspaceMember[]>('/workspace/members', { signal }),
+  listMemberLifecycle: (signal?: AbortSignal) => request<WorkspaceMemberLifecycle[]>('/workspace/settings/members/lifecycle', { signal }),
   listInvitations: (signal?: AbortSignal) => request<WorkspaceInvitation[]>('/workspace/invitations', { signal }),
   invite: (input: WorkspaceInvitationCreate) => request<WorkspaceInvitation>('/workspace/invitations', { method: 'POST', body: input }),
   updateMember: (userId: string, input: WorkspaceAccessInput) => request<WorkspaceMember>(
     `/workspace/members/${encodeURIComponent(userId)}`,
     { method: 'PATCH', body: input },
+  ),
+  suspendMember: (userId: string) => request<WorkspaceMemberLifecycle>(
+    `/workspace/settings/members/${encodeURIComponent(userId)}/suspend`, { method: 'POST' },
+  ),
+  reactivateMember: (userId: string) => request<WorkspaceMemberLifecycle>(
+    `/workspace/settings/members/${encodeURIComponent(userId)}/reactivate`, { method: 'POST' },
+  ),
+  transferOwnership: (userId: string) => request<WorkspaceMemberLifecycle>(
+    `/workspace/settings/members/${encodeURIComponent(userId)}/transfer-ownership`, { method: 'POST' },
   ),
   removeMember: (userId: string) => request<void>(
     `/workspace/members/${encodeURIComponent(userId)}`,

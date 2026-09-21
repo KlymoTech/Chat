@@ -1,5 +1,11 @@
+# ruff: noqa: I001
 from fastapi import APIRouter, Depends
 
+# Load the legacy workspace router before the additive feature module. The
+# settings module reuses its scoped loader while the migration remains
+# non-destructive.
+from northstar_api.routers import workspace
+from northstar_api.modules.workspace.router import router as workspace_settings_router
 from northstar_api.routers import (
     agents,
     analytics,
@@ -61,12 +67,12 @@ from northstar_api.routers import (
     organization_sessions,
     password_reset,
     platform_admin,
+    public_branding,
     qualification,
     slack_webhooks,
     whatsapp,
     whatsapp_accounts,
     widget,
-    workspace,
     workspace_api_keys,
     workspace_invitations,
 )
@@ -79,6 +85,7 @@ api_router.include_router(onboarding.router)
 api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
 api_router.include_router(mfa.router)
+api_router.include_router(public_branding.router)
 api_router.include_router(agents.router)
 api_router.include_router(bot_workflows.router)
 api_router.include_router(education.router)
@@ -141,6 +148,7 @@ api_router.include_router(workspace.router)
 api_router.include_router(workspace.collection_router)
 api_router.include_router(workspace_invitations.public_router)
 api_router.include_router(workspace_api_keys.router)
+api_router.include_router(workspace_settings_router)
 api_router.include_router(billing.router)
 api_router.include_router(whatsapp_accounts.router)
 api_router.include_router(platform_admin.router)
