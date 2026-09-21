@@ -3,8 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card, PageLoader } from '@/components/ui';
 import { useToast } from '@/components/providers';
 import { SubscriptionBillingPanel } from '@/components/SubscriptionBillingPanel';
+import { WorkspaceBrandingControlCenter } from '@/features/branding/WorkspaceBrandingControlCenter';
 import { workspaceApi, type WorkspaceSettings } from '@/lib/workspace-api';
-import { WorkspaceBrandingSettings } from './WorkspaceBrandingSettings';
 import { WorkspaceDeveloperSettings } from './WorkspaceDeveloperSettings';
 import { WorkspaceGeneralSettings } from './WorkspaceGeneralSettings';
 import { WorkspaceMembersSettings } from './WorkspaceMembersSettings';
@@ -91,7 +91,7 @@ export function WorkspaceSettingsPage() {
         {section === 'developer' ? <WorkspaceDeveloperSettings workspace={workspace} bundle={bundle} disabled={!canManage || saving} onBundle={setBundle} onSave={() => void save(() => workspaceSettingsApi.saveDeveloper(bundle.developer), (developer) => setBundle({ ...bundle, developer }), 'Developer policy saved')} /> : null}
         {section === 'audit' ? <LinkSection title="Workspace audit" description="Administrative writes from this settings center are recorded in the existing audit pipeline." href="/audit" action="Open audit log" /> : null}
         {section === 'billing' ? <SubscriptionBillingPanel workspace={workspace} /> : null}
-        {section === 'branding' ? <WorkspaceBrandingSettings bundle={bundle} onChange={setBundle} /> : null}
+        {section === 'branding' ? <WorkspaceBrandingControlCenter bundle={bundle} onChange={setBundle} /> : null}
       </div>
     </div>
   </div>;
