@@ -1,7 +1,7 @@
 import { Bot, CheckCircle2, Clock3, Inbox, MessageSquareText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth, useWorkspace } from '@/components/providers';
-import { Badge, Card, EmptyState } from '@/components/ui';
+import { Badge, EmptyState } from '@/components/ui';
 import type { ExtendedBranding } from '@/features/workspace/settings/workspaceSettings.api';
 import { api } from '@/lib/api';
 import { formatCompact, formatPercent, relativeTime } from '@/lib/format';
@@ -27,9 +27,9 @@ export function WorkspaceConfiguredDashboard({ brand }: { brand: ExtendedBrandin
       <Badge tone="brand">Layout v{brand.dashboard.layoutVersion}</Badge>
     </div>
     <div className="workspace-configured-dashboard__grid">
-      {widgets.map((widget) => <Card key={widget.id} className="workspace-configured-dashboard__widget" style={{ gridColumn: `${Math.max(1, widget.x + 1)} / span ${Math.max(1, widget.width)}`, gridRow: `${Math.max(1, widget.y + 1)} / span ${Math.max(1, widget.height)}` }}>
+      {widgets.map((widget) => <section key={widget.id} className="card workspace-configured-dashboard__widget" style={{ gridColumn: `${Math.max(1, widget.x + 1)} / span ${Math.max(1, widget.width)}`, gridRow: `${Math.max(1, widget.y + 1)} / span ${Math.max(1, widget.height)}` }}>
         <ConfiguredWidget type={widget.type} config={widget.config} agents={agents.data ?? []} open={open} analytics={analytics.data} loading={agents.loading || conversations.loading || analytics.loading} />
-      </Card>)}
+      </section>)}
     </div>
     {widgets.length === 0 ? <EmptyState icon={Inbox} title="No dashboard widgets are published" description="A workspace administrator can add dashboard widgets in Workspace settings → White label → Dashboard." /> : null}
   </div>;
