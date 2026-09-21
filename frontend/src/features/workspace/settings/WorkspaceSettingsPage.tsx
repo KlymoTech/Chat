@@ -26,6 +26,7 @@ const sections: SettingsSection[] = [
   'channels', 'integrations', 'developer', 'audit', 'billing', 'branding',
 ];
 
+const brandingPermissions = ['branding.view', 'branding.edit', 'branding.publish', 'branding.domain.manage'];
 const emptyCapabilities: CapabilityCatalog = {
   permissions: [],
   builtinRoles: {},
@@ -45,8 +46,14 @@ function requiredPermission(section: SettingsSection): string | null {
     developer: 'settings.view',
     audit: 'audit.view',
     billing: 'billing.view',
-    branding: 'branding.view',
+    branding: null,
   }[section];
+}
+
+function canOpenSection(section: SettingsSection, permissions: string[]): boolean {
+  if (section === 'branding') return brandingPermissions.some((permission) => permissions.includes(permission));
+  const permission = requiredPermission(section);
+  return permission === null || permissions.includes(permission);
 }
 
 export function WorkspaceSettingsPage() {
@@ -100,8 +107,7 @@ export function WorkspaceSettingsPage() {
   if (error) return <div className="page"><h2>Workspace settings could not be loaded</h2><p role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
   if (!workspace || !bundle || !capabilities) return <PageLoader />;
 
-  const permission = requiredPermission(section);
-  const sectionAllowed = permission === null || permissions.includes(permission);
+  const sectionAllowed = canOpenSection(section, permissions);
 
   return <div className="page workspace-console-page">
     <div className="page-heading page-heading--split"><div><span className="page-kicker">Workspace administration</span><h2>Settings</h2><p>Workspace-owned configuration, access, security, developer controls, billing, and white label.</p></div><Badge tone="brand">{workspace.plan} plan</Badge></div>
