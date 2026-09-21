@@ -6,6 +6,7 @@ import {
   type ConversationAssignment,
   type ConversationAssignmentOptions,
 } from '@/features/workspace/settings/workspaceSettings.api';
+import './ConversationAssignmentControl.css';
 
 export function ConversationAssignmentControl({ conversationId }: { conversationId: string }) {
   const { activeWorkspace } = useWorkspace();
