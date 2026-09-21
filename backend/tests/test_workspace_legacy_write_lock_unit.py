@@ -83,7 +83,7 @@ async def test_legacy_patch_preserves_concurrent_workspace_settings(
     assert result["customExistingSetting"] == {"preserve": True}
     assert "workspaceSettingsV2" in result
     assert result["preferences"]["timezone"] == "Asia/Kolkata"
-    assert session.refreshes[0] == ("settings_json", "branding_json", "status")
+    assert session.refreshes[0] == ("settings_json", "branding_json", "status", "created_by")
     assert session.commits == 1
 
 
