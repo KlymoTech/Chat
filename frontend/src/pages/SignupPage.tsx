@@ -2,12 +2,14 @@ import { ArrowRight, Building2, Eye, EyeOff, Layers3, ShieldCheck, Sparkles, Use
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '@/components/brand';
+import { usePublicBranding } from '@/components/public-branding';
 import { useAuth } from '@/components/providers';
 import { Button, Field } from '@/components/ui';
 import './SignupPage.css';
 
 export function SignupPage() {
   const { session, signup } = useAuth();
+  const publicBrand = usePublicBranding();
   const navigate = useNavigate();
   const location = useLocation();
   const invitationToken = new URLSearchParams(location.hash.replace(/^#/, '')).get('invite')?.trim() ?? '';
@@ -57,14 +59,19 @@ export function SignupPage() {
     }
   };
 
-  return <div className="login-page signup-page">
+  const authBrand = publicBrand?.authentication;
+  const termsUrl = authBrand?.termsUrl || '#terms';
+  const privacyUrl = authBrand?.privacyUrl || '#privacy';
+  const signupTitle = invited ? (authBrand?.invitationTitle || 'Join your workspace') : (authBrand?.signupTitle || 'Create your account');
+
+  return <div className="login-page signup-page" style={authBrand?.loginBackground ? { backgroundImage: `url(${authBrand.loginBackground})` } : undefined}>
     <section className="login-panel signup-panel">
       <div className="login-panel__inner signup-panel__inner">
         <Brand />
         <div className="login-heading signup-heading">
           <span className="eyebrow-pill"><UserPlus /> {invited ? 'Workspace invitation' : 'Start your workspace'}</span>
-          <h1>{invited ? 'Join your workspace' : 'Create your account'}</h1>
-          <p>{invited ? 'Create your account to accept the workspace invitation.' : 'Set up your Northstar workspace and become its first owner.'}</p>
+          <h1>{signupTitle}</h1>
+          <p>{invited ? 'Create your account to accept the workspace invitation.' : (authBrand?.loginDescription || `Set up your ${publicBrand?.companyName || 'Northstar'} workspace and become its first owner.`)}</p>
         </div>
         <form className="login-form signup-form" onSubmit={(event) => void submit(event)} noValidate>
           <div className={invited ? '' : 'signup-grid'}>
@@ -86,14 +93,14 @@ export function SignupPage() {
             <small>Use at least 12 characters. Your password is securely hashed before storage.</small>
           </Field>
           <div className="signup-consents">
-            <label><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /> <span>I agree to the <a href="#terms">Terms of Service</a>.</span></label>
-            <label><input type="checkbox" checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /> <span>I agree to the <a href="#privacy">Privacy Policy</a>.</span></label>
+            <label><input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} /> <span>I agree to the <a href={termsUrl}>Terms of Service</a>.</span></label>
+            <label><input type="checkbox" checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /> <span>I agree to the <a href={privacyUrl}>Privacy Policy</a>.</span></label>
           </div>
           {error ? <div className="form-error" role="alert">{error}</div> : null}
           <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>{invited ? 'Join workspace' : 'Create account'} <ArrowRight /></>}</Button>
         </form>
         <p className="signup-copy">Already have an account? <Link className="text-button" to="/login">Sign in</Link></p>
-        <p className="login-legal signup-legal">{invited ? 'Your access is limited to the role assigned by the workspace administrator.' : 'You’ll be the owner of this organization and its first workspace.'}</p>
+        <p className="login-legal signup-legal">{authBrand?.footer || (invited ? 'Your access is limited to the role assigned by the workspace administrator.' : 'You’ll be the owner of this organization and its first workspace.')}</p>
       </div>
     </section>
     <section className="login-story" aria-label="Account setup overview">
