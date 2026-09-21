@@ -46,6 +46,7 @@ def test_record_general_change_is_tenant_scoped_and_never_contains_values(monkey
         "event_type": "workspace.settings.updated.v1",
         "payload": {"workspaceId": str(workspace_id), "fields": ["name", "timezone"]},
     }
+    assert outbox.return_value.workspace_id == workspace_id
 
 
 def test_noop_creates_no_audit_or_event(monkeypatch: pytest.MonkeyPatch) -> None:
