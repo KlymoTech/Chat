@@ -67,6 +67,7 @@ from northstar_api.routers import (
     organization_sessions,
     password_reset,
     platform_admin,
+    public_branding,
     qualification,
     slack_webhooks,
     whatsapp,
@@ -84,6 +85,7 @@ api_router.include_router(onboarding.router)
 api_router.include_router(email_verification.router)
 api_router.include_router(password_reset.router)
 api_router.include_router(mfa.router)
+api_router.include_router(public_branding.router)
 api_router.include_router(agents.router)
 api_router.include_router(bot_workflows.router)
 api_router.include_router(education.router)
