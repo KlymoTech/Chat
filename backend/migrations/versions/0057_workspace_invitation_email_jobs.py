@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0057_workspace_invite_email_jobs"
-down_revision = "0056_workspace_member_invitation_origin"
+down_revision = "0056_workspace_invitation_origin"
 branch_labels = None
 depends_on = None
 
