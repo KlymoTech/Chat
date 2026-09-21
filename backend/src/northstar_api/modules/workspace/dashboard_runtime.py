@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
+from northstar_api.modules.branding.services import resolve_published_workspace_brand
 from northstar_api.onboarding_contract import SetupContract
 from northstar_api.security import Principal
 
@@ -31,7 +32,7 @@ async def get_runtime_dashboard(
 ) -> WorkspaceDashboardRuntime:
     tenant, workspace = await load_workspace(principal, session)
     document = settings_document(workspace)
-    published = document.branding_published
+    published, _ = await resolve_published_workspace_brand(session, workspace)
     dashboard = published.dashboard if published is not None else document.dashboard
     appearance = published.appearance if published is not None else document.branding_draft.appearance
     entitlement = entitlement_for_plan(tenant.plan)
