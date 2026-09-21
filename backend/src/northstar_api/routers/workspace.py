@@ -24,6 +24,11 @@ from northstar_api.models import (
     WorkspaceRole,
     WorkspaceStatus,
 )
+from northstar_api.modules.workspace.services.general_settings import (
+    GENERAL_SETTING_FIELDS,
+    changed_general_fields,
+    record_general_settings_update,
+)
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
@@ -172,6 +177,7 @@ async def get_workspace(principal: WorkspaceViewPrincipal, session: DBSession) -
 @router.patch("", response_model=WorkspaceOut)
 async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePrincipal, session: DBSession) -> WorkspaceOut:
     tenant, workspace, membership, count = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
+    general_before = {field: getattr(workspace, field) for field in GENERAL_SETTING_FIELDS}
     if payload.slug and payload.slug != workspace.slug:
         duplicate = await session.scalar(select(Workspace.id).where(
             Workspace.tenant_id == principal.tenant_id, Workspace.slug == payload.slug, Workspace.id != workspace.id,
@@ -233,6 +239,16 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
             event_type="workspace.security.updated.v1",
             payload={"workspaceId": str(workspace.id)},
         )
+    record_general_settings_update(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace.id,
+        actor_user_id=principal.user_id,
+        changed_fields=changed_general_fields(
+            general_before,
+            {field: getattr(workspace, field) for field in GENERAL_SETTING_FIELDS},
+        ),
+    )
     workspace.settings_json = settings
     await session.commit()
     await session.refresh(workspace)
