@@ -34,9 +34,8 @@ def test_invitation_transition_stages_scoped_secret_free_audit_and_outbox(
     assert audit['tenant_id'] == outbox['tenant_id'] == tenant_id
     assert audit['workspace_id'] == event.workspace_id == workspace_id
     assert audit['actor_user_id'] == actor_id
-    assert audit['entity_id'] == outbox['aggregate_id'] == str(invitation_id) or (
-        audit['entity_id'] == str(invitation_id) and outbox['aggregate_id'] == invitation_id
-    )
+    assert audit['entity_id'] == str(invitation_id)
+    assert outbox['aggregate_id'] == invitation_id
     assert audit['action'] == f'workspace.invitation.{action}'
     assert outbox['event_type'] == f'workspace.invitation.{action}.v1'
     assert outbox['payload'] == {
