@@ -14,6 +14,7 @@ from northstar_api.email_verification_schemas import (
     EmailVerificationVerifyRequest,
 )
 from northstar_api.models import User
+from northstar_api.modules.workspace.domain_resolution import resolve_workspace_domain
 from northstar_api.services.email_verification import (
     EmailVerificationError,
     email_is_verified,
@@ -108,7 +109,9 @@ async def resend_verification_email(
     try:
         issued = await issue_verification_token(session, user.id)
         await session.commit()
-        await send_verification_email(user, issued.token)
+        hostname = request.url.hostname or ""
+        workspace = await resolve_workspace_domain(session, hostname) if hostname else None
+        await send_verification_email(user, issued.token, workspace=workspace)
     except EmailVerificationError:
         await session.rollback()
     except Exception as exc:
