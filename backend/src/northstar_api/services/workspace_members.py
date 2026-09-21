@@ -127,7 +127,7 @@ async def list_workspace_members(
                 )
                 .order_by(
                     WorkspaceMemberAgentAccess.user_id,
-                    WorkspaceMemberAgentAccess.agent_id,
+                    WorkspaceMemberAgentAgentAccess.agent_id,
                 )
             )
         ).all()
@@ -234,15 +234,17 @@ async def update_workspace_member(
     all_agents_access: bool,
     agent_ids: list[UUID],
 ) -> WorkspaceMemberDetails:
+    # Ownership changes, role updates and removals serialize on the workspace
+    # before locking a member row, avoiding opposite lock ordering/deadlocks.
+    await _protect_current_owner(
+        session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
+    )
     membership, user = await _require_other_member(
         session,
         tenant_id=tenant_id,
         workspace_id=workspace_id,
         actor_user_id=actor_user_id,
         member_user_id=member_user_id,
-    )
-    await _protect_current_owner(
-        session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
     )
     await _protect_last_admin(
         session,
@@ -278,15 +280,15 @@ async def remove_workspace_member(
     actor_user_id: UUID,
     member_user_id: UUID,
 ) -> None:
+    await _protect_current_owner(
+        session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
+    )
     membership, _ = await _require_other_member(
         session,
         tenant_id=tenant_id,
         workspace_id=workspace_id,
         actor_user_id=actor_user_id,
         member_user_id=member_user_id,
-    )
-    await _protect_current_owner(
-        session, tenant_id=tenant_id, workspace_id=workspace_id, member_user_id=member_user_id,
     )
     await _protect_last_admin(
         session,
