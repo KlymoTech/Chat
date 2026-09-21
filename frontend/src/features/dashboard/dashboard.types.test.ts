@@ -61,15 +61,22 @@ describe('widgetVisibleToViewer', () => {
     expect(widgetVisibleToViewer(widget({ type: 'kpi-cards', config: {} }), authorizedViewer)).toBe(true);
   });
 
+  it('requires every metric source for multi-source conversation and usage widgets', () => {
+    expect(widgetVisibleToViewer(widget({ type: 'conversation-summary' }), { ...baseViewer, permissions: ['conversations.view'] })).toBe(false);
+    expect(widgetVisibleToViewer(widget({ type: 'conversation-summary' }), { ...baseViewer, permissions: ['analytics.view'] })).toBe(false);
+    expect(widgetVisibleToViewer(widget({ type: 'conversation-summary' }), { ...baseViewer, permissions: ['conversations.view', 'analytics.view'] })).toBe(true);
+    expect(widgetVisibleToViewer(widget({ type: 'usage' }), { ...baseViewer, permissions: ['workspace.view'] })).toBe(false);
+    expect(widgetVisibleToViewer(widget({ type: 'usage' }), { ...baseViewer, permissions: ['agents.view'] })).toBe(false);
+    expect(widgetVisibleToViewer(widget({ type: 'usage' }), { ...baseViewer, permissions: ['agents.view', 'analytics.view'] })).toBe(true);
+  });
+
   it('requires the relevant backend capability for each data-bearing widget', () => {
     const cases: Array<[string, string]> = [
-      ['conversation-summary', 'conversations.view'],
       ['conversation-chart', 'analytics.view'],
       ['agent-activity', 'agents.view'],
       ['channel-health', 'channels.view'],
       ['crm-status', 'crm.view'],
       ['education-summary', 'education.view'],
-      ['usage', 'workspace.view'],
     ];
     for (const [type, permission] of cases) {
       expect(widgetVisibleToViewer(widget({ type, config: {} }), { ...baseViewer, permissions: [] })).toBe(false);
