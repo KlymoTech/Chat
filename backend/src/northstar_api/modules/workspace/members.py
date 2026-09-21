@@ -181,7 +181,9 @@ async def transfer_ownership(
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
     membership, user = await _require_member(session, workspace, member_user_id)
-    ensure_ownership_transfer_allowed(workspace, member_user_id)
+    ensure_ownership_transfer_allowed(
+        workspace, member_user_id, account_is_active=user.is_active
+    )
     membership.role = WorkspaceRole.ADMIN
     workspace.created_by = member_user_id
     record_workspace_change(
