@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from .access import router as access_router
 from .branding import router as branding_router
 from .conversation_assignments import router as conversation_assignments_router
+from .domains import router as domains_router
 from .email_routes import router as email_router
 from .general import router as general_router
 from .members import router as members_router
@@ -15,4 +16,5 @@ router.include_router(members_router)
 router.include_router(access_router)
 router.include_router(conversation_assignments_router)
 router.include_router(branding_router)
+router.include_router(domains_router)
 router.include_router(email_router)
