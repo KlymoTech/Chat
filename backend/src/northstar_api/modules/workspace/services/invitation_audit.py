@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.lead_crm.audit import record_audit_event
+from northstar_api.modules.workspace.services.invitation_actor import invitation_revoker_actor
 from northstar_api.services.outbox import enqueue_event
 
 InvitationAction = Literal[
@@ -31,11 +32,17 @@ def stage_invitation_transition(
     all_agents_access: bool,
     agent_count: int | None = None,
 ) -> None:
-    """Stage only non-secret administrative metadata in the current transaction.
+    """Stage non-secret administrative metadata in the caller's transaction.
 
-    A public decline has no authenticated actor. A legacy revocation call also
-    lacks an actor parameter; never claim that the original inviter revoked it.
+    The legacy revoke service does not take an actor argument. For that action
+    alone, use a separately authenticated actor attached to this request's DB
+    session, and only when tenant and workspace both match exactly. Public
+    declines remain anonymous; the original inviter is never impersonated.
     """
+    if action == "revoked" and actor_user_id is None:
+        actor_user_id = invitation_revoker_actor(
+            session, tenant_id=tenant_id, workspace_id=workspace_id,
+        )
     metadata: dict[str, str | bool | int] = {
         "role": role,
         "allAgentsAccess": all_agents_access,
