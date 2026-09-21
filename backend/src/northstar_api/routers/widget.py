@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated
 from urllib.parse import urlparse
 from uuid import UUID
@@ -115,13 +116,22 @@ async def _workspace_widget_appearance(session: AsyncSession, agent: Agent) -> A
     )
     if workspace is None:
         return appearance
-    document = settings_document(workspace)
-    published = document.branding_published
+    published = settings_document(workspace).branding_published
     if published is None or not published.identity.branded_widget:
         return appearance
     widget = published.widget
     translations = dict(appearance.translations)
-    translations["offlineMessage"] = widget.offline_message
+    translations.update({
+        "offlineMessage": widget.offline_message,
+        "launcherIcon": widget.launcher_icon,
+        "widgetLogo": widget.widget_logo,
+        "userMessageColor": widget.user_message_color,
+        "agentMessageColor": widget.agent_message_color,
+        "agentAvatar": widget.agent_avatar,
+        "botAvatar": widget.bot_avatar,
+        "poweredByLabel": widget.powered_by_label,
+        "businessHours": json.dumps(widget.business_hours.model_dump(by_alias=True, mode="json"), separators=(",", ":")),
+    })
     return appearance.model_copy(
         update={
             "primary_color": widget.launcher_color,
@@ -133,6 +143,7 @@ async def _workspace_widget_appearance(session: AsyncSession, agent: Agent) -> A
             "privacy_policy_url": widget.privacy_url or appearance.privacy_policy_url,
             "widget_name": published.identity.company_name or appearance.widget_name,
             "show_branding": not published.identity.remove_platform_branding,
+            "launcher_style": "avatar" if widget.launcher_icon else appearance.launcher_style,
             "translations": translations,
         }
     )
