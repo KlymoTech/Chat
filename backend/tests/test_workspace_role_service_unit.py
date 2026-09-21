@@ -87,7 +87,11 @@ def test_unreferenced_role_can_be_removed_without_rejecting_historical_team_refe
     teams = TeamsSettings(teams=[WorkspaceTeam(name="Legacy", role_ids=[historical_id])])
 
     ensure_role_removal_safe(current, RolesSettings(), teams)
-    ensure_role_removal_safe(current, current, TeamsSettings(teams=[WorkspaceTeam(name="Current", role_ids=[role.id])]))
+    ensure_role_removal_safe(
+        current,
+        current,
+        TeamsSettings(teams=[WorkspaceTeam(name="Current", role_ids=[role.id])]),
+    )
 
 
 class _Session:
