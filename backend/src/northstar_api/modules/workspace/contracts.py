@@ -332,6 +332,13 @@ class WorkspaceSettingsBundle(SetupContract):
     domains: DomainsSettings = Field(default_factory=DomainsSettings)
 
 
+class BrandingSettingsView(SetupContract):
+    branding_draft: ExtendedBranding
+    branding_published: ExtendedBranding | None = None
+    branding_versions: list[BrandVersion] = Field(default_factory=list, max_length=50)
+    domains: DomainsSettings = Field(default_factory=DomainsSettings)
+
+
 class DomainCreate(SetupContract):
     hostname: str = Field(min_length=4, max_length=253)
 
