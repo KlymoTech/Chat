@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import WorkspaceMembership
 from northstar_api.modules.workspace.models.member_state import WorkspaceMemberState
-from northstar_api.modules.workspace.services.ownership import protect_workspace_owner
+from northstar_api.modules.workspace.services.ownership import (
+    WorkspaceOwnershipError,
+    locked_workspace,
+    protect_workspace_owner,
+)
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.workspace_members import WorkspaceMemberError
 
@@ -41,12 +45,26 @@ async def set_member_suspended(
     suspended: bool,
     reason: str,
 ) -> bool:
-    """Stage a reversible lifecycle transition in the caller's transaction."""
+    """Stage a reversible lifecycle transition in the caller's transaction.
+
+    Lock the workspace before the target membership, as ownership transfers,
+    role edits and removals do. Opposite lock ordering can deadlock two admins.
+    """
     reason = reason.strip()
     if len(reason) < 3 or len(reason) > 500:
         raise WorkspaceMemberError("Provide a suspension reason between 3 and 500 characters", status_code=422)
     if actor_user_id == member_user_id:
         raise WorkspaceMemberError("You cannot suspend or reactivate your own workspace access", status_code=409)
+
+    try:
+        await locked_workspace(session, tenant_id=tenant_id, workspace_id=workspace_id)
+        if suspended:
+            await protect_workspace_owner(
+                session, tenant_id=tenant_id, workspace_id=workspace_id,
+                member_user_id=member_user_id,
+            )
+    except WorkspaceOwnershipError as exc:
+        raise WorkspaceMemberError(str(exc), status_code=exc.status_code) from None
 
     membership = await session.scalar(select(WorkspaceMembership).where(
         WorkspaceMembership.tenant_id == tenant_id,
@@ -55,11 +73,6 @@ async def set_member_suspended(
     ).with_for_update())
     if membership is None:
         raise WorkspaceMemberError("Workspace member not found", status_code=404)
-    if suspended:
-        await protect_workspace_owner(
-            session, tenant_id=tenant_id, workspace_id=workspace_id,
-            member_user_id=member_user_id,
-        )
 
     now = datetime.now(UTC)
     state = await session.get(WorkspaceMemberState, (workspace_id, member_user_id))
