@@ -53,7 +53,14 @@ def stage_invitation_email(
         return False
     if settings.app_env in {"production", "staging"} and not settings.background_dispatch_enabled:
         raise WorkspaceInvitationEmailUnavailable("Workspace invitation job dispatcher is not enabled")
-    if get_email_settings().email_delivery_mode != "smtp":
+    try:
+        delivery_mode = get_email_settings().email_delivery_mode
+    except ValueError:
+        # EmailSettings validates SMTP_HOST when SMTP mode is selected. Keep
+        # misconfiguration out of HTTP error details, and roll back the entire
+        # invite/resend transaction rather than returning an unexpected 500.
+        raise WorkspaceInvitationEmailUnavailable("Workspace invitation SMTP delivery is not configured") from None
+    if delivery_mode != "smtp":
         raise WorkspaceInvitationEmailUnavailable("Workspace invitation SMTP delivery is not configured")
     fingerprint = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
     if invitation.status != WorkspaceInvitationStatus.PENDING or invitation.token_hash != fingerprint:
