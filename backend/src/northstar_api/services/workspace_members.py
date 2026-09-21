@@ -127,7 +127,7 @@ async def list_workspace_members(
                 )
                 .order_by(
                     WorkspaceMemberAgentAccess.user_id,
-                    WorkspaceMemberAgentAgentAccess.agent_id,
+                    WorkspaceMemberAgentAccess.agent_id,
                 )
             )
         ).all()
