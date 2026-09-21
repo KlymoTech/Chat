@@ -5,6 +5,9 @@ from northstar_api.modules.workspace.services.invitation_actor import capture_in
 from northstar_api.modules.workspace.services.invitation_delivery_preflight import (
     preflight_workspace_invitation_email,
 )
+from northstar_api.modules.workspace.services.invitation_resend_membership_guard import (
+    prevent_resend_to_existing_workspace_member,
+)
 from northstar_api.routers import (
     agents,
     analytics,
@@ -148,6 +151,7 @@ api_router.include_router(
     dependencies=[
         Depends(capture_invitation_administrator),
         Depends(preflight_workspace_invitation_email),
+        Depends(prevent_resend_to_existing_workspace_member),
     ],
 )
 api_router.include_router(workspace.router)
