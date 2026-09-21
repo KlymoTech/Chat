@@ -265,6 +265,22 @@ async def resend_workspace_invitation(
             "Only pending or expired invitations can be resent",
             status_code=409,
         )
+    # The recipient may have joined since issuance. Recheck after the Workspace
+    # and invitation locks, before rotating a token or publishing mail/audit.
+    member = await session.scalar(
+        select(WorkspaceMembership.user_id)
+        .join(User, User.id == WorkspaceMembership.user_id)
+        .where(
+            WorkspaceMembership.tenant_id == tenant_id,
+            WorkspaceMembership.workspace_id == workspace_id,
+            func.lower(User.email) == invitation.email,
+        )
+    )
+    if member is not None:
+        raise WorkspaceInvitationError(
+            "This email address is already a member of the workspace",
+            status_code=409,
+        )
     token = secrets.token_urlsafe(48)
     now = datetime.now(UTC)
     invitation.token_hash = workspace_invitation_token_hash(token)
@@ -486,9 +502,12 @@ async def _accept_invitation(
         )
         session.add(workspace_membership)
     else:
-        workspace_membership.role = invitation.role
-        workspace_membership.all_agents_access = invitation.all_agents_access
-        workspace_membership.updated_at = now
+        # A stale invitation is not an authorization to overwrite an existing
+        # member's newer role or resource access. The API rolls this txn back.
+        raise WorkspaceInvitationError(
+            "This email address is already a member of the workspace",
+            status_code=409,
+        )
     await replace_member_agent_access(
         session,
         workspace_id=invitation.workspace_id,
