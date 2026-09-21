@@ -25,10 +25,10 @@ export function WorkspaceBrandingControlCenter({ bundle, onChange, permissions }
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
   const allowed = new Set(permissions);
-  const canView = allowed.has('branding.view');
   const canEdit = allowed.has('branding.edit');
   const canPublish = allowed.has('branding.publish');
   const canDomains = allowed.has('branding.domain.manage');
+  const canView = allowed.has('branding.view') || canEdit || canPublish || canDomains;
   const draft = bundle.brandingDraft;
   const published = bundle.brandingPublished;
   const visibleBrand = canEdit ? draft : published ?? draft;
