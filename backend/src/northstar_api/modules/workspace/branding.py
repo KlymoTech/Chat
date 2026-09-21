@@ -16,6 +16,7 @@ from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.models import Workspace
 from northstar_api.security import Principal
 
+from .brand_cache import cache_workspace_brand, cached_workspace_brand, invalidate_brand_cache
 from .contracts import (
     BrandVersion,
     DomainCreate,
@@ -78,6 +79,11 @@ async def _publish(
     save_document(workspace, document)
     record_workspace_change(session, principal, workspace, "workspace.brand.published", [f"version:{version_number}"])
     await session.commit()
+    await invalidate_brand_cache(
+        workspace.id,
+        hostnames=[item.hostname for item in document.domains.domains],
+        version=version_number,
+    )
     return version
 
 
@@ -157,7 +163,16 @@ async def get_runtime_branding(
     session: DBSession,
 ) -> ExtendedBranding | None:
     _, workspace = await load_workspace(principal, session)
-    return settings_document(workspace).branding_published
+    cached = await cached_workspace_brand(workspace.id)
+    if cached is not None:
+        try:
+            return ExtendedBranding.model_validate(cached)
+        except (TypeError, ValueError):
+            pass
+    published = settings_document(workspace).branding_published
+    if published is not None:
+        await cache_workspace_brand(workspace.id, published.model_dump(by_alias=True, mode="json"))
+    return published
 
 
 @router.patch("/branding/draft", response_model=ExtendedBranding)
@@ -210,6 +225,7 @@ async def create_domain(payload: DomainCreate, principal: DomainManagePrincipal,
     save_document(workspace, document)
     record_workspace_change(session, principal, workspace, "workspace.domain.created", [normalized])
     await session.commit()
+    await invalidate_brand_cache(workspace.id, hostnames=[normalized])
     return domain
 
 
@@ -235,6 +251,7 @@ async def start_domain_verification(domain_id: str, principal: DomainManagePrinc
     save_document(workspace, document)
     record_workspace_change(session, principal, workspace, event, [domain.hostname])
     await session.commit()
+    await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
     return domain
 
 
@@ -260,6 +277,7 @@ async def check_domain_activation(domain_id: str, principal: DomainManagePrincip
     save_document(workspace, document)
     record_workspace_change(session, principal, workspace, action, [domain.hostname])
     await session.commit()
+    await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
     return domain
 
 
@@ -275,4 +293,5 @@ async def disable_domain(domain_id: str, principal: DomainManagePrincipal, sessi
     save_document(workspace, document)
     record_workspace_change(session, principal, workspace, "workspace.domain.disabled", [domain.hostname])
     await session.commit()
+    await invalidate_brand_cache(workspace.id, hostnames=[domain.hostname])
     return domain
