@@ -365,6 +365,9 @@ async def revoke_workspace_invitation(
             "Accepted invitations cannot be revoked; remove the member instead",
             status_code=409,
         )
+    if invitation.status == WorkspaceInvitationStatus.REVOKED:
+        # Keep DELETE idempotent: do not rotate tokens or emit duplicate audit/events.
+        return
     now = datetime.now(UTC)
     invitation.status = WorkspaceInvitationStatus.REVOKED
     invitation.revoked_at = now
