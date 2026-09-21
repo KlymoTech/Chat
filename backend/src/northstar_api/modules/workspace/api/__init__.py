@@ -10,11 +10,11 @@ from northstar_api.modules.workspace.access import router as access_router
 from northstar_api.modules.workspace.conversation_assignments import router as conversation_assignments_router
 from northstar_api.modules.workspace.dashboard_runtime import router as dashboard_runtime_router
 from northstar_api.modules.workspace.general import router as general_router
-from northstar_api.modules.workspace.members import router as members_router
-from northstar_api.modules.workspace.settings import router as settings_router
 
 from .workspace_dashboard import router as dashboard_settings_router
+from .workspace_members import router as members_router
 from .workspace_roles import router as roles_router
+from .workspace_settings import router as settings_router
 from .workspace_teams import router as teams_router
 
 __all__ = [
