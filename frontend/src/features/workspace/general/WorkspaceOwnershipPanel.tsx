@@ -4,6 +4,7 @@ import {
   activeWorkspaceId, workspaceApi, workspacePresentationKey,
   type WorkspaceOwner, type WorkspaceOwnerTransfer, type WorkspaceTeamMember,
 } from '@/lib/workspace-api';
+import { workspaceTeamApi } from '@/lib/workspace-team-api';
 
 interface Props {
   workspaceId: string;
@@ -36,8 +37,13 @@ export function WorkspaceOwnershipPanel({ workspaceId, currentUserId, canManage 
       if (!stillHere()) return;
       setOwner(result);
       if (canManage && result.ownerUserId === currentUserId) {
-        const team = await workspaceApi.getTeam();
-        if (stillHere()) setAdmins(team.members.filter((member) => member.role === 'workspace_admin' && member.id !== result.ownerUserId));
+        const [team, lifecycle] = await Promise.all([
+          workspaceApi.getTeam(), workspaceTeamApi.listMemberLifecycle(controller.signal),
+        ]);
+        if (!stillHere()) return;
+        const suspendedIds = new Set(lifecycle.filter((item) => item.status === 'suspended').map((item) => item.userId));
+        setAdmins(team.members.filter((member) => member.role === 'workspace_admin'
+          && member.id !== result.ownerUserId && !suspendedIds.has(member.id)));
       }
     }).catch((cause: unknown) => {
       if (stillHere()) setError(cause instanceof Error ? cause.message : 'Workspace owner could not be loaded');
@@ -78,7 +84,7 @@ export function WorkspaceOwnershipPanel({ workspaceId, currentUserId, canManage 
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
       {error && !saving ? <Button type="button" onClick={() => setRevision((value) => value + 1)}>Retry loading owner</Button> : null}
-      {mayTransfer ? <details>
+      {mayTransfer && !error ? <details>
         <summary>Transfer workspace ownership</summary>
         <p>Choose an existing active workspace administrator. The original creator record and both administrators' roles remain unchanged.</p>
         {admins.length ? <form onSubmit={(event) => void transfer(event)}>
