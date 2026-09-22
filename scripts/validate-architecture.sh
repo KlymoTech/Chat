@@ -38,6 +38,8 @@ required_paths=(
   "frontend/src/features/knowledge/index.ts"
   "frontend/src/app/App.tsx"
   "frontend/src/app/index.ts"
+  "frontend/src/app/routes.tsx"
+  "frontend/src/app/guards"
   "frontend/src/features/workspace/settings"
   "frontend/src/features/branding"
   "frontend/src/features/platform-admin"
