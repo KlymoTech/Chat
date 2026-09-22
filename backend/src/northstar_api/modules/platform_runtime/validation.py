@@ -38,12 +38,23 @@ def validate_platform_spec(spec: PlatformSpec) -> PlatformSpec:
         raise PlatformSpecError("providers.jobs=sqs is only supported by an AWS profile")
     if providers.storage == "s3" and spec.profile == "local":
         raise PlatformSpecError("providers.storage=s3 is not valid for the local profile; use minio")
-    if spec.profile == "aws-standard" and spec.deployment.orchestrator != "ecs":
-        raise PlatformSpecError("aws-standard requires deployment.orchestrator=ecs")
+    if spec.profile in {"aws-standard", "aws-scale"} and spec.deployment.orchestrator != "ecs":
+        raise PlatformSpecError(f"{spec.profile} requires deployment.orchestrator=ecs")
     if spec.profile == "aws-kubernetes" and spec.deployment.orchestrator != "eks":
         raise PlatformSpecError("aws-kubernetes requires deployment.orchestrator=eks")
     if spec.security.allow_external_ai_egress and providers.ai == "none":
         raise PlatformSpecError("external AI egress cannot be enabled without an AI provider")
+    if spec.profile in {"aws-standard", "aws-scale", "aws-kubernetes"}:
+        if spec.deployment.region == "local":
+            raise PlatformSpecError("AWS profiles require an explicit region")
+        if not spec.deployment.account_id:
+            raise PlatformSpecError("AWS profiles require a 12-digit account_id")
+    if spec.profile == "portable-production" and spec.deployment.orchestrator != "docker":
+        raise PlatformSpecError("portable-production requires deployment.orchestrator=docker")
+    if spec.reliability.accepted_work_delivery != "at-least-once":
+        raise PlatformSpecError("production work delivery must be at-least-once")
+    if not spec.reliability.require_idempotency or not spec.reliability.require_reconciliation:
+        raise PlatformSpecError("durable work requires idempotency and reconciliation")
     if not spec.security.authorization_required or not spec.security.tenant_isolation_required:
         raise PlatformSpecError("authorization and tenant isolation are mandatory platform invariants")
     if not spec.security.audit_required:
