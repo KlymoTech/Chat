@@ -33,6 +33,11 @@ Implemented locally:
 - protected super-admin read/plan endpoints for the control center:
   `/platform-admin/runtime/capabilities`, `/dependencies`, and
   `/changes/plan`;
+- durable platform capability/change/configuration tables with idempotency,
+  approval records, separation of requestor and approver, and deployment
+  execution evidence slots;
+- persisted change request/list/approve/reject endpoints; approval does not
+  execute infrastructure and remains compatible with GitOps handoff;
 - unit coverage for the contract and negative paths.
 
 Not applied automatically because it requires approved infrastructure inputs:

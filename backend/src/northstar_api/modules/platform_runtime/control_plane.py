@@ -20,6 +20,56 @@ from .contracts import PlatformSpec, ProviderChangeClass
 from .validation import classify_provider_change, validate_platform_spec
 
 PlanAction = Literal["noop", "apply", "restart", "migrate", "reject"]
+ChangeStatus = Literal[
+    "draft",
+    "validating",
+    "impact_analysis",
+    "waiting_approval",
+    "approved",
+    "provisioning",
+    "deploying",
+    "verifying",
+    "stabilizing",
+    "completed",
+    "failed",
+    "rolling_back",
+    "rolled_back",
+    "rejected",
+]
+
+
+class ChangeLifecycleError(ValueError):
+    """A change request attempted an unsafe lifecycle transition."""
+
+
+_ALLOWED_CHANGE_TRANSITIONS: dict[ChangeStatus, frozenset[ChangeStatus]] = {
+    "draft": frozenset({"validating", "rejected"}),
+    "validating": frozenset({"impact_analysis", "failed", "rejected"}),
+    "impact_analysis": frozenset({"waiting_approval", "failed", "rejected"}),
+    "waiting_approval": frozenset({"approved", "rejected"}),
+    "approved": frozenset({"provisioning", "deploying", "failed", "rejected"}),
+    "provisioning": frozenset({"deploying", "failed", "rolling_back"}),
+    "deploying": frozenset({"verifying", "failed", "rolling_back"}),
+    "verifying": frozenset({"stabilizing", "failed", "rolling_back"}),
+    "stabilizing": frozenset({"completed", "failed", "rolling_back"}),
+    "completed": frozenset({"rolling_back"}),
+    "failed": frozenset({"rolling_back", "rejected"}),
+    "rolling_back": frozenset({"rolled_back", "failed"}),
+    "rolled_back": frozenset(),
+    "rejected": frozenset(),
+}
+
+
+def transition_change(current: ChangeStatus, target: ChangeStatus) -> ChangeStatus:
+    """Validate a monotonic, auditable change lifecycle transition."""
+    if target not in _ALLOWED_CHANGE_TRANSITIONS[current]:
+        raise ChangeLifecycleError(f"cannot transition platform change from {current} to {target}")
+    return target
+
+
+def approver_is_distinct(requested_by: UUID, approved_by: UUID) -> bool:
+    """Return whether separation-of-duties approval is satisfied."""
+    return requested_by != approved_by
 
 
 class ChangePlan(BaseModel):
@@ -136,4 +186,13 @@ def build_change_plan(
     )
 
 
-__all__ = ["ChangePlan", "PlanAction", "build_change_plan", "spec_digest"]
+__all__ = [
+    "ChangeLifecycleError",
+    "ChangePlan",
+    "ChangeStatus",
+    "PlanAction",
+    "approver_is_distinct",
+    "build_change_plan",
+    "spec_digest",
+    "transition_change",
+]

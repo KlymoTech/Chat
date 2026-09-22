@@ -125,6 +125,9 @@ PlatformSupportPrincipal = Annotated[
 PlatformSystemReadPrincipal = Annotated[
     Principal, Depends(require_platform_permissions("platform.system.read"))
 ]
+PlatformRuntimeManagePrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.runtime.manage"))
+]
 PlatformAdminsManagePrincipal = Annotated[
     Principal, Depends(require_platform_permissions("platform.admins.manage"))
 ]

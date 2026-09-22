@@ -2,7 +2,16 @@
 
 from .capacity import CapacityBudget, build_capacity_budget
 from .contracts import DeploymentProfile, PlatformSpec, ProviderChangeClass
-from .control_plane import ChangePlan, PlanAction, build_change_plan, spec_digest
+from .control_plane import (
+    ChangeLifecycleError,
+    ChangePlan,
+    ChangeStatus,
+    PlanAction,
+    approver_is_distinct,
+    build_change_plan,
+    spec_digest,
+    transition_change,
+)
 from .registry import (
     CapabilityCatalog,
     CapabilityChangeAnalysis,
@@ -24,6 +33,8 @@ from .validation import (
 __all__ = [
     "DependencyGraph",
     "ChangePlan",
+    "ChangeLifecycleError",
+    "ChangeStatus",
     "CapacityBudget",
     "CapabilityCatalog",
     "CapabilityChangeAnalysis",
@@ -40,8 +51,10 @@ __all__ = [
     "build_capacity_budget",
     "build_capability_catalog",
     "analyze_capability_change",
+    "approver_is_distinct",
     "capability_definitions",
     "classify_provider_change",
     "spec_digest",
+    "transition_change",
     "validate_platform_spec",
 ]

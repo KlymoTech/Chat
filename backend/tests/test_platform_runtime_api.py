@@ -8,6 +8,11 @@ def test_runtime_control_plane_exposes_only_read_and_plan_operations() -> None:
     assert ("/platform-admin/runtime/dependencies", ("GET",)) in routes
     assert ("/platform-admin/runtime/capacity", ("GET",)) in routes
     assert ("/platform-admin/runtime/changes/plan", ("POST",)) in routes
+    assert ("/platform-admin/runtime/changes", ("POST",)) in routes
+    assert ("/platform-admin/runtime/changes", ("GET",)) in routes
+    assert ("/platform-admin/runtime/changes/{change_id}", ("GET",)) in routes
+    assert ("/platform-admin/runtime/changes/{change_id}/approve", ("POST",)) in routes
+    assert ("/platform-admin/runtime/changes/{change_id}/reject", ("POST",)) in routes
     assert not any("destroy" in path or path.endswith("/apply") for path, _ in routes)
 
 

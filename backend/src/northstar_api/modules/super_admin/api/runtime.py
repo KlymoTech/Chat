@@ -7,20 +7,34 @@ mutation belongs to an approved deployment controller or GitOps pipeline.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
-from pydantic import BaseModel, ConfigDict
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 
 from northstar_api.config import get_settings
+from northstar_api.dependencies import DBSession
+from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.modules.platform_runtime import (
     CapabilityCatalog,
     CapabilityChangeAnalysis,
     CapacityBudget,
+    ChangeStatus,
     PlatformSpec,
     analyze_capability_change,
+    approver_is_distinct,
     build_capability_catalog,
     build_capacity_budget,
+    transition_change,
 )
-from northstar_api.routers.platform_admin import PlatformSystemReadPrincipal
+from northstar_api.modules.platform_runtime.persistence import (
+    PlatformChangeApproval,
+    PlatformChangeRecord,
+)
+from northstar_api.routers.platform_admin import PlatformRuntimeManagePrincipal, PlatformSystemReadPrincipal
 
 router = APIRouter(prefix="/platform-admin/runtime", tags=["platform runtime"])
 
@@ -32,6 +46,70 @@ class RuntimeChangePlanRequest(BaseModel):
 
     current: PlatformSpec
     desired: PlatformSpec
+
+
+class RuntimeChangeCreateRequest(RuntimeChangePlanRequest):
+    reason: str = Field(min_length=5, max_length=500)
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class RuntimeChangeDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=5, max_length=500)
+
+
+class RuntimeChangeOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    environment: str
+    requested_by: UUID
+    approved_by: UUID | None
+    status: ChangeStatus
+    action: str
+    classification: str
+    requires_approval: bool
+    destructive: bool
+    source_revision: int
+    target_revision: int
+    source_digest: str
+    target_digest: str
+    idempotency_key: str
+    reason: str
+    plan_steps: tuple[str, ...]
+    blockers: tuple[str, ...]
+    changed_capabilities: tuple[str, ...]
+    impacted_capabilities: tuple[str, ...]
+    requested_at: datetime
+    approved_at: datetime | None
+
+
+def _change_response(record: PlatformChangeRecord) -> RuntimeChangeOut:
+    impact = record.impact_json or {}
+    return RuntimeChangeOut(
+        id=record.id,
+        environment=record.environment,
+        requested_by=record.requested_by,
+        approved_by=record.approved_by,
+        status=record.status,
+        action=record.action,
+        classification=record.classification,
+        requires_approval=record.requires_approval,
+        destructive=record.destructive,
+        source_revision=record.source_revision,
+        target_revision=record.target_revision,
+        source_digest=record.source_digest,
+        target_digest=record.target_digest,
+        idempotency_key=record.idempotency_key,
+        reason=record.reason,
+        plan_steps=tuple(record.plan_steps or ()),
+        blockers=tuple(record.blockers or ()),
+        changed_capabilities=tuple(impact.get("changedCapabilities", ())),
+        impacted_capabilities=tuple(impact.get("impactedCapabilities", ())),
+        requested_at=record.requested_at,
+        approved_at=record.approved_at,
+    )
 
 
 def _declared_platform_spec() -> PlatformSpec:
@@ -94,4 +172,206 @@ async def plan_runtime_change(
     return analyze_capability_change(payload.current, payload.desired)
 
 
-__all__ = ["RuntimeChangePlanRequest", "router"]
+@router.post("/changes", response_model=RuntimeChangeOut, status_code=status.HTTP_201_CREATED)
+async def create_runtime_change(
+    payload: RuntimeChangeCreateRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> RuntimeChangeOut:
+    """Persist a reviewable change request; never execute infrastructure."""
+    analysis = analyze_capability_change(payload.current, payload.desired)
+    environment = payload.desired.metadata.environment
+    existing = await session.scalar(
+        select(PlatformChangeRecord).where(
+            PlatformChangeRecord.environment == environment,
+            PlatformChangeRecord.idempotency_key == payload.idempotency_key,
+        )
+    )
+    if existing is not None:
+        if existing.target_digest != analysis.plan.target_digest:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="idempotency key is already in use")
+        return _change_response(existing)
+
+    now = datetime.now(UTC)
+    change_status: ChangeStatus = (
+        "rejected" if analysis.plan.action == "reject" else "completed" if analysis.plan.action == "noop" else "waiting_approval"
+    )
+    record = PlatformChangeRecord(
+        id=analysis.plan.plan_id if analysis.plan.plan_id else uuid4(),
+        environment=environment,
+        requested_by=principal.user_id,
+        status=change_status,
+        action=analysis.plan.action,
+        classification=analysis.plan.classification,
+        requires_approval=analysis.plan.requires_approval,
+        destructive=analysis.plan.destructive,
+        source_revision=analysis.plan.source_revision,
+        target_revision=analysis.plan.target_revision,
+        source_digest=analysis.plan.source_digest,
+        target_digest=analysis.plan.target_digest,
+        idempotency_key=payload.idempotency_key,
+        reason=payload.reason,
+        plan_steps=list(analysis.plan.steps),
+        blockers=list(analysis.plan.blockers),
+        impact_json={
+            "changedCapabilities": list(analysis.changed_capabilities),
+            "impactedCapabilities": list(analysis.impacted_capabilities),
+        },
+        requested_at=now,
+        current_spec_json=payload.current.model_dump(mode="json"),
+        desired_spec_json=payload.desired.model_dump(mode="json"),
+        approved_at=now if change_status == "completed" else None,
+        completed_at=now if change_status == "completed" else None,
+    )
+    session.add(record)
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.runtime.change.created",
+        entity_type="platform_change",
+        entity_id=str(record.id),
+        category="system",
+        severity="warning" if analysis.plan.requires_approval else "info",
+        after={"status": change_status, "action": analysis.plan.action, "environment": environment},
+        metadata={"reason": payload.reason, "idempotencyKey": payload.idempotency_key},
+    )
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        existing = await session.scalar(
+            select(PlatformChangeRecord).where(
+                PlatformChangeRecord.environment == environment,
+                PlatformChangeRecord.idempotency_key == payload.idempotency_key,
+            )
+        )
+        if existing is None:
+            raise
+        if existing.target_digest != analysis.plan.target_digest:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="idempotency key is already in use",
+            ) from exc
+        return _change_response(existing)
+    return _change_response(record)
+
+
+@router.get("/changes", response_model=list[RuntimeChangeOut])
+async def list_runtime_changes(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+    environment: str | None = Query(default=None, min_length=1, max_length=32),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[RuntimeChangeOut]:
+    """List reviewable changes for the control-center history screen."""
+    statement = select(PlatformChangeRecord).order_by(desc(PlatformChangeRecord.requested_at)).limit(limit)
+    if environment:
+        statement = statement.where(PlatformChangeRecord.environment == environment)
+    records = (await session.scalars(statement)).all()
+    return [_change_response(record) for record in records]
+
+
+@router.get("/changes/{change_id}", response_model=RuntimeChangeOut)
+async def get_runtime_change(
+    change_id: UUID,
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> RuntimeChangeOut:
+    """Return one change and its immutable plan metadata."""
+    record = await session.get(PlatformChangeRecord, change_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
+    return _change_response(record)
+
+
+@router.post("/changes/{change_id}/approve", response_model=RuntimeChangeOut)
+async def approve_runtime_change(
+    change_id: UUID,
+    payload: RuntimeChangeDecisionRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> RuntimeChangeOut:
+    """Approve a change only when the approver differs from its requestor."""
+    record = await session.get(PlatformChangeRecord, change_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
+    if record.status != "waiting_approval":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="platform change is not awaiting approval")
+    if not approver_is_distinct(record.requested_by, principal.user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="requestor cannot approve the same change")
+    transition_change(record.status, "approved")
+    now = datetime.now(UTC)
+    record.status = "approved"
+    record.approved_by = principal.user_id
+    record.approved_at = now
+    session.add(PlatformChangeApproval(
+        change_id=record.id,
+        approver_id=principal.user_id,
+        decision="approved",
+        reason=payload.reason,
+        created_at=now,
+    ))
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.runtime.change.approved",
+        entity_type="platform_change",
+        entity_id=str(record.id),
+        category="security",
+        severity="warning",
+        after={"status": record.status},
+        metadata={"reason": payload.reason},
+    )
+    await session.commit()
+    return _change_response(record)
+
+
+@router.post("/changes/{change_id}/reject", response_model=RuntimeChangeOut)
+async def reject_runtime_change(
+    change_id: UUID,
+    payload: RuntimeChangeDecisionRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> RuntimeChangeOut:
+    """Reject an unapproved change and retain the reason for audit."""
+    record = await session.get(PlatformChangeRecord, change_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
+    if record.status != "waiting_approval":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="platform change is not awaiting approval")
+    transition_change(record.status, "rejected")
+    now = datetime.now(UTC)
+    record.status = "rejected"
+    record.completed_at = now
+    session.add(PlatformChangeApproval(
+        change_id=record.id,
+        approver_id=principal.user_id,
+        decision="rejected",
+        reason=payload.reason,
+        created_at=now,
+    ))
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.runtime.change.rejected",
+        entity_type="platform_change",
+        entity_id=str(record.id),
+        category="security",
+        severity="warning",
+        after={"status": record.status},
+        metadata={"reason": payload.reason},
+    )
+    await session.commit()
+    return _change_response(record)
+
+
+__all__ = [
+    "RuntimeChangeCreateRequest",
+    "RuntimeChangeDecisionRequest",
+    "RuntimeChangeOut",
+    "RuntimeChangePlanRequest",
+    "router",
+]

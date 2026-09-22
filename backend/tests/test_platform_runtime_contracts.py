@@ -1,14 +1,19 @@
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
 from northstar_api.modules.platform_runtime import (
+    ChangeLifecycleError,
     PlatformSpec,
     PlatformSpecError,
     analyze_capability_change,
+    approver_is_distinct,
     build_capability_catalog,
     build_change_plan,
     build_dependency_graph,
     classify_provider_change,
+    transition_change,
     validate_platform_spec,
 )
 
@@ -132,3 +137,10 @@ def test_capability_change_analysis_includes_dependents() -> None:
     assert "ai" in analysis.changed_capabilities
     assert "vector" in analysis.changed_capabilities
     assert "ai" in analysis.impacted_capabilities
+
+
+def test_change_lifecycle_requires_approval_separation_and_safe_transitions() -> None:
+    assert transition_change("waiting_approval", "approved") == "approved"
+    assert approver_is_distinct(uuid4(), uuid4()) is True
+    with pytest.raises(ChangeLifecycleError, match="cannot transition"):
+        transition_change("waiting_approval", "deploying")

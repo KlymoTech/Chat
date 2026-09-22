@@ -22,6 +22,13 @@ provider-neutral portion of that design.
   - `GET /api/v1/platform-admin/runtime/dependencies`
   - `GET /api/v1/platform-admin/runtime/capacity?api_replicas=N`
   - `POST /api/v1/platform-admin/runtime/changes/plan`
+  - `POST /api/v1/platform-admin/runtime/changes`
+  - `GET /api/v1/platform-admin/runtime/changes`
+  - `GET /api/v1/platform-admin/runtime/changes/{id}`
+  - `POST /api/v1/platform-admin/runtime/changes/{id}/approve`
+  - `POST /api/v1/platform-admin/runtime/changes/{id}/reject`
+- Change requests are idempotent, persisted with immutable source/target
+  digests, and require a different platform operator to approve them.
 - The existing platform-admin RBAC protects the endpoints. API keys are not
   accepted by the platform control plane.
 - The super-admin page shows the declared profile, providers, and health state.
@@ -36,9 +43,7 @@ live evidence.
 
 ## Next production gates
 
-1. Persist desired/actual capability state, change requests, approvals, and
-   deployment executions in dedicated control-plane tables.
-2. Add an outbox-backed deployment executor with fencing, reconciliation,
+1. Add an outbox-backed deployment executor with fencing, reconciliation,
    rollback, and drift detection.
 3. Bind the registry to real health probes and required/optional readiness.
 4. Add Terraform/Helm/GitOps adapters and environment-specific policies.

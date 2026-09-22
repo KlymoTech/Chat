@@ -12,6 +12,7 @@ PLATFORM_PERMISSIONS = frozenset({
     "platform.billing.manage",
     "platform.support.impersonate",
     "platform.system.read",
+    "platform.runtime.manage",
     "platform.audit.read",
     "platform.admins.manage",
 })
@@ -19,7 +20,7 @@ PLATFORM_PERMISSIONS = frozenset({
 PLATFORM_ROLE_GRANTS: dict[str, frozenset[str]] = {
     "owner": PLATFORM_PERMISSIONS,
     "operations": frozenset({
-        "platform.overview.read", "platform.tenants.read", "platform.system.read", "platform.audit.read",
+        "platform.overview.read", "platform.tenants.read", "platform.system.read", "platform.runtime.manage", "platform.audit.read",
     }),
     "billing": frozenset({"platform.overview.read", "platform.tenants.read", "platform.billing.manage"}),
     "support": frozenset({
