@@ -22,7 +22,7 @@ from northstar_api.models import (
     WorkspaceMembership,
     WorkspaceStatus,
 )
-from northstar_api.modules.platform_admin.access import (
+from northstar_api.modules.super_admin.access import (
     PLATFORM_PERMISSIONS,
     platform_admin_emails,
     platform_admin_permissions,
@@ -30,18 +30,18 @@ from northstar_api.modules.platform_admin.access import (
 )
 from northstar_api.platform_admin_schemas import (
     PlatformAdminAccessOut,
-    PlatformOperatorOut,
-    PlatformOperatorPatch,
     PlatformConfigurationOut,
     PlatformEntitlementOut,
     PlatformImpersonationEnd,
     PlatformImpersonationOut,
     PlatformImpersonationRequest,
     PlatformOperationsOut,
+    PlatformOperatorOut,
+    PlatformOperatorPatch,
     PlatformOverviewOut,
     PlatformTenantDetailOut,
-    PlatformTenantListOut,
     PlatformTenantLifecyclePatch,
+    PlatformTenantListOut,
     PlatformTenantSubscriptionPatch,
 )
 from northstar_api.security import Principal, create_access_token

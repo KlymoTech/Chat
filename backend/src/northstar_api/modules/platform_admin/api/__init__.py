@@ -1,5 +1,5 @@
-"""Canonical platform-admin HTTP boundary."""
+"""Compatibility adapter for the renamed super-admin API boundary."""
 
-from .control_plane import router
+from northstar_api.modules.super_admin.api import router
 
 __all__ = ["router"]

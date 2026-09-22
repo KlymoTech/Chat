@@ -1,3 +1,3 @@
-"""Canonical platform-admin schema boundary."""
+"""Compatibility adapter for super-admin schemas."""
 
-from northstar_api.platform_admin_schemas import *  # noqa: F403
+from northstar_api.modules.super_admin.schemas import *  # noqa: F403

@@ -1,5 +1,3 @@
-"""Canonical platform-admin service boundary."""
+"""Compatibility adapter for super-admin services."""
 
-from northstar_api.services.platform_admin import get_platform_tenant, list_platform_tenants, platform_overview
-
-__all__ = ["get_platform_tenant", "list_platform_tenants", "platform_overview"]
+from northstar_api.modules.super_admin.services import *  # noqa: F403
