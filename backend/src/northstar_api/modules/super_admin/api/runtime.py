@@ -448,18 +448,16 @@ async def list_runtime_executions(
     return [_execution_response(record) for record in records]
 
 
-@router.post("/changes/{change_id}/executions", response_model=RuntimeExecutionOut, status_code=status.HTTP_201_CREATED)
-async def report_runtime_execution(
+async def persist_runtime_execution_report(
     change_id: UUID,
     payload: DeploymentExecutionReport,
-    principal: PlatformRuntimeManagePrincipal,
     session: DBSession,
+    *,
+    audit_tenant_id: UUID,
+    actor_user_id: UUID | None,
+    actor_type: str,
 ) -> RuntimeExecutionOut:
-    """Persist one idempotent deployment stage and health report.
-
-    This endpoint records evidence only. Provider-specific mutation remains in
-    the external deployment controller that consumed the approved outbox event.
-    """
+    """Persist idempotent deployment evidence after validating the approved plan."""
     record = await session.get(PlatformChangeRecord, change_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
@@ -476,7 +474,10 @@ async def report_runtime_execution(
             or existing.pipeline != payload.pipeline
             or existing.status != payload.phase
         ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="execution report key is already in use",
+            )
         return _execution_response(existing)
 
     current_status: ChangeStatus = record.status
@@ -488,7 +489,10 @@ async def report_runtime_execution(
             detail=f"cannot report phase {payload.phase} from change status {record.status}",
         ) from exc
     if record.source_digest != payload.source_digest or record.target_digest != payload.target_digest:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution digest does not match the approved plan")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="execution digest does not match the approved plan",
+        )
 
     now = datetime.now(UTC)
     terminal = payload.phase in {"completed", "failed", "rolled_back"}
@@ -517,15 +521,19 @@ async def report_runtime_execution(
     session.add(execution)
     record_audit_event(
         session,
-        tenant_id=principal.tenant_id,
-        actor_user_id=principal.user_id,
+        tenant_id=audit_tenant_id,
+        actor_user_id=actor_user_id,
         action="platform.runtime.change.execution_reported",
         entity_type="platform_change",
         entity_id=str(change_id),
         category="system",
-        severity="error" if payload.phase == "failed" else "info",
+        severity="critical" if payload.phase == "failed" else "info",
         after={"status": payload.phase, "pipeline": payload.pipeline},
-        metadata={"reportKey": payload.report_key, "health": payload.health_result},
+        metadata={
+            "reportKey": payload.report_key,
+            "health": payload.health_result,
+            "actorType": actor_type,
+        },
     )
     try:
         await session.commit()
@@ -545,9 +553,34 @@ async def report_runtime_execution(
             or existing.pipeline != payload.pipeline
             or existing.status != payload.phase
         ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use") from exc
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="execution report key is already in use",
+            ) from exc
         return _execution_response(existing)
     return _execution_response(execution)
+
+
+@router.post(
+    "/changes/{change_id}/executions",
+    response_model=RuntimeExecutionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def report_runtime_execution(
+    change_id: UUID,
+    payload: DeploymentExecutionReport,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> RuntimeExecutionOut:
+    """Record deployment evidence submitted by an authenticated human operator."""
+    return await persist_runtime_execution_report(
+        change_id,
+        payload,
+        session,
+        audit_tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        actor_type="platform-admin",
+    )
 
 
 @router.post("/changes/{change_id}/approve", response_model=RuntimeChangeOut)
@@ -647,5 +680,6 @@ __all__ = [
     "RuntimeChangeOut",
     "RuntimeChangePlanRequest",
     "RuntimeExecutionOut",
+    "persist_runtime_execution_report",
     "router",
 ]
