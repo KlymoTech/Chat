@@ -2,6 +2,22 @@
 
 from .capacity import CapacityBudget, build_capacity_budget
 from .contracts import DeploymentProfile, PlatformSpec, ProviderChangeClass
+from .control_center import (
+    CapabilityControlPolicy,
+    CapabilityOperation,
+    EnvironmentControlPolicy,
+    FeatureDefinition,
+    ProviderDescriptor,
+    RiskClass,
+    SwitchClass,
+    capability_control_policies,
+    capability_control_policy,
+    environment_control_policy,
+    feature_definitions,
+    mutate_capability_spec,
+    mutate_feature_spec,
+    provider_catalog,
+)
 from .control_plane import (
     ChangeLifecycleError,
     ChangePlan,
@@ -13,6 +29,15 @@ from .control_plane import (
     transition_change,
 )
 from .executor_contract import DeploymentDispatchEvent, DeploymentExecutionReport, ExecutionPhase
+from .observed_state import (
+    CostSnapshot,
+    DriftFinding,
+    DriftSnapshot,
+    HealthSnapshot,
+    detect_drift,
+    summarize_cost,
+    summarize_health,
+)
 from .registry import (
     CapabilityCatalog,
     CapabilityChangeAnalysis,
@@ -32,6 +57,27 @@ from .validation import (
 )
 
 __all__ = [
+    "summarize_health",
+    "summarize_cost",
+    "detect_drift",
+    "HealthSnapshot",
+    "DriftSnapshot",
+    "DriftFinding",
+    "CostSnapshot",
+    "provider_catalog",
+    "mutate_feature_spec",
+    "mutate_capability_spec",
+    "feature_definitions",
+    "environment_control_policy",
+    "capability_control_policy",
+    "capability_control_policies",
+    "SwitchClass",
+    "RiskClass",
+    "ProviderDescriptor",
+    "FeatureDefinition",
+    "EnvironmentControlPolicy",
+    "CapabilityOperation",
+    "CapabilityControlPolicy",
     "DependencyGraph",
     "ChangePlan",
     "ChangeLifecycleError",
