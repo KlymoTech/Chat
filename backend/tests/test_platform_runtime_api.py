@@ -4,6 +4,7 @@ from northstar_api.modules.platform_runtime import (
     build_capacity_budget,
 )
 from northstar_api.modules.super_admin.api.control_center import router as control_center_router
+from northstar_api.modules.super_admin.api.platform_executor import router as platform_executor_router
 from northstar_api.modules.super_admin.api.runtime import (
     _declared_platform_spec,
     _deployment_dispatch_payload,
@@ -49,6 +50,13 @@ def test_control_center_exposes_reviewed_switch_health_drift_cost_and_rollback_r
     }
     assert expected.issubset(routes)
     assert not any(path.endswith("/apply") or path.endswith("/delete") for path, _ in routes)
+
+
+def test_platform_executor_exposes_only_execution_evidence_callback() -> None:
+    routes = {(route.path, tuple(sorted(route.methods or ()))) for route in platform_executor_router.routes}
+    assert routes == {
+        ("/platform-executor/changes/{change_id}/executions", ("POST",)),
+    }
 
 
 def test_declared_runtime_spec_is_valid_without_exposing_secrets() -> None:
