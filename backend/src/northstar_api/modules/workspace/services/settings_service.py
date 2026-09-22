@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from northstar_api.models import Workspace
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from northstar_api.models import Workspace, WorkspaceSecurityPolicyRecord
 from northstar_api.modules.workspace.contracts import (
     DeveloperSettings,
     GeneralSettings,
@@ -38,6 +41,43 @@ def update_security_settings(workspace: Workspace, payload: SecuritySettings) ->
     workspace.settings_json = legacy
     save_document(workspace, document)
     return before
+
+
+async def sync_security_policy_record(
+    session: AsyncSession,
+    workspace: Workspace,
+    payload: SecuritySettings,
+) -> None:
+    """Persist the security contract in a queryable normalized projection.
+
+    The compatibility settings document remains the source for older clients;
+    this projection gives enforcement and operations a tenant-scoped record
+    without requiring JSON parsing on every request.
+    """
+    if not hasattr(session, "execute"):
+        return
+    record = await session.scalar(
+        select(WorkspaceSecurityPolicyRecord).where(
+            WorkspaceSecurityPolicyRecord.tenant_id == workspace.tenant_id,
+            WorkspaceSecurityPolicyRecord.workspace_id == workspace.id,
+        )
+    )
+    if record is None:
+        record = WorkspaceSecurityPolicyRecord(
+            tenant_id=workspace.tenant_id,
+            workspace_id=workspace.id,
+        )
+        session.add(record)
+    record.sensitive_data_masking = payload.sensitive_data_masking
+    record.security_contact = str(payload.security_contact) if payload.security_contact else None
+    record.mfa_enforcement = payload.mfa_enforcement
+    record.session_timeout_minutes = payload.session_timeout_minutes
+    record.password_min_length = payload.password_min_length
+    record.ip_allowlist_json = list(payload.ip_allowlist)
+    record.ip_denylist_json = list(payload.ip_denylist)
+    record.trusted_domains_json = list(payload.trusted_domains)
+    record.webhook_signing_required = payload.webhook_signing_required
+    record.security_notifications = payload.security_notifications
 
 
 def update_notification_settings(workspace: Workspace, payload: NotificationSettings) -> dict[str, Any]:

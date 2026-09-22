@@ -18,6 +18,7 @@ from .contracts import (
 from .repositories.workspace_write_lock import lock_workspace_settings
 from .security_policy import normalize_trusted_domains, validate_business_timezone, validate_security_settings
 from .services.settings_service import (
+    sync_security_policy_record,
     update_developer_settings,
     update_general_settings,
     update_notification_settings,
@@ -128,6 +129,7 @@ async def update_security(
     _, workspace = await load_workspace(principal, session)
     await lock_workspace_settings(session, workspace)
     before = update_security_settings(workspace, payload)
+    await sync_security_policy_record(session, workspace, payload)
     record_workspace_change(
         session,
         principal,

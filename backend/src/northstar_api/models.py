@@ -271,6 +271,29 @@ class WorkspaceTeamRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     escalation_rule: Mapped[str] = mapped_column(String(1000), default="")
 
 
+class WorkspaceSecurityPolicyRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Normalized, tenant-scoped policy used by security enforcement paths."""
+
+    __tablename__ = "workspace_security_policy_records"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_workspace_security_policy_workspace"),
+        Index("ix_workspace_security_policy_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    sensitive_data_masking: Mapped[bool] = mapped_column(Boolean, default=True)
+    security_contact: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    mfa_enforcement: Mapped[str] = mapped_column(String(16), default="optional")
+    session_timeout_minutes: Mapped[int] = mapped_column(Integer, default=480)
+    password_min_length: Mapped[int] = mapped_column(Integer, default=12)
+    ip_allowlist_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    ip_denylist_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    trusted_domains_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    webhook_signing_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    security_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class WorkspaceMembership(Base, TimestampMixin):
     __tablename__ = "workspace_memberships"
     __table_args__ = (
