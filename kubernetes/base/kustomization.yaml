@@ -10,6 +10,7 @@ resources:
   - worker.yaml
   - job-dispatcher.yaml
   - outbox-relay.yaml
+  - platform-change-dispatcher.yaml
   - analytics-consumer.yaml
   - object-cleaner.yaml
   - crm-router.yaml
@@ -56,7 +57,7 @@ patches:
         value: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
   - target:
       kind: Deployment
-      name: northstar-(job-dispatcher|outbox-relay|crm-router|channel-event-consumer|crm-webhook-consumer)
+      name: northstar-(job-dispatcher|outbox-relay|platform-change-dispatcher|crm-router|channel-event-consumer|crm-webhook-consumer)
     patch: |-
       - op: add
         path: /spec/strategy
