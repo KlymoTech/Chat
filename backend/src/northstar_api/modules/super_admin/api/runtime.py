@@ -9,6 +9,7 @@ approved deployment controller or GitOps pipeline.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -31,7 +32,14 @@ from northstar_api.modules.platform_runtime import (
     approver_is_distinct,
     build_capability_catalog,
     build_capacity_budget,
+    spec_digest,
     transition_change,
+)
+from northstar_api.modules.platform_runtime.configuration_state import (
+    activate_configuration_version,
+    catalog_with_observations,
+    effective_platform_spec,
+    ensure_configuration_version,
 )
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeApproval,
@@ -56,6 +64,7 @@ class RuntimeChangePlanRequest(BaseModel):
 class RuntimeChangeCreateRequest(RuntimeChangePlanRequest):
     reason: str = Field(min_length=5, max_length=500)
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    operation: Literal["enable", "disable", "switch", "stop", "destroy"] = "switch"
 
 
 class RuntimeChangeDecisionRequest(BaseModel):
@@ -74,6 +83,7 @@ class RuntimeChangeOut(BaseModel):
     status: ChangeStatus
     action: str
     classification: str
+    operation: str
     requires_approval: bool
     destructive: bool
     source_revision: int
@@ -116,6 +126,7 @@ def _change_response(record: PlatformChangeRecord) -> RuntimeChangeOut:
         status=record.status,
         action=record.action,
         classification=record.classification,
+        operation=str(impact.get("operation", "switch")),
         requires_approval=record.requires_approval,
         destructive=record.destructive,
         source_revision=record.source_revision,
@@ -145,6 +156,7 @@ def _deployment_dispatch_payload(record: PlatformChangeRecord) -> dict[str, obje
         "environment": record.environment,
         "action": record.action,
         "classification": record.classification,
+        "operation": str((record.impact_json or {}).get("operation", "switch")),
         "destructive": record.destructive,
         "sourceRevision": record.source_revision,
         "targetRevision": record.target_revision,
@@ -201,15 +213,25 @@ def _declared_platform_spec() -> PlatformSpec:
 
 
 @router.get("/capabilities", response_model=CapabilityCatalog)
-async def get_runtime_capabilities(_: PlatformSystemReadPrincipal) -> CapabilityCatalog:
-    """Return the declared capability state and dependency graph."""
-    return build_capability_catalog(_declared_platform_spec())
+async def get_runtime_capabilities(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> CapabilityCatalog:
+    """Return verified desired state overlaid with runtime observations."""
+    fallback = _declared_platform_spec()
+    spec = await effective_platform_spec(session, fallback)
+    return await catalog_with_observations(session, spec)
 
 
 @router.get("/dependencies")
-async def get_runtime_dependencies(_: PlatformSystemReadPrincipal) -> dict[str, object]:
-    """Return a stable dependency graph for the control-center graph view."""
-    catalog = build_capability_catalog(_declared_platform_spec())
+async def get_runtime_dependencies(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Return a stable dependency graph for the effective desired state."""
+    fallback = _declared_platform_spec()
+    spec = await effective_platform_spec(session, fallback)
+    catalog = build_capability_catalog(spec)
     return catalog.dependencies.model_dump(mode="json")
 
 
@@ -244,8 +266,24 @@ async def create_runtime_change(
     session: DBSession,
 ) -> RuntimeChangeOut:
     """Persist a reviewable change request; never execute infrastructure."""
+    if payload.current.metadata.environment != payload.desired.metadata.environment:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source and target environments must match")
     analysis = analyze_capability_change(payload.current, payload.desired)
     environment = payload.desired.metadata.environment
+    try:
+        effective = await effective_platform_spec(session, _declared_platform_spec(), environment=environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if spec_digest(effective) != analysis.plan.source_digest:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="source desired state is stale; refresh the control center and plan again",
+        )
+    if analysis.plan.action == "noop" and payload.operation in {"stop", "destroy"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="infrastructure lifecycle operations require an advanced target revision",
+        )
     existing = await session.scalar(
         select(PlatformChangeRecord).where(
             PlatformChangeRecord.environment == environment,
@@ -258,13 +296,19 @@ async def create_runtime_change(
         return _change_response(existing)
 
     now = datetime.now(UTC)
+    destructive = analysis.plan.destructive or payload.operation == "destroy"
+    requires_approval = (
+        analysis.plan.requires_approval
+        or payload.operation in {"stop", "destroy"}
+        or environment == "production"
+    )
     change_status: ChangeStatus = (
         "rejected"
         if analysis.plan.action == "reject"
         else "completed"
         if analysis.plan.action == "noop"
         else "waiting_approval"
-        if analysis.plan.requires_approval
+        if requires_approval
         else "approved"
     )
     record = PlatformChangeRecord(
@@ -274,8 +318,8 @@ async def create_runtime_change(
         status=change_status,
         action=analysis.plan.action,
         classification=analysis.plan.classification,
-        requires_approval=analysis.plan.requires_approval,
-        destructive=analysis.plan.destructive,
+        requires_approval=requires_approval,
+        destructive=destructive,
         source_revision=analysis.plan.source_revision,
         target_revision=analysis.plan.target_revision,
         source_digest=analysis.plan.source_digest,
@@ -287,6 +331,7 @@ async def create_runtime_change(
         impact_json={
             "changedCapabilities": list(analysis.changed_capabilities),
             "impactedCapabilities": list(analysis.impacted_capabilities),
+            "operation": payload.operation,
         },
         requested_at=now,
         current_spec_json=payload.current.model_dump(mode="json"),
@@ -295,6 +340,11 @@ async def create_runtime_change(
         completed_at=now if change_status == "completed" else None,
     )
     session.add(record)
+    if change_status not in {"rejected", "completed"}:
+        try:
+            await ensure_configuration_version(session, record)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     record_audit_event(
         session,
         tenant_id=principal.tenant_id,
@@ -446,6 +496,12 @@ async def report_runtime_execution(
     record.started_at = record.started_at or now
     if terminal:
         record.completed_at = now
+    if payload.phase == "completed":
+        try:
+            await activate_configuration_version(session, record)
+        except ValueError as exc:
+            await session.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     session.add(execution)
     record_audit_event(
         session,
