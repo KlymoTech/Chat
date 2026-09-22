@@ -1,8 +1,8 @@
-"""Portable configuration contracts for the AWS-modular runtime profiles.
+"""Portable configuration contracts for modular runtime profiles.
 
-These models describe desired state only. They do not create AWS resources,
-resolve secrets, or select an adapter; the composition root remains the only
-place allowed to do that.
+These models describe desired state only. They do not create cloud resources,
+resolve secrets, or select an adapter; the composition root and approved
+deployment executor remain the only places allowed to do that.
 """
 
 from __future__ import annotations
@@ -62,11 +62,30 @@ class FeatureSpec(_Contract):
     rag: bool = False
     analytics: bool = True
     whatsapp: bool = False
+    workflow: bool = False
+    email: bool = True
+    sms: bool = False
+    voice: bool = False
+    export: bool = True
 
 
 class ResourceSpec(_Contract):
+    """Desired lifecycle presence for infrastructure owned by this control plane.
+
+    A provisioned resource can remain present while the application no longer
+    depends on it. This is what makes "disable" distinct from "destroy".
+    """
+
     redis_provisioned: bool = False
     kafka_provisioned: bool = False
+    opensearch_provisioned: bool = False
+
+
+class ObservabilitySpec(_Contract):
+    metrics: bool = True
+    tracing: bool = True
+    logging: bool = True
+    enhanced_logs: bool = True
 
 
 class ReliabilitySpec(_Contract):
@@ -101,6 +120,7 @@ class PlatformSpec(_Contract):
     deployment: DeploymentSpec = Field(default_factory=DeploymentSpec)
     providers: ProviderSpec = Field(default_factory=ProviderSpec)
     resources: ResourceSpec = Field(default_factory=ResourceSpec)
+    observability: ObservabilitySpec = Field(default_factory=ObservabilitySpec)
     reliability: ReliabilitySpec = Field(default_factory=ReliabilitySpec)
     security: SecuritySpec = Field(default_factory=SecuritySpec)
     features: FeatureSpec = Field(default_factory=FeatureSpec)
