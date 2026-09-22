@@ -136,6 +136,9 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
       <Button variant="secondary" onClick={() => void download()} disabled={!record || saving}>Download evidence</Button>
       <Button variant="secondary" onClick={() => void retry()} disabled={saving || released}>Reprocess source</Button>
       <Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>
+      <Button variant="secondary" onClick={approveAllIssues} disabled={saving || !record || !page || !actionableIssues.length || !reason.trim()}>
+        Approve all unresolved issues
+      </Button>
       <Button onClick={() => void save()} disabled={saving || !page || blocked || !confirmed || !reason.trim()}>
         {saving ? 'Saving…' : 'Save page review'}
       </Button></>}>
@@ -183,10 +186,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
           </>}
         </fieldset>)}
         <label>Reason for page review<input value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} /></label>
-        {actionableIssues.length > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
-          <Button variant="secondary" disabled={saving || !reason.trim()} onClick={approveAllIssues}>Approve all unresolved issues</Button>
-          <small>Uses this page reason for each source-verified issue. Technical failures still require reprocessing.</small>
-        </div>}
+        <small>Use <strong>Approve all unresolved issues</strong> in the footer to apply this page reason to every source-verifiable issue. Technical failures still require reprocessing.</small>
         {!leaves.length && !page.native_text && <label><input type="checkbox" checked={blank} onChange={(e) => setBlank(e.target.checked)} />Source is blank</label>}
         <label><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
           I checked every source region, text, order, table cell, equation and relationship on this page.</label>

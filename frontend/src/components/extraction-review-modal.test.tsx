@@ -50,8 +50,11 @@ describe('Extraction source review', () => {
     const user = userEvent.setup();
     render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
     await screen.findByText(/Independent second review: required/);
+    const approveAll = screen.getByRole('button', { name: 'Approve all unresolved issues' });
+    expect(approveAll).toBeDisabled();
     await user.type(screen.getByLabelText('Reason for page review'), 'Checked source evidence for this page');
-    await user.click(screen.getByRole('button', { name: 'Approve all unresolved issues' }));
+    expect(approveAll).toBeEnabled();
+    await user.click(approveAll);
 
     expect(screen.getByLabelText('Decision for I000001')).toHaveValue('source_verified');
     expect(screen.getByLabelText('Source evidence and reason for I000001')).toHaveValue('Checked source evidence for this page');
