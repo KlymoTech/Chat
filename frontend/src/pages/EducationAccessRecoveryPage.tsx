@@ -8,7 +8,7 @@ import {
   educationAccessRecoveryApi,
   type EducationRecoveryIdentityType,
 } from '@/lib/education-access-recovery-api';
-import './VerifyEmailPage.css';
+import '@/features/website/pages/VerifyEmailPage.css';
 
 type RecoveryStep = 'identify' | 'verify' | 'success';
 

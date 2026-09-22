@@ -25,7 +25,7 @@ const EducationEnrollmentsPage = lazy(() => import('@/pages/EducationEnrollments
 const EducationHubPage = lazy(() => import('@/pages/EducationHubPage').then((module) => ({ default: module.EducationHubPage })));
 const EducationStudentDetailPage = lazy(() => import('@/pages/EducationStudentDetailPage').then((module) => ({ default: module.EducationStudentDetailPage })));
 const EducationStudentImportPage = lazy(() => import('@/pages/EducationStudentImportPage').then((module) => ({ default: module.EducationStudentImportPage })));
-const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
+const ForgotPasswordPageView = lazy(() => import('@/features/website/pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
 const IntegrationsHubPage = lazy(() => import('@/pages/IntegrationsHubPage').then((module) => ({ default: module.IntegrationsHubPage })));
 const IntegrationManagementPage = lazy(() => import('@/pages/IntegrationManagementPage').then((module) => ({ default: module.IntegrationManagementPage })));
 const HelpArticlePage = lazy(() => import('@/pages/HelpArticlePage').then((module) => ({ default: module.HelpArticlePage })));
@@ -36,18 +36,18 @@ const HelpSearchPage = lazy(() => import('@/pages/HelpSearchPage').then((module)
 const HelpSupportPage = lazy(() => import('@/pages/HelpSupportPage').then((module) => ({ default: module.HelpSupportPage })));
 const HelpSupportRequestPage = lazy(() => import('@/pages/HelpSupportRequestPage').then((module) => ({ default: module.HelpSupportRequestPage })));
 const LeadsPage = lazy(() => import('@/pages/LeadsPage').then((module) => ({ default: module.LeadsPage })));
-const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
-const MFAChallengePage = lazy(() => import('@/pages/MFAChallengePage').then((module) => ({ default: module.MFAChallengePage })));
+const LoginPageView = lazy(() => import('@/features/website/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const MFAChallengePageView = lazy(() => import('@/features/website/pages/MFAChallengePage').then((module) => ({ default: module.MFAChallengePage })));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((module) => ({ default: module.OverviewPage })));
-const PlatformAdminPage = lazy(() => import('@/pages/PlatformAdminPage').then((module) => ({ default: module.PlatformAdminPage })));
-const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
-const SignupPage = lazy(() => import('@/pages/SignupPage').then((module) => ({ default: module.SignupPage })));
+const PlatformAdminPageView = lazy(() => import('@/features/platform-admin').then((module) => ({ default: module.PlatformAdminPage })));
+const ResetPasswordPageView = lazy(() => import('@/features/website/pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
+const SignupPageView = lazy(() => import('@/features/website/pages/SignupPage').then((module) => ({ default: module.SignupPage })));
 const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));
-const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
-const WorkspaceInvitationPage = lazy(() => import('@/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
-const WorkspaceSettingsPage = lazy(() => import('@/features/workspace/settings').then((module) => ({ default: module.WorkspaceSettingsPage })));
-const WidgetDemoPage = lazy(() => import('@/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
+const VerifyEmailPageView = lazy(() => import('@/features/website/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
+const WorkspaceInvitationPageView = lazy(() => import('@/features/website/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
+const WorkspaceSettingsPageView = lazy(() => import('@/features/admin').then((module) => ({ default: module.WorkspaceSettingsPage })));
+const WidgetDemoPageView = lazy(() => import('@/features/website/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
 const OrganizationsPage = lazy(() => import('@/pages/OrganizationsPage').then((module) => ({ default: module.OrganizationsPage })));
 const OrganizationBillingPage = lazy(() => import('@/pages/OrganizationBillingPage').then((module) => ({ default: module.OrganizationBillingPage })));
@@ -71,16 +71,16 @@ function ProtectedLayout() {
 
 export function App() {
   return <PageErrorBoundary><Suspense fallback={<PageLoader />}><Routes>
-    <Route path="/login" element={<LoginPage />} />
-    <Route path="/signup" element={<SignupPage />} />
-    <Route path="/verify-email" element={<VerifyEmailPage />} />
-    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-    <Route path="/reset-password" element={<ResetPasswordPage />} />
-    <Route path="/mfa-challenge" element={<MFAChallengePage />} />
-    <Route path="/workspace-invitation" element={<WorkspaceInvitationPage />} />
+    <Route path="/login" element={<LoginPageView />} />
+    <Route path="/signup" element={<SignupPageView />} />
+    <Route path="/verify-email" element={<VerifyEmailPageView />} />
+    <Route path="/forgot-password" element={<ForgotPasswordPageView />} />
+    <Route path="/reset-password" element={<ResetPasswordPageView />} />
+    <Route path="/mfa-challenge" element={<MFAChallengePageView />} />
+    <Route path="/workspace-invitation" element={<WorkspaceInvitationPageView />} />
     <Route path="/education-access-recovery" element={<EducationAccessRecoveryPage />} />
-    <Route path="/demo/:agentId?" element={<WidgetDemoPage />} />
-    <Route path="/widget/:agentId" element={<WidgetDemoPage embedded />} />
+    <Route path="/demo/:agentId?" element={<WidgetDemoPageView />} />
+    <Route path="/widget/:agentId" element={<WidgetDemoPageView embedded />} />
     <Route element={<OrganizationLayout />}>
       <Route path="organizations" element={<OrganizationsPage />} />
       <Route path="organization/billing" element={<OrganizationBillingPage />} />
@@ -117,25 +117,25 @@ export function App() {
           publish white-label control center. */}
       <Route path="workspace/white-label" element={<Navigate to="/workspace/settings/branding" replace />} />
       <Route path="workspace/settings" element={<Navigate to="/workspace/settings/general" replace />} />
-      <Route path="workspace/settings/:section" element={<WorkspaceSettingsPage />} />
+      <Route path="workspace/settings/:section" element={<WorkspaceSettingsPageView />} />
       {/* Platform control-plane aliases keep the admin hierarchy addressable
           while the current control-plane screen owns the shared data loaders. */}
-      <Route path="platform-admin" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/dashboard" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/tenants" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/workspaces" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/users" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/subscriptions" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/plans" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/usage" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/channels" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/integrations" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/jobs" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/webhooks" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/audit" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/security" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/support" element={<PlatformAdminPage />} />
-      <Route path="platform-admin/system" element={<PlatformAdminPage />} />
+      <Route path="platform-admin" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/dashboard" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/tenants" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/workspaces" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/users" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/subscriptions" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/plans" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/usage" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/channels" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/integrations" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/jobs" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/webhooks" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/audit" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/security" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/support" element={<PlatformAdminPageView />} />
+      <Route path="platform-admin/system" element={<PlatformAdminPageView />} />
       <Route path="help" element={<HelpCenterPage />} />
       <Route path="help/search" element={<HelpSearchPage />} />
       <Route path="help/categories/:slug" element={<HelpCategoryPage />} />

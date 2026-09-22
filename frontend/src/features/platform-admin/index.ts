@@ -1,5 +1,5 @@
 /** Platform control-plane feature boundary. */
-export { PlatformAdminPage } from '@/pages/PlatformAdminPage';
+export { PlatformAdminPage } from './PlatformAdminPage';
 export { platformAdminApi } from '@/lib/platform-admin-api';
 export type {
   PlatformOverview,
