@@ -83,6 +83,18 @@ describe('Extraction source review', () => {
     expect(screen.getByRole('button', { name: 'Download evidence' })).toBeEnabled();
   });
 
+  it('treats an already-running extraction retry as an informational state', async () => {
+    const user = userEvent.setup();
+    mocks.retryExtraction.mockRejectedValue(new Error('Source is not awaiting extraction review'));
+    render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
+    await screen.findByText(/Independent second review: required/);
+
+    await user.click(screen.getByRole('button', { name: 'Reprocess source' }));
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/already queued or processing/));
+    expect(screen.getByRole('button', { name: 'Reprocessing…' })).toBeDisabled();
+  });
+
   it('invalidates confirmation when structured content changes', async () => {
     const user = userEvent.setup();
     render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);

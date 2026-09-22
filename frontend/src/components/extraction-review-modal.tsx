@@ -22,6 +22,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   const [blank, setBlank] = useState(false);
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -104,9 +105,17 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   };
 
   const retry = async () => {
-    setSaving(true); setError('');
-    try { await api.knowledge.retryExtraction(source.id); onApproved('Extraction retry started'); }
-    catch (cause) { setError(apiErrorMessage(cause, 'Unable to retry extraction.')); }
+    if (saving || released || retrying) return;
+    setSaving(true); setRetrying(true); setError(''); setNotice('');
+    try { await api.knowledge.retryExtraction(source.id); onApproved('Extraction retry started; source is processing'); }
+    catch (cause) {
+      const message = apiErrorMessage(cause, 'Unable to retry extraction.');
+      if (message.toLowerCase().includes('not awaiting extraction review')) {
+        setNotice('Extraction is already queued or processing. Monitor the source status and reopen the review when it returns to needs review.');
+      } else {
+        setRetrying(false); setError(message);
+      }
+    }
     finally { setSaving(false); }
   };
 
@@ -150,7 +159,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
     footer={<><Button variant="secondary" onClick={() => void openStoredPdf()} disabled={!record || saving}>Open stored PDF</Button>
       <Button variant="secondary" onClick={() => void downloadText()} disabled={!record || saving}>Download extracted text</Button>
       <Button variant="secondary" onClick={() => void download()} disabled={!record || saving}>Download evidence</Button>
-      <Button variant="secondary" onClick={() => void retry()} disabled={saving || released}>Reprocess source</Button>
+      <Button variant="secondary" onClick={() => void retry()} disabled={saving || released || retrying}>{retrying ? 'Reprocessing…' : 'Reprocess source'}</Button>
       <Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>
       <Button variant="secondary" onClick={approveAllIssues} disabled={saving || !record || !page || !actionableIssues.length}>
         Approve all unresolved issues

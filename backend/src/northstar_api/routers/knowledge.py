@@ -467,6 +467,12 @@ class ExtractionApproval(APIModel):
 @router.post("/knowledge/{source_id}/extraction/retry", response_model=KnowledgeOut)
 async def retry_extraction(source_id: UUID, principal: KnowledgeManagePrincipal, session: DB) -> KnowledgeOut:
     source = await _review_source(source_id, principal, session)
+    # Retrying is intentionally idempotent while a previous request is already
+    # being processed. The UI can be left open or a user can click twice; do
+    # not turn that normal state transition into a misleading 409 error or
+    # enqueue duplicate ingestion jobs.
+    if source.status == KnowledgeStatus.PROCESSING:
+        return source_response(source)
     if source.status != KnowledgeStatus.NEEDS_REVIEW or not source.object_key:
         raise HTTPException(status_code=409, detail="Source is not awaiting extraction review")
     source.revision += 1

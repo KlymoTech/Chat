@@ -108,6 +108,17 @@ async def test_second_reviewer_releases_correct_version(review_context):
     assert c.store.put_extraction.await_count == 3
 
 
+async def test_extraction_retry_is_idempotent_while_processing(review_context):
+    c = review_context
+    c.source.status = KnowledgeStatus.PROCESSING
+
+    result = await knowledge.retry_extraction(c.source.id, SimpleNamespace(user_id=uuid4()), c.session)
+
+    assert result.status == KnowledgeStatus.PROCESSING
+    assert c.added == []
+    c.session.commit.assert_not_awaited()
+
+
 async def test_corrupted_archive_rejected(review_context):
     c = review_context
     payload = io.BytesIO()
