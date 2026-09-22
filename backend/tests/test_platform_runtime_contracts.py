@@ -8,6 +8,7 @@ from northstar_api.modules.platform_runtime import (
     PlatformSpec,
     PlatformSpecError,
     analyze_capability_change,
+    apply_operation_policy,
     approver_is_distinct,
     build_capability_catalog,
     build_change_plan,
@@ -179,6 +180,24 @@ def test_disable_is_separate_from_stop_and_destroy() -> None:
     assert destroyed.providers.cache == "none"
     assert destroyed.resources.redis_provisioned is False
     assert destroyed.metadata.revision == 7
+
+
+def test_stop_and_destroy_plans_are_elevated_even_when_provider_config_is_already_detached() -> None:
+    current = PlatformSpec(metadata={"revision": 5}, resources={"redis_provisioned": True})
+    stopped = mutate_capability_spec(current, "cache", operation="stop")
+    stop_analysis = apply_operation_policy(analyze_capability_change(current, stopped), "stop")
+    assert stop_analysis.plan.action == "migrate"
+    assert stop_analysis.plan.classification == "migration"
+    assert stop_analysis.plan.requires_approval is True
+    assert stop_analysis.plan.destructive is False
+    assert "stop_infrastructure" in stop_analysis.plan.steps
+
+    destroyed = mutate_capability_spec(stopped, "cache", operation="destroy")
+    destroy_analysis = apply_operation_policy(analyze_capability_change(stopped, destroyed), "destroy")
+    assert destroy_analysis.plan.action == "migrate"
+    assert destroy_analysis.plan.destructive is True
+    assert "generate_gitops_or_terraform_plan" in destroy_analysis.plan.steps
+    assert "destroy_infrastructure" in destroy_analysis.plan.steps
 
 
 def test_stateful_resource_cannot_be_stopped_while_still_in_request_path() -> None:
