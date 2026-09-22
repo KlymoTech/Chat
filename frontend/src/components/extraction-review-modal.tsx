@@ -114,8 +114,20 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   const actionableIssues = issues.filter((issue) => issue.status !== 'resolved' && !issue.technical);
   const leaves = (page?.blocks ?? []).filter((b) => b.status !== 'split');
   const released = record?.review_status === 'verified_release';
-  const blocked = released || record?.schema_version !== 2 || issues.some((i) => i.technical && i.status !== 'resolved')
-    || leaves.some((b) => !b.visual) || (Boolean(page?.image) && !imageUrl);
+  const hasTechnicalBlocker = issues.some((i) => i.technical && i.status !== 'resolved');
+  const hasMissingVisualEvidence = leaves.some((b) => !b.visual);
+  const evidenceLoading = Boolean(page?.image) && !imageUrl;
+  const blocked = released || record?.schema_version !== 2 || hasTechnicalBlocker
+    || hasMissingVisualEvidence || evidenceLoading;
+  const blockerMessage = hasTechnicalBlocker
+    ? 'Technical extraction failures are present. Reprocess the source before confirming this page.'
+    : hasMissingVisualEvidence
+      ? 'One or more source regions has no successful visual evidence. Reprocess the source before confirming this page.'
+      : evidenceLoading
+        ? 'Source evidence is still loading. Wait for it to finish before confirming this page.'
+        : record?.schema_version !== 2
+          ? 'This extraction uses an outdated evidence schema. Reprocess the source before confirming this page.'
+          : '';
   const updateStructure = (id: string, value: string) => { setStructures((s) => ({ ...s, [id]: value })); setConfirmed(false); };
   const changePage = (index: number) => { setCurrent(index); setConfirmed(false); setBlank(false); setReason(''); };
   const approveAllIssues = () => {
@@ -158,7 +170,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
         <p><strong>Source unit {page.number} of {record.pages.length}</strong> · Printed label: {page.printed_page_label ?? 'not identified'}</p>
         {page.quality && <p>Extraction quality: {Math.round(page.quality.score * 100)}% · {page.quality.method.replaceAll('_', ' ')}{page.quality.reasons.length ? ` · Review flags: ${page.quality.reasons.join(', ')}` : ' · Native text accepted'}</p>}
         <p>Primary review: {page.primary_review ? 'recorded' : 'pending'}. {page.requires_second_review && `Independent second review: ${page.second_review ? 'recorded' : 'required'}.`}</p>
-        {blocked && !released && <p role="alert">This page needs successful source processing and loaded evidence before review can be saved. The draft package remains available.</p>}
+        {blocked && !released && <p role="alert">{blockerMessage} The draft package remains available.</p>}
         {imageUrl && <a href={imageUrl} target="_blank" rel="noreferrer" aria-label="Open full resolution source page"><img src={imageUrl} alt={`Original source page ${page.number}`} style={{ display: 'block', width: '100%', maxHeight: 550, objectFit: 'contain' }} /></a>}
         <label>Native source text<textarea readOnly rows={6} value={page.native_text} style={{ width: '100%' }} /></label>
         {page.visual_text !== null && <label>Independent visual reading<textarea readOnly rows={6} value={page.visual_text} style={{ width: '100%' }} /></label>}
@@ -192,7 +204,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
         <label>Reason for page review<input value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} /></label>
         <small>Click <strong>Approve all unresolved issues</strong> to fill every source-verifiable issue. If no reason is entered, a standard audit reason is inserted. Technical failures still require reprocessing.</small>
         {!leaves.length && !page.native_text && <label><input type="checkbox" checked={blank} onChange={(e) => setBlank(e.target.checked)} />Source is blank</label>}
-        <label><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
+        <label title={blocked && !released ? blockerMessage : undefined}><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
           I checked every source region, text, order, table cell, equation and relationship on this page.</label>
         <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
           <Button variant="secondary" disabled={saving || current === 0} onClick={() => changePage(current - 1)}>Previous</Button>

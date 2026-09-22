@@ -52,6 +52,8 @@ describe('Extraction source review', () => {
     await screen.findByText(/Independent second review: required/);
     const approveAll = screen.getByRole('button', { name: 'Approve all unresolved issues' });
     expect(approveAll).toBeEnabled();
+    const confirm = screen.getByRole('checkbox', { name: /I checked every source/ });
+    expect(confirm).toBeEnabled();
     await user.click(approveAll);
 
     expect(screen.getByLabelText('Decision for I000001')).toHaveValue('source_verified');
@@ -75,6 +77,8 @@ describe('Extraction source review', () => {
     render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
     await screen.findByText('Failed call');
     expect(screen.getByRole('button', { name: 'Save page review' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /I checked every source/ })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Technical extraction failures are present/);
     expect(screen.queryByLabelText('Decision for T1')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download evidence' })).toBeEnabled();
   });
