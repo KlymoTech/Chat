@@ -10,6 +10,7 @@ from .control_center import (
     ProviderDescriptor,
     RiskClass,
     SwitchClass,
+    apply_operation_policy,
     capability_control_policies,
     capability_control_policy,
     environment_control_policy,
@@ -57,6 +58,7 @@ from .validation import (
 )
 
 __all__ = [
+    "apply_operation_policy",
     "summarize_health",
     "summarize_cost",
     "detect_drift",
