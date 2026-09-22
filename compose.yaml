@@ -47,6 +47,11 @@ x-api-environment: &api-environment
   KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
   KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
   BACKGROUND_DISPATCH_ENABLED: ${BACKGROUND_DISPATCH_ENABLED:-true}
+  PLATFORM_CHANGE_EXECUTOR_URL: ${PLATFORM_CHANGE_EXECUTOR_URL:-}
+  PLATFORM_CHANGE_EXECUTOR_TOKEN: ${PLATFORM_CHANGE_EXECUTOR_TOKEN:-}
+  PLATFORM_CHANGE_EXECUTOR_TIMEOUT_SECONDS: ${PLATFORM_CHANGE_EXECUTOR_TIMEOUT_SECONDS:-15}
+  PLATFORM_CHANGE_EXECUTOR_POLL_SECONDS: ${PLATFORM_CHANGE_EXECUTOR_POLL_SECONDS:-1}
+  PLATFORM_CHANGE_EXECUTOR_MAX_ATTEMPTS: ${PLATFORM_CHANGE_EXECUTOR_MAX_ATTEMPTS:-50}
   S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
   S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
   S3_BUCKET: ${S3_BUCKET:-northstar-knowledge}
@@ -309,6 +314,26 @@ services:
     networks:
       - data
       - events
+    security_opt:
+      - no-new-privileges:true
+
+  platform-change-dispatcher:
+    <<: *api-runtime
+    profiles: ["platform-control"]
+    command: ["python", "-m", "northstar_api.workers.platform_change_dispatcher"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-platform-change-dispatcher
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - egress
     security_opt:
       - no-new-privileges:true
 
