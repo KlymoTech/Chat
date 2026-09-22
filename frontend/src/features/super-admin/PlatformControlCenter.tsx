@@ -69,6 +69,9 @@ export function PlatformControlCenter({
   canManage,
   onChangeCreated,
 }: PlatformControlCenterProps) {
+  const [activeEnvironment, setActiveEnvironment] = useState(catalog.environment);
+  const [displayCatalog, setDisplayCatalog] = useState(catalog);
+  const [environments, setEnvironments] = useState<string[]>([catalog.environment]);
   const [snapshot, setSnapshot] = useState<PlatformSpecSnapshot | null>(null);
   const [providers, setProviders] = useState<PlatformProviderDescriptor[]>([]);
   const [policies, setPolicies] = useState<PlatformControlPolicy[]>([]);
@@ -93,19 +96,31 @@ export function PlatformControlCenter({
     return result;
   }, [providers]);
 
-  const refresh = async () => {
-    const environment = catalog.environment;
-    const [nextSnapshot, nextProviders, nextPolicies, nextFeatures, nextHealth, nextDrift, nextCost, nextVersions] =
-      await Promise.all([
-        platformAdminApi.runtimeSpec(environment),
-        platformAdminApi.runtimeProviders(),
-        platformAdminApi.runtimePolicies(),
-        platformAdminApi.runtimeFeatures(environment),
-        platformAdminApi.runtimeHealth(environment),
-        platformAdminApi.runtimeDrift(environment),
-        platformAdminApi.runtimeCost(environment),
-        platformAdminApi.runtimeConfigVersions(environment),
-      ]);
+  const refresh = async (environment: string) => {
+    const [
+      nextCatalog,
+      nextSnapshot,
+      nextProviders,
+      nextPolicies,
+      nextFeatures,
+      nextHealth,
+      nextDrift,
+      nextCost,
+      nextVersions,
+      nextEnvironments,
+    ] = await Promise.all([
+      platformAdminApi.runtimeCapabilities(environment),
+      platformAdminApi.runtimeSpec(environment),
+      platformAdminApi.runtimeProviders(),
+      platformAdminApi.runtimePolicies(),
+      platformAdminApi.runtimeFeatures(environment),
+      platformAdminApi.runtimeHealth(environment),
+      platformAdminApi.runtimeDrift(environment),
+      platformAdminApi.runtimeCost(environment),
+      platformAdminApi.runtimeConfigVersions(environment),
+      platformAdminApi.runtimeEnvironments(),
+    ]);
+    setDisplayCatalog(nextCatalog);
     setSnapshot(nextSnapshot);
     setProviders(nextProviders);
     setPolicies(nextPolicies);
@@ -114,19 +129,21 @@ export function PlatformControlCenter({
     setDrift(nextDrift);
     setCost(nextCost);
     setVersions(nextVersions);
-    setProviderDrafts((current) => {
-      const next = { ...current };
-      catalog.capabilities.forEach((capability) => {
-        next[capability.definition.capability_id] ??= capability.provider;
-      });
-      return next;
-    });
+    setEnvironments(nextEnvironments);
+    setProviderDrafts(Object.fromEntries(
+      nextCatalog.capabilities.map((capability) => [
+        capability.definition.capability_id,
+        capability.provider,
+      ]),
+    ));
   };
 
   useEffect(() => {
     let active = true;
     setError('');
-    void refresh().catch((reason) => {
+    setActiveEnvironment(catalog.environment);
+    setDisplayCatalog(catalog);
+    void refresh(catalog.environment).catch((reason) => {
       if (active) setError(reason instanceof Error ? reason.message : 'Control-center data could not be loaded');
     });
     return () => { active = false; };
@@ -143,7 +160,11 @@ export function PlatformControlCenter({
     setBusy(`${capabilityId}:${operation}`);
     setError('');
     try {
-      const planned = await platformAdminApi.planRuntimeCapabilityChange(capabilityId, { operation, provider });
+      const planned = await platformAdminApi.planRuntimeCapabilityChange(capabilityId, {
+        operation,
+        provider,
+        environment: activeEnvironment,
+      });
       if (planned.analysis.blockers.length) {
         setError(`Change blocked: ${planned.analysis.blockers.join(', ')}`);
         return;
@@ -161,9 +182,10 @@ export function PlatformControlCenter({
         provider,
         reason,
         idempotency_key: changeKey(`${capabilityId}-${operation}`),
+        environment: activeEnvironment,
       });
       onChangeCreated(created);
-      await refresh();
+      await refresh(activeEnvironment);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Platform capability change could not be created');
     } finally {
@@ -177,7 +199,11 @@ export function PlatformControlCenter({
     setBusy(`feature:${feature.definition.feature_id}`);
     setError('');
     try {
-      const planned = await platformAdminApi.planRuntimeFeatureChange(feature.definition.feature_id, desired);
+      const planned = await platformAdminApi.planRuntimeFeatureChange(
+        feature.definition.feature_id,
+        desired,
+        activeEnvironment,
+      );
       if (planned.analysis.blockers.length) {
         setError(`Change blocked: ${planned.analysis.blockers.join(', ')}`);
         return;
@@ -189,11 +215,25 @@ export function PlatformControlCenter({
         enabled: desired,
         reason,
         idempotency_key: changeKey(`feature-${feature.definition.feature_id}`),
+        environment: activeEnvironment,
       });
       onChangeCreated(created);
-      await refresh();
+      await refresh(activeEnvironment);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Feature change could not be created');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const selectEnvironment = async (environment: string) => {
+    setActiveEnvironment(environment);
+    setBusy('environment');
+    setError('');
+    try {
+      await refresh(environment);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Environment state could not be loaded');
     } finally {
       setBusy('');
     }
@@ -210,8 +250,21 @@ export function PlatformControlCenter({
       </div>
       {error ? <div className="platform-control-alert"><AlertTriangle /><span>{error}</span></div> : null}
       <div className="platform-control-summary">
-        <div><small>Environment</small><strong>{label(catalog.environment)}</strong><small>{catalog.profile}</small></div>
-        <div><small>Desired revision</small><strong>v{snapshot?.spec.metadata.revision ?? catalog.revision}</strong><small>{snapshot?.digest.slice(0, 12) ?? 'loading'}…</small></div>
+        <div>
+          <small>Environment</small>
+          <select
+            aria-label="Platform environment"
+            value={activeEnvironment}
+            disabled={busy === 'environment'}
+            onChange={(event) => void selectEnvironment(event.target.value)}
+          >
+            {environments.map((environment) => <option value={environment} key={environment}>
+              {label(environment)}
+            </option>)}
+          </select>
+          <small>{displayCatalog.profile}{activeEnvironment === 'production' ? ' · production controls enforced' : ''}</small>
+        </div>
+        <div><small>Desired revision</small><strong>v{snapshot?.spec.metadata.revision ?? displayCatalog.revision}</strong><small>{snapshot?.digest.slice(0, 12) ?? 'loading'}…</small></div>
         <div><small>Health evidence</small><strong>{health ? `${health.healthy} healthy` : 'Loading'}</strong><small>{health ? `${health.unknown} unobserved` : '—'}</small></div>
         <div><small>Drift</small><strong>{drift?.drift_count ?? '—'}</strong><small>{drift ? `${drift.unobserved_count} awaiting observation` : '—'}</small></div>
         <div><small>Reported monthly cost</small><strong>{cost ? `$${cost.reported_monthly_usd.toFixed(2)}` : '—'}</strong><small>{cost ? `${cost.unreported_capabilities.length} without cost evidence` : '—'}</small></div>
@@ -227,7 +280,7 @@ export function PlatformControlCenter({
         <div className="platform-capability-row platform-capability-row--head" role="row">
           <span>Capability</span><span>Desired</span><span>Actual</span><span>Provider</span><span>Policy</span><span>Controls</span>
         </div>
-        {catalog.capabilities.map((capability) => {
+        {displayCatalog.capabilities.map((capability) => {
           const id = capability.definition.capability_id;
           const policy = policyByCapability[id];
           const options = providersByCapability[id] ?? [];
