@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.models import Workspace, WorkspaceSecurityPolicyRecord
+from northstar_api.models import Workspace, WorkspaceDeveloperSettingsRecord, WorkspaceSecurityPolicyRecord
 from northstar_api.modules.workspace.contracts import (
     DeveloperSettings,
     GeneralSettings,
@@ -78,6 +78,34 @@ async def sync_security_policy_record(
     record.trusted_domains_json = list(payload.trusted_domains)
     record.webhook_signing_required = payload.webhook_signing_required
     record.security_notifications = payload.security_notifications
+
+
+async def sync_developer_settings_record(
+    session: AsyncSession,
+    workspace: Workspace,
+    payload: DeveloperSettings,
+) -> None:
+    """Persist API/webhook controls in a queryable workspace projection."""
+    if not hasattr(session, "execute"):
+        return
+    record = await session.scalar(
+        select(WorkspaceDeveloperSettingsRecord).where(
+            WorkspaceDeveloperSettingsRecord.tenant_id == workspace.tenant_id,
+            WorkspaceDeveloperSettingsRecord.workspace_id == workspace.id,
+        )
+    )
+    if record is None:
+        record = WorkspaceDeveloperSettingsRecord(
+            tenant_id=workspace.tenant_id,
+            workspace_id=workspace.id,
+        )
+        session.add(record)
+    record.sandbox_mode = payload.sandbox_mode
+    record.webhook_signing_enabled = payload.webhook_signing_enabled
+    record.webhook_events_json = list(payload.webhook_events)
+    record.rate_limit_per_minute = payload.rate_limit_per_minute
+    record.request_log_retention_days = payload.request_log_retention_days
+    record.webhook_retry_limit = payload.webhook_retry_limit
 
 
 def update_notification_settings(workspace: Workspace, payload: NotificationSettings) -> dict[str, Any]:

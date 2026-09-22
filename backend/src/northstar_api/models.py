@@ -296,6 +296,25 @@ class WorkspaceSecurityPolicyRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     security_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class WorkspaceDeveloperSettingsRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Normalized developer/webhook policy for workspace API operations."""
+
+    __tablename__ = "workspace_developer_settings_records"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_workspace_developer_settings_workspace"),
+        Index("ix_workspace_developer_settings_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    sandbox_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    webhook_signing_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    webhook_events_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    rate_limit_per_minute: Mapped[int] = mapped_column(Integer, default=120)
+    request_log_retention_days: Mapped[int] = mapped_column(Integer, default=30)
+    webhook_retry_limit: Mapped[int] = mapped_column(Integer, default=5)
+
+
 class WorkspaceMembership(Base, TimestampMixin):
     __tablename__ = "workspace_memberships"
     __table_args__ = (

@@ -21,7 +21,10 @@ from northstar_api.modules.workspace.security_policy import (
     validate_business_timezone,
     validate_security_settings,
 )
-from northstar_api.modules.workspace.services.settings_service import sync_security_policy_record
+from northstar_api.modules.workspace.services.settings_service import (
+    sync_developer_settings_record,
+    sync_security_policy_record,
+)
 from northstar_api.modules.workspace.services.team_service import (
     list_workspace_team_records,
     sync_workspace_team_records,
@@ -43,6 +46,7 @@ __all__ = [
     "required_password_length",
     "resolve_workspace_domain",
     "save_member_status",
+    "sync_developer_settings_record",
     "sync_security_policy_record",
     "sync_workspace_team_records",
     "update_workspace_teams",
