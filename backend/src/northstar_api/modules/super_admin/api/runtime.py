@@ -37,6 +37,7 @@ from northstar_api.modules.platform_runtime import (
 )
 from northstar_api.modules.platform_runtime.configuration_state import (
     activate_configuration_version,
+    apply_capability_observations,
     catalog_with_observations,
     effective_platform_spec,
     ensure_configuration_version,
@@ -515,6 +516,12 @@ async def persist_runtime_execution_report(
     if payload.phase == "completed":
         try:
             await activate_configuration_version(session, record)
+            target_spec = PlatformSpec.model_validate(record.desired_spec_json)
+            await apply_capability_observations(
+                session,
+                target_spec,
+                payload.capability_observations,
+            )
         except ValueError as exc:
             await session.rollback()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
