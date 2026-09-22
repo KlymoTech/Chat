@@ -310,6 +310,7 @@ export function PlatformControlCenter({
                 </option>)}
               </select>
               <small>Observed: {capability.observed_provider ? label(capability.observed_provider) : 'not reported'}</small>
+              <small>{capability.observed_at ? `Evidence: ${new Date(capability.observed_at).toLocaleString()}` : 'No observation timestamp'}</small>
             </span>
             <span>
               <Badge tone={statusTone(policy?.risk_class ?? (capability.definition.locked ? 'locked' : 'unknown'))}>
