@@ -261,6 +261,7 @@ async def catalog_with_observations(
             continue
         metadata = row.metadata_json or {}
         observed_provider = metadata.get("observedProvider")
+        observed_at = metadata.get("observedAt")
         health_message = metadata.get("healthMessage")
         states.append(
             state.model_copy(
@@ -270,6 +271,7 @@ async def catalog_with_observations(
                     "fallback_active": bool(metadata.get("fallbackActive", False)),
                     "health_message": health_message if isinstance(health_message, str) else None,
                     "observed_provider": observed_provider if isinstance(observed_provider, str) else None,
+                    "observed_at": observed_at if isinstance(observed_at, str) else None,
                     "estimated_monthly_cost_usd": _cost_value(metadata),
                 }
             )
