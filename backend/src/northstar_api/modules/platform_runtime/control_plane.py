@@ -170,7 +170,7 @@ def build_change_plan(
     else:
         steps = ("validate_dependencies", "apply_runtime_configuration", "verify_observed_state")
         action = "apply"
-        requires_approval = False
+        requires_approval = desired.metadata.environment == "production"
 
     return ChangePlan(
         plan_id=plan_id or uuid4(),
