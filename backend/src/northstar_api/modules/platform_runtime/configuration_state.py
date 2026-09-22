@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -174,10 +175,7 @@ async def apply_capability_observations(
     if not observations:
         return
     catalog = build_capability_catalog(spec)
-    desired_by_id = {
-        state.definition.capability_id: state
-        for state in catalog.capabilities
-    }
+    desired_by_id = {state.definition.capability_id: state for state in catalog.capabilities}
     rows = (
         await session.scalars(
             select(PlatformCapabilityRecord).where(
@@ -186,7 +184,7 @@ async def apply_capability_observations(
         )
     ).all()
     existing = {row.capability_id: row for row in rows}
-    observed_at = __import__("datetime").datetime.now(__import__("datetime").UTC).isoformat()
+    observed_at = datetime.now(UTC).isoformat()
 
     seen: set[str] = set()
     for observation in observations:
