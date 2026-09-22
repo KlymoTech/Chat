@@ -46,6 +46,24 @@ describe('Extraction source review', () => {
     expect(approved).not.toHaveBeenCalled();
   });
 
+  it('approves every unresolved source issue from one page reason', async () => {
+    const user = userEvent.setup();
+    render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
+    await screen.findByText(/Independent second review: required/);
+    await user.type(screen.getByLabelText('Reason for page review'), 'Checked source evidence for this page');
+    await user.click(screen.getByRole('button', { name: 'Approve all unresolved issues' }));
+
+    expect(screen.getByLabelText('Decision for I000001')).toHaveValue('source_verified');
+    expect(screen.getByLabelText('Source evidence and reason for I000001')).toHaveValue('Checked source evidence for this page');
+    expect(screen.getByRole('checkbox', { name: /I checked every source/ })).not.toBeChecked();
+
+    await user.click(screen.getByRole('checkbox', { name: /I checked every source/ }));
+    await user.click(screen.getByRole('button', { name: 'Save page review' }));
+    await waitFor(() => expect(mocks.approveExtraction).toHaveBeenCalledWith('source', expect.objectContaining({
+      issueResolutions: [{ id: 'I000001', action: 'source_verified', reason: 'Checked source evidence for this page' }],
+    })));
+  });
+
   it('blocks technical failures without offering a source-verification override', async () => {
     mocks.extraction.mockResolvedValue({ ...base, issues: [{ id: 'T1', page: 1, code: 'VISION_UNAVAILABLE', message: 'Failed call', technical: true, status: 'open' }] });
     render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);

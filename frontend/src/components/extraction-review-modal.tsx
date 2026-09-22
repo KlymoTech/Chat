@@ -108,12 +108,26 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   };
 
   const issues = record?.issues.filter((issue) => issue.page === page?.number || issue.page === 0) ?? [];
+  const actionableIssues = issues.filter((issue) => issue.status !== 'resolved' && !issue.technical);
   const leaves = (page?.blocks ?? []).filter((b) => b.status !== 'split');
   const released = record?.review_status === 'verified_release';
   const blocked = released || record?.schema_version !== 2 || issues.some((i) => i.technical && i.status !== 'resolved')
     || leaves.some((b) => !b.visual) || (Boolean(page?.image) && !imageUrl);
   const updateStructure = (id: string, value: string) => { setStructures((s) => ({ ...s, [id]: value })); setConfirmed(false); };
   const changePage = (index: number) => { setCurrent(index); setConfirmed(false); setBlank(false); setReason(''); };
+  const approveAllIssues = () => {
+    const sharedReason = reason.trim();
+    if (!sharedReason || !actionableIssues.length) return;
+    setDecisions((currentDecisions) => {
+      const next = { ...currentDecisions };
+      actionableIssues.forEach((issue) => {
+        next[issue.id] = { id: issue.id, action: 'source_verified', reason: sharedReason };
+      });
+      return next;
+    });
+    setConfirmed(false);
+    setNotice(`Approved ${actionableIssues.length} unresolved issue${actionableIssues.length === 1 ? '' : 's'} using the page review reason. Confirm source coverage, then save.`);
+  };
 
   return <Modal open onClose={onClose} size="lg" title={`Review extraction: ${source.name}`}
     description="Compare source evidence and save each page. Critical content requires two different reviewers."
@@ -169,6 +183,10 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
           </>}
         </fieldset>)}
         <label>Reason for page review<input value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} /></label>
+        {actionableIssues.length > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+          <Button variant="secondary" disabled={saving || !reason.trim()} onClick={approveAllIssues}>Approve all unresolved issues</Button>
+          <small>Uses this page reason for each source-verified issue. Technical failures still require reprocessing.</small>
+        </div>}
         {!leaves.length && !page.native_text && <label><input type="checkbox" checked={blank} onChange={(e) => setBlank(e.target.checked)} />Source is blank</label>}
         <label><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
           I checked every source region, text, order, table cell, equation and relationship on this page.</label>
