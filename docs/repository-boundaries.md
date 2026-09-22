@@ -20,6 +20,10 @@ backend/src/northstar_api/modules/
 └── branding/          # white-label domain and publication services
 ```
 
+Application composition lives under `frontend/src/app`. The root
+`frontend/src/App.tsx` is a deprecated compatibility export; new providers,
+guards, route composition, and application-level wiring belong in `app/`.
+
 Website page implementations live under `frontend/src/features/website/pages`,
 tenant administration is exposed through
 `frontend/src/features/admin/WorkspaceSettingsPage.tsx`, and

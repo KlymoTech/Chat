@@ -36,6 +36,8 @@ required_paths=(
   "kubernetes/overlays/production/kustomization.yaml"
   "compose.yaml"
   "frontend/src/features/knowledge/index.ts"
+  "frontend/src/app/App.tsx"
+  "frontend/src/app/index.ts"
   "frontend/src/features/workspace/settings"
   "frontend/src/features/branding"
   "frontend/src/features/platform-admin"
