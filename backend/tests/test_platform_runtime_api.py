@@ -3,6 +3,7 @@ from northstar_api.modules.platform_runtime import (
     DeploymentExecutionReport,
     build_capacity_budget,
 )
+from northstar_api.modules.super_admin.api.control_center import router as control_center_router
 from northstar_api.modules.super_admin.api.runtime import (
     _declared_platform_spec,
     _deployment_dispatch_payload,
@@ -10,7 +11,7 @@ from northstar_api.modules.super_admin.api.runtime import (
 )
 
 
-def test_runtime_control_plane_exposes_only_read_and_plan_operations() -> None:
+def test_runtime_control_plane_has_no_direct_infrastructure_apply_or_delete_route() -> None:
     routes = {(route.path, tuple(sorted(route.methods or ()))) for route in router.routes}
     assert ("/platform-admin/runtime/capabilities", ("GET",)) in routes
     assert ("/platform-admin/runtime/dependencies", ("GET",)) in routes
@@ -24,6 +25,30 @@ def test_runtime_control_plane_exposes_only_read_and_plan_operations() -> None:
     assert ("/platform-admin/runtime/changes/{change_id}/approve", ("POST",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}/reject", ("POST",)) in routes
     assert not any("destroy" in path or path.endswith("/apply") for path, _ in routes)
+
+
+
+def test_control_center_exposes_reviewed_switch_health_drift_cost_and_rollback_routes() -> None:
+    routes = {(route.path, tuple(sorted(route.methods or ()))) for route in control_center_router.routes}
+    expected = {
+        ("/platform-admin/runtime/spec", ("GET",)),
+        ("/platform-admin/runtime/providers", ("GET",)),
+        ("/platform-admin/runtime/policies", ("GET",)),
+        ("/platform-admin/runtime/environments", ("GET",)),
+        ("/platform-admin/runtime/health", ("GET",)),
+        ("/platform-admin/runtime/drift", ("GET",)),
+        ("/platform-admin/runtime/cost", ("GET",)),
+        ("/platform-admin/runtime/features", ("GET",)),
+        ("/platform-admin/runtime/features/{feature_id}/plan", ("POST",)),
+        ("/platform-admin/runtime/features/{feature_id}/changes", ("POST",)),
+        ("/platform-admin/runtime/capabilities/{capability_id}/plan", ("POST",)),
+        ("/platform-admin/runtime/capabilities/{capability_id}/changes", ("POST",)),
+        ("/platform-admin/runtime/capabilities/{capability_id}/observations", ("POST",)),
+        ("/platform-admin/runtime/config/versions", ("GET",)),
+        ("/platform-admin/runtime/changes/{change_id}/rollback", ("POST",)),
+    }
+    assert expected.issubset(routes)
+    assert not any(path.endswith("/apply") or path.endswith("/delete") for path, _ in routes)
 
 
 def test_declared_runtime_spec_is_valid_without_exposing_secrets() -> None:
@@ -77,6 +102,7 @@ def test_approved_dispatch_payload_carries_immutable_plan_inputs() -> None:
     assert payload["targetDigest"] == "b" * 64
     assert payload["desiredSpec"] == {"metadata": {"revision": 5}}
     assert payload["planSteps"] == ["validate_dependencies", "switch_reads_and_writes"]
+    assert payload["operation"] == "switch"
 
 
 def test_deployment_dispatch_contract_validates_the_outbox_shape() -> None:
@@ -89,6 +115,7 @@ def test_deployment_dispatch_contract_validates_the_outbox_shape() -> None:
         "environment": "staging",
         "action": "migrate",
         "classification": "migration",
+        "operation": "switch",
         "destructive": False,
         "sourceRevision": 4,
         "targetRevision": 5,
@@ -103,6 +130,7 @@ def test_deployment_dispatch_contract_validates_the_outbox_shape() -> None:
     event = DeploymentDispatchEvent.model_validate(payload)
 
     assert event.target_revision == 5
+    assert event.operation == "switch"
     payload["unexpected"] = True
     try:
         DeploymentDispatchEvent.model_validate(payload)
