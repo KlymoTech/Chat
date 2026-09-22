@@ -7,16 +7,18 @@ mutation belongs to an approved deployment controller or GitOps pipeline.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
 
 from northstar_api.config import get_settings
 from northstar_api.modules.platform_runtime import (
     CapabilityCatalog,
     CapabilityChangeAnalysis,
+    CapacityBudget,
     PlatformSpec,
     analyze_capability_change,
     build_capability_catalog,
+    build_capacity_budget,
 )
 from northstar_api.routers.platform_admin import PlatformSystemReadPrincipal
 
@@ -66,6 +68,21 @@ async def get_runtime_dependencies(_: PlatformSystemReadPrincipal) -> dict[str, 
     """Return a stable dependency graph for the control-center graph view."""
     catalog = build_capability_catalog(_declared_platform_spec())
     return catalog.dependencies.model_dump(mode="json")
+
+
+@router.get("/capacity", response_model=CapacityBudget)
+async def get_runtime_capacity(
+    _: PlatformSystemReadPrincipal,
+    api_replicas: int = Query(default=1, ge=1, le=1000),
+) -> CapacityBudget:
+    """Return configuration-derived resource budgets, never a user guarantee."""
+    settings = get_settings()
+    return build_capacity_budget(
+        api_replicas=api_replicas,
+        database_pool_size=settings.database_pool_size,
+        database_max_overflow=settings.database_max_overflow,
+        model_concurrency_per_process=settings.model_concurrency_per_process,
+    )
 
 
 @router.post("/changes/plan", response_model=CapabilityChangeAnalysis)

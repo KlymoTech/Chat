@@ -17,6 +17,7 @@ import {
   type PlatformConfiguration,
   type PlatformOperator,
   type PlatformCapabilityCatalog,
+  type PlatformCapacityBudget,
 } from '@/lib/platform-admin-api';
 import { persistActiveWorkspace } from '@/lib/workspace-api';
 
@@ -43,6 +44,7 @@ export function SuperAdminPage() {
   const [entitlements, setEntitlements] = useState<PlatformEntitlement[]>([]);
   const [configuration, setConfiguration] = useState<PlatformConfiguration | null>(null);
   const [runtimeCatalog, setRuntimeCatalog] = useState<PlatformCapabilityCatalog | null>(null);
+  const [capacityBudget, setCapacityBudget] = useState<PlatformCapacityBudget | null>(null);
   const [platformPermissions, setPlatformPermissions] = useState<string[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
@@ -74,6 +76,7 @@ export function SuperAdminPage() {
       void platformAdminApi.entitlements().then((value) => { if (active) setEntitlements(value); }).catch(() => undefined);
       void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
       void platformAdminApi.runtimeCapabilities().then((value) => { if (active) setRuntimeCatalog(value); }).catch(() => undefined);
+      void platformAdminApi.runtimeCapacity().then((value) => { if (active) setCapacityBudget(value); }).catch(() => undefined);
       void platformAdminApi.permissions().then((value) => { if (active) setPlatformPermissions(value.permissions); }).catch(() => undefined);
       void platformAdminApi.operators().then((value) => { if (active) setOperators(value); }).catch(() => undefined);
     }).catch((reason) => {
@@ -214,6 +217,11 @@ export function SuperAdminPage() {
     {runtimeCatalog ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Platform capabilities</h3><p>Desired state and dependency-aware health snapshot for the declared {runtimeCatalog.profile} profile.</p></div><ShieldCheck /></div>
       <div className="workspace-plan-grid">{runtimeCatalog.capabilities.map((capability) => <div key={capability.definition.capability_id}><small>{capability.definition.category} {capability.definition.locked ? '· locked' : ''}</small><strong>{capability.definition.capability_id}</strong><small>{capability.provider} · {capability.health}</small></div>)}</div>
+    </Card> : null}
+
+    {capacityBudget ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Capacity budget</h3><p>Configuration-derived ceilings; run a workload test before making a user-capacity claim.</p></div><Activity /></div>
+      <div className="workspace-plan-grid"><Metric label="API replicas" value={capacityBudget.api_replicas} /><Metric label="DB connections / replica" value={capacityBudget.database_connections_per_replica} /><Metric label="DB connection budget" value={capacityBudget.database_connection_budget} /><Metric label="AI concurrency / replica" value={capacityBudget.model_concurrency_per_replica} /><Metric label="AI concurrency budget" value={capacityBudget.model_concurrency_budget} /><Metric label="Measured user capacity" value="Not established" /></div>
     </Card> : null}
 
     {platformPermissions.length ? <Card className="workspace-panel">

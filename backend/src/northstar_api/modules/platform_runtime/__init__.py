@@ -1,5 +1,6 @@
 """Provider-neutral platform configuration and dependency contracts."""
 
+from .capacity import CapacityBudget, build_capacity_budget
 from .contracts import DeploymentProfile, PlatformSpec, ProviderChangeClass
 from .control_plane import ChangePlan, PlanAction, build_change_plan, spec_digest
 from .registry import (
@@ -23,6 +24,7 @@ from .validation import (
 __all__ = [
     "DependencyGraph",
     "ChangePlan",
+    "CapacityBudget",
     "CapabilityCatalog",
     "CapabilityChangeAnalysis",
     "CapabilityDefinition",
@@ -35,6 +37,7 @@ __all__ = [
     "ProviderChangeClass",
     "build_dependency_graph",
     "build_change_plan",
+    "build_capacity_budget",
     "build_capability_catalog",
     "analyze_capability_change",
     "capability_definitions",

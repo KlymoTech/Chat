@@ -146,6 +146,17 @@ export interface PlatformCapabilityCatalog {
   };
 }
 
+export interface PlatformCapacityBudget {
+  measured: boolean;
+  api_replicas: number;
+  database_connections_per_replica: number;
+  database_connection_budget: number;
+  model_concurrency_per_replica: number;
+  model_concurrency_budget: number;
+  active_user_guarantee: null;
+  limiting_factors: string[];
+}
+
 export interface PlatformTenantUser {
   id: string;
   name: string;
@@ -273,6 +284,10 @@ export const platformAdminApi = {
 
   runtimeCapabilities(): Promise<PlatformCapabilityCatalog> {
     return request<PlatformCapabilityCatalog>('/platform-admin/runtime/capabilities');
+  },
+
+  runtimeCapacity(apiReplicas = 1): Promise<PlatformCapacityBudget> {
+    return request<PlatformCapacityBudget>(`/platform-admin/runtime/capacity?api_replicas=${apiReplicas}`);
   },
 
   tenants(search = '', limit = 50, offset = 0): Promise<PlatformTenantList> {
