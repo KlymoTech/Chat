@@ -7,7 +7,7 @@ files are not rewritten. Historical answers are not given fabricated evidence.
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import context, op
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0054_knowledge_audit_tables"
@@ -45,7 +45,10 @@ def upgrade() -> None:
     # Offline SQL generation cannot inspect a live database; emit the normal
     # create statements in that mode.  Online runs inspect first so a bootstrap
     # that created these tables ahead of Alembic can be resumed safely.
-    inspector = None if context.is_offline_mode() else sa.inspect(bind)
+    try:
+        inspector = sa.inspect(bind)
+    except sa.exc.NoInspectionAvailable:
+        inspector = None
     existing_tables = set() if inspector is None else set(inspector.get_table_names())
     if "knowledge_snapshots" not in existing_tables:
         op.create_table(
