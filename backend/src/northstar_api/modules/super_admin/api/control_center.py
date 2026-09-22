@@ -77,6 +77,7 @@ class PlatformSpecSnapshot(_StrictModel):
 class CapabilityIntentRequest(_StrictModel):
     operation: CapabilityOperation
     provider: str | None = Field(default=None, min_length=1, max_length=80)
+    environment: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class CapabilityChangeRequest(CapabilityIntentRequest):
@@ -101,6 +102,7 @@ class FeatureState(_StrictModel):
 
 class FeatureIntentRequest(_StrictModel):
     enabled: bool
+    environment: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class FeatureChangeRequest(FeatureIntentRequest):
@@ -119,6 +121,7 @@ class FeatureIntentAnalysis(_StrictModel):
 
 
 class CapabilityObservationRequest(_StrictModel):
+    environment: str | None = Field(default=None, min_length=1, max_length=32)
     actual_state: Literal[
         "unknown",
         "on",
@@ -277,7 +280,7 @@ async def plan_runtime_feature_change(
     _: PlatformSystemReadPrincipal,
     session: DBSession,
 ) -> FeatureIntentAnalysis:
-    current = await _effective_spec(session)
+    current = await _effective_spec(session, environment=payload.environment)
     try:
         desired = mutate_feature_spec(current, feature_id, payload.enabled)
     except ValueError as exc:
@@ -302,7 +305,7 @@ async def create_runtime_feature_change(
     principal: PlatformRuntimeManagePrincipal,
     session: DBSession,
 ) -> RuntimeChangeOut:
-    current = await _effective_spec(session)
+    current = await _effective_spec(session, environment=payload.environment)
     try:
         desired = mutate_feature_spec(current, feature_id, payload.enabled)
     except ValueError as exc:
@@ -328,7 +331,7 @@ async def plan_runtime_capability_change(
     _: PlatformSystemReadPrincipal,
     session: DBSession,
 ) -> CapabilityIntentAnalysis:
-    current = await _effective_spec(session)
+    current = await _effective_spec(session, environment=payload.environment)
     try:
         desired = mutate_capability_spec(
             current,
@@ -362,7 +365,7 @@ async def create_runtime_capability_change(
     principal: PlatformRuntimeManagePrincipal,
     session: DBSession,
 ) -> RuntimeChangeOut:
-    current = await _effective_spec(session)
+    current = await _effective_spec(session, environment=payload.environment)
     try:
         desired = mutate_capability_spec(
             current,
@@ -396,7 +399,7 @@ async def report_capability_observation(
     principal: PlatformRuntimeManagePrincipal,
     session: DBSession,
 ) -> CapabilityObservationOut:
-    spec = await _effective_spec(session)
+    spec = await _effective_spec(session, environment=payload.environment)
     catalog = build_capability_catalog(spec)
     desired = next(
         (item for item in catalog.capabilities if item.definition.capability_id == capability_id),
