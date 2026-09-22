@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import PlatformSpec
-from .registry import CapabilityId, capability_definitions
+from .registry import CapabilityChangeAnalysis, CapabilityId, capability_definitions
 
 RiskClass = Literal["green", "blue", "amber", "red", "locked"]
 SwitchClass = Literal["runtime", "application-provider", "infrastructure", "migration", "locked"]
@@ -217,6 +217,51 @@ def _advance_revision(spec: PlatformSpec) -> dict[str, object]:
     }
 
 
+def apply_operation_policy(
+    analysis: CapabilityChangeAnalysis,
+    operation: CapabilityOperation,
+) -> CapabilityChangeAnalysis:
+    """Elevate lifecycle operations that cannot be inferred from desired config alone."""
+    plan = analysis.plan
+    if operation == "stop":
+        plan = plan.model_copy(
+            update={
+                "action": "migrate",
+                "classification": "migration",
+                "requires_approval": True,
+                "destructive": False,
+                "steps": (
+                    "verify_application_detached",
+                    "verify_fallback_health",
+                    "verify_stabilization_period",
+                    "stop_infrastructure",
+                    "verify_application_health",
+                    "record_observed_state",
+                ),
+            }
+        )
+    elif operation == "destroy":
+        plan = plan.model_copy(
+            update={
+                "action": "migrate",
+                "classification": "migration",
+                "requires_approval": True,
+                "destructive": True,
+                "steps": (
+                    "verify_application_detached",
+                    "verify_fallback_health",
+                    "verify_stabilization_period",
+                    "generate_gitops_or_terraform_plan",
+                    "require_destructive_approval",
+                    "destroy_infrastructure",
+                    "verify_resource_absence",
+                    "verify_application_health",
+                ),
+            }
+        )
+    return analysis.model_copy(update={"plan": plan})
+
+
 def mutate_feature_spec(spec: PlatformSpec, feature_id: str, enabled: bool) -> PlatformSpec:
     """Return a new desired specification for one application feature."""
     if feature_id not in {item.feature_id for item in _FEATURES}:
@@ -367,6 +412,7 @@ __all__ = [
     "ProviderDescriptor",
     "RiskClass",
     "SwitchClass",
+    "apply_operation_policy",
     "capability_control_policies",
     "capability_control_policy",
     "environment_control_policy",
