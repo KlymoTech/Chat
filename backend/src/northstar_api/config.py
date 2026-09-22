@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # independent of optional Kafka so Kafka can itself be disabled safely.
     platform_change_executor_url: str | None = None
     platform_change_executor_token: SecretStr | None = None
+    platform_change_report_token: SecretStr | None = None
     platform_change_executor_timeout_seconds: float = Field(default=15, gt=0, le=120)
     platform_change_executor_poll_seconds: float = Field(default=1, gt=0, le=60)
     platform_change_executor_max_attempts: int = Field(default=50, ge=1, le=1000)
@@ -186,6 +187,7 @@ class Settings(BaseSettings):
         "crm_pipedrive_client_secret",
         "platform_change_executor_url",
         "platform_change_executor_token",
+        "platform_change_report_token",
         mode="before",
     )
     @classmethod
@@ -257,9 +259,15 @@ class Settings(BaseSettings):
                     f"CRM_{name}_CLIENT_ID and CRM_{name}_CLIENT_SECRET must be provided together"
                 )
         oauth_configured = any(client_id and client_secret for _, client_id, client_secret in oauth_pairs)
-        if bool(self.platform_change_executor_url) != bool(self.platform_change_executor_token):
+        executor_values = (
+            self.platform_change_executor_url,
+            self.platform_change_executor_token,
+            self.platform_change_report_token,
+        )
+        if any(executor_values) and not all(executor_values):
             raise ValueError(
-                "PLATFORM_CHANGE_EXECUTOR_URL and PLATFORM_CHANGE_EXECUTOR_TOKEN must be provided together"
+                "PLATFORM_CHANGE_EXECUTOR_URL, PLATFORM_CHANGE_EXECUTOR_TOKEN, and "
+                "PLATFORM_CHANGE_REPORT_TOKEN must be provided together"
             )
 
         if self.app_env == "production":
