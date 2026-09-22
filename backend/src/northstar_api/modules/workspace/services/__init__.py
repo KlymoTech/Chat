@@ -13,6 +13,11 @@ from northstar_api.modules.workspace.brand_cache import (
 from northstar_api.modules.workspace.domain_resolution import resolve_workspace_domain
 from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
 from northstar_api.modules.workspace.member_state import is_member_suspended, save_member_status
+from northstar_api.modules.workspace.services.team_service import (
+    list_workspace_team_records,
+    sync_workspace_team_records,
+    update_workspace_teams,
+)
 from northstar_api.modules.workspace.security_policy import (
     email_domain_allowed,
     enforce_network_security,
@@ -32,10 +37,13 @@ __all__ = [
     "enforce_request_security",
     "invalidate_brand_cache",
     "is_member_suspended",
+    "list_workspace_team_records",
     "render_workspace_email",
     "required_password_length",
     "resolve_workspace_domain",
     "save_member_status",
+    "sync_workspace_team_records",
+    "update_workspace_teams",
     "validate_business_timezone",
     "validate_security_settings",
 ]

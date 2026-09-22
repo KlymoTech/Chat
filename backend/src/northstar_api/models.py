@@ -248,6 +248,29 @@ class Workspace(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     agents: Mapped[list[Agent]] = relationship(back_populates="workspace")
 
 
+class WorkspaceTeamRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Normalized team projection used by routing and operational queries."""
+
+    __tablename__ = "workspace_team_records"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_workspace_team_records_name"),
+        Index("ix_workspace_team_records_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    member_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    manager_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    role_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    queue_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    agent_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    channel_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+    business_hours_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+    escalation_rule: Mapped[str] = mapped_column(String(1000), default="")
+
+
 class WorkspaceMembership(Base, TimestampMixin):
     __tablename__ = "workspace_memberships"
     __table_args__ = (

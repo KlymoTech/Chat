@@ -16,7 +16,7 @@ from .repositories.workspace_write_lock import lock_workspace_settings
 from .security_policy import validate_business_timezone
 from .services.dashboard_service import update_workspace_dashboard
 from .services.role_service import update_workspace_roles, validate_workspace_role_assignments
-from .services.team_service import update_workspace_teams
+from .services.team_service import sync_workspace_team_records, update_workspace_teams
 from .store import load_workspace, record_workspace_change, settings_document
 
 router = APIRouter()
@@ -153,6 +153,7 @@ async def update_teams(
     document = settings_document(workspace)
     await _validate_teams(payload, principal, session, workspace.id, document.roles)
     before = update_workspace_teams(workspace, payload)
+    await sync_workspace_team_records(session, workspace, payload)
     record_workspace_change(
         session,
         principal,
