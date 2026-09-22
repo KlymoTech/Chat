@@ -34,6 +34,8 @@ def validate_platform_spec(spec: PlatformSpec) -> PlatformSpec:
         raise PlatformSpecError("providers.cache=redis requires resources.redis_provisioned")
     if providers.events == "kafka" and not spec.resources.kafka_provisioned:
         raise PlatformSpecError("providers.events=kafka requires resources.kafka_provisioned")
+    if providers.search == "opensearch" and not spec.resources.opensearch_provisioned:
+        raise PlatformSpecError("providers.search=opensearch requires resources.opensearch_provisioned")
     if providers.jobs == "sqs" and spec.profile == "local":
         raise PlatformSpecError("providers.jobs=sqs is only supported by an AWS profile")
     if providers.storage == "s3" and spec.profile == "local":
@@ -59,6 +61,8 @@ def validate_platform_spec(spec: PlatformSpec) -> PlatformSpec:
         raise PlatformSpecError("authorization and tenant isolation are mandatory platform invariants")
     if not spec.security.audit_required:
         raise PlatformSpecError("audit is a mandatory platform invariant")
+    if not spec.observability.metrics or not spec.observability.logging:
+        raise PlatformSpecError("metrics and basic logging are mandatory platform invariants")
     return spec
 
 
@@ -99,10 +103,22 @@ def classify_provider_change(old: PlatformSpec, new: PlatformSpec) -> ProviderCh
     validate_platform_spec(new)
     if old == new:
         return "hot-safe"
-    if old.providers.storage != new.providers.storage or old.providers.jobs != new.providers.jobs:
-        return "migration"
-    if old.providers.events != new.providers.events or old.providers.vector != new.providers.vector:
-        return "restart"
     if old.profile != new.profile or old.deployment.orchestrator != new.deployment.orchestrator:
         return "prohibited"
+    if old.resources != new.resources:
+        return "migration"
+    if (
+        old.providers.storage != new.providers.storage
+        or old.providers.jobs != new.providers.jobs
+        or old.providers.search != new.providers.search
+    ):
+        return "migration"
+    if (
+        old.providers.events != new.providers.events
+        or old.providers.vector != new.providers.vector
+        or old.providers.cache != new.providers.cache
+        or old.providers.identity != new.providers.identity
+        or old.providers.secrets != new.providers.secrets
+    ):
+        return "restart"
     return "hot-safe"
