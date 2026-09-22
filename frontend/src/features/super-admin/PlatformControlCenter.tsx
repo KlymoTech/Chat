@@ -352,6 +352,25 @@ export function PlatformControlCenter({
     </Card>
 
     <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Dependency graph</h3><p>Every provider change is evaluated against the capabilities that depend on it before a change can be created.</p></div><GitBranch /></div>
+      <div className="platform-dependency-grid">
+        {displayCatalog.dependencies.nodes.map((node) => {
+          const dependsOn = displayCatalog.dependencies.edges
+            .filter(([capability]) => capability === node)
+            .map(([, dependency]) => dependency);
+          const usedBy = displayCatalog.dependencies.edges
+            .filter(([, dependency]) => dependency === node)
+            .map(([capability]) => capability);
+          return <div key={node}>
+            <strong>{label(node)}</strong>
+            <small>Depends on: {dependsOn.length ? dependsOn.map(label).join(', ') : 'none'}</small>
+            <small>Used by: {usedBy.length ? usedBy.map(label).join(', ') : 'none'}</small>
+          </div>;
+        })}
+      </div>
+    </Card>
+
+    <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Application features</h3><p>Feature changes still go through server-side dependency validation and production approval policy.</p></div><Activity /></div>
       <div className="platform-feature-grid">
         {features.map((feature) => <div key={feature.definition.feature_id}>
