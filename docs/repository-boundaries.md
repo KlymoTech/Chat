@@ -17,9 +17,11 @@ frontend/src/
 backend/src/northstar_api/modules/
 ├── admin/             # tenant/workspace administration namespace
 ├── super_admin/       # global super-admin permissions and control plane
+│   └── api/runtime.py  # protected capability catalog and change planning API
 ├── website/           # unauthenticated public boundary
 ├── workspace/         # workspace-owned domain and settings
-└── branding/          # white-label domain and publication services
+├── branding/          # white-label domain and publication services
+└── platform_runtime/  # provider-neutral contracts, registry, and planner
 ```
 
 Application composition lives under `frontend/src/app`. The root

@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from northstar_api.modules.platform_runtime import (
     PlatformSpec,
     PlatformSpecError,
+    analyze_capability_change,
+    build_capability_catalog,
     build_change_plan,
     build_dependency_graph,
     classify_provider_change,
@@ -106,3 +108,27 @@ def test_change_plan_rejects_stale_revision() -> None:
     )
     assert plan.action == "reject"
     assert plan.blockers == ("target_revision_must_advance",)
+
+
+def test_capability_catalog_exposes_locked_core_and_provider_state() -> None:
+    catalog = build_capability_catalog(PlatformSpec())
+    by_id = {item.definition.capability_id: item for item in catalog.capabilities}
+    assert by_id["database"].definition.locked is True
+    assert by_id["database"].desired_state == "on"
+    assert by_id["cache"].provider == "none"
+    assert by_id["cache"].health == "disabled"
+    assert ("jobs", "database") in catalog.dependencies.edges
+
+
+def test_capability_change_analysis_includes_dependents() -> None:
+    current = PlatformSpec(metadata={"revision": 1})
+    desired = PlatformSpec(
+        metadata={"revision": 2},
+        features={"rag": True, "documents": True, "ai": True},
+        providers={"ai": "nvidia", "vector": "pgvector"},
+    )
+    analysis = analyze_capability_change(current, desired)
+    assert analysis.plan.action == "restart"
+    assert "ai" in analysis.changed_capabilities
+    assert "vector" in analysis.changed_capabilities
+    assert "ai" in analysis.impacted_capabilities

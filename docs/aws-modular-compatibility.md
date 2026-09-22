@@ -28,6 +28,11 @@ Implemented locally:
 - restart plans that require worker draining/fencing and post-rollout verification;
 - immutable OCI image digest validation (`sha256:...`), AWS account/region
   requirements, and explicit ECS/EKS profile contracts;
+- a provider-neutral capability registry with locked core capabilities,
+  fallbacks, health state, and dependency-aware impact analysis;
+- protected super-admin read/plan endpoints for the control center:
+  `/platform-admin/runtime/capabilities`, `/dependencies`, and
+  `/changes/plan`;
 - unit coverage for the contract and negative paths.
 
 Not applied automatically because it requires approved infrastructure inputs:

@@ -16,6 +16,7 @@ import {
   type PlatformEntitlement,
   type PlatformConfiguration,
   type PlatformOperator,
+  type PlatformCapabilityCatalog,
 } from '@/lib/platform-admin-api';
 import { persistActiveWorkspace } from '@/lib/workspace-api';
 
@@ -41,6 +42,7 @@ export function SuperAdminPage() {
   const [overview, setOverview] = useState<PlatformOverview | null>(null);
   const [entitlements, setEntitlements] = useState<PlatformEntitlement[]>([]);
   const [configuration, setConfiguration] = useState<PlatformConfiguration | null>(null);
+  const [runtimeCatalog, setRuntimeCatalog] = useState<PlatformCapabilityCatalog | null>(null);
   const [platformPermissions, setPlatformPermissions] = useState<string[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
@@ -71,6 +73,7 @@ export function SuperAdminPage() {
       setTotal(nextTenants.total);
       void platformAdminApi.entitlements().then((value) => { if (active) setEntitlements(value); }).catch(() => undefined);
       void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
+      void platformAdminApi.runtimeCapabilities().then((value) => { if (active) setRuntimeCatalog(value); }).catch(() => undefined);
       void platformAdminApi.permissions().then((value) => { if (active) setPlatformPermissions(value.permissions); }).catch(() => undefined);
       void platformAdminApi.operators().then((value) => { if (active) setOperators(value); }).catch(() => undefined);
     }).catch((reason) => {
@@ -206,6 +209,11 @@ export function SuperAdminPage() {
     {configuration ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Runtime configuration</h3><p>Non-secret flags and limits currently enforced by the backend.</p></div></div>
       <div className="workspace-plan-grid"><Metric label="Environment" value={configuration.appEnv} /><Metric label="Background dispatch" value={configuration.backgroundDispatchEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Kafka analytics" value={configuration.kafkaEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Course isolation" value={configuration.educationMultiCourseEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Impersonation TTL" value={`${configuration.platformImpersonationTtlMinutes} minutes`} /><Metric label="Retrieval context" value={`${configuration.retrievalContextLimit} chunks / ${configuration.retrievalCandidateLimit} candidates`} /></div>
+    </Card> : null}
+
+    {runtimeCatalog ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Platform capabilities</h3><p>Desired state and dependency-aware health snapshot for the declared {runtimeCatalog.profile} profile.</p></div><ShieldCheck /></div>
+      <div className="workspace-plan-grid">{runtimeCatalog.capabilities.map((capability) => <div key={capability.definition.capability_id}><small>{capability.definition.category} {capability.definition.locked ? '· locked' : ''}</small><strong>{capability.definition.capability_id}</strong><small>{capability.provider} · {capability.health}</small></div>)}</div>
     </Card> : null}
 
     {platformPermissions.length ? <Card className="workspace-panel">

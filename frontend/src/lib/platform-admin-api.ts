@@ -113,6 +113,39 @@ export interface PlatformConfiguration {
   knowledgeMaxChunks: number;
 }
 
+export interface PlatformCapabilityDefinition {
+  capability_id: string;
+  category: string;
+  description: string;
+  required: boolean;
+  locked: boolean;
+  providers: string[];
+  fallback_provider: string | null;
+  depends_on: string[];
+}
+
+export interface PlatformCapabilityState {
+  definition: PlatformCapabilityDefinition;
+  provider: string;
+  desired_state: 'on' | 'off';
+  actual_state: string;
+  health: 'healthy' | 'degraded' | 'unhealthy' | 'disabled' | 'unknown';
+  fallback_active: boolean;
+  health_message: string | null;
+}
+
+export interface PlatformCapabilityCatalog {
+  generated_at: string;
+  environment: string;
+  revision: number;
+  profile: string;
+  capabilities: PlatformCapabilityState[];
+  dependencies: {
+    nodes: string[];
+    edges: [string, string][];
+  };
+}
+
 export interface PlatformTenantUser {
   id: string;
   name: string;
@@ -236,6 +269,10 @@ export const platformAdminApi = {
 
   configuration(): Promise<PlatformConfiguration> {
     return request<PlatformConfiguration>('/platform-admin/configuration');
+  },
+
+  runtimeCapabilities(): Promise<PlatformCapabilityCatalog> {
+    return request<PlatformCapabilityCatalog>('/platform-admin/runtime/capabilities');
   },
 
   tenants(search = '', limit = 50, offset = 0): Promise<PlatformTenantList> {
