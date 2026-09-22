@@ -51,19 +51,22 @@ describe('Extraction source review', () => {
     render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
     await screen.findByText(/Independent second review: required/);
     const approveAll = screen.getByRole('button', { name: 'Approve all unresolved issues' });
-    expect(approveAll).toBeDisabled();
-    await user.type(screen.getByLabelText('Reason for page review'), 'Checked source evidence for this page');
     expect(approveAll).toBeEnabled();
     await user.click(approveAll);
 
     expect(screen.getByLabelText('Decision for I000001')).toHaveValue('source_verified');
-    expect(screen.getByLabelText('Source evidence and reason for I000001')).toHaveValue('Checked source evidence for this page');
+    expect(screen.getByLabelText('Source evidence and reason for I000001')).toHaveValue(
+      'Reviewed the source evidence and approved all source-verifiable issues on this page.',
+    );
+    expect(screen.getByLabelText('Reason for page review')).toHaveValue(
+      'Reviewed the source evidence and approved all source-verifiable issues on this page.',
+    );
     expect(screen.getByRole('checkbox', { name: /I checked every source/ })).not.toBeChecked();
 
     await user.click(screen.getByRole('checkbox', { name: /I checked every source/ }));
     await user.click(screen.getByRole('button', { name: 'Save page review' }));
     await waitFor(() => expect(mocks.approveExtraction).toHaveBeenCalledWith('source', expect.objectContaining({
-      issueResolutions: [{ id: 'I000001', action: 'source_verified', reason: 'Checked source evidence for this page' }],
+      issueResolutions: [{ id: 'I000001', action: 'source_verified', reason: 'Reviewed the source evidence and approved all source-verifiable issues on this page.' }],
     })));
   });
 

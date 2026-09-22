@@ -6,6 +6,9 @@ import type { KnowledgeSource } from '@/types';
 
 type Decision = ExtractionReviewSubmission['issueResolutions'][number];
 
+const DEFAULT_BULK_REVIEW_REASON =
+  'Reviewed the source evidence and approved all source-verifiable issues on this page.';
+
 export function ExtractionReviewModal({ source, onClose, onApproved }: {
   source: KnowledgeSource; onClose: () => void; onApproved: (message?: string) => void;
 }) {
@@ -116,8 +119,9 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   const updateStructure = (id: string, value: string) => { setStructures((s) => ({ ...s, [id]: value })); setConfirmed(false); };
   const changePage = (index: number) => { setCurrent(index); setConfirmed(false); setBlank(false); setReason(''); };
   const approveAllIssues = () => {
-    const sharedReason = reason.trim();
-    if (!sharedReason || !actionableIssues.length) return;
+    if (!actionableIssues.length) return;
+    const sharedReason = reason.trim() || DEFAULT_BULK_REVIEW_REASON;
+    if (!reason.trim()) setReason(sharedReason);
     setDecisions((currentDecisions) => {
       const next = { ...currentDecisions };
       actionableIssues.forEach((issue) => {
@@ -136,7 +140,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
       <Button variant="secondary" onClick={() => void download()} disabled={!record || saving}>Download evidence</Button>
       <Button variant="secondary" onClick={() => void retry()} disabled={saving || released}>Reprocess source</Button>
       <Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>
-      <Button variant="secondary" onClick={approveAllIssues} disabled={saving || !record || !page || !actionableIssues.length || !reason.trim()}>
+      <Button variant="secondary" onClick={approveAllIssues} disabled={saving || !record || !page || !actionableIssues.length}>
         Approve all unresolved issues
       </Button>
       <Button onClick={() => void save()} disabled={saving || !page || blocked || !confirmed || !reason.trim()}>
@@ -186,7 +190,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
           </>}
         </fieldset>)}
         <label>Reason for page review<input value={reason} onChange={(e) => setReason(e.target.value)} style={{ width: '100%' }} /></label>
-        <small>Use <strong>Approve all unresolved issues</strong> in the footer to apply this page reason to every source-verifiable issue. Technical failures still require reprocessing.</small>
+        <small>Click <strong>Approve all unresolved issues</strong> to fill every source-verifiable issue. If no reason is entered, a standard audit reason is inserted. Technical failures still require reprocessing.</small>
         {!leaves.length && !page.native_text && <label><input type="checkbox" checked={blank} onChange={(e) => setBlank(e.target.checked)} />Source is blank</label>}
         <label><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
           I checked every source region, text, order, table cell, equation and relationship on this page.</label>
