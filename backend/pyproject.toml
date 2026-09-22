@@ -61,6 +61,7 @@ northstar-crm-delivery = "northstar_api.workers.crm_delivery_worker:main"
 northstar-crm-reconciliation = "northstar_api.workers.crm_reconciliation:main"
 northstar-crm-webhooks = "northstar_api.workers.crm_webhook_consumer:main"
 northstar-channel-router = "northstar_api.workers.channel_event_consumer:main"
+northstar-platform-dispatcher = "northstar_api.workers.platform_change_dispatcher:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
