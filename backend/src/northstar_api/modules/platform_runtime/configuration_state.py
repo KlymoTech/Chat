@@ -13,7 +13,7 @@ from .contracts import PlatformSpec
 from .control_plane import spec_digest
 from .executor_contract import CapabilityObservationEvidence
 from .persistence import PlatformCapabilityRecord, PlatformChangeRecord, PlatformConfigVersion
-from .registry import CapabilityCatalog, build_capability_catalog
+from .registry import CapabilityCatalog, CapabilityState, build_capability_catalog
 
 _VALID_HEALTH = {"healthy", "degraded", "unhealthy", "disabled", "unknown"}
 
@@ -175,7 +175,9 @@ async def apply_capability_observations(
     if not observations:
         return
     catalog = build_capability_catalog(spec)
-    desired_by_id = {state.definition.capability_id: state for state in catalog.capabilities}
+    desired_by_id: dict[str, CapabilityState] = {
+        state.definition.capability_id: state for state in catalog.capabilities
+    }
     rows = (
         await session.scalars(
             select(PlatformCapabilityRecord).where(
@@ -183,7 +185,7 @@ async def apply_capability_observations(
             )
         )
     ).all()
-    existing = {row.capability_id: row for row in rows}
+    existing: dict[str, PlatformCapabilityRecord] = {row.capability_id: row for row in rows}
     observed_at = datetime.now(UTC).isoformat()
 
     seen: set[str] = set()
@@ -253,7 +255,7 @@ async def catalog_with_observations(
         )
     ).all()
     by_id = {row.capability_id: row for row in rows}
-    states = []
+    states: list[CapabilityState] = []
     for state in catalog.capabilities:
         row = by_id.get(state.definition.capability_id)
         if row is None:
