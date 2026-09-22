@@ -23,6 +23,7 @@ from northstar_api.platform_admin_schemas import (
     PlatformImpersonationEnd,
     PlatformImpersonationOut,
     PlatformImpersonationRequest,
+    PlatformOperationsOut,
     PlatformOverviewOut,
     PlatformTenantDetailOut,
     PlatformTenantListOut,
@@ -115,6 +116,8 @@ async def get_platform_admin_access(
 
 
 @router.get("/overview", response_model=PlatformOverviewOut)
+@router.get("/dashboard", response_model=PlatformOverviewOut)
+@router.get("/usage", response_model=PlatformOverviewOut)
 async def get_platform_overview(
     _: PlatformAdminPrincipal,
     session: DBSession,
@@ -122,7 +125,17 @@ async def get_platform_overview(
     return await platform_overview(session)
 
 
+@router.get("/health", response_model=PlatformOperationsOut)
+async def get_platform_health(
+    _: PlatformAdminPrincipal,
+    session: DBSession,
+) -> PlatformOperationsOut:
+    """Expose the operational health slice for the dedicated health route."""
+    return (await platform_overview(session)).operations
+
+
 @router.get("/entitlements", response_model=list[PlatformEntitlementOut])
+@router.get("/plans", response_model=list[PlatformEntitlementOut])
 async def get_platform_entitlements(_: PlatformAdminPrincipal) -> list[PlatformEntitlementOut]:
     """Expose the server-owned plan catalog to platform operators."""
     return [
@@ -147,6 +160,7 @@ async def get_platform_entitlements(_: PlatformAdminPrincipal) -> list[PlatformE
 
 
 @router.get("/configuration", response_model=PlatformConfigurationOut)
+@router.get("/system", response_model=PlatformConfigurationOut)
 async def get_platform_configuration(_: PlatformAdminPrincipal) -> PlatformConfigurationOut:
     """Expose non-secret runtime flags and limits to platform operators."""
     settings = get_settings()
