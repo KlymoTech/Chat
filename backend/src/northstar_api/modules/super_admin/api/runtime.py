@@ -509,6 +509,35 @@ async def persist_runtime_execution_report(
             detail="execution digest does not match the approved plan",
         )
 
+    if payload.phase == "completed":
+        if not payload.health_result:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="completed execution requires health evidence",
+            )
+        impact = record.impact_json or {}
+        required_observations = {
+            str(value)
+            for value in impact.get("changedCapabilities", ())
+            if isinstance(value, str)
+        }
+        requested_capability = impact.get("requestedCapability")
+        if isinstance(requested_capability, str):
+            required_observations.add(requested_capability)
+        observed_capabilities = {
+            observation.capability_id
+            for observation in payload.capability_observations
+        }
+        missing_observations = sorted(required_observations - observed_capabilities)
+        if missing_observations:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "completed execution is missing capability observations: "
+                    + ", ".join(missing_observations)
+                ),
+            )
+
     now = datetime.now(UTC)
     terminal = payload.phase in {"completed", "failed", "rolled_back"}
     execution = PlatformDeploymentExecution(
