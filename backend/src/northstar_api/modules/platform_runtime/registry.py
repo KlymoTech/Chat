@@ -71,6 +71,7 @@ class CapabilityState(BaseModel):
     fallback_active: bool = False
     health_message: str | None = None
     observed_provider: str | None = None
+    observed_at: str | None = None
     estimated_monthly_cost_usd: float | None = Field(default=None, ge=0)
 
 
@@ -236,7 +237,7 @@ def build_capability_catalog(
                 definition=definition,
                 provider=provider,
                 desired_state="on" if enabled or definition.required else "off",
-                actual_state="disabled" if not enabled else "unknown",
+                actual_state="unknown",
                 health=_state_health(provider, health, definition.capability_id),
                 fallback_active=False,
             )
