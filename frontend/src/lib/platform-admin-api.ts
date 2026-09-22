@@ -133,6 +133,7 @@ export interface PlatformCapabilityState {
   fallback_active: boolean;
   health_message: string | null;
   observed_provider: string | null;
+  observed_at: string | null;
   estimated_monthly_cost_usd: number | null;
 }
 
