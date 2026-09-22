@@ -62,7 +62,10 @@ async def publish_forever() -> None:
                 rows = (
                     await session.scalars(
                         select(OutboxEvent)
-                        .where(OutboxEvent.published_at.is_(None))
+                        .where(
+                            OutboxEvent.published_at.is_(None),
+                            OutboxEvent.event_type != PLATFORM_CHANGE_EVENT_TYPE,
+                        )
                         .order_by(OutboxEvent.occurred_at)
                         .with_for_update(skip_locked=True)
                         .limit(100)
