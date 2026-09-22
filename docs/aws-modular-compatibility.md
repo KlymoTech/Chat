@@ -40,7 +40,9 @@ Implemented locally:
   execute infrastructure and remains compatible with GitOps handoff. Approved
   plans are emitted as `platform.runtime.change.approved.v1` through the
   transactional outbox so a deployment controller can consume the exact
-  immutable plan inputs;
+  immutable plan inputs. A strict provider-neutral event contract and an
+  execution-evidence read endpoint are included; they do not perform AWS
+  mutations;
 - unit coverage for the contract and negative paths.
 
 Not applied automatically because it requires approved infrastructure inputs:

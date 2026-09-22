@@ -12,6 +12,7 @@ from .control_plane import (
     spec_digest,
     transition_change,
 )
+from .executor_contract import DeploymentDispatchEvent
 from .registry import (
     CapabilityCatalog,
     CapabilityChangeAnalysis,
@@ -36,6 +37,7 @@ __all__ = [
     "ChangeLifecycleError",
     "ChangeStatus",
     "CapacityBudget",
+    "DeploymentDispatchEvent",
     "CapabilityCatalog",
     "CapabilityChangeAnalysis",
     "CapabilityDefinition",

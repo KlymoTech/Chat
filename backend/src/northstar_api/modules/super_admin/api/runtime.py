@@ -24,6 +24,7 @@ from northstar_api.modules.platform_runtime import (
     CapabilityChangeAnalysis,
     CapacityBudget,
     ChangeStatus,
+    DeploymentDispatchEvent,
     PlatformSpec,
     analyze_capability_change,
     approver_is_distinct,
@@ -34,6 +35,7 @@ from northstar_api.modules.platform_runtime import (
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeApproval,
     PlatformChangeRecord,
+    PlatformDeploymentExecution,
 )
 from northstar_api.routers.platform_admin import PlatformRuntimeManagePrincipal, PlatformSystemReadPrincipal
 from northstar_api.services.outbox import enqueue_event
@@ -87,6 +89,19 @@ class RuntimeChangeOut(BaseModel):
     approved_at: datetime | None
 
 
+class RuntimeExecutionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    change_id: UUID
+    pipeline: str
+    status: str
+    started_at: datetime | None
+    completed_at: datetime | None
+    health_result: dict[str, object]
+    error: str | None
+
+
 def _change_response(record: PlatformChangeRecord) -> RuntimeChangeOut:
     impact = record.impact_json or {}
     return RuntimeChangeOut(
@@ -121,7 +136,7 @@ def _deployment_dispatch_payload(record: PlatformChangeRecord) -> dict[str, obje
     serialized specifications persisted with the change. A consumer can reject
     stale or replayed work without trusting mutable process configuration.
     """
-    return {
+    payload: dict[str, object] = {
         "changeId": str(record.id),
         "environment": record.environment,
         "action": record.action,
@@ -137,6 +152,22 @@ def _deployment_dispatch_payload(record: PlatformChangeRecord) -> dict[str, obje
         "currentSpec": record.current_spec_json,
         "desiredSpec": record.desired_spec_json,
     }
+    # Validate at the producer boundary so an outbox event can never carry a
+    # malformed deployment contract even if persistence is changed later.
+    return DeploymentDispatchEvent.model_validate(payload).model_dump(by_alias=True, mode="json")
+
+
+def _execution_response(record: PlatformDeploymentExecution) -> RuntimeExecutionOut:
+    return RuntimeExecutionOut(
+        id=record.id,
+        change_id=record.change_id,
+        pipeline=record.pipeline,
+        status=record.status,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        health_result=record.health_result_json or {},
+        error=record.error,
+    )
 
 
 def _declared_platform_spec() -> PlatformSpec:
@@ -327,6 +358,27 @@ async def get_runtime_change(
     return _change_response(record)
 
 
+@router.get("/changes/{change_id}/executions", response_model=list[RuntimeExecutionOut])
+async def list_runtime_executions(
+    change_id: UUID,
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[RuntimeExecutionOut]:
+    """Return deployment evidence reported for a persisted change."""
+    if await session.get(PlatformChangeRecord, change_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
+    records = (
+        await session.scalars(
+            select(PlatformDeploymentExecution)
+            .where(PlatformDeploymentExecution.change_id == change_id)
+            .order_by(desc(PlatformDeploymentExecution.started_at))
+            .limit(limit)
+        )
+    ).all()
+    return [_execution_response(record) for record in records]
+
+
 @router.post("/changes/{change_id}/approve", response_model=RuntimeChangeOut)
 async def approve_runtime_change(
     change_id: UUID,
@@ -423,5 +475,6 @@ __all__ = [
     "RuntimeChangeDecisionRequest",
     "RuntimeChangeOut",
     "RuntimeChangePlanRequest",
+    "RuntimeExecutionOut",
     "router",
 ]

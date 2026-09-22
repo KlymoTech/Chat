@@ -25,6 +25,7 @@ provider-neutral portion of that design.
   - `POST /api/v1/platform-admin/runtime/changes`
   - `GET /api/v1/platform-admin/runtime/changes`
   - `GET /api/v1/platform-admin/runtime/changes/{id}`
+  - `GET /api/v1/platform-admin/runtime/changes/{id}/executions`
   - `POST /api/v1/platform-admin/runtime/changes/{id}/approve`
   - `POST /api/v1/platform-admin/runtime/changes/{id}/reject`
 - Change requests are idempotent, persisted with immutable source/target
@@ -32,8 +33,10 @@ provider-neutral portion of that design.
 - Approved changes are also emitted through the transactional outbox as
   `platform.runtime.change.approved.v1`. The event carries the immutable
   source/target digests, revisions, idempotency key, plan steps, and serialized
-  specifications for a deployment controller or GitOps worker. The API never
-  applies Terraform or treats event publication as deployment completion.
+  specifications for a deployment controller or GitOps worker. The event shape
+  is validated by a strict provider-neutral contract, and execution evidence
+  can be read back from the control center. The API never applies Terraform or
+  treats event publication as deployment completion.
 - The existing platform-admin RBAC protects the endpoints. API keys are not
   accepted by the platform control plane.
 - The super-admin page shows the declared profile, providers, and health state.

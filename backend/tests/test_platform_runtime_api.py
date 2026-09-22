@@ -1,4 +1,4 @@
-from northstar_api.modules.platform_runtime import build_capacity_budget
+from northstar_api.modules.platform_runtime import DeploymentDispatchEvent, build_capacity_budget
 from northstar_api.modules.super_admin.api.runtime import (
     _declared_platform_spec,
     _deployment_dispatch_payload,
@@ -15,6 +15,7 @@ def test_runtime_control_plane_exposes_only_read_and_plan_operations() -> None:
     assert ("/platform-admin/runtime/changes", ("POST",)) in routes
     assert ("/platform-admin/runtime/changes", ("GET",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}", ("GET",)) in routes
+    assert ("/platform-admin/runtime/changes/{change_id}/executions", ("GET",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}/approve", ("POST",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}/reject", ("POST",)) in routes
     assert not any("destroy" in path or path.endswith("/apply") for path, _ in routes)
@@ -71,3 +72,36 @@ def test_approved_dispatch_payload_carries_immutable_plan_inputs() -> None:
     assert payload["targetDigest"] == "b" * 64
     assert payload["desiredSpec"] == {"metadata": {"revision": 5}}
     assert payload["planSteps"] == ["validate_dependencies", "switch_reads_and_writes"]
+
+
+def test_deployment_dispatch_contract_validates_the_outbox_shape() -> None:
+    from uuid import uuid4
+
+    from pydantic import ValidationError
+
+    payload = {
+        "changeId": str(uuid4()),
+        "environment": "staging",
+        "action": "migrate",
+        "classification": "migration",
+        "destructive": False,
+        "sourceRevision": 4,
+        "targetRevision": 5,
+        "sourceDigest": "a" * 64,
+        "targetDigest": "b" * 64,
+        "idempotencyKey": "change-2026-09-22-001",
+        "reason": "Move the event provider after verification",
+        "planSteps": ["validate_dependencies"],
+        "currentSpec": {"metadata": {"revision": 4}},
+        "desiredSpec": {"metadata": {"revision": 5}},
+    }
+    event = DeploymentDispatchEvent.model_validate(payload)
+
+    assert event.target_revision == 5
+    payload["unexpected"] = True
+    try:
+        DeploymentDispatchEvent.model_validate(payload)
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("deployment dispatch contract accepted an unknown field")
