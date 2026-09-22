@@ -19,6 +19,7 @@ import {
   type PlatformCapabilityCatalog,
   type PlatformCapacityBudget,
   type PlatformRuntimeChange,
+  type PlatformRuntimeExecution,
 } from '@/lib/platform-admin-api';
 import { persistActiveWorkspace } from '@/lib/workspace-api';
 
@@ -47,6 +48,7 @@ export function SuperAdminPage() {
   const [runtimeCatalog, setRuntimeCatalog] = useState<PlatformCapabilityCatalog | null>(null);
   const [capacityBudget, setCapacityBudget] = useState<PlatformCapacityBudget | null>(null);
   const [runtimeChanges, setRuntimeChanges] = useState<PlatformRuntimeChange[]>([]);
+  const [runtimeExecutions, setRuntimeExecutions] = useState<Record<string, PlatformRuntimeExecution[]>>({});
   const [platformPermissions, setPlatformPermissions] = useState<string[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
@@ -79,7 +81,15 @@ export function SuperAdminPage() {
       void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
       void platformAdminApi.runtimeCapabilities().then((value) => { if (active) setRuntimeCatalog(value); }).catch(() => undefined);
       void platformAdminApi.runtimeCapacity().then((value) => { if (active) setCapacityBudget(value); }).catch(() => undefined);
-      void platformAdminApi.runtimeChanges().then((value) => { if (active) setRuntimeChanges(value); }).catch(() => undefined);
+      void platformAdminApi.runtimeChanges().then(async (value) => {
+        if (!active) return;
+        setRuntimeChanges(value);
+        const executionRows = await Promise.all(value.map(async (change) => [
+          change.id,
+          await platformAdminApi.runtimeExecutions(change.id).catch(() => []),
+        ] as const));
+        if (active) setRuntimeExecutions(Object.fromEntries(executionRows));
+      }).catch(() => undefined);
       void platformAdminApi.permissions().then((value) => { if (active) setPlatformPermissions(value.permissions); }).catch(() => undefined);
       void platformAdminApi.operators().then((value) => { if (active) setOperators(value); }).catch(() => undefined);
     }).catch((reason) => {
@@ -243,7 +253,7 @@ export function SuperAdminPage() {
 
     {runtimeChanges.length ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Platform change history</h3><p>Every request is persisted with a plan digest and approval state. Infrastructure is applied only by the deployment pipeline.</p></div><Activity /></div>
-      <div className="agent-row-list">{runtimeChanges.map((change) => <div className="agent-row" key={change.id}><span className="agent-avatar">{change.action.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{change.environment} · {change.action}</strong><small>{change.reason} · {change.changed_capabilities.join(', ') || 'No capability delta'}</small></span><span className="agent-row__metric"><small>Revision</small><strong>{change.source_revision} → {change.target_revision}</strong></span><span className="agent-row__status"><Badge tone={change.status === 'approved' ? 'success' : change.status === 'rejected' ? 'danger' : 'warning'}>{change.status}</Badge></span>{change.status === 'waiting_approval' && platformPermissions.includes('platform.runtime.manage') ? <span className="workspace-panel__actions"><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'approve')}>Approve</Button><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'reject')}>Reject</Button></span> : null}</div>)}</div>
+      <div className="agent-row-list">{runtimeChanges.map((change) => { const latestExecution = runtimeExecutions[change.id]?.[0]; return <div className="agent-row" key={change.id}><span className="agent-avatar">{change.action.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{change.environment} · {change.action}</strong><small>{change.reason} · {change.changed_capabilities.join(', ') || 'No capability delta'}</small><small>{latestExecution ? `Execution: ${latestExecution.pipeline} · ${latestExecution.status}` : 'No execution evidence reported'}</small></span><span className="agent-row__metric"><small>Revision</small><strong>{change.source_revision} → {change.target_revision}</strong></span><span className="agent-row__metric"><small>Evidence</small><strong>{runtimeExecutions[change.id]?.length ?? 0}</strong></span><span className="agent-row__status"><Badge tone={change.status === 'approved' ? 'success' : change.status === 'rejected' ? 'danger' : 'warning'}>{change.status}</Badge></span>{change.status === 'waiting_approval' && platformPermissions.includes('platform.runtime.manage') ? <span className="workspace-panel__actions"><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'approve')}>Approve</Button><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'reject')}>Reject</Button></span> : null}</div>; })}</div>
     </Card> : null}
 
     {platformPermissions.length ? <Card className="workspace-panel">
