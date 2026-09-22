@@ -169,6 +169,7 @@ export interface PlatformRuntimeChange {
   action: string;
   classification: string;
   operation: 'enable' | 'disable' | 'switch' | 'stop' | 'destroy' | string;
+  requested_capability: string | null;
   requires_approval: boolean;
   destructive: boolean;
   source_revision: number;
