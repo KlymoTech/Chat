@@ -157,6 +157,30 @@ export interface PlatformCapacityBudget {
   limiting_factors: string[];
 }
 
+export interface PlatformRuntimeChange {
+  id: string;
+  environment: string;
+  requested_by: string;
+  approved_by: string | null;
+  status: string;
+  action: string;
+  classification: string;
+  requires_approval: boolean;
+  destructive: boolean;
+  source_revision: number;
+  target_revision: number;
+  source_digest: string;
+  target_digest: string;
+  idempotency_key: string;
+  reason: string;
+  plan_steps: string[];
+  blockers: string[];
+  changed_capabilities: string[];
+  impacted_capabilities: string[];
+  requested_at: string;
+  approved_at: string | null;
+}
+
 export interface PlatformTenantUser {
   id: string;
   name: string;
@@ -288,6 +312,22 @@ export const platformAdminApi = {
 
   runtimeCapacity(apiReplicas = 1): Promise<PlatformCapacityBudget> {
     return request<PlatformCapacityBudget>(`/platform-admin/runtime/capacity?api_replicas=${apiReplicas}`);
+  },
+
+  runtimeChanges(limit = 20): Promise<PlatformRuntimeChange[]> {
+    return request<PlatformRuntimeChange[]>(`/platform-admin/runtime/changes?limit=${limit}`);
+  },
+
+  approveRuntimeChange(changeId: string, reason: string): Promise<PlatformRuntimeChange> {
+    return request<PlatformRuntimeChange>(`/platform-admin/runtime/changes/${encodeURIComponent(changeId)}/approve`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    });
+  },
+
+  rejectRuntimeChange(changeId: string, reason: string): Promise<PlatformRuntimeChange> {
+    return request<PlatformRuntimeChange>(`/platform-admin/runtime/changes/${encodeURIComponent(changeId)}/reject`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    });
   },
 
   tenants(search = '', limit = 50, offset = 0): Promise<PlatformTenantList> {

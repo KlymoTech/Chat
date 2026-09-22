@@ -18,6 +18,7 @@ import {
   type PlatformOperator,
   type PlatformCapabilityCatalog,
   type PlatformCapacityBudget,
+  type PlatformRuntimeChange,
 } from '@/lib/platform-admin-api';
 import { persistActiveWorkspace } from '@/lib/workspace-api';
 
@@ -45,6 +46,7 @@ export function SuperAdminPage() {
   const [configuration, setConfiguration] = useState<PlatformConfiguration | null>(null);
   const [runtimeCatalog, setRuntimeCatalog] = useState<PlatformCapabilityCatalog | null>(null);
   const [capacityBudget, setCapacityBudget] = useState<PlatformCapacityBudget | null>(null);
+  const [runtimeChanges, setRuntimeChanges] = useState<PlatformRuntimeChange[]>([]);
   const [platformPermissions, setPlatformPermissions] = useState<string[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
@@ -77,6 +79,7 @@ export function SuperAdminPage() {
       void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
       void platformAdminApi.runtimeCapabilities().then((value) => { if (active) setRuntimeCatalog(value); }).catch(() => undefined);
       void platformAdminApi.runtimeCapacity().then((value) => { if (active) setCapacityBudget(value); }).catch(() => undefined);
+      void platformAdminApi.runtimeChanges().then((value) => { if (active) setRuntimeChanges(value); }).catch(() => undefined);
       void platformAdminApi.permissions().then((value) => { if (active) setPlatformPermissions(value.permissions); }).catch(() => undefined);
       void platformAdminApi.operators().then((value) => { if (active) setOperators(value); }).catch(() => undefined);
     }).catch((reason) => {
@@ -156,6 +159,20 @@ export function SuperAdminPage() {
     } finally { setOperationBusy(false); }
   };
 
+  const decideRuntimeChange = async (change: PlatformRuntimeChange, decision: 'approve' | 'reject') => {
+    const reason = window.prompt(`Reason to ${decision} this platform change:`, change.reason)?.trim() ?? '';
+    if (reason.length < 5) return;
+    setOperationBusy(true);
+    try {
+      const updated = decision === 'approve'
+        ? await platformAdminApi.approveRuntimeChange(change.id, reason)
+        : await platformAdminApi.rejectRuntimeChange(change.id, reason);
+      setRuntimeChanges((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (reasonValue) {
+      setError(reasonValue instanceof Error ? reasonValue.message : 'Platform change decision failed');
+    } finally { setOperationBusy(false); }
+  };
+
   if (loading && !overview) return <PageLoader />;
   if (error && !overview) {
     return <div className="page"><Card className="workspace-panel"><div className="workspace-empty-row"><ShieldCheck /><span><strong>Platform administrator access required</strong><small>Access check failed: {error}</small></span></div></Card></div>;
@@ -222,6 +239,11 @@ export function SuperAdminPage() {
     {capacityBudget ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Capacity budget</h3><p>Configuration-derived ceilings; run a workload test before making a user-capacity claim.</p></div><Activity /></div>
       <div className="workspace-plan-grid"><Metric label="API replicas" value={capacityBudget.api_replicas} /><Metric label="DB connections / replica" value={capacityBudget.database_connections_per_replica} /><Metric label="DB connection budget" value={capacityBudget.database_connection_budget} /><Metric label="AI concurrency / replica" value={capacityBudget.model_concurrency_per_replica} /><Metric label="AI concurrency budget" value={capacityBudget.model_concurrency_budget} /><Metric label="Measured user capacity" value="Not established" /></div>
+    </Card> : null}
+
+    {runtimeChanges.length ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Platform change history</h3><p>Every request is persisted with a plan digest and approval state. Infrastructure is applied only by the deployment pipeline.</p></div><Activity /></div>
+      <div className="agent-row-list">{runtimeChanges.map((change) => <div className="agent-row" key={change.id}><span className="agent-avatar">{change.action.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{change.environment} · {change.action}</strong><small>{change.reason} · {change.changed_capabilities.join(', ') || 'No capability delta'}</small></span><span className="agent-row__metric"><small>Revision</small><strong>{change.source_revision} → {change.target_revision}</strong></span><span className="agent-row__status"><Badge tone={change.status === 'approved' ? 'success' : change.status === 'rejected' ? 'danger' : 'warning'}>{change.status}</Badge></span>{change.status === 'waiting_approval' && platformPermissions.includes('platform.runtime.manage') ? <span className="workspace-panel__actions"><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'approve')}>Approve</Button><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'reject')}>Reject</Button></span> : null}</div>)}</div>
     </Card> : null}
 
     {platformPermissions.length ? <Card className="workspace-panel">
