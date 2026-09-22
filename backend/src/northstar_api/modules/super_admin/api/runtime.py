@@ -35,6 +35,7 @@ from northstar_api.modules.platform_runtime import (
     spec_digest,
     transition_change,
 )
+from northstar_api.modules.platform_runtime.control_center import apply_operation_policy
 from northstar_api.modules.platform_runtime.configuration_state import (
     activate_configuration_version,
     catalog_with_observations,
@@ -268,7 +269,10 @@ async def create_runtime_change(
     """Persist a reviewable change request; never execute infrastructure."""
     if payload.current.metadata.environment != payload.desired.metadata.environment:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source and target environments must match")
-    analysis = analyze_capability_change(payload.current, payload.desired)
+    analysis = apply_operation_policy(
+        analyze_capability_change(payload.current, payload.desired),
+        payload.operation,
+    )
     environment = payload.desired.metadata.environment
     try:
         effective = await effective_platform_spec(session, _declared_platform_spec(), environment=environment)
