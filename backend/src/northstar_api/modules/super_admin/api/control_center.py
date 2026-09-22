@@ -28,6 +28,7 @@ from northstar_api.modules.platform_runtime.control_center import (
     EnvironmentControlPolicy,
     FeatureDefinition,
     ProviderDescriptor,
+    apply_operation_policy,
     capability_control_policies,
     capability_control_policy,
     environment_control_policy,
@@ -338,7 +339,7 @@ async def plan_runtime_capability_change(
         policy = capability_control_policy(capability_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    analysis = _analyze(current, desired)
+    analysis = apply_operation_policy(_analyze(current, desired), payload.operation)
     return CapabilityIntentAnalysis(
         capability_id=capability_id,
         operation=payload.operation,
