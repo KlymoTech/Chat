@@ -68,12 +68,13 @@ async def report_platform_executor_execution(
             OutboxEvent.aggregate_type == "platform_change",
             OutboxEvent.aggregate_id == str(change_id),
             OutboxEvent.event_type == PLATFORM_CHANGE_EVENT_TYPE,
+            OutboxEvent.published_at.is_not(None),
         )
     )
     if source_event is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="platform change has no approved deployment dispatch event",
+            detail="platform change has not been dispatched to the approved executor",
         )
     return await persist_runtime_execution_report(
         change_id,
