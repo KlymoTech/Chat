@@ -45,14 +45,6 @@ function statusTone(value: string): 'success' | 'warning' | 'danger' | 'neutral'
   return 'neutral';
 }
 
-function operationLabel(operation: PlatformCapabilityOperation): string {
-  if (operation === 'destroy') return 'Destroy infrastructure';
-  if (operation === 'stop') return 'Stop infrastructure';
-  if (operation === 'disable') return 'Disable capability';
-  if (operation === 'enable') return 'Enable capability';
-  return 'Switch provider';
-}
-
 function planSummary(
   analysis: PlatformCapabilityIntentAnalysis | PlatformFeatureIntentAnalysis,
 ): string {
