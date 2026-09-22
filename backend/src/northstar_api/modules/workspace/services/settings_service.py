@@ -11,7 +11,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from northstar_api.models import Workspace, WorkspaceDeveloperSettingsRecord, WorkspaceSecurityPolicyRecord
+from northstar_api.models import (
+    Workspace,
+    WorkspaceDeveloperSettingsRecord,
+    WorkspaceNotificationSettingsRecord,
+    WorkspaceSecurityPolicyRecord,
+)
 from northstar_api.modules.workspace.contracts import (
     DeveloperSettings,
     GeneralSettings,
@@ -106,6 +111,35 @@ async def sync_developer_settings_record(
     record.rate_limit_per_minute = payload.rate_limit_per_minute
     record.request_log_retention_days = payload.request_log_retention_days
     record.webhook_retry_limit = payload.webhook_retry_limit
+
+
+async def sync_notification_settings_record(
+    session: AsyncSession,
+    workspace: Workspace,
+    payload: NotificationSettings,
+) -> None:
+    """Persist notification routing preferences in a normalized projection."""
+    if not hasattr(session, "execute"):
+        return
+    record = await session.scalar(
+        select(WorkspaceNotificationSettingsRecord).where(
+            WorkspaceNotificationSettingsRecord.tenant_id == workspace.tenant_id,
+            WorkspaceNotificationSettingsRecord.workspace_id == workspace.id,
+        )
+    )
+    if record is None:
+        record = WorkspaceNotificationSettingsRecord(
+            tenant_id=workspace.tenant_id,
+            workspace_id=workspace.id,
+        )
+        session.add(record)
+    record.member_changes = payload.member_changes
+    record.security_alerts = payload.security_alerts
+    record.billing_alerts = payload.billing_alerts
+    record.channel_failures = payload.channel_failures
+    record.integration_failures = payload.integration_failures
+    record.weekly_digest = payload.weekly_digest
+    record.recipients_json = [str(value) for value in payload.recipients]
 
 
 def update_notification_settings(workspace: Workspace, payload: NotificationSettings) -> dict[str, Any]:

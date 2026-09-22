@@ -23,6 +23,7 @@ from northstar_api.modules.workspace.security_policy import (
 )
 from northstar_api.modules.workspace.services.settings_service import (
     sync_developer_settings_record,
+    sync_notification_settings_record,
     sync_security_policy_record,
 )
 from northstar_api.modules.workspace.services.team_service import (
@@ -47,6 +48,7 @@ __all__ = [
     "resolve_workspace_domain",
     "save_member_status",
     "sync_developer_settings_record",
+    "sync_notification_settings_record",
     "sync_security_policy_record",
     "sync_workspace_team_records",
     "update_workspace_teams",

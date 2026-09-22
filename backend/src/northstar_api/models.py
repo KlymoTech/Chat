@@ -315,6 +315,26 @@ class WorkspaceDeveloperSettingsRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin
     webhook_retry_limit: Mapped[int] = mapped_column(Integer, default=5)
 
 
+class WorkspaceNotificationSettingsRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Normalized notification preferences for workspace operations."""
+
+    __tablename__ = "workspace_notification_settings_records"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_workspace_notification_settings_workspace"),
+        Index("ix_workspace_notification_settings_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    member_changes: Mapped[bool] = mapped_column(Boolean, default=True)
+    security_alerts: Mapped[bool] = mapped_column(Boolean, default=True)
+    billing_alerts: Mapped[bool] = mapped_column(Boolean, default=True)
+    channel_failures: Mapped[bool] = mapped_column(Boolean, default=True)
+    integration_failures: Mapped[bool] = mapped_column(Boolean, default=True)
+    weekly_digest: Mapped[bool] = mapped_column(Boolean, default=False)
+    recipients_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)
+
+
 class WorkspaceMembership(Base, TimestampMixin):
     __tablename__ = "workspace_memberships"
     __table_args__ = (
