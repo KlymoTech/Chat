@@ -8,7 +8,7 @@ resource-delete APIs from the browser request path.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -442,6 +442,7 @@ async def report_capability_observation(
             "fallbackActive": payload.fallback_active,
             "healthMessage": payload.health_message,
             "estimatedMonthlyCostUsd": payload.estimated_monthly_cost_usd,
+            "observedAt": datetime.now(UTC).isoformat(),
         }
     )
     record.metadata_json = metadata
