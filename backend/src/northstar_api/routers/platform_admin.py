@@ -43,6 +43,16 @@ from northstar_api.subscriptions import SubscriptionStatus
 
 router = APIRouter(prefix="/platform-admin", tags=["platform admin"])
 
+PLATFORM_PERMISSIONS = frozenset({
+    "platform.overview.read",
+    "platform.tenants.read",
+    "platform.tenants.manage",
+    "platform.billing.manage",
+    "platform.support.impersonate",
+    "platform.system.read",
+    "platform.audit.read",
+})
+
 
 def platform_admin_emails(raw: str | None = None) -> frozenset[str]:
     value = os.getenv("PLATFORM_ADMIN_EMAILS", "") if raw is None else raw
@@ -62,6 +72,35 @@ def platform_admin_emails(raw: str | None = None) -> frozenset[str]:
         str(item).strip().lower()
         for item in values
         if str(item).strip()
+    )
+
+
+def platform_admin_permissions(email: str, raw: str | None = None) -> frozenset[str]:
+    """Resolve server-owned platform capabilities for an administrator.
+
+    ``PLATFORM_ADMIN_EMAILS`` remains a full-access compatibility switch.  An
+    optional JSON object in ``PLATFORM_ADMIN_PERMISSIONS`` can narrow individual
+    operators, for example ``{"support@example.com":["platform.tenants.read",
+    "platform.support.impersonate"]}``.  Browser input can never grant these
+    permissions.
+    """
+    configured = os.getenv("PLATFORM_ADMIN_PERMISSIONS", "") if raw is None else raw
+    if not configured.strip():
+        return PLATFORM_PERMISSIONS
+    try:
+        decoded = json.loads(configured)
+    except json.JSONDecodeError:
+        return frozenset()
+    if not isinstance(decoded, dict):
+        return frozenset()
+    value = decoded.get(email.strip().lower(), [])
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, list):
+        return frozenset()
+    return frozenset(
+        item.strip() for item in value
+        if isinstance(item, str) and item.strip() in PLATFORM_PERMISSIONS
     )
 
 
@@ -97,6 +136,40 @@ async def require_platform_admin(
 PlatformAdminPrincipal = Annotated[Principal, Depends(require_platform_admin)]
 
 
+def require_platform_permissions(*required: str):
+    async def dependency(principal: CurrentPrincipal, session: DBSession) -> Principal:
+        checked = await require_platform_admin(principal, session)
+        email = await session.scalar(select(User.email).where(User.id == checked.user_id))
+        if email is None or not set(required) <= platform_admin_permissions(email):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Platform administrator capability required",
+            )
+        return checked
+
+    return dependency
+
+
+PlatformOverviewPrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.overview.read"))
+]
+PlatformTenantsReadPrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.tenants.read"))
+]
+PlatformTenantsManagePrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.tenants.manage"))
+]
+PlatformBillingManagePrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.billing.manage"))
+]
+PlatformSupportPrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.support.impersonate"))
+]
+PlatformSystemReadPrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.system.read"))
+]
+
+
 async def _platform_admin_email(session: DBSession, principal: Principal) -> str:
     value = await session.scalar(select(User.email).where(User.id == principal.user_id))
     if value is None:
@@ -115,11 +188,20 @@ async def get_platform_admin_access(
     )
 
 
+@router.get("/permissions")
+async def get_platform_admin_permissions(
+    principal: PlatformAdminPrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    email = await _platform_admin_email(session, principal)
+    return {"email": email, "permissions": sorted(platform_admin_permissions(email))}
+
+
 @router.get("/overview", response_model=PlatformOverviewOut)
 @router.get("/dashboard", response_model=PlatformOverviewOut)
 @router.get("/usage", response_model=PlatformOverviewOut)
 async def get_platform_overview(
-    _: PlatformAdminPrincipal,
+    _: PlatformOverviewPrincipal,
     session: DBSession,
 ) -> PlatformOverviewOut:
     return await platform_overview(session)
@@ -127,7 +209,7 @@ async def get_platform_overview(
 
 @router.get("/health", response_model=PlatformOperationsOut)
 async def get_platform_health(
-    _: PlatformAdminPrincipal,
+    _: PlatformOverviewPrincipal,
     session: DBSession,
 ) -> PlatformOperationsOut:
     """Expose the operational health slice for the dedicated health route."""
@@ -136,7 +218,7 @@ async def get_platform_health(
 
 @router.get("/entitlements", response_model=list[PlatformEntitlementOut])
 @router.get("/plans", response_model=list[PlatformEntitlementOut])
-async def get_platform_entitlements(_: PlatformAdminPrincipal) -> list[PlatformEntitlementOut]:
+async def get_platform_entitlements(_: PlatformSystemReadPrincipal) -> list[PlatformEntitlementOut]:
     """Expose the server-owned plan catalog to platform operators."""
     return [
         PlatformEntitlementOut(
@@ -161,7 +243,7 @@ async def get_platform_entitlements(_: PlatformAdminPrincipal) -> list[PlatformE
 
 @router.get("/configuration", response_model=PlatformConfigurationOut)
 @router.get("/system", response_model=PlatformConfigurationOut)
-async def get_platform_configuration(_: PlatformAdminPrincipal) -> PlatformConfigurationOut:
+async def get_platform_configuration(_: PlatformSystemReadPrincipal) -> PlatformConfigurationOut:
     """Expose non-secret runtime flags and limits to platform operators."""
     settings = get_settings()
     return PlatformConfigurationOut(
@@ -183,7 +265,7 @@ async def get_platform_configuration(_: PlatformAdminPrincipal) -> PlatformConfi
 
 @router.get("/tenants", response_model=PlatformTenantListOut)
 async def get_platform_tenants(
-    _: PlatformAdminPrincipal,
+    _: PlatformTenantsReadPrincipal,
     session: DBSession,
     search: str | None = Query(default=None, max_length=160),
     limit: int = Query(default=50, ge=1, le=200),
@@ -200,7 +282,7 @@ async def get_platform_tenants(
 @router.get("/tenants/{tenant_id}", response_model=PlatformTenantDetailOut)
 async def get_platform_tenant_detail(
     tenant_id: UUID,
-    _: PlatformAdminPrincipal,
+    _: PlatformTenantsReadPrincipal,
     session: DBSession,
 ) -> PlatformTenantDetailOut:
     value = await get_platform_tenant(session, tenant_id=tenant_id)
@@ -213,7 +295,7 @@ async def get_platform_tenant_detail(
 async def update_platform_tenant_subscription(
     tenant_id: UUID,
     payload: PlatformTenantSubscriptionPatch,
-    principal: PlatformAdminPrincipal,
+    principal: PlatformBillingManagePrincipal,
     session: DBSession,
 ) -> PlatformTenantDetailOut:
     """Apply a support override with an explicit reason and durable audit event."""
@@ -250,7 +332,7 @@ async def update_platform_tenant_subscription(
 async def update_platform_tenant_lifecycle(
     tenant_id: UUID,
     payload: PlatformTenantLifecyclePatch,
-    principal: PlatformAdminPrincipal,
+    principal: PlatformTenantsManagePrincipal,
     session: DBSession,
 ) -> PlatformTenantDetailOut:
     """Suspend/reactivate a tenant without deleting data or losing prior state."""
@@ -300,7 +382,7 @@ async def update_platform_tenant_lifecycle(
 @router.post("/impersonation", response_model=PlatformImpersonationOut)
 async def start_platform_impersonation(
     payload: PlatformImpersonationRequest,
-    principal: PlatformAdminPrincipal,
+    principal: PlatformSupportPrincipal,
     session: DBSession,
 ) -> PlatformImpersonationOut:
     """Issue a short-lived, explicitly tagged support session without a password."""

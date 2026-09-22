@@ -8,4 +8,5 @@ export type {
   PlatformTenantUser,
   PlatformEntitlement,
   PlatformConfiguration,
+  PlatformAdminPermissions,
 } from '@/lib/platform-admin-api';

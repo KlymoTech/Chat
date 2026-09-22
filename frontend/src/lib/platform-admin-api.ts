@@ -7,6 +7,11 @@ export interface PlatformAdminAccess {
   email: string;
 }
 
+export interface PlatformAdminPermissions {
+  email: string;
+  permissions: string[];
+}
+
 export interface PlatformOperations {
   status: 'healthy' | 'degraded' | string;
   failedIngestionJobs: number;
@@ -195,6 +200,10 @@ export const platformAdminApi = {
 
   access(): Promise<PlatformAdminAccess> {
     return request<PlatformAdminAccess>('/platform-admin/access');
+  },
+
+  permissions(): Promise<PlatformAdminPermissions> {
+    return request<PlatformAdminPermissions>('/platform-admin/permissions');
   },
 
   overview(): Promise<PlatformOverview> {

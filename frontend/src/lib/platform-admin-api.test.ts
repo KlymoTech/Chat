@@ -72,4 +72,19 @@ describe('platformAdminApi', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
     await expect(platformAdminApi.tenants()).rejects.toThrow('Network unavailable');
   });
+
+  it('loads server-owned platform capabilities without workspace scoping', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      email: 'support@example.com',
+      permissions: ['platform.tenants.read', 'platform.support.impersonate'],
+    }));
+    await expect(platformAdminApi.permissions()).resolves.toEqual({
+      email: 'support@example.com',
+      permissions: ['platform.tenants.read', 'platform.support.impersonate'],
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/v1/platform-admin/permissions',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
 });
