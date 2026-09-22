@@ -40,6 +40,7 @@ export function PlatformAdminPage() {
   const [overview, setOverview] = useState<PlatformOverview | null>(null);
   const [entitlements, setEntitlements] = useState<PlatformEntitlement[]>([]);
   const [configuration, setConfiguration] = useState<PlatformConfiguration | null>(null);
+  const [platformPermissions, setPlatformPermissions] = useState<string[]>([]);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -68,6 +69,7 @@ export function PlatformAdminPage() {
       setTotal(nextTenants.total);
       void platformAdminApi.entitlements().then((value) => { if (active) setEntitlements(value); }).catch(() => undefined);
       void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
+      void platformAdminApi.permissions().then((value) => { if (active) setPlatformPermissions(value.permissions); }).catch(() => undefined);
     }).catch((reason) => {
       if (!active) return;
       setError(reason instanceof Error ? reason.message : 'Platform control plane could not be loaded');
@@ -147,7 +149,7 @@ export function PlatformAdminPage() {
 
   if (loading && !overview) return <PageLoader />;
   if (error && !overview) {
-    return <div className="page"><Card className="workspace-panel"><div className="workspace-empty-row"><ShieldCheck /><span><strong>Platform administrator access required</strong><small>{error}</small></span></div></Card></div>;
+    return <div className="page"><Card className="workspace-panel"><div className="workspace-empty-row"><ShieldCheck /><span><strong>Platform administrator access required</strong><small>Access check failed: {error}</small></span></div></Card></div>;
   }
 
   const operations = overview?.operations;
@@ -201,6 +203,11 @@ export function PlatformAdminPage() {
     {configuration ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Runtime configuration</h3><p>Non-secret flags and limits currently enforced by the backend.</p></div></div>
       <div className="workspace-plan-grid"><Metric label="Environment" value={configuration.appEnv} /><Metric label="Background dispatch" value={configuration.backgroundDispatchEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Kafka analytics" value={configuration.kafkaEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Course isolation" value={configuration.educationMultiCourseEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Impersonation TTL" value={`${configuration.platformImpersonationTtlMinutes} minutes`} /><Metric label="Retrieval context" value={`${configuration.retrievalContextLimit} chunks / ${configuration.retrievalCandidateLimit} candidates`} /></div>
+    </Card> : null}
+
+    {platformPermissions.length ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Control-plane capabilities</h3><p>Server-assigned permissions for {session?.user.email ?? 'this operator'}.</p></div><ShieldCheck /></div>
+      <div className="workspace-plan-grid">{platformPermissions.map((permission) => <Badge key={permission} tone="brand">{permission}</Badge>)}</div>
     </Card> : null}
 
     <Card className="workspace-panel">

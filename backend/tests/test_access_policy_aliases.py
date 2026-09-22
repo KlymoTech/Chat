@@ -18,4 +18,3 @@ def test_public_capability_aliases_are_registered_and_authorized() -> None:
 def test_delegation_accepts_aliases_without_granting_unknown_capabilities() -> None:
     selected = validate_delegated_permissions(["members.read", "workspace.read"], WORKSPACE_GRANTS["workspace_admin"])
     assert selected == frozenset({"members.read", "workspace.read"})
-
