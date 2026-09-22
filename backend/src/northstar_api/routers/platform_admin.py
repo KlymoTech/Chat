@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated
@@ -16,6 +14,11 @@ from northstar_api.dependencies import CurrentPrincipal, DBSession
 from northstar_api.entitlements import PLAN_ENTITLEMENTS
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.models import Tenant, TenantMembership, User, Workspace, WorkspaceMembership, WorkspaceStatus
+from northstar_api.modules.platform_admin.access import (
+    PLATFORM_PERMISSIONS,
+    platform_admin_emails,
+    platform_admin_permissions,
+)
 from northstar_api.platform_admin_schemas import (
     PlatformAdminAccessOut,
     PlatformConfigurationOut,
@@ -42,66 +45,6 @@ from northstar_api.services.subscriptions import SubscriptionError, set_subscrip
 from northstar_api.subscriptions import SubscriptionStatus
 
 router = APIRouter(prefix="/platform-admin", tags=["platform admin"])
-
-PLATFORM_PERMISSIONS = frozenset({
-    "platform.overview.read",
-    "platform.tenants.read",
-    "platform.tenants.manage",
-    "platform.billing.manage",
-    "platform.support.impersonate",
-    "platform.system.read",
-    "platform.audit.read",
-})
-
-
-def platform_admin_emails(raw: str | None = None) -> frozenset[str]:
-    value = os.getenv("PLATFORM_ADMIN_EMAILS", "") if raw is None else raw
-    normalized = value.strip()
-    if not normalized:
-        return frozenset()
-    values: list[object]
-    if normalized.startswith("["):
-        try:
-            decoded = json.loads(normalized)
-        except json.JSONDecodeError:
-            decoded = []
-        values = decoded if isinstance(decoded, list) else []
-    else:
-        values = normalized.split(",")
-    return frozenset(
-        str(item).strip().lower()
-        for item in values
-        if str(item).strip()
-    )
-
-
-def platform_admin_permissions(email: str, raw: str | None = None) -> frozenset[str]:
-    """Resolve server-owned platform capabilities for an administrator.
-
-    ``PLATFORM_ADMIN_EMAILS`` remains a full-access compatibility switch.  An
-    optional JSON object in ``PLATFORM_ADMIN_PERMISSIONS`` can narrow individual
-    operators, for example ``{"support@example.com":["platform.tenants.read",
-    "platform.support.impersonate"]}``.  Browser input can never grant these
-    permissions.
-    """
-    configured = os.getenv("PLATFORM_ADMIN_PERMISSIONS", "") if raw is None else raw
-    if not configured.strip():
-        return PLATFORM_PERMISSIONS
-    try:
-        decoded = json.loads(configured)
-    except json.JSONDecodeError:
-        return frozenset()
-    if not isinstance(decoded, dict):
-        return frozenset()
-    value = decoded.get(email.strip().lower(), [])
-    if isinstance(value, str):
-        value = value.split(",")
-    if not isinstance(value, list):
-        return frozenset()
-    return frozenset(
-        item.strip() for item in value
-        if isinstance(item, str) and item.strip() in PLATFORM_PERMISSIONS
-    )
 
 
 async def require_platform_admin(
