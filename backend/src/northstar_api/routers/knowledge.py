@@ -122,7 +122,9 @@ def source_response(source: KnowledgeSource) -> KnowledgeOut:
         url=source.url,
         content=source.content if source.kind == KnowledgeKind.TEXT else None,
         error=source.error,
-        extraction_issue_count=source.extraction_issue_count,
+        # Older rows created before the non-null default may still deserialize
+        # with a null count; API contracts always expose a numeric value.
+        extraction_issue_count=source.extraction_issue_count or 0,
         extraction_available=bool(source.extraction_key),
     )
 
