@@ -25,6 +25,7 @@ from northstar_api.modules.platform_runtime import (
     CapacityBudget,
     ChangeStatus,
     DeploymentDispatchEvent,
+    DeploymentExecutionReport,
     PlatformSpec,
     analyze_capability_change,
     approver_is_distinct,
@@ -94,8 +95,11 @@ class RuntimeExecutionOut(BaseModel):
 
     id: UUID
     change_id: UUID
+    report_key: str | None
     pipeline: str
     status: str
+    source_digest: str | None
+    target_digest: str | None
     started_at: datetime | None
     completed_at: datetime | None
     health_result: dict[str, object]
@@ -161,8 +165,11 @@ def _execution_response(record: PlatformDeploymentExecution) -> RuntimeExecution
     return RuntimeExecutionOut(
         id=record.id,
         change_id=record.change_id,
+        report_key=record.report_key,
         pipeline=record.pipeline,
         status=record.status,
+        source_digest=record.source_digest,
+        target_digest=record.target_digest,
         started_at=record.started_at,
         completed_at=record.completed_at,
         health_result=record.health_result_json or {},
@@ -377,6 +384,102 @@ async def list_runtime_executions(
         )
     ).all()
     return [_execution_response(record) for record in records]
+
+
+@router.post("/changes/{change_id}/executions", response_model=RuntimeExecutionOut, status_code=status.HTTP_201_CREATED)
+async def report_runtime_execution(
+    change_id: UUID,
+    payload: DeploymentExecutionReport,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> RuntimeExecutionOut:
+    """Persist one idempotent deployment stage and health report.
+
+    This endpoint records evidence only. Provider-specific mutation remains in
+    the external deployment controller that consumed the approved outbox event.
+    """
+    record = await session.get(PlatformChangeRecord, change_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
+    existing = await session.scalar(
+        select(PlatformDeploymentExecution).where(
+            PlatformDeploymentExecution.change_id == change_id,
+            PlatformDeploymentExecution.report_key == payload.report_key,
+        )
+    )
+    if existing is not None:
+        if (
+            existing.source_digest != payload.source_digest
+            or existing.target_digest != payload.target_digest
+            or existing.pipeline != payload.pipeline
+            or existing.status != payload.phase
+        ):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use")
+        return _execution_response(existing)
+
+    current_status: ChangeStatus = record.status
+    try:
+        transition_change(current_status, payload.phase)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"cannot report phase {payload.phase} from change status {record.status}",
+        ) from exc
+    if record.source_digest != payload.source_digest or record.target_digest != payload.target_digest:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution digest does not match the approved plan")
+
+    now = datetime.now(UTC)
+    terminal = payload.phase in {"completed", "failed", "rolled_back"}
+    execution = PlatformDeploymentExecution(
+        change_id=change_id,
+        report_key=payload.report_key,
+        pipeline=payload.pipeline,
+        status=payload.phase,
+        source_digest=payload.source_digest,
+        target_digest=payload.target_digest,
+        started_at=now,
+        completed_at=now if terminal else None,
+        health_result_json=payload.health_result,
+        error=payload.error,
+    )
+    record.status = payload.phase
+    record.started_at = record.started_at or now
+    if terminal:
+        record.completed_at = now
+    session.add(execution)
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.runtime.change.execution_reported",
+        entity_type="platform_change",
+        entity_id=str(change_id),
+        category="system",
+        severity="error" if payload.phase == "failed" else "info",
+        after={"status": payload.phase, "pipeline": payload.pipeline},
+        metadata={"reportKey": payload.report_key, "health": payload.health_result},
+    )
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        existing = await session.scalar(
+            select(PlatformDeploymentExecution).where(
+                PlatformDeploymentExecution.change_id == change_id,
+                PlatformDeploymentExecution.report_key == payload.report_key,
+            )
+        )
+        if existing is None:
+            raise
+        if (
+            existing.source_digest != payload.source_digest
+            or existing.target_digest != payload.target_digest
+            or existing.pipeline != payload.pipeline
+            or existing.status != payload.phase
+        ):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use") from exc
+        return _execution_response(existing)
+    return _execution_response(execution)
 
 
 @router.post("/changes/{change_id}/approve", response_model=RuntimeChangeOut)

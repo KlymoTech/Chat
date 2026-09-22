@@ -1,4 +1,8 @@
-from northstar_api.modules.platform_runtime import DeploymentDispatchEvent, build_capacity_budget
+from northstar_api.modules.platform_runtime import (
+    DeploymentDispatchEvent,
+    DeploymentExecutionReport,
+    build_capacity_budget,
+)
 from northstar_api.modules.super_admin.api.runtime import (
     _declared_platform_spec,
     _deployment_dispatch_payload,
@@ -16,6 +20,7 @@ def test_runtime_control_plane_exposes_only_read_and_plan_operations() -> None:
     assert ("/platform-admin/runtime/changes", ("GET",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}", ("GET",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}/executions", ("GET",)) in routes
+    assert ("/platform-admin/runtime/changes/{change_id}/executions", ("POST",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}/approve", ("POST",)) in routes
     assert ("/platform-admin/runtime/changes/{change_id}/reject", ("POST",)) in routes
     assert not any("destroy" in path or path.endswith("/apply") for path, _ in routes)
@@ -105,3 +110,19 @@ def test_deployment_dispatch_contract_validates_the_outbox_shape() -> None:
         pass
     else:
         raise AssertionError("deployment dispatch contract accepted an unknown field")
+
+
+def test_execution_report_requires_plan_digests_and_supports_staged_phases() -> None:
+    report = DeploymentExecutionReport.model_validate(
+        {
+            "reportKey": "deploy-2026-09-22-001",
+            "pipeline": "gitops/staging",
+            "phase": "verifying",
+            "sourceDigest": "a" * 64,
+            "targetDigest": "b" * 64,
+            "healthResult": {"api": "healthy", "workers": "healthy"},
+        }
+    )
+
+    assert report.phase == "verifying"
+    assert report.health_result["api"] == "healthy"

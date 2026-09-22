@@ -26,6 +26,7 @@ provider-neutral portion of that design.
   - `GET /api/v1/platform-admin/runtime/changes`
   - `GET /api/v1/platform-admin/runtime/changes/{id}`
   - `GET /api/v1/platform-admin/runtime/changes/{id}/executions`
+  - `POST /api/v1/platform-admin/runtime/changes/{id}/executions`
   - `POST /api/v1/platform-admin/runtime/changes/{id}/approve`
   - `POST /api/v1/platform-admin/runtime/changes/{id}/reject`
 - Change requests are idempotent, persisted with immutable source/target
@@ -35,8 +36,10 @@ provider-neutral portion of that design.
   source/target digests, revisions, idempotency key, plan steps, and serialized
   specifications for a deployment controller or GitOps worker. The event shape
   is validated by a strict provider-neutral contract, and execution evidence
-  can be read back from the control center. The API never applies Terraform or
-  treats event publication as deployment completion.
+  can be reported idempotently by stage and read back from the control center.
+  Digest matching and lifecycle transitions reject stale or out-of-order
+  reports. The API never applies Terraform or treats event publication as
+  deployment completion.
 - The existing platform-admin RBAC protects the endpoints. API keys are not
   accepted by the platform control plane.
 - The super-admin page shows the declared profile, providers, and health state.
@@ -51,8 +54,8 @@ live evidence.
 
 ## Next production gates
 
-1. Add a deployment executor consuming the approved outbox event with fencing,
-   reconciliation, rollback, and drift detection.
+1. Add provider adapters to the deployment executor consuming the approved
+   outbox event, with fencing, reconciliation, rollback, and drift detection.
 2. Bind the registry to real health probes and required/optional readiness.
 3. Add Terraform/Helm/GitOps adapters and environment-specific policies.
 4. Run repeatable load, restore, failover, security, and chaos tests against

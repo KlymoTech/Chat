@@ -7,7 +7,7 @@ it touches infrastructure and reject stale or malformed work safely.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,4 +34,30 @@ class DeploymentDispatchEvent(BaseModel):
     desired_spec: dict[str, Any] = Field(alias="desiredSpec")
 
 
-__all__ = ["DeploymentDispatchEvent"]
+ExecutionPhase = Literal[
+    "provisioning",
+    "deploying",
+    "verifying",
+    "stabilizing",
+    "completed",
+    "failed",
+    "rolling_back",
+    "rolled_back",
+]
+
+
+class DeploymentExecutionReport(BaseModel):
+    """Idempotent stage/health evidence reported by a deployment worker."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    report_key: str = Field(alias="reportKey", min_length=8, max_length=128)
+    pipeline: str = Field(min_length=1, max_length=160)
+    phase: ExecutionPhase
+    source_digest: str = Field(alias="sourceDigest", min_length=64, max_length=64)
+    target_digest: str = Field(alias="targetDigest", min_length=64, max_length=64)
+    health_result: dict[str, Any] = Field(alias="healthResult", default_factory=dict)
+    error: str | None = Field(default=None, max_length=500)
+
+
+__all__ = ["DeploymentDispatchEvent", "DeploymentExecutionReport", "ExecutionPhase"]

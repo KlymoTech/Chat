@@ -92,11 +92,17 @@ class PlatformDeploymentExecution(Base, UUIDPrimaryKeyMixin):
     """Execution evidence reported by an external deployment controller."""
 
     __tablename__ = "platform_deployment_executions"
-    __table_args__ = (Index("ix_platform_deployment_executions_change_started", "change_id", "started_at"),)
+    __table_args__ = (
+        UniqueConstraint("change_id", "report_key", name="uq_platform_deployment_executions_change_report_key"),
+        Index("ix_platform_deployment_executions_change_started", "change_id", "started_at"),
+    )
 
     change_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform_changes.id", ondelete="CASCADE"))
+    report_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     pipeline: Mapped[str] = mapped_column(String(160))
     status: Mapped[str] = mapped_column(String(32), default="pending")
+    source_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     health_result_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)

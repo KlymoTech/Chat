@@ -181,6 +181,20 @@ export interface PlatformRuntimeChange {
   approved_at: string | null;
 }
 
+export interface PlatformRuntimeExecution {
+  id: string;
+  change_id: string;
+  report_key: string | null;
+  pipeline: string;
+  status: string;
+  source_digest: string | null;
+  target_digest: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  health_result: Record<string, unknown>;
+  error: string | null;
+}
+
 export interface PlatformTenantUser {
   id: string;
   name: string;
@@ -316,6 +330,10 @@ export const platformAdminApi = {
 
   runtimeChanges(limit = 20): Promise<PlatformRuntimeChange[]> {
     return request<PlatformRuntimeChange[]>(`/platform-admin/runtime/changes?limit=${limit}`);
+  },
+
+  runtimeExecutions(changeId: string, limit = 20): Promise<PlatformRuntimeExecution[]> {
+    return request<PlatformRuntimeExecution[]>(`/platform-admin/runtime/changes/${encodeURIComponent(changeId)}/executions?limit=${limit}`);
   },
 
   approveRuntimeChange(changeId: string, reason: string): Promise<PlatformRuntimeChange> {

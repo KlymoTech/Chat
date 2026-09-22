@@ -35,14 +35,15 @@ Implemented locally:
   `/changes/plan`;
 - durable platform capability/change/configuration tables with idempotency,
   approval records, separation of requestor and approver, and deployment
-  execution evidence slots;
+  execution evidence slots with idempotent report keys and source/target
+  digest checks;
 - persisted change request/list/approve/reject endpoints; approval does not
   execute infrastructure and remains compatible with GitOps handoff. Approved
   plans are emitted as `platform.runtime.change.approved.v1` through the
   transactional outbox so a deployment controller can consume the exact
   immutable plan inputs. A strict provider-neutral event contract and an
-  execution-evidence read endpoint are included; they do not perform AWS
-  mutations;
+  execution-evidence read/report endpoints are included; they validate stage
+  ordering and do not perform AWS mutations;
 - unit coverage for the contract and negative paths.
 
 Not applied automatically because it requires approved infrastructure inputs:
