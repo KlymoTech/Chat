@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import zipfile
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -68,7 +67,7 @@ from northstar_api.services.education_knowledge import (
 )
 from northstar_api.services.extraction_review import apply_review
 from northstar_api.services.extraction_schema import Reading
-from northstar_api.services.hybrid_extraction import ExtractionPackage, configuration, decode_page_checkpoint
+from northstar_api.services.hybrid_extraction import ExtractionPackage
 from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
 from northstar_api.services.outbox import enqueue_event
@@ -409,57 +408,6 @@ async def get_extraction_page(
         raise HTTPException(status_code=404, detail="Page image not found")
     return Response(content=package.images[path], media_type="image/png")
 
-
-@router.get("/knowledge/{source_id}/extraction/demo-page")
-async def get_extraction_demo_page(
-    source_id: UUID, principal: KnowledgeViewPrincipal, session: DB
-) -> Response:
-    """Serve the first durable extraction checkpoint for a read-only demo."""
-    source = await _review_source(source_id, principal, session)
-    if source.kind != KnowledgeKind.FILE or source.status != KnowledgeStatus.PROCESSING:
-        raise HTTPException(status_code=404, detail="A processing demo checkpoint is not available")
-    pages = await object_store.load_extraction_pages(source.tenant_id, source.id, version=source.revision)
-    data = pages.get(1)
-    if data is None:
-        raise HTTPException(status_code=404, detail="The first extraction page is not ready yet")
-    settings = get_settings()
-    model = hashlib.sha256(json.dumps(configuration(settings), sort_keys=True).encode()).hexdigest()
-    try:
-        _page, image, _issues = decode_page_checkpoint(
-            data,
-            source_sha256=source.checksum or "",
-            model=model,
-            version=source.revision,
-            page_number=1,
-        )
-    except (ValueError, KeyError, TypeError, zipfile.BadZipFile):
-        raise HTTPException(status_code=409, detail="The demo checkpoint is still being written") from None
-    return Response(content=image, media_type="image/png", headers={"X-Demo-Only": "true"})
-
-
-@router.get("/knowledge/{source_id}/extraction/demo-text")
-async def get_extraction_demo_text(
-    source_id: UUID, principal: KnowledgeViewPrincipal, session: DB
-) -> Response:
-    """Return the complete native text for the first demo checkpoint page."""
-    source = await _review_source(source_id, principal, session)
-    if source.kind != KnowledgeKind.FILE or source.status != KnowledgeStatus.PROCESSING:
-        raise HTTPException(status_code=404, detail="A processing demo checkpoint is not available")
-    pages = await object_store.load_extraction_pages(source.tenant_id, source.id, version=source.revision)
-    data = pages.get(1)
-    if data is None:
-        raise HTTPException(status_code=404, detail="The first extraction page is not ready yet")
-    settings = get_settings()
-    model = hashlib.sha256(json.dumps(configuration(settings), sort_keys=True).encode()).hexdigest()
-    try:
-        page, _image, _issues = decode_page_checkpoint(
-            data, source_sha256=source.checksum or "", model=model,
-            version=source.revision, page_number=1,
-        )
-    except (ValueError, KeyError, TypeError, zipfile.BadZipFile):
-        raise HTTPException(status_code=409, detail="The demo checkpoint is still being written") from None
-    text = "\n".join(str(block.get("text", "")) for block in page.get("native_blocks", []) if block.get("text"))
-    return Response(content=text, media_type="text/plain; charset=utf-8", headers={"X-Demo-Only": "true"})
 
 
 @router.get("/knowledge/{source_id}/extraction/regions/{block_id}")

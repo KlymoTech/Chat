@@ -150,13 +150,6 @@ async function requestEvidence(path: string, retried = false): Promise<Blob> {
   return response.blob();
 }
 
-async function requestText(path: string): Promise<string> {
-  const active = session();
-  const workspaceId = activeWorkspaceId();
-  const response = await fetch(`${API_URL}${path}`, { credentials: 'include', headers: { ...(active ? { Authorization: `Bearer ${active.accessToken}` } : {}), ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}) } });
-  if (!response.ok) throw new ApiError(`Request failed (${response.status})`, response.status, await response.text());
-  return response.text();
-}
 
 export interface ExtractionReading {
   kind: string;
@@ -390,8 +383,6 @@ export const api = {
     list: (agentId: string) => withFallback(() => request<KnowledgeSource[]>(`/agents/${agentId}/knowledge`), async () => { await pause(); return demoKnowledgeList().filter((item) => item.agentId === agentId); }),
     extraction: (sourceId: string) => request<ExtractionRecord>(`/knowledge/${sourceId}/extraction`),
     extractionPage: (sourceId: string, page: number) => requestEvidence(`/knowledge/${sourceId}/extraction/pages/${page}`),
-    extractionDemoPage: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/demo-page`),
-    extractionDemoText: (sourceId: string) => requestText(`/knowledge/${sourceId}/extraction/demo-text`),
     extractionRegion: (sourceId: string, blockId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/regions/${encodeURIComponent(blockId)}`),
     extractionArchive: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/archive`),
     extractionSourcePdf: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/source-pdf`),
