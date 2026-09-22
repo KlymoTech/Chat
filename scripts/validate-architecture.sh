@@ -44,6 +44,7 @@ required_paths=(
   "frontend/src/features/super-admin/SuperAdminPage.tsx"
   "frontend/src/features/admin"
   "frontend/src/features/admin/index.ts"
+  "frontend/src/features/admin/WorkspaceSettingsPage.tsx"
   "frontend/src/features/website"
   "frontend/src/features/website/pages"
   "frontend/src/features/whatsapp"

@@ -1,2 +1,2 @@
 /** Authenticated tenant/workspace administration boundary. */
-export { WorkspaceSettingsPage } from '@/features/workspace/settings';
+export { WorkspaceSettingsPage } from './WorkspaceSettingsPage';
