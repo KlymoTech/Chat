@@ -29,7 +29,7 @@ const sections: SettingsSection[] = [
   'general', 'members', 'teams', 'roles',
   'branding', 'dashboard', 'widget', 'email',
   'channels', 'notifications', 'business-hours',
-  'crm', 'apps', 'webhooks',
+  'crm', 'integrations', 'webhooks',
   'security', 'mfa', 'sessions', 'audit',
   'developer', 'api-keys', 'oauth-apps', 'api-logs',
   'billing', 'usage',
@@ -39,7 +39,7 @@ const sectionPermissions: Partial<Record<SettingsSection, string[]>> = {
   general: ['settings.view'], members: ['members.view'], teams: ['teams.manage'], roles: ['roles.manage'],
   branding: brandingPermissions, dashboard: brandingPermissions, widget: brandingPermissions, email: brandingPermissions,
   channels: ['channels.view'], notifications: ['settings.view'], 'business-hours': ['settings.view'],
-  crm: ['crm.view', 'crm.manage', 'integrations.view'], apps: ['integrations.view'], webhooks: ['settings.view', 'integrations.manage'],
+  crm: ['crm.view', 'crm.manage', 'integrations.view'], integrations: ['integrations.view'], webhooks: ['settings.view', 'integrations.manage'],
   security: ['settings.view'], mfa: ['workspace.view'], sessions: ['settings.view'], audit: ['audit.view'],
   developer: ['settings.view'], 'api-keys': ['api_keys.view', 'api_keys.manage'], 'oauth-apps': ['integrations.view'], 'api-logs': ['settings.view', 'audit.view'],
   billing: ['billing.view'], usage: ['billing.view', 'usage.view'],
@@ -55,7 +55,9 @@ export function WorkspaceSettingsPage() {
   const { section: rawSection } = useParams();
   const navigate = useNavigate();
   const { pushToast } = useToast();
-  const normalized = rawSection === 'integrations' ? 'apps' : rawSection;
+  // Keep `/apps` as a compatibility alias, while `/integrations` is the
+  // canonical workspace settings route from the audit contract.
+  const normalized = rawSection === 'apps' ? 'integrations' : rawSection;
   const section = sections.includes(normalized as SettingsSection) ? normalized as SettingsSection : 'general';
   const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
   const [bundle, setBundle] = useState<WorkspaceSettingsBundle | null>(null);
@@ -128,7 +130,7 @@ export function WorkspaceSettingsPage() {
         {sectionAllowed && section === 'notifications' ? <WorkspaceNotificationsSettings bundle={bundle} disabled={!canManage || saving} onBundle={setBundle} onSave={() => void save(() => workspaceSettingsApi.saveNotifications(bundle.notifications), (notifications) => setBundle({ ...bundle, notifications }), 'Notification settings saved')} /> : null}
         {sectionAllowed && section === 'channels' ? <LinkSection title="Workspace channels" description="Channel connections remain owned by the existing channel pipeline." href="/integrations" action="Open channels and integrations" /> : null}
         {sectionAllowed && section === 'crm' ? <LinkSection title="CRM integrations" description="CRM connections, mapping, sync and delivery remain in the existing workspace-scoped CRM pipeline." href="/integrations" action="Open CRM integrations" /> : null}
-        {sectionAllowed && section === 'apps' ? <LinkSection title="Workspace apps" description="Connected applications remain in the existing integrations pipeline so credentials and health have one source of truth." href="/integrations" action="Open apps & integrations" /> : null}
+        {sectionAllowed && section === 'integrations' ? <LinkSection title="Workspace integrations" description="Connected applications, OAuth connections, CRM providers, and integration health remain workspace-scoped in one pipeline." href="/integrations" action="Open apps & integrations" /> : null}
         {sectionAllowed && section === 'oauth-apps' ? <LinkSection title="OAuth applications" description="OAuth application and connection credentials are managed by the existing integration pipeline." href="/integrations" action="Open OAuth integrations" /> : null}
         {sectionAllowed && section === 'webhooks' && permissions.includes('settings.view') ? <WorkspaceDeveloperSettings workspace={workspace} bundle={bundle} disabled={!canManage || saving} onBundle={setBundle} onSave={() => void save(() => workspaceSettingsApi.saveDeveloper(bundle.developer), (developer) => setBundle({ ...bundle, developer }), 'Webhook policy saved')} /> : null}
         {sectionAllowed && section === 'webhooks' && !permissions.includes('settings.view') ? <LinkSection title="Webhooks" description="Webhook endpoints and deliveries are managed in the existing integrations pipeline." href="/integrations" action="Open webhooks" /> : null}

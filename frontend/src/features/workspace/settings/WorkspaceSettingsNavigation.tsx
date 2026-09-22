@@ -26,7 +26,7 @@ const groups: { label: string; items: Item[] }[] = [
   ] },
   { label: 'Integrations', items: [
     { id: 'crm', label: 'CRM', icon: Blocks, permissions: ['crm.view', 'crm.manage', 'integrations.view'] },
-    { id: 'apps', label: 'Apps', icon: Blocks, permissions: ['integrations.view'] },
+    { id: 'integrations', label: 'Apps & integrations', icon: Blocks, permissions: ['integrations.view'] },
     { id: 'webhooks', label: 'Webhooks', icon: Braces, permissions: ['settings.view', 'integrations.manage'] },
   ] },
   { label: 'Security', items: [
