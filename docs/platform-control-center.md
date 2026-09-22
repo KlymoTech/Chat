@@ -20,6 +20,7 @@ provider-neutral portion of that design.
 - Super-admin read endpoints are available at:
   - `GET /api/v1/platform-admin/runtime/capabilities`
   - `GET /api/v1/platform-admin/runtime/dependencies`
+  - `GET /api/v1/platform-admin/runtime/capacity?api_replicas=N`
   - `POST /api/v1/platform-admin/runtime/changes/plan`
 - The existing platform-admin RBAC protects the endpoints. API keys are not
   accepted by the platform control plane.
