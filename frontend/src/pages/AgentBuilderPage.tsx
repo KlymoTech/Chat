@@ -152,17 +152,20 @@ function KnowledgePanel({ agent, onChanged }: { agent: Agent; onChanged: () => v
 
 function DemoPageModal({ source, onClose }: { source: KnowledgeSource; onClose: () => void }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [extractedText, setExtractedText] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true; let url: string | null = null;
     void api.knowledge.extractionDemoPage(source.id).then((blob) => {
       url = URL.createObjectURL(blob); if (active) setImageUrl(url); else URL.revokeObjectURL(url);
     }).catch((reason) => { if (active) setError(apiErrorMessage(reason, 'The first demo page is not ready yet.')); });
+    void api.knowledge.extractionDemoText(source.id).then((text) => { if (active) setExtractedText(text); }).catch(() => undefined);
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [source.id]);
   return <Modal open onClose={onClose} title={`Demo page preview: ${source.name}`} description="Temporary read-only preview of the first extracted page. This does not approve, publish, or change the source." size="lg" footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
     <div className="catalog-notice"><strong>Demo only</strong><p>The exact first-page image is read from the durable extraction checkpoint. It is view-only and cannot approve or publish the source.</p></div>
     {error ? <p role="alert" className="form-error">{error}</p> : imageUrl ? <img src={imageUrl} alt="Exact first extracted source page" style={{ display: 'block', width: '100%', maxHeight: 680, objectFit: 'contain', border: '1px solid var(--border, #ddd)' }} /> : <p role="status">Loading the first extracted page…</p>}
+    <label style={{ display: 'block', marginTop: 16 }}><strong>Complete extracted text (read-only)</strong><textarea readOnly rows={16} value={extractedText || 'Loading extracted text…'} style={{ width: '100%', marginTop: 8, fontFamily: 'monospace' }} /></label>
   </Modal>;
 }
 
