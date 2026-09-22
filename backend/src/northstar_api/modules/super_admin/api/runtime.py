@@ -217,10 +217,14 @@ def _declared_platform_spec() -> PlatformSpec:
 async def get_runtime_capabilities(
     _: PlatformSystemReadPrincipal,
     session: DBSession,
+    environment: str | None = Query(default=None, min_length=1, max_length=32),
 ) -> CapabilityCatalog:
     """Return verified desired state overlaid with runtime observations."""
     fallback = _declared_platform_spec()
-    spec = await effective_platform_spec(session, fallback)
+    try:
+        spec = await effective_platform_spec(session, fallback, environment=environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return await catalog_with_observations(session, spec)
 
 
@@ -228,10 +232,14 @@ async def get_runtime_capabilities(
 async def get_runtime_dependencies(
     _: PlatformSystemReadPrincipal,
     session: DBSession,
+    environment: str | None = Query(default=None, min_length=1, max_length=32),
 ) -> dict[str, object]:
     """Return a stable dependency graph for the effective desired state."""
     fallback = _declared_platform_spec()
-    spec = await effective_platform_spec(session, fallback)
+    try:
+        spec = await effective_platform_spec(session, fallback, environment=environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     catalog = build_capability_catalog(spec)
     return catalog.dependencies.model_dump(mode="json")
 
