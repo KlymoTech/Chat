@@ -253,12 +253,14 @@ class WorkspaceTeamRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "workspace_team_records"
     __table_args__ = (
+        UniqueConstraint("workspace_id", "team_id", name="uq_workspace_team_records_id"),
         UniqueConstraint("workspace_id", "name", name="uq_workspace_team_records_name"),
         Index("ix_workspace_team_records_tenant_workspace", "tenant_id", "workspace_id"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    team_id: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(80))
     description: Mapped[str] = mapped_column(String(500), default="")
     member_ids_json: Mapped[list[str]] = mapped_column(MutableListJSON, default=list)

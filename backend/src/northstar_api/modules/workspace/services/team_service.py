@@ -44,6 +44,7 @@ async def sync_workspace_team_records(
         session.add(WorkspaceTeamRecord(
             tenant_id=workspace.tenant_id,
             workspace_id=workspace.id,
+            team_id=team.id,
             name=team.name,
             description=team.description,
             member_ids_json=list(team.member_ids),
