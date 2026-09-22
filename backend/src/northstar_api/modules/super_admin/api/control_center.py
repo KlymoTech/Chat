@@ -22,6 +22,7 @@ from northstar_api.modules.platform_runtime.configuration_state import (
     catalog_with_observations,
     effective_platform_spec,
 )
+from northstar_api.modules.platform_runtime.contracts import PlatformSpec
 from northstar_api.modules.platform_runtime.control_center import (
     CapabilityControlPolicy,
     CapabilityOperation,
@@ -38,6 +39,14 @@ from northstar_api.modules.platform_runtime.control_center import (
     provider_catalog,
 )
 from northstar_api.modules.platform_runtime.control_plane import spec_digest
+from northstar_api.modules.platform_runtime.observed_state import (
+    CostSnapshot,
+    DriftSnapshot,
+    HealthSnapshot,
+    detect_drift,
+    summarize_cost,
+    summarize_health,
+)
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformCapabilityRecord,
     PlatformChangeRecord,
@@ -49,15 +58,6 @@ from northstar_api.modules.platform_runtime.registry import (
     analyze_capability_change,
     build_capability_catalog,
 )
-from northstar_api.modules.platform_runtime.observed_state import (
-    CostSnapshot,
-    DriftSnapshot,
-    HealthSnapshot,
-    detect_drift,
-    summarize_cost,
-    summarize_health,
-)
-from northstar_api.modules.platform_runtime.contracts import PlatformSpec
 from northstar_api.routers.platform_admin import PlatformRuntimeManagePrincipal, PlatformSystemReadPrincipal
 
 from .runtime import RuntimeChangeCreateRequest, RuntimeChangeOut, _declared_platform_spec, create_runtime_change
