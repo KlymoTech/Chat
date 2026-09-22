@@ -95,6 +95,16 @@ describe('Extraction source review', () => {
     expect(screen.getByRole('button', { name: 'Reprocessing…' })).toBeDisabled();
   });
 
+  it('shows a live processing state while replacement evidence is being generated', async () => {
+    mocks.extraction.mockRejectedValue(new Error('Extraction is still processing; review evidence will be available when processing completes.'));
+    render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
+
+    await screen.findByText(/Extraction is still processing/);
+    expect(screen.getByRole('status')).toHaveTextContent(/Extraction is still processing/);
+    expect(screen.getByText('Waiting for extraction to finish…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reprocessing…' })).toBeDisabled();
+  });
+
   it('invalidates confirmation when structured content changes', async () => {
     const user = userEvent.setup();
     render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);

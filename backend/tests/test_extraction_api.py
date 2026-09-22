@@ -119,6 +119,18 @@ async def test_extraction_retry_is_idempotent_while_processing(review_context):
     c.session.commit.assert_not_awaited()
 
 
+async def test_processing_extraction_reports_transient_evidence_state(review_context):
+    c = review_context
+    c.source.status = KnowledgeStatus.PROCESSING
+    c.source.revision = 2
+
+    with pytest.raises(HTTPException) as failure:
+        await knowledge.get_extraction(c.source.id, SimpleNamespace(user_id=uuid4()), c.session)
+
+    assert failure.value.status_code == 409
+    assert "still processing" in str(failure.value.detail)
+
+
 async def test_corrupted_archive_rejected(review_context):
     c = review_context
     payload = io.BytesIO()

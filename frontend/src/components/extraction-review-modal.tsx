@@ -8,6 +8,7 @@ type Decision = ExtractionReviewSubmission['issueResolutions'][number];
 
 const DEFAULT_BULK_REVIEW_REASON =
   'Reviewed the source evidence and approved all source-verifiable issues on this page.';
+const EXTRACTION_POLL_INTERVAL_MS = 3_000;
 
 export function ExtractionReviewModal({ source, onClose, onApproved }: {
   source: KnowledgeSource; onClose: () => void; onApproved: (message?: string) => void;
@@ -23,11 +24,13 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const initialize = (value: ExtractionRecord) => {
     setRecord(value);
+    setProcessing(false); setError(''); setNotice('');
     setStructures(Object.fromEntries(value.pages.flatMap((p) => (p.blocks ?? []).map((b) =>
       [b.id, JSON.stringify(b.reviewed_structure ?? b.visual, null, 2)]))));
     setLinks(Object.fromEntries(value.pages.flatMap((p) => (p.blocks ?? []).map((b) => [b.id, (b.related_block_ids ?? []).join(', ')]))));
@@ -36,9 +39,25 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
 
   useEffect(() => {
     let active = true;
-    void api.knowledge.extraction(source.id).then((value) => { if (active) initialize(value); })
-      .catch((cause: unknown) => { if (active) setError(apiErrorMessage(cause, 'Unable to load extraction evidence.')); });
-    return () => { active = false; };
+    let timer: number | undefined;
+    const load = async () => {
+      try {
+        const value = await api.knowledge.extraction(source.id);
+        if (active) initialize(value);
+      } catch (cause) {
+        if (!active) return;
+        const message = apiErrorMessage(cause, 'Unable to load extraction evidence.');
+        if (message.toLowerCase().includes('still processing')) {
+          setProcessing(true); setError('');
+          setNotice('Extraction is still processing. This review will load automatically when the new evidence is ready.');
+          timer = window.setTimeout(() => { void load(); }, EXTRACTION_POLL_INTERVAL_MS);
+        } else {
+          setProcessing(false); setError(message);
+        }
+      }
+    };
+    void load();
+    return () => { active = false; if (timer !== undefined) window.clearTimeout(timer); };
   }, [source.id]);
 
   const page = record?.pages[current];
@@ -159,7 +178,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
     footer={<><Button variant="secondary" onClick={() => void openStoredPdf()} disabled={!record || saving}>Open stored PDF</Button>
       <Button variant="secondary" onClick={() => void downloadText()} disabled={!record || saving}>Download extracted text</Button>
       <Button variant="secondary" onClick={() => void download()} disabled={!record || saving}>Download evidence</Button>
-      <Button variant="secondary" onClick={() => void retry()} disabled={saving || released || retrying}>{retrying ? 'Reprocessing…' : 'Reprocess source'}</Button>
+      <Button variant="secondary" onClick={() => void retry()} disabled={saving || released || retrying || processing}>{retrying || processing ? 'Reprocessing…' : 'Reprocess source'}</Button>
       <Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>
       <Button variant="secondary" onClick={approveAllIssues} disabled={saving || !record || !page || !actionableIssues.length}>
         Approve all unresolved issues
@@ -169,7 +188,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
       </Button></>}>
     {error && <p role="alert" className="form-error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    {!record ? <p>Loading extraction…</p> : <>
+    {!record ? <p>{processing ? 'Waiting for extraction to finish…' : 'Loading extraction…'}</p> : <>
       <p>Revision {record.extraction_revision} · {record.review_status.replaceAll('_', ' ')} · Measured accuracy: not measured</p>
       <details><summary>Validation checks and release blockers</summary>
         {(record.checks ?? []).map((c) => <p key={c.name}>{c.name.replaceAll('_', ' ')}: {c.status} {c.details.join('; ')}</p>)}

@@ -349,6 +349,11 @@ async def _load_extraction(source: KnowledgeSource) -> ExtractionPackage:
     try:
         return ExtractionPackage.from_archive(blob, source_sha256=source.checksum, revision=source.revision)
     except (ValueError, KeyError, TypeError, zipfile.BadZipFile):
+        if source.status == KnowledgeStatus.PROCESSING:
+            raise HTTPException(
+                status_code=409,
+                detail="Extraction is still processing; review evidence will be available when processing completes.",
+            ) from None
         raise HTTPException(status_code=409, detail="Extraction evidence is invalid or changed") from None
 
 
