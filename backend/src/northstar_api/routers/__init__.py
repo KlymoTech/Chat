@@ -78,6 +78,7 @@ from northstar_api.routers import (
     workspace_invitations,
 )
 from northstar_api.modules.super_admin.api.runtime import router as platform_runtime_router
+from northstar_api.modules.super_admin.api.platform_executor import router as platform_executor_router
 from northstar_api.modules.super_admin.api.control_center import router as platform_control_center_router
 from northstar_api.services.entitlement_guard import enforce_plan_entitlements
 
@@ -157,4 +158,5 @@ api_router.include_router(billing.router)
 api_router.include_router(whatsapp_accounts.router)
 api_router.include_router(platform_admin.router)
 api_router.include_router(platform_runtime_router)
+api_router.include_router(platform_executor_router)
 api_router.include_router(platform_control_center_router)
