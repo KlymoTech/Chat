@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .contracts import PlatformSpec
 from .control_plane import spec_digest
+from .executor_contract import CapabilityObservationEvidence
 from .persistence import PlatformCapabilityRecord, PlatformChangeRecord, PlatformConfigVersion
 from .registry import CapabilityCatalog, build_capability_catalog
 
@@ -118,17 +119,27 @@ async def sync_desired_capabilities(session: AsyncSession, spec: PlatformSpec) -
                 provider=state.provider,
                 fallback_provider=state.definition.fallback_provider,
                 desired_state=state.desired_state,
-                actual_state=state.actual_state,
-                health=state.health,
+                actual_state="unknown",
+                health="unknown" if state.desired_state == "on" else "disabled",
                 revision=spec.metadata.revision,
                 metadata_json={},
             )
             session.add(record)
             continue
+        provider_changed = record.provider != state.provider
         record.provider = state.provider
         record.fallback_provider = state.definition.fallback_provider
         record.desired_state = state.desired_state
         record.revision = spec.metadata.revision
+        if provider_changed:
+            record.actual_state = "unknown"
+            record.health = "unknown" if state.desired_state == "on" else "disabled"
+            metadata = dict(record.metadata_json or {})
+            metadata.pop("observedProvider", None)
+            metadata.pop("observedAt", None)
+            metadata["fallbackActive"] = False
+            metadata["healthMessage"] = "Observation invalidated because the desired provider changed."
+            record.metadata_json = metadata
 
 
 async def activate_configuration_version(
@@ -152,6 +163,73 @@ async def activate_configuration_version(
     spec = PlatformSpec.model_validate(version.configuration_json)
     await sync_desired_capabilities(session, spec)
     return version
+
+
+async def apply_capability_observations(
+    session: AsyncSession,
+    spec: PlatformSpec,
+    observations: tuple[CapabilityObservationEvidence, ...],
+) -> None:
+    """Apply executor-reported actual state only after contract validation."""
+    if not observations:
+        return
+    catalog = build_capability_catalog(spec)
+    desired_by_id = {
+        state.definition.capability_id: state
+        for state in catalog.capabilities
+    }
+    rows = (
+        await session.scalars(
+            select(PlatformCapabilityRecord).where(
+                PlatformCapabilityRecord.environment == spec.metadata.environment
+            )
+        )
+    ).all()
+    existing = {row.capability_id: row for row in rows}
+    observed_at = __import__("datetime").datetime.now(__import__("datetime").UTC).isoformat()
+
+    seen: set[str] = set()
+    for observation in observations:
+        if observation.capability_id in seen:
+            raise ValueError(f"duplicate capability observation: {observation.capability_id}")
+        seen.add(observation.capability_id)
+        desired = desired_by_id.get(observation.capability_id)
+        if desired is None:
+            raise ValueError(f"unknown capability observation: {observation.capability_id}")
+        record = existing.get(observation.capability_id)
+        if record is None:
+            record = PlatformCapabilityRecord(
+                environment=spec.metadata.environment,
+                capability_id=observation.capability_id,
+                provider=desired.provider,
+                fallback_provider=desired.definition.fallback_provider,
+                desired_state=desired.desired_state,
+                actual_state=observation.actual_state,
+                health=observation.health,
+                revision=spec.metadata.revision,
+                metadata_json={},
+            )
+            session.add(record)
+            existing[observation.capability_id] = record
+        else:
+            record.provider = desired.provider
+            record.fallback_provider = desired.definition.fallback_provider
+            record.desired_state = desired.desired_state
+            record.actual_state = observation.actual_state
+            record.health = observation.health
+            record.revision = spec.metadata.revision
+
+        metadata = dict(record.metadata_json or {})
+        metadata.update(
+            {
+                "observedProvider": observation.observed_provider,
+                "fallbackActive": observation.fallback_active,
+                "healthMessage": observation.health_message,
+                "estimatedMonthlyCostUsd": observation.estimated_monthly_cost_usd,
+                "observedAt": observed_at,
+            }
+        )
+        record.metadata_json = metadata
 
 
 def _cost_value(metadata: Mapping[str, Any]) -> float | None:
@@ -202,6 +280,7 @@ async def catalog_with_observations(
 
 
 __all__ = [
+    "apply_capability_observations",
     "activate_configuration_version",
     "catalog_with_observations",
     "effective_platform_spec",
