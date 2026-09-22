@@ -22,6 +22,7 @@ class DeploymentDispatchEvent(BaseModel):
     environment: str = Field(min_length=1, max_length=32)
     action: str = Field(min_length=1, max_length=16)
     classification: str = Field(min_length=1, max_length=32)
+    operation: Literal["enable", "disable", "switch", "stop", "destroy"] = "switch"
     destructive: bool
     source_revision: int = Field(alias="sourceRevision", ge=1)
     target_revision: int = Field(alias="targetRevision", ge=1)
