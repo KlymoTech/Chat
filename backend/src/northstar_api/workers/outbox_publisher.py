@@ -19,6 +19,7 @@ from northstar_api.models import OutboxEvent
 settings = get_settings()
 configure_logging(settings)
 logger = structlog.get_logger(__name__)
+PLATFORM_CHANGE_EVENT_TYPE = "platform.runtime.change.approved.v1"
 
 
 async def publish_forever() -> None:
@@ -50,7 +51,10 @@ async def publish_forever() -> None:
                     await session.scalar(
                         select(func.count())
                         .select_from(OutboxEvent)
-                        .where(OutboxEvent.published_at.is_(None))
+                        .where(
+                            OutboxEvent.published_at.is_(None),
+                            OutboxEvent.event_type != PLATFORM_CHANGE_EVENT_TYPE,
+                        )
                     )
                     or 0
                 )
