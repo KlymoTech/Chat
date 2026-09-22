@@ -483,8 +483,9 @@ export const platformAdminApi = {
     return request<PlatformConfiguration>('/platform-admin/configuration');
   },
 
-  runtimeCapabilities(): Promise<PlatformCapabilityCatalog> {
-    return request<PlatformCapabilityCatalog>('/platform-admin/runtime/capabilities');
+  runtimeCapabilities(environment?: string): Promise<PlatformCapabilityCatalog> {
+    const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+    return request<PlatformCapabilityCatalog>(`/platform-admin/runtime/capabilities${query}`);
   },
 
   runtimeCapacity(apiReplicas = 1): Promise<PlatformCapacityBudget> {
@@ -529,13 +530,18 @@ export const platformAdminApi = {
     return request<PlatformFeatureState[]>(`/platform-admin/runtime/features${query}`);
   },
 
-  planRuntimeFeatureChange(featureId: string, enabled: boolean): Promise<PlatformFeatureIntentAnalysis> {
+  planRuntimeFeatureChange(featureId: string, enabled: boolean, environment?: string): Promise<PlatformFeatureIntentAnalysis> {
     return request<PlatformFeatureIntentAnalysis>(`/platform-admin/runtime/features/${encodeURIComponent(featureId)}/plan`, {
-      method: 'POST', body: JSON.stringify({ enabled }),
+      method: 'POST', body: JSON.stringify({ enabled, environment }),
     });
   },
 
-  createRuntimeFeatureChange(featureId: string, value: { enabled: boolean; reason: string; idempotency_key: string }): Promise<PlatformRuntimeChange> {
+  createRuntimeFeatureChange(featureId: string, value: {
+    enabled: boolean;
+    reason: string;
+    idempotency_key: string;
+    environment?: string;
+  }): Promise<PlatformRuntimeChange> {
     return request<PlatformRuntimeChange>(`/platform-admin/runtime/features/${encodeURIComponent(featureId)}/changes`, {
       method: 'POST', body: JSON.stringify(value),
     });
@@ -543,7 +549,7 @@ export const platformAdminApi = {
 
   planRuntimeCapabilityChange(
     capabilityId: string,
-    value: { operation: PlatformCapabilityOperation; provider?: string | null },
+    value: { operation: PlatformCapabilityOperation; provider?: string | null; environment?: string },
   ): Promise<PlatformCapabilityIntentAnalysis> {
     return request<PlatformCapabilityIntentAnalysis>(`/platform-admin/runtime/capabilities/${encodeURIComponent(capabilityId)}/plan`, {
       method: 'POST', body: JSON.stringify(value),
@@ -557,6 +563,7 @@ export const platformAdminApi = {
       provider?: string | null;
       reason: string;
       idempotency_key: string;
+      environment?: string;
     },
   ): Promise<PlatformRuntimeChange> {
     return request<PlatformRuntimeChange>(`/platform-admin/runtime/capabilities/${encodeURIComponent(capabilityId)}/changes`, {
