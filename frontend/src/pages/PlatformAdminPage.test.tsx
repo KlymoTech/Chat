@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   overview: vi.fn(),
   entitlements: vi.fn(),
   configuration: vi.fn(),
+  permissions: vi.fn(),
+  operators: vi.fn(),
   tenants: vi.fn(),
   tenant: vi.fn(),
 }));
@@ -17,6 +19,8 @@ vi.mock('@/lib/platform-admin-api', () => ({
     overview: mocks.overview,
     entitlements: mocks.entitlements,
     configuration: mocks.configuration,
+    permissions: mocks.permissions,
+    operators: mocks.operators,
     tenants: mocks.tenants,
     tenant: mocks.tenant,
   },
@@ -101,6 +105,8 @@ describe('PlatformAdminPage', () => {
     mocks.overview.mockResolvedValue(overview);
     mocks.entitlements.mockResolvedValue(entitlements);
     mocks.configuration.mockResolvedValue(configuration);
+    mocks.permissions.mockResolvedValue({ email: 'admin@example.com', permissions: ['platform.overview.read'] });
+    mocks.operators.mockResolvedValue([]);
     mocks.tenants.mockResolvedValue({ items: [tenantSummary], total: 1, limit: 50, offset: 0 });
     mocks.tenant.mockResolvedValue(tenantDetail);
   });

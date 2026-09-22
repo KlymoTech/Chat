@@ -13,7 +13,20 @@ PLATFORM_PERMISSIONS = frozenset({
     "platform.support.impersonate",
     "platform.system.read",
     "platform.audit.read",
+    "platform.admins.manage",
 })
+
+PLATFORM_ROLE_GRANTS: dict[str, frozenset[str]] = {
+    "owner": PLATFORM_PERMISSIONS,
+    "operations": frozenset({
+        "platform.overview.read", "platform.tenants.read", "platform.system.read", "platform.audit.read",
+    }),
+    "billing": frozenset({"platform.overview.read", "platform.tenants.read", "platform.billing.manage"}),
+    "support": frozenset({
+        "platform.overview.read", "platform.tenants.read", "platform.support.impersonate",
+    }),
+    "auditor": frozenset({"platform.overview.read", "platform.tenants.read", "platform.audit.read"}),
+}
 
 
 def platform_admin_emails(raw: str | None = None) -> frozenset[str]:
@@ -53,3 +66,15 @@ def platform_admin_permissions(email: str, raw: str | None = None) -> frozenset[
         for item in value
         if isinstance(item, str) and item.strip() in PLATFORM_PERMISSIONS
     )
+
+
+def platform_role_permissions(role: str, configured: object = None) -> frozenset[str]:
+    """Return a validated role grant, optionally narrowed by stored permissions."""
+    base = PLATFORM_ROLE_GRANTS.get(role.strip().lower(), frozenset())
+    if not isinstance(configured, list):
+        return base
+    selected = frozenset(
+        value.strip() for value in configured
+        if isinstance(value, str) and value.strip() in PLATFORM_PERMISSIONS
+    )
+    return base if not selected else base & selected

@@ -9,4 +9,5 @@ export type {
   PlatformEntitlement,
   PlatformConfiguration,
   PlatformAdminPermissions,
+  PlatformOperator,
 } from '@/lib/platform-admin-api';

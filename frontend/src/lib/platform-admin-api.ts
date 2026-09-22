@@ -12,6 +12,16 @@ export interface PlatformAdminPermissions {
   permissions: string[];
 }
 
+export interface PlatformOperator {
+  userId: string;
+  name: string;
+  email: string;
+  role: 'owner' | 'operations' | 'billing' | 'support' | 'auditor' | string;
+  permissions: string[];
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface PlatformOperations {
   status: 'healthy' | 'degraded' | string;
   failedIngestionJobs: number;
@@ -204,6 +214,16 @@ export const platformAdminApi = {
 
   permissions(): Promise<PlatformAdminPermissions> {
     return request<PlatformAdminPermissions>('/platform-admin/permissions');
+  },
+
+  operators(): Promise<PlatformOperator[]> {
+    return request<PlatformOperator[]>('/platform-admin/operators');
+  },
+
+  updateOperator(userId: string, value: { role: string; permissions: string[]; isActive: boolean; reason: string }): Promise<PlatformOperator> {
+    return request<PlatformOperator>(`/platform-admin/operators/${encodeURIComponent(userId)}`, {
+      method: 'PUT', body: JSON.stringify(value),
+    });
   },
 
   overview(): Promise<PlatformOverview> {

@@ -13,14 +13,25 @@ from northstar_api.config import get_settings
 from northstar_api.dependencies import CurrentPrincipal, DBSession
 from northstar_api.entitlements import PLAN_ENTITLEMENTS
 from northstar_api.lead_crm.audit import record_audit_event
-from northstar_api.models import Tenant, TenantMembership, User, Workspace, WorkspaceMembership, WorkspaceStatus
+from northstar_api.models import (
+    PlatformAdminAssignment,
+    Tenant,
+    TenantMembership,
+    User,
+    Workspace,
+    WorkspaceMembership,
+    WorkspaceStatus,
+)
 from northstar_api.modules.platform_admin.access import (
     PLATFORM_PERMISSIONS,
     platform_admin_emails,
     platform_admin_permissions,
+    platform_role_permissions,
 )
 from northstar_api.platform_admin_schemas import (
     PlatformAdminAccessOut,
+    PlatformOperatorOut,
+    PlatformOperatorPatch,
     PlatformConfigurationOut,
     PlatformEntitlementOut,
     PlatformImpersonationEnd,
@@ -56,23 +67,27 @@ async def require_platform_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API keys cannot access the platform control plane",
         )
-    allowed = platform_admin_emails()
-    if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Platform administration is not enabled for this account",
-        )
     email = await session.scalar(
         select(User.email).where(
             User.id == principal.user_id,
             User.is_active.is_(True),
         )
     )
-    if email is None or email.strip().lower() not in allowed:
+    assignment = await session.get(PlatformAdminAssignment, principal.user_id)
+    env_allowed = platform_admin_emails()
+    assignment_active = assignment is not None and assignment.is_active and assignment.revoked_at is None
+    if email is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Platform administrator access required",
         )
+    if not assignment_active and email.strip().lower() not in env_allowed:
+        detail = (
+            "Platform administration is not enabled for this account"
+            if not env_allowed
+            else "Platform administrator access required"
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     return principal
 
 
@@ -82,8 +97,7 @@ PlatformAdminPrincipal = Annotated[Principal, Depends(require_platform_admin)]
 def require_platform_permissions(*required: str):
     async def dependency(principal: CurrentPrincipal, session: DBSession) -> Principal:
         checked = await require_platform_admin(principal, session)
-        email = await session.scalar(select(User.email).where(User.id == checked.user_id))
-        if email is None or not set(required) <= platform_admin_permissions(email):
+        if not set(required) <= await _resolved_platform_permissions(session, checked):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Platform administrator capability required",
@@ -111,6 +125,18 @@ PlatformSupportPrincipal = Annotated[
 PlatformSystemReadPrincipal = Annotated[
     Principal, Depends(require_platform_permissions("platform.system.read"))
 ]
+PlatformAdminsManagePrincipal = Annotated[
+    Principal, Depends(require_platform_permissions("platform.admins.manage"))
+]
+
+
+async def _resolved_platform_permissions(session: DBSession, principal: Principal) -> frozenset[str]:
+    assignment = await session.get(PlatformAdminAssignment, principal.user_id)
+    if assignment is not None and assignment.is_active and assignment.revoked_at is None:
+        configured = (assignment.permissions_json or {}).get("permissions")
+        return platform_role_permissions(assignment.role, configured)
+    email = await session.scalar(select(User.email).where(User.id == principal.user_id))
+    return platform_admin_permissions(email or "")
 
 
 async def _platform_admin_email(session: DBSession, principal: Principal) -> str:
@@ -137,7 +163,81 @@ async def get_platform_admin_permissions(
     session: DBSession,
 ) -> dict[str, object]:
     email = await _platform_admin_email(session, principal)
-    return {"email": email, "permissions": sorted(platform_admin_permissions(email))}
+    return {"email": email, "permissions": sorted(await _resolved_platform_permissions(session, principal))}
+
+
+@router.get("/operators", response_model=list[PlatformOperatorOut])
+async def list_platform_operators(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> list[PlatformOperatorOut]:
+    rows = list(
+        (await session.execute(
+            select(PlatformAdminAssignment, User)
+            .join(User, User.id == PlatformAdminAssignment.user_id)
+            .order_by(User.email)
+        )).all()
+    )
+    return [
+        PlatformOperatorOut(
+            user_id=user.id,
+            name=user.name,
+            email=user.email,
+            role=assignment.role,
+            permissions=sorted(platform_role_permissions(
+                assignment.role, (assignment.permissions_json or {}).get("permissions")
+            )),
+            is_active=assignment.is_active and assignment.revoked_at is None,
+            created_at=assignment.created_at,
+        )
+        for assignment, user in rows
+    ]
+
+
+@router.put("/operators/{user_id}", response_model=PlatformOperatorOut)
+async def update_platform_operator(
+    user_id: UUID,
+    payload: PlatformOperatorPatch,
+    principal: PlatformAdminsManagePrincipal,
+    session: DBSession,
+) -> PlatformOperatorOut:
+    target = await session.scalar(select(User).where(User.id == user_id))
+    if target is None:
+        raise HTTPException(status_code=404, detail="Platform operator account not found")
+    unknown = set(payload.permissions) - PLATFORM_PERMISSIONS
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown platform permissions: {sorted(unknown)}")
+    assignment = await session.get(PlatformAdminAssignment, user_id)
+    if assignment is None:
+        assignment = PlatformAdminAssignment(user_id=user_id, created_by_user_id=principal.user_id)
+        session.add(assignment)
+    assignment.role = payload.role
+    assignment.permissions_json = {"permissions": sorted(set(payload.permissions))}
+    assignment.is_active = payload.is_active
+    assignment.revoked_at = None if payload.is_active else datetime.now(UTC)
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=None,
+        actor_user_id=principal.user_id,
+        action="platform.admin.assignment.updated",
+        entity_type="platform_admin_assignment",
+        entity_id=str(user_id),
+        category="security",
+        severity="warning",
+        after={"role": payload.role, "isActive": payload.is_active, "permissions": sorted(set(payload.permissions))},
+        metadata={"reason": payload.reason},
+    )
+    await session.commit()
+    return PlatformOperatorOut(
+        user_id=target.id,
+        name=target.name,
+        email=target.email,
+        role=assignment.role,
+        permissions=sorted(platform_role_permissions(assignment.role, payload.permissions)),
+        is_active=assignment.is_active and assignment.revoked_at is None,
+        created_at=assignment.created_at,
+    )
 
 
 @router.get("/overview", response_model=PlatformOverviewOut)

@@ -15,6 +15,7 @@ import {
   type PlatformTenantUser,
   type PlatformEntitlement,
   type PlatformConfiguration,
+  type PlatformOperator,
 } from '@/lib/platform-admin-api';
 import { persistActiveWorkspace } from '@/lib/workspace-api';
 
@@ -41,6 +42,7 @@ export function PlatformAdminPage() {
   const [entitlements, setEntitlements] = useState<PlatformEntitlement[]>([]);
   const [configuration, setConfiguration] = useState<PlatformConfiguration | null>(null);
   const [platformPermissions, setPlatformPermissions] = useState<string[]>([]);
+  const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [tenants, setTenants] = useState<PlatformTenantSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -70,6 +72,7 @@ export function PlatformAdminPage() {
       void platformAdminApi.entitlements().then((value) => { if (active) setEntitlements(value); }).catch(() => undefined);
       void platformAdminApi.configuration().then((value) => { if (active) setConfiguration(value); }).catch(() => undefined);
       void platformAdminApi.permissions().then((value) => { if (active) setPlatformPermissions(value.permissions); }).catch(() => undefined);
+      void platformAdminApi.operators().then((value) => { if (active) setOperators(value); }).catch(() => undefined);
     }).catch((reason) => {
       if (!active) return;
       setError(reason instanceof Error ? reason.message : 'Platform control plane could not be loaded');
@@ -208,6 +211,11 @@ export function PlatformAdminPage() {
     {platformPermissions.length ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Control-plane capabilities</h3><p>Server-assigned permissions for {session?.user.email ?? 'this operator'}.</p></div><ShieldCheck /></div>
       <div className="workspace-plan-grid">{platformPermissions.map((permission) => <Badge key={permission} tone="brand">{permission}</Badge>)}</div>
+    </Card> : null}
+
+    {operators.length ? <Card className="workspace-panel">
+      <div className="card-heading"><div><h3>Platform operators</h3><p>Durable platform roles are separate from tenant memberships.</p></div><ShieldCheck /></div>
+      <div className="agent-row-list">{operators.map((operator) => <div className="agent-row" key={operator.userId}><span className="agent-avatar">{operator.name.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{operator.name}</strong><small>{operator.email} · {operator.role}</small></span><span className="agent-row__status"><Badge tone={operator.isActive ? 'success' : 'danger'}>{operator.isActive ? 'Active' : 'Revoked'}</Badge></span><span className="agent-row__metric"><small>Capabilities</small><strong>{operator.permissions.length}</strong></span></div>)}</div>
     </Card> : null}
 
     <Card className="workspace-panel">

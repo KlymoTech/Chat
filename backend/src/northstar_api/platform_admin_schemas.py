@@ -13,6 +13,23 @@ class PlatformAdminAccessOut(APIModel):
     email: str
 
 
+class PlatformOperatorOut(APIModel):
+    user_id: UUID
+    name: str
+    email: str
+    role: str
+    permissions: list[str] = Field(default_factory=list)
+    is_active: bool
+    created_at: datetime
+
+
+class PlatformOperatorPatch(APIModel):
+    role: str = Field(pattern=r"^(owner|operations|billing|support|auditor)$")
+    permissions: list[str] = Field(default_factory=list, max_length=30)
+    is_active: bool = True
+    reason: str = Field(min_length=5, max_length=500)
+
+
 class PlatformOperationsOut(APIModel):
     status: str
     failed_ingestion_jobs: int

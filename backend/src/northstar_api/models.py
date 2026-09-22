@@ -189,6 +189,23 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
+class PlatformAdminAssignment(Base, TimestampMixin):
+    """Global platform-control-plane role, deliberately outside tenant roles."""
+
+    __tablename__ = "platform_admin_assignments"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(40), default="support")
+    permissions_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class TenantMembership(Base, TimestampMixin):
     __tablename__ = "tenant_memberships"
     __table_args__ = (UniqueConstraint("tenant_id", "user_id"),)
