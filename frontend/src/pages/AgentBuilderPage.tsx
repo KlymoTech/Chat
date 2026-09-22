@@ -151,15 +151,18 @@ function KnowledgePanel({ agent, onChanged }: { agent: Agent; onChanged: () => v
 }
 
 function DemoPageModal({ source, onClose }: { source: KnowledgeSource; onClose: () => void }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true; let url: string | null = null;
+    void api.knowledge.extractionDemoPage(source.id).then((blob) => {
+      url = URL.createObjectURL(blob); if (active) setImageUrl(url); else URL.revokeObjectURL(url);
+    }).catch((reason) => { if (active) setError(apiErrorMessage(reason, 'The first demo page is not ready yet.')); });
+    return () => { active = false; if (url) URL.revokeObjectURL(url); };
+  }, [source.id]);
   return <Modal open onClose={onClose} title={`Demo page preview: ${source.name}`} description="Temporary read-only preview of the first extracted page. This does not approve, publish, or change the source." size="lg" footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
-    <div className="catalog-notice"><strong>Demo only</strong><p>The full extraction is still running in the background. This preview is provided so you can inspect the first page while processing continues.</p></div>
-    <h3>Study Unit One</h3>
-    <h4>Liquidity, Solvency, and Leverage Ratios</h4>
-    <p><strong>Contents</strong></p>
-    <ul><li>Common-Size Financial Statements — page 2</li><li>Liquidity — page 4</li><li>Solvency — page 10</li><li>Leverage — page 15</li></ul>
-    <p>This study unit is the first of three on financial statement analysis. The relative weight assigned to this major topic in Part 2 of the exam is 20%.</p>
-    <p><strong>Topics covered</strong></p>
-    <ul><li>Current, quick (acid-test), cash, and net working capital ratios</li><li>Total debt-to-total-capital, debt-to-equity, and long-term debt-to-equity ratios</li><li>Debt-to-total-assets, times interest earned, earnings to fixed charges, and cash flow to fixed charges ratios</li></ul>
+    <div className="catalog-notice"><strong>Demo only</strong><p>The exact first-page image is read from the durable extraction checkpoint. It is view-only and cannot approve or publish the source.</p></div>
+    {error ? <p role="alert" className="form-error">{error}</p> : imageUrl ? <img src={imageUrl} alt="Exact first extracted source page" style={{ display: 'block', width: '100%', maxHeight: 680, objectFit: 'contain', border: '1px solid var(--border, #ddd)' }} /> : <p role="status">Loading the first extracted page…</p>}
   </Modal>;
 }
 

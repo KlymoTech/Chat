@@ -382,6 +382,7 @@ export const api = {
     list: (agentId: string) => withFallback(() => request<KnowledgeSource[]>(`/agents/${agentId}/knowledge`), async () => { await pause(); return demoKnowledgeList().filter((item) => item.agentId === agentId); }),
     extraction: (sourceId: string) => request<ExtractionRecord>(`/knowledge/${sourceId}/extraction`),
     extractionPage: (sourceId: string, page: number) => requestEvidence(`/knowledge/${sourceId}/extraction/pages/${page}`),
+    extractionDemoPage: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/demo-page`),
     extractionRegion: (sourceId: string, blockId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/regions/${encodeURIComponent(blockId)}`),
     extractionArchive: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/archive`),
     extractionSourcePdf: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/source-pdf`),
