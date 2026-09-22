@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import io
 import json
+import math
 import re
 import tempfile
 import zipfile
@@ -51,6 +52,29 @@ logger = structlog.get_logger(__name__)
 
 class ExtractionYield(Exception):
     """A durable page batch completed; resume in a fresh worker delivery."""
+
+
+def validate_embedding_batch(
+    vectors: list[list[float]], expected_count: int, dimension: int
+) -> None:
+    """Validate a provider embedding response for legacy callers.
+
+    Knowledge publication currently uses the vectorless lexical index, but this
+    helper remains part of the ingestion compatibility surface for deployments
+    and integrations that still validate an embedding response before choosing
+    their own index backend.
+    """
+    if len(vectors) != expected_count:
+        raise ValueError(f"Embedding count mismatch: expected {expected_count}, got {len(vectors)}")
+    for index, vector in enumerate(vectors):
+        if len(vector) != dimension:
+            raise ValueError(
+                f"Embedding dimension mismatch at chunk {index}: expected {dimension}, got {len(vector)}"
+            )
+        if not all(math.isfinite(value) for value in vector):
+            raise ValueError(f"Embedding contains a non-finite value at chunk {index}")
+        if not any(value != 0 for value in vector):
+            raise ValueError(f"Embedding is a zero vector at chunk {index}")
 
 
 def semantic_chunks(text: str, target_words: int = 220, overlap_words: int = 35) -> list[str]:
