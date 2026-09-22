@@ -16,6 +16,8 @@ from northstar_api.course_knowledge_models import CourseEnrollmentAccess, Course
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.education_student_identities import StudentIdentityType
 from northstar_api.models import BotWorkflow, Message, MessageRole
+from northstar_api.modules.whatsapp.accounts import connection_client
+from northstar_api.modules.whatsapp.graph import split_whatsapp_text
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError, fingerprint
 from northstar_api.services.course_study_access import authorize_study_access
 from northstar_api.services.education_runtime_authorization import (
@@ -24,8 +26,6 @@ from northstar_api.services.education_runtime_authorization import (
     authorize_education_access,
 )
 from northstar_api.services.student_identity import find_workspace_student_identity
-from northstar_api.services.whatsapp import split_whatsapp_text
-from northstar_api.services.whatsapp_accounts import connection_client
 
 DENIAL = "Your course access is not active for this WhatsApp number. Please contact your institute to verify your number and enrollment."
 

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.models import Workspace
+from northstar_api.services.smtp import smtp_send
 
 from .contracts import EmailBranding, EmailTemplate
 from .store import settings_document
@@ -149,4 +150,4 @@ async def deliver_workspace_email(
         message["Reply-To"] = rendered.reply_to
     message.set_content(rendered.text)
     message.add_alternative(rendered.html, subtype="html")
-    await asyncio.to_thread(_smtp_send, message, config)
+    await asyncio.to_thread(smtp_send, message, config)

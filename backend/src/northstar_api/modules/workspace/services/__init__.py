@@ -1,0 +1,41 @@
+"""Workspace domain services.
+
+This package exposes the current service functions through a feature-owned
+boundary while the staged migration keeps compatibility modules in place.
+"""
+
+from northstar_api.modules.workspace.brand_cache import (
+    cache_workspace_brand,
+    cached_domain_brand,
+    cached_workspace_brand,
+    invalidate_brand_cache,
+)
+from northstar_api.modules.workspace.domain_resolution import resolve_workspace_domain
+from northstar_api.modules.workspace.email_branding import deliver_workspace_email, render_workspace_email
+from northstar_api.modules.workspace.member_state import is_member_suspended, save_member_status
+from northstar_api.modules.workspace.security_policy import (
+    email_domain_allowed,
+    enforce_network_security,
+    enforce_request_security,
+    required_password_length,
+    validate_business_timezone,
+    validate_security_settings,
+)
+
+__all__ = [
+    "cache_workspace_brand",
+    "cached_domain_brand",
+    "cached_workspace_brand",
+    "deliver_workspace_email",
+    "email_domain_allowed",
+    "enforce_network_security",
+    "enforce_request_security",
+    "invalidate_brand_cache",
+    "is_member_suspended",
+    "render_workspace_email",
+    "required_password_length",
+    "resolve_workspace_domain",
+    "save_member_status",
+    "validate_business_timezone",
+    "validate_security_settings",
+]

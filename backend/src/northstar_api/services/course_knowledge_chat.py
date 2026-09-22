@@ -17,6 +17,7 @@ from northstar_api.education_conversation_context import EducationConversationCo
 from northstar_api.models import Agent, Channel, ConversationState, Message, MessageRole
 from northstar_api.modules.knowledge.grounding import blocked_topic, validate_answer
 from northstar_api.modules.knowledge.retrieval import Evidence
+from northstar_api.modules.whatsapp.messages import format_whatsapp_reply
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.chat import ChatCoordinator, PreparedChat, ReservedChat, whatsapp_welcome

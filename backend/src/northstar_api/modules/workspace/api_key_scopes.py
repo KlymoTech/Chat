@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 API_KEY_SCOPE_PERMISSIONS: dict[str, frozenset[str]] = {
+    "workspace:read": frozenset({"workspace.view"}),
     "conversations:read": frozenset({"conversations.view"}),
     "conversations:write": frozenset({"conversations.view", "conversations.reply", "conversations.resolve", "conversations.assign"}),
     "contacts:read": frozenset({"leads.view"}),

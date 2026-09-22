@@ -53,9 +53,9 @@ describe('platformAdminApi', () => {
       credentials: 'include',
       headers: expect.objectContaining({
         Authorization: 'Bearer session-token',
-        'X-Workspace-ID': 'workspace-1',
       }),
     }));
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty('X-Workspace-ID');
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ items: [], total: 0, limit: 50, offset: 0 }));
     await platformAdminApi.tenants('North Star');

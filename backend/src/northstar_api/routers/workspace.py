@@ -24,6 +24,7 @@ from northstar_api.models import (
     WorkspaceRole,
     WorkspaceStatus,
 )
+from northstar_api.modules.workspace.repositories.workspace_write_lock import lock_workspace_settings
 from northstar_api.schemas import APIModel
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
@@ -107,8 +108,10 @@ def _workspace_response(
     settings: dict[str, Any] = workspace.settings_json or {}
     warnings: list[str] = []
     brand = dict(workspace.branding_json or {})
-    brand.pop("dns_status", None)
-    brand["dnsStatus"] = "not-configured"
+    # Domain status is read-only here. Verification and activation are handled
+    # by the dedicated domain lifecycle routes and worker.
+    brand.setdefault("customDomain", "")
+    brand.setdefault("dnsStatus", "not-configured")
     preferences = safe_legacy_read(WorkspacePreferences, {
         "timezone": workspace.timezone, "defaultLanguage": workspace.default_language,
         "dateFormat": workspace.date_format, **settings.get("preferences", {}),
@@ -172,6 +175,9 @@ async def get_workspace(principal: WorkspaceViewPrincipal, session: DBSession) -
 @router.patch("", response_model=WorkspaceOut)
 async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePrincipal, session: DBSession) -> WorkspaceOut:
     tenant, workspace, membership, count = await _load_workspace(principal.tenant_id, principal.workspace_id, principal.user_id, session)
+    # Match the section-23 settings writers: reload under a PostgreSQL row lock
+    # before changing any field in the shared settings_json or branding_json.
+    await lock_workspace_settings(session, workspace)
     if payload.slug and payload.slug != workspace.slug:
         duplicate = await session.scalar(select(Workspace.id).where(
             Workspace.tenant_id == principal.tenant_id, Workspace.slug == payload.slug, Workspace.id != workspace.id,
@@ -192,6 +198,8 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
             raise HTTPException(status_code=403, detail="Interactive branding publication permission required")
         brand = payload.white_label.model_dump(by_alias=True, mode="json")
         policy = entitlement_for_plan(tenant.plan)
+        if not policy.white_label_enabled:
+            raise HTTPException(status_code=403, detail="White label branding is not available on your plan")
         previous = workspace.branding_json or {}
         for field, included in (("brandedEmails", policy.branded_email_enabled), ("removePlatformBranding", policy.remove_platform_mark_enabled)):
             if brand[field] and not previous.get(field, False) and not included:
@@ -202,7 +210,17 @@ async def update_workspace(payload: WorkspacePatch, principal: WorkspaceUpdatePr
                     brand[field] = await asyncio.to_thread(normalize_raster, str(brand[field]))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        workspace.branding_json = {**brand, "customDomain": str(previous.get("customDomain", "")), "dnsStatus": "not-configured"}
+        # Legacy clients may submit customDomain/dnsStatus. Preserve the
+        # hostname for display, but never let a legacy write mark a domain as
+        # verified or active; that requires the dedicated DNS/TLS lifecycle.
+        legacy_status = str(brand.get("dnsStatus", "not-configured"))
+        if legacy_status not in {"not-configured", "pending", "dns_pending"}:
+            legacy_status = "not-configured"
+        workspace.branding_json = {
+            **brand,
+            "customDomain": str(brand.get("customDomain", previous.get("customDomain", ""))),
+            "dnsStatus": legacy_status,
+        }
         record_audit_event(session, tenant_id=principal.tenant_id, workspace_id=workspace.id, actor_user_id=principal.user_id,
                            action="workspace.branding.updated", entity_type="workspace", entity_id=str(workspace.id), category="workspace",
                            metadata={"fields": sorted(brand)})

@@ -81,9 +81,9 @@ export function WhiteLabelPage() {
           <Button type="button" variant="secondary" disabled={!canPublish || saving || uploading} onClick={() => setBrand({ ...workspaceDefaults.whiteLabel, brandedDashboard: false })}>Prepare platform defaults</Button>
         </div></Card>
         <Card className="workspace-panel"><div className="workspace-panel__body"><h3>Custom domain and other surfaces</h3>
-          <p>Domain ownership, TLS, branded email, public authentication, and widget branding require their own verified runtime integrations. This page does not simulate DNS checks or mark a hostname as verified.</p>
-          {brand.customDomain ? <p>Previously configured hostname: <code>{brand.customDomain}</code> — not verified by this implementation.</p> : null}
-          <p>Application icon and support contact are saved configuration. Cross-surface publication, version history, role layouts and advanced navigation editing are not implemented in this stage.</p>
+          <p>Use the canonical <Link to="/workspace/settings/branding">Branding control center</Link> for verified domains, TLS, branded email, authentication, widgets, publication, versions, and rollback.</p>
+          {brand.customDomain ? <p>Previously configured hostname: <code>{brand.customDomain}</code>. Open the control center to review its verification state.</p> : null}
+          <p>Application icon and support contact remain compatible with this legacy editor; new changes should be published from the control center.</p>
         </div></Card>
         <Button type="submit" disabled={!dirty || saving || uploading || !canPublish}>Save and apply dashboard branding</Button>
       </form>

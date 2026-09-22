@@ -317,6 +317,7 @@ export function agentFromWidgetBootstrap(value: WidgetBootstrap): Agent {
 export const api = {
   auth: {
     session,
+    adopt(value: Session): Session { return persistSession(value); },
     async login(email: string, password: string): Promise<Session> {
       const result = await withFallback(() => request<Session>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }), skipAuth: true, skipRefresh: true }), async () => {
         await pause(450);

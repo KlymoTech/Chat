@@ -11,6 +11,8 @@ from northstar_api.config import get_settings
 from northstar_api.database import engine
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.models import Agent, AgentStatus, WhatsAppBusinessAccount, WhatsAppConnection
+from northstar_api.modules.whatsapp.accounts import account_client
+from northstar_api.modules.whatsapp.graph import WhatsAppGraphError, token_expiry_is_current
 from northstar_api.routers.integrations import (
     DB,
     IntegrationsManagePrincipal,
@@ -20,8 +22,6 @@ from northstar_api.routers.integrations import (
     whatsapp_connection_response,
 )
 from northstar_api.schemas import APIModel, WhatsAppConnectionOut
-from northstar_api.services.whatsapp import WhatsAppGraphError, token_expiry_is_current
-from northstar_api.services.whatsapp_accounts import account_client
 
 router = APIRouter(prefix="/integrations/whatsapp-accounts", tags=["whatsapp-accounts"])
 

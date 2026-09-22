@@ -342,8 +342,10 @@ class Agent(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    # Nullable for legacy tenant-scoped agents created before workspace
+    # isolation was introduced; all new API-created agents always set it.
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=True
     )
     public_id: Mapped[str] = mapped_column(String(48), unique=True, default=lambda: f"agt_{uuid.uuid4().hex}")
     name: Mapped[str] = mapped_column(String(120))

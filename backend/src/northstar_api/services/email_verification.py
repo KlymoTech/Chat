@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import html
 import secrets
-import smtplib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
@@ -19,8 +18,12 @@ from northstar_api.config import get_settings
 from northstar_api.email_config import EmailSettings, get_email_settings
 from northstar_api.email_verification import EmailVerificationState, EmailVerificationToken
 from northstar_api.models import User, Workspace
+from northstar_api.services.smtp import smtp_send
 
 logger = structlog.get_logger(__name__)
+
+# Backwards-compatible import target for the other transactional email services.
+_smtp_send = smtp_send
 
 
 class EmailVerificationError(RuntimeError):
@@ -130,35 +133,6 @@ def verification_url(raw_token: str, settings: EmailSettings | None = None) -> s
     return f"{base}#token={quote(raw_token, safe='')}"
 
 
-def _smtp_send(message: EmailMessage, settings: EmailSettings) -> None:
-    if settings.smtp_ssl:
-        client: smtplib.SMTP = smtplib.SMTP_SSL(
-            settings.smtp_host,
-            settings.smtp_port,
-            timeout=settings.smtp_timeout_seconds,
-        )
-    else:
-        client = smtplib.SMTP(
-            settings.smtp_host,
-            settings.smtp_port,
-            timeout=settings.smtp_timeout_seconds,
-        )
-    try:
-        if settings.smtp_starttls:
-            client.starttls()
-        if settings.smtp_username:
-            client.login(
-                settings.smtp_username,
-                settings.smtp_password.get_secret_value() if settings.smtp_password else "",
-            )
-        client.send_message(message)
-    finally:
-        try:
-            client.quit()
-        except smtplib.SMTPException:
-            client.close()
-
-
 async def send_verification_email(
     user: User,
     raw_token: str,
@@ -169,6 +143,13 @@ async def send_verification_email(
     config = settings or get_email_settings()
     url = verification_url(raw_token, config)
     if workspace is not None:
+        # Import lazily: workspace branding's settings store depends on the
+        # authentication dependency module, which also imports this service.
+        from northstar_api.modules.workspace.email_branding import (
+            deliver_workspace_email,
+            render_workspace_email,
+        )
+
         rendered = render_workspace_email(
             workspace,
             "email_verification",
@@ -217,4 +198,4 @@ async def send_verification_email(
         "If you did not create this account, you can ignore this email.</p>",
         subtype="html",
     )
-    await asyncio.to_thread(_smtp_send, message, config)
+    await asyncio.to_thread(smtp_send, message, config)

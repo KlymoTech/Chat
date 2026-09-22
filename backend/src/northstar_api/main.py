@@ -193,7 +193,7 @@ async def authenticated_mutation_audit(request: Request, call_next: RequestRespo
                 session,
                 tenant_id=principal.tenant_id,
                 workspace_id=principal.workspace_id,
-                actor_user_id=principal.user_id,
+                actor_user_id=principal.platform_actor_id or principal.user_id,
                 action=f"{category}.{method.lower()}",
                 entity_type=category,
                 entity_id=route_path,
@@ -205,6 +205,7 @@ async def authenticated_mutation_audit(request: Request, call_next: RequestRespo
                     "route": route_path,
                     "statusCode": response.status_code,
                     "credentialType": credential_type,
+                    **({"actingAsUserId": str(principal.user_id), "impersonationId": principal.impersonation_id} if principal.platform_actor_id else {}),
                 },
                 request=request,
             )

@@ -283,7 +283,7 @@ async def create_agent(
     if not principal.can("integrations.manage"):
         raise HTTPException(403, "You need integration management permission to assign a WhatsApp number")
     from northstar_api.routers.whatsapp_accounts import setup_lock
-    from northstar_api.services.whatsapp import token_expiry_is_current
+    from northstar_api.modules.whatsapp.graph import token_expiry_is_current
 
     async with setup_lock(principal):
         connection = await session.scalar(
@@ -547,7 +547,7 @@ async def update_agent(
         payload.status is None and agent.status == AgentStatus.ACTIVE and requested_channel != current_channel
     )
     if activating and requested_channel == "whatsapp":
-        from northstar_api.services.whatsapp import token_expiry_is_current
+        from northstar_api.modules.whatsapp.graph import token_expiry_is_current
 
         connection = await session.scalar(select(WhatsAppConnection).where(
             WhatsAppConnection.tenant_id == agent.tenant_id,

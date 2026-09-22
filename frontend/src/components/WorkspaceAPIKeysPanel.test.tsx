@@ -17,6 +17,7 @@ vi.mock('@/components/providers', () => ({
 }));
 
 vi.mock('@/lib/workspace-api-keys', () => ({
+  WORKSPACE_API_KEY_SCOPES: ['workspace:read', 'conversations:read', 'conversations:write', 'contacts:read', 'leads:write', 'agents:read', 'analytics:read', 'webhooks:manage'],
   workspaceAPIKeyApi: {
     list: mocks.list,
     create: mocks.create,
@@ -67,6 +68,7 @@ const existingKey = {
   prefix: 'nsk_live_example',
   createdAt: '2026-09-10T00:00:00Z',
   lastUsedAt: null,
+  scopes: ['conversations:read'] as const,
 };
 
 const createdKey: WorkspaceAPIKeyCreated = {
@@ -76,10 +78,12 @@ const createdKey: WorkspaceAPIKeyCreated = {
   secret: 'nsk_live_created-full-secret-value',
   createdAt: '2026-09-11T00:00:00Z',
   lastUsedAt: null,
+  scopes: ['conversations:read'] as const,
 };
 
 describe('WorkspaceAPIKeysPanel', () => {
   beforeEach(() => {
+    vi.stubGlobal('confirm', vi.fn(() => true));
     mocks.list.mockResolvedValue([existingKey]);
     mocks.create.mockResolvedValue(createdKey);
     mocks.revoke.mockResolvedValue(undefined);
@@ -88,6 +92,7 @@ describe('WorkspaceAPIKeysPanel', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     localStorage.clear();
   });
 
@@ -98,7 +103,7 @@ describe('WorkspaceAPIKeysPanel', () => {
     expect(await screen.findByText('Production 1')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create secret key' }));
 
-    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith('Production 2'));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith('Production', ['workspace:read', 'conversations:read', 'agents:read']));
     expect(await screen.findByText('nsk_live_created-full-secret-value')).toBeInTheDocument();
     expect(screen.getByText('Production 2')).toBeInTheDocument();
     expect(localStorage.getItem('northstar.workspace.api-keys')).toBeNull();

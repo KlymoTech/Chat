@@ -13,7 +13,8 @@ describe('workspaceAPIKeyApi', () => {
 
   beforeEach(() => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'session-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    // The active workspace key is namespaced by the authenticated session.
+    sessionStorage.setItem('northstar.active-workspace::demo', 'workspace-1');
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -31,6 +32,7 @@ describe('workspaceAPIKeyApi', () => {
         prefix: 'nsk_live_example',
         createdAt: '2026-09-10T00:00:00Z',
         lastUsedAt: null,
+        scopes: ['conversations:read'],
       }]))
       .mockResolvedValueOnce(jsonResponse({
         id: 'key-2',
@@ -45,7 +47,7 @@ describe('workspaceAPIKeyApi', () => {
     const listed = await workspaceAPIKeyApi.list();
     expect(listed).toHaveLength(1);
 
-    const created = await workspaceAPIKeyApi.create('  Production   2  ');
+    const created = await workspaceAPIKeyApi.create('  Production   2  ', ['conversations:read']);
     expect(created.secret).toBe('nsk_live_created-secret');
 
     await workspaceAPIKeyApi.revoke('key-2');
@@ -59,7 +61,7 @@ describe('workspaceAPIKeyApi', () => {
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/workspace/api-keys', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ name: 'Production 2' }),
+      body: JSON.stringify({ name: 'Production 2', scopes: ['conversations:read'] }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/workspace/api-keys/key-2', expect.objectContaining({
       method: 'DELETE',

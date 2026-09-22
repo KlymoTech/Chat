@@ -93,7 +93,11 @@ export function WorkspaceRolesSettings({
         <div className="workspace-agent-scope__list">{agents.map((agent) => <label key={agent.id}><input type="checkbox" disabled={disabled} checked={(role.resources.selected.agents ?? []).includes(agent.id)} onChange={() => toggleAgent(index, agent.id)} /><span>{agent.name}</span></label>)}</div>
         <Button variant="danger" disabled={disabled} onClick={() => {
           const customRoles = value.customRoles.filter((_, roleIndex) => roleIndex !== index);
-          const memberRoleIds = Object.fromEntries(Object.entries(value.memberRoleIds).map(([userId, ids]) => [userId, ids.filter((id) => id !== role.id)]).filter(([, ids]) => ids.length));
+          const memberRoleIds = Object.fromEntries(Object.entries(value.memberRoleIds).reduce<Array<[string, string[]]>>((entries, [userId, rawIds]) => {
+            const ids = (rawIds ?? []).filter((id) => id !== role.id);
+            if (ids.length) entries.push([userId, ids]);
+            return entries;
+          }, []));
           onChange({ customRoles, memberRoleIds });
         }}>Delete role</Button>
       </div>)}

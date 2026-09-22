@@ -27,6 +27,7 @@ from northstar_api.models import (
 )
 from northstar_api.modules.knowledge.grounding import blocked_topic, validate_answer
 from northstar_api.modules.knowledge.retrieval import Evidence, RetrievalService, retrieval_service
+from northstar_api.modules.whatsapp.messages import format_whatsapp_reply
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.llm import ModelUnavailableError, NvidiaModelAdapter, nvidia_adapter, runtime_model_profile
@@ -175,6 +176,7 @@ class ChatCoordinator:
                 conversation_id=reservation.conversation_id,
                 message=raw_message,
                 channel=channel.value,
+                include_fallback=False,
             )
             if workflow_reply:
                 prepared = await self._complete_exchange(
@@ -233,6 +235,26 @@ class ChatCoordinator:
                 )
                 web_evidence = bool(evidence)
             if not evidence:
+                workflow_reply = await match_bot_workflow(
+                    session,
+                    tenant_id=tenant_id,
+                    workspace_id=agent.workspace_id,
+                    agent_id=agent.id,
+                    conversation_id=reservation.conversation_id,
+                    message=raw_message,
+                    channel=channel.value,
+                )
+                if workflow_reply:
+                    prepared = await self._complete_exchange(
+                        session, tenant_id=tenant_id, agent=agent, reservation=reservation,
+                        question=message, answer=workflow_reply.content, evidence=[],
+                        latency_ms=round((time.perf_counter() - started) * 1000), show_citations=False,
+                        message_format=workflow_reply.message_format,
+                        answer_mode="workflow",
+                    )
+                    CHAT_REQUESTS.labels("workflow").inc()
+                    CHAT_DURATION.observe(time.perf_counter() - started)
+                    return replace(prepared, display_question=display_question)
                 if web_policy == "public":
                     try:
                         runtime_profile = await runtime_model_profile(session, agent)

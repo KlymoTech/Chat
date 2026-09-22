@@ -104,6 +104,7 @@ async def match_bot_workflow(
     conversation_id: UUID,
     message: str,
     channel: str = "widget",
+    include_fallback: bool = True,
 ) -> WorkflowReply | None:
     workflow = await session.scalar(
         select(BotWorkflow).where(
@@ -172,7 +173,7 @@ async def match_bot_workflow(
         elif _matches(step, message):
             if _allowed_by_frequency(step, sent, now):
                 return _render(step)
-    if fallback and _allowed_by_frequency(fallback, sent, now):
+    if include_fallback and fallback and _allowed_by_frequency(fallback, sent, now):
         return _render(fallback)
     for previous in sent:
         previous_id = str((previous.content_json or {}).get("workflowStepId") or "")

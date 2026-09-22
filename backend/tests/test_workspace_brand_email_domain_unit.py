@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from email.message import EmailMessage
 from uuid import uuid4
 
+from northstar_api.email_config import EmailSettings
 from northstar_api.models import Workspace
 from northstar_api.modules.workspace.contracts import DomainRecord, ExtendedBranding, WorkspaceSettingsBundle
 from northstar_api.modules.workspace.email_branding import render_workspace_email
+from northstar_api.services import smtp as smtp_service
 
 
 def test_branded_email_action_uses_only_active_custom_domain() -> None:
@@ -75,3 +78,77 @@ def test_branded_email_keeps_platform_url_until_domain_is_active() -> None:
     )
 
     assert "https://app.northstar.example/verify-email#token=secret" in rendered.text
+
+
+def test_smtp_send_uses_starttls_authentication_and_closes_connection(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeClient:
+        def starttls(self) -> None:
+            calls.append(("starttls", None))
+
+        def login(self, username: str, password: str) -> None:
+            calls.append(("login", (username, password)))
+
+        def send_message(self, message: EmailMessage) -> None:
+            calls.append(("send", message["Subject"]))
+
+        def quit(self) -> None:
+            calls.append(("quit", None))
+
+        def close(self) -> None:
+            calls.append(("close", None))
+
+    monkeypatch.setattr(smtp_service.smtplib, "SMTP", lambda *args, **kwargs: FakeClient())
+    message = EmailMessage()
+    message["Subject"] = "Verify"
+    settings = EmailSettings(
+        email_delivery_mode="smtp",
+        smtp_host="smtp.example.com",
+        smtp_username="mailer",
+        smtp_password="secret",
+        smtp_starttls=True,
+        smtp_ssl=False,
+    )
+
+    smtp_service.smtp_send(message, settings)
+
+    assert calls == [
+        ("starttls", None),
+        ("login", ("mailer", "secret")),
+        ("send", "Verify"),
+        ("quit", None),
+    ]
+
+
+def test_smtp_send_ssl_does_not_starttls_or_login_without_credentials(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeClient:
+        def starttls(self) -> None:
+            calls.append("starttls")
+
+        def login(self, username: str, password: str) -> None:
+            calls.append("login")
+
+        def send_message(self, message: EmailMessage) -> None:
+            calls.append("send")
+
+        def quit(self) -> None:
+            calls.append("quit")
+
+        def close(self) -> None:
+            calls.append("close")
+
+    monkeypatch.setattr(smtp_service.smtplib, "SMTP_SSL", lambda *args, **kwargs: FakeClient())
+    message = EmailMessage()
+    settings = EmailSettings(
+        email_delivery_mode="smtp",
+        smtp_host="smtp.example.com",
+        smtp_ssl=True,
+        smtp_starttls=False,
+    )
+
+    smtp_service.smtp_send(message, settings)
+
+    assert calls == ["send", "quit"]

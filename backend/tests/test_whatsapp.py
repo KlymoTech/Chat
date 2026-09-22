@@ -31,6 +31,10 @@ from northstar_api.models import (
     WhatsAppOutboundDelivery,
     Workspace,
 )
+from northstar_api.modules.whatsapp import (
+    MetaTokenCipher as FeatureMetaTokenCipher,
+    split_whatsapp_text as feature_split_whatsapp_text,
+)
 from northstar_api.routers import integrations as integrations_router
 from northstar_api.routers import whatsapp as webhook_router
 from northstar_api.routers.integrations import (
@@ -127,6 +131,11 @@ def test_whatsapp_text_is_split_without_exceeding_provider_limit() -> None:
 
     assert "".join(chunks).replace(" ", "").replace("\n", "") == value.replace(" ", "").replace("\n", "")
     assert all(0 < len(chunk) <= MAX_WHATSAPP_TEXT_LENGTH for chunk in chunks)
+
+
+def test_whatsapp_feature_namespace_preserves_provider_contract() -> None:
+    assert feature_split_whatsapp_text is split_whatsapp_text
+    assert FeatureMetaTokenCipher is MetaTokenCipher
 
 
 def test_whatsapp_thread_lock_serializes_a_recipient_across_message_types() -> None:

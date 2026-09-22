@@ -3,14 +3,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from northstar_api.dependencies import DBSession, require_permissions
 from northstar_api.entitlements import entitlement_for_plan
 from northstar_api.models import Workspace
+from northstar_api.modules.branding.repositories import persist_branding_document
+from northstar_api.modules.branding.services import resolve_published_workspace_brand
 from northstar_api.security import Principal
 
-from .brand_cache import cache_workspace_brand, cached_workspace_brand, invalidate_brand_cache
+from .brand_cache import cache_version_brand, invalidate_brand_cache
 from .contracts import (
     BrandingSettingsView,
     BrandVersion,
@@ -19,6 +21,7 @@ from .contracts import (
     RollbackRequest,
     WorkspaceSettingsBundle,
 )
+from .repositories.workspace_write_lock import lock_workspace_settings
 from .store import load_workspace, record_workspace_change, save_document, settings_document
 
 router = APIRouter()
@@ -50,8 +53,16 @@ async def _publish(
     workspace: Workspace,
     plan: str,
     change_note: str,
+    *,
+    request: Request,
+    action: str = "workspace.brand.published",
 ) -> BrandVersion:
     _check_brand_entitlements(plan, document.branding_draft)
+    before = (
+        document.branding_published.model_dump(by_alias=True, mode="json")
+        if document.branding_published is not None
+        else {}
+    )
     version_number = max((item.version for item in document.branding_versions), default=0) + 1
     version = BrandVersion(
         version=version_number,
@@ -72,14 +83,23 @@ async def _publish(
         "dnsStatus": "verified" if active_domain else "not-configured",
     }
     save_document(workspace, document)
+    await persist_branding_document(session, workspace, document, published_version=version)
     record_workspace_change(
         session,
         principal,
         workspace,
-        "workspace.brand.published",
+        action,
         [f"version:{version_number}"],
+        resource_type="workspace_brand_version",
+        resource_id=f"{workspace.id}:{version_number}",
+        before=before,
+        after=version.branding.model_dump(by_alias=True, mode="json"),
+        reason=change_note or None,
+        request=request,
     )
     await session.commit()
+    payload = version.branding.model_dump(by_alias=True, mode="json")
+    await cache_version_brand(workspace.id, version_number, payload)
     await invalidate_brand_cache(
         workspace.id,
         hostnames=[item.hostname for item in document.domains.domains],
@@ -109,38 +129,36 @@ async def get_runtime_branding(
     session: DBSession,
 ) -> ExtendedBranding | None:
     _, workspace = await load_workspace(principal, session)
-    cached = await cached_workspace_brand(workspace.id)
-    if cached is not None:
-        try:
-            return ExtendedBranding.model_validate(cached)
-        except (TypeError, ValueError):
-            pass
-    published = settings_document(workspace).branding_published
-    if published is not None:
-        await cache_workspace_brand(
-            workspace.id,
-            published.model_dump(by_alias=True, mode="json"),
-        )
+    published, _ = await resolve_published_workspace_brand(session, workspace)
     return published
 
 
 @router.patch("/branding/draft", response_model=ExtendedBranding)
 async def save_branding_draft(
     payload: ExtendedBranding,
+    request: Request,
     principal: BrandEditPrincipal,
     session: DBSession,
 ) -> ExtendedBranding:
     _interactive_only(principal, "editing")
     _, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
+    before = document.branding_draft.model_dump(by_alias=True, mode="json")
     document.branding_draft = payload
     save_document(workspace, document)
+    await persist_branding_document(session, workspace, document)
     record_workspace_change(
         session,
         principal,
         workspace,
         "workspace.brand.draft.updated",
         ["brandingDraft"],
+        resource_type="workspace_brand",
+        resource_id=str(workspace.id),
+        before=before,
+        after=payload.model_dump(by_alias=True, mode="json"),
+        request=request,
     )
     await session.commit()
     return payload
@@ -149,11 +167,13 @@ async def save_branding_draft(
 @router.post("/branding/publish", response_model=BrandVersion)
 async def publish_branding(
     payload: PublishRequest,
+    request: Request,
     principal: BrandPublishPrincipal,
     session: DBSession,
 ) -> BrandVersion:
     _interactive_only(principal, "publication")
     tenant, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     return await _publish(
         settings_document(workspace),
         principal,
@@ -161,17 +181,20 @@ async def publish_branding(
         workspace,
         tenant.plan,
         payload.change_note,
+        request=request,
     )
 
 
 @router.post("/branding/rollback", response_model=BrandVersion)
 async def rollback_branding(
     payload: RollbackRequest,
+    request: Request,
     principal: BrandPublishPrincipal,
     session: DBSession,
 ) -> BrandVersion:
     _interactive_only(principal, "publication")
     tenant, workspace = await load_workspace(principal, session)
+    await lock_workspace_settings(session, workspace)
     document = settings_document(workspace)
     source = next(
         (item for item in document.branding_versions if item.version == payload.version),
@@ -187,4 +210,6 @@ async def rollback_branding(
         workspace,
         tenant.plan,
         payload.change_note,
+        request=request,
+        action="workspace.brand.rollback",
     )

@@ -30,6 +30,14 @@ from northstar_api.models import (
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
+from northstar_api.modules.whatsapp.accounts import connection_client
+from northstar_api.modules.whatsapp.graph import (
+    WhatsAppConfigurationError,
+    WhatsAppGraphError,
+    token_expiry_is_current,
+)
+from northstar_api.modules.whatsapp.status import attach_whatsapp_message_status
+from northstar_api.modules.whatsapp.templates import build_template
 from northstar_api.schemas import (
     CitationOut,
     ConversationOut,
@@ -49,14 +57,6 @@ from northstar_api.services.education_conversation_policy import (
 )
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.slack import decode_slack_target
-from northstar_api.services.whatsapp import (
-    WhatsAppConfigurationError,
-    WhatsAppGraphError,
-    token_expiry_is_current,
-)
-from northstar_api.services.whatsapp_accounts import connection_client
-from northstar_api.services.whatsapp_message_status import attach_whatsapp_message_status
-from northstar_api.services.whatsapp_templates import build_template
 from northstar_api.workers.facebook_messenger_tasks import send_facebook_messenger_message
 from northstar_api.workers.instagram_tasks import send_instagram_message
 from northstar_api.workers.slack_tasks import send_slack_message

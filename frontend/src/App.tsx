@@ -45,9 +45,7 @@ const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage').then((m
 const SignupPage = lazy(() => import('@/pages/SignupPage').then((module) => ({ default: module.SignupPage })));
 const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));
 const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
-const WhiteLabelPage = lazy(() => import('@/pages/WhiteLabelPage').then((module) => ({ default: module.WhiteLabelPage })));
 const WorkspaceInvitationPage = lazy(() => import('@/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
-const WorkspacePage = lazy(() => import('@/pages/WorkspacePage').then((module) => ({ default: module.WorkspacePage })));
 const WorkspaceSettingsPage = lazy(() => import('@/features/workspace/settings').then((module) => ({ default: module.WorkspaceSettingsPage })));
 const WidgetDemoPage = lazy(() => import('@/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
@@ -113,11 +111,31 @@ export function App() {
       <Route path="integrations" element={<IntegrationsHubPage />} />
       <Route path="integrations/advanced" element={<IntegrationManagementPage />} />
       <Route path="deploy" element={<DeployPage />} />
-      <Route path="workspace" element={<WorkspacePage />} />
-      <Route path="workspace/white-label" element={<WhiteLabelPage />} />
+      {/* The settings center is the single workspace administration entry point. */}
+      <Route path="workspace" element={<Navigate to="/workspace/settings/general" replace />} />
+      {/* Keep the legacy URL, but route it to the complete draft/preview/
+          publish white-label control center. */}
+      <Route path="workspace/white-label" element={<Navigate to="/workspace/settings/branding" replace />} />
       <Route path="workspace/settings" element={<Navigate to="/workspace/settings/general" replace />} />
       <Route path="workspace/settings/:section" element={<WorkspaceSettingsPage />} />
+      {/* Platform control-plane aliases keep the admin hierarchy addressable
+          while the current control-plane screen owns the shared data loaders. */}
       <Route path="platform-admin" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/dashboard" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/tenants" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/workspaces" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/users" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/subscriptions" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/plans" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/usage" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/channels" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/integrations" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/jobs" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/webhooks" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/audit" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/security" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/support" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/system" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
       <Route path="help/search" element={<HelpSearchPage />} />
       <Route path="help/categories/:slug" element={<HelpCategoryPage />} />

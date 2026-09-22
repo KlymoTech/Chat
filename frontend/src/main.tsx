@@ -5,6 +5,8 @@ import { App } from '@/App';
 import { AuthProvider, ToastProvider, WorkspaceProvider } from '@/components/providers';
 import { PublicBrandingProvider } from '@/components/public-branding';
 import { WorkspaceBrandRuntime } from '@/features/branding/WorkspaceBrandRuntime';
+import '@/theme/tokens.css';
+import '@/theme/typography.css';
 import '@/styles.css';
 import '@/help.css';
 import '@/help-detail.css';

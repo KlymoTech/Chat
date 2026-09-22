@@ -8,6 +8,7 @@ from sqlalchemy import delete
 from northstar_api.database import SessionFactory
 from northstar_api.models import Tenant
 from northstar_api.routers.platform_admin import platform_admin_emails
+from northstar_api.services.rate_limit import redis_services
 from northstar_api.subscriptions import SubscriptionStatus, TenantSubscription
 
 
@@ -97,6 +98,7 @@ async def test_platform_admin_reads_across_tenants_without_mutating_customer_dat
         assert detail.status_code == 200, detail.text
         assert detail.json()["slug"] == external_slug
         assert detail.json()["workspaces"] == []
+        assert detail.json()["users"] == []
 
         read_only = await client.post(
             "/api/v1/platform-admin/tenants",
@@ -117,6 +119,38 @@ async def test_platform_admin_reads_across_tenants_without_mutating_customer_dat
             )
             await session.execute(delete(Tenant).where(Tenant.id == external_tenant_id))
             await session.commit()
+
+
+async def test_platform_admin_exposes_server_owned_entitlements(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    session_payload: dict,
+    monkeypatch,
+) -> None:
+    _enable(monkeypatch, session_payload["user"]["email"])
+    organization_headers = {key: value for key, value in auth_headers.items() if key.lower() != "x-workspace-id"}
+    response = await client.get("/api/v1/platform-admin/entitlements", headers=organization_headers)
+    assert response.status_code == 200, response.text
+    values = {item["plan"]: item for item in response.json()}
+    assert {"free", "starter", "professional", "business", "enterprise"} <= values.keys()
+    assert values["starter"]["whiteLabelEnabled"] is False
+    assert values["business"]["customDomainEnabled"] is True
+
+
+async def test_platform_admin_exposes_non_secret_runtime_configuration(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    session_payload: dict,
+    monkeypatch,
+) -> None:
+    _enable(monkeypatch, session_payload["user"]["email"])
+    response = await client.get("/api/v1/platform-admin/configuration", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["appApiPrefix"] == "/api/v1"
+    assert value["platformImpersonationTtlMinutes"] == 15
+    assert "databaseUrl" not in value
+    assert "jwtSecret" not in value
 
 
 async def test_platform_admin_rejects_workspace_api_keys(
@@ -162,3 +196,50 @@ async def test_platform_admin_tenant_detail_returns_not_found_for_unknown_tenant
     )
     assert missing.status_code == 404, missing.text
     assert missing.json()["error"]["message"] == "Tenant not found"
+
+
+async def test_platform_admin_impersonation_requires_membership_and_is_tagged(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    session_payload: dict,
+    monkeypatch,
+) -> None:
+    _enable(monkeypatch, session_payload["user"]["email"])
+    workspaces = await client.get("/api/v1/workspaces", headers=auth_headers)
+    assert workspaces.status_code == 200, workspaces.text
+    workspace_id = workspaces.json()[0]["id"]
+    payload = {
+        "tenantId": workspaces.json()[0]["tenantId"],
+        "workspaceId": workspace_id,
+        "userId": session_payload["user"]["id"],
+        "reason": "Investigate customer support issue",
+    }
+    response = await client.post("/api/v1/platform-admin/impersonation", headers=auth_headers, json=payload)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["tenantId"] == payload["tenantId"]
+    assert result["workspaceId"] == workspace_id
+    assert result["userId"] == payload["userId"]
+    assert result["impersonationId"].startswith("imp_")
+    assert result["accessToken"]
+
+    revoked: list[tuple[str, str, int]] = []
+
+    async def fake_set(key: str, value: str, ex: int) -> None:
+        revoked.append((key, value, ex))
+
+    monkeypatch.setattr(redis_services.client, "set", fake_set)
+    ended = await client.post(
+        f"/api/v1/platform-admin/impersonation/{result['impersonationId']}/end",
+        headers=auth_headers,
+        json={"reason": "Support investigation complete"},
+    )
+    assert ended.status_code == 204, ended.text
+    assert revoked == [(f"northstar:impersonation:revoked:{result['impersonationId']}", "1", 86_400)]
+
+    denied = await client.post(
+        "/api/v1/platform-admin/impersonation",
+        headers=auth_headers,
+        json={**payload, "workspaceId": str(uuid4())},
+    )
+    assert denied.status_code == 404, denied.text

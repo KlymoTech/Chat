@@ -887,3 +887,18 @@ kbd { padding: 2px 6px; border: 1px solid #d8dee8; border-radius: 5px; backgroun
 .interactive-channel-template .channel-conversation>header>.channel-preview-menu{min-width:auto;flex:0 0 auto;display:block}.interactive-channel-template .channel-conversation:has(.channel-preview-search){grid-template-rows:58px 39px minmax(0,1fr) 51px}.interactive-channel-template .channel-conversation:has(.channel-attachment-note):not(:has(.channel-preview-search)){grid-template-rows:58px minmax(0,1fr) auto 51px}.interactive-channel-template .channel-conversation:has(.channel-preview-search):has(.channel-attachment-note){grid-template-rows:58px 39px minmax(0,1fr) auto 51px}
 .knowledge-test-preview .preview-toolbar button{display:flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--blue);font-size:10px;font-weight:750;cursor:pointer}.knowledge-test-preview .preview-toolbar button svg{width:13px}.knowledge-test-preview__intro{margin:10px 14px;padding:10px;display:flex;align-items:center;gap:9px;border:1px solid #d9e7fd;border-radius:10px;background:#f5f9ff}.knowledge-test-preview__intro>svg{width:18px;color:var(--blue)}.knowledge-test-preview__intro>div{display:flex;flex-direction:column;gap:2px}.knowledge-test-preview__intro strong{font-size:11px}.knowledge-test-preview__intro small{color:var(--muted);font-size:9px;line-height:1.35}.knowledge-untrain-summary{display:flex;align-items:flex-start;gap:12px;padding:13px;border:1px solid #f0d3b2;border-radius:10px;background:#fff8ed}.knowledge-untrain-summary>svg{width:20px;flex:0 0 auto;color:#b45309}.knowledge-untrain-summary p{margin:5px 0;color:#5f6878;font-size:11px;overflow-wrap:anywhere}.knowledge-untrain-summary small{color:#8a5a2b;font-size:10px}
 .deploy-workflow-builder{margin:-12px -18px}.deploy-workflow-builder .bot-workflow-page{padding:12px}.deploy-workflow-builder .workflow-scope-card>div{grid-template-columns:1fr 1fr}.deploy-workflow-builder .workflow-builder-layout{grid-template-columns:145px minmax(620px,1fr)}.deploy-workflow-builder .workflow-step-editor{grid-column:1/-1;position:static;max-height:none}.deploy-workflow-builder .journey-preview{min-width:760px}
+:root {
+  --support-banner-background: #7f1d1d;
+}
+
+.support-impersonation-banner {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .55rem 1rem;
+  color: #fff;
+  background: var(--support-banner-background);
+  font-size: .82rem;
+}
+.support-impersonation-banner span { flex: 1; }
+.support-impersonation-banner button { color: #fff; background: transparent; border: 1px solid rgba(255,255,255,.65); border-radius: 999px; padding: .25rem .7rem; cursor: pointer; }

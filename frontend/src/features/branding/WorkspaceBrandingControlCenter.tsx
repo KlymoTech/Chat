@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card, Field } from '@/components/ui';
 import { useToast } from '@/components/providers';
 import {
@@ -18,9 +18,9 @@ import { BrandWidgetSettings } from './BrandWidgetSettings';
 type Surface = 'identity' | 'theme' | 'dashboard' | 'authentication' | 'email' | 'widget' | 'domains' | 'versions';
 const surfaces: Surface[] = ['identity', 'theme', 'dashboard', 'authentication', 'email', 'widget', 'domains', 'versions'];
 
-export function WorkspaceBrandingControlCenter({ bundle, onChange, permissions }: { bundle: WorkspaceSettingsBundle; onChange: (bundle: WorkspaceSettingsBundle) => void; permissions: string[] }) {
+export function WorkspaceBrandingControlCenter({ bundle, onChange, permissions, initialSurface = 'identity' }: { bundle: WorkspaceSettingsBundle; onChange: (bundle: WorkspaceSettingsBundle) => void; permissions: string[]; initialSurface?: Surface }) {
   const { pushToast } = useToast();
-  const [surface, setSurface] = useState<Surface>('identity');
+  const [surface, setSurface] = useState<Surface>(initialSurface);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -33,6 +33,8 @@ export function WorkspaceBrandingControlCenter({ bundle, onChange, permissions }
   const published = bundle.brandingPublished;
   const visibleBrand = canEdit ? draft : published ?? draft;
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(published), [draft, published]);
+
+  useEffect(() => setSurface(initialSurface), [initialSurface]);
 
   if (!canView) return <Card className="workspace-panel"><div className="workspace-panel__body"><h3>White label</h3><p>You do not have permission to view workspace branding.</p></div></Card>;
 

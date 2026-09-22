@@ -38,7 +38,7 @@ PLAN_ENTITLEMENTS: dict[str, PlanEntitlement] = {
         workspace_limit=1, agent_limit=2, member_limit=3, conversation_limit_monthly=1_000,
         token_limit_monthly=500_000, storage_limit_bytes=1024**3,
         allowed_channels=frozenset({"website", "widget", "api"}), crm_enabled=False,
-        api_enabled=True, white_label_enabled=True,
+        api_enabled=True, white_label_enabled=False,
     ),
     "professional": PlanEntitlement(
         workspace_limit=3, agent_limit=5, member_limit=10, conversation_limit_monthly=3_000,
@@ -59,6 +59,10 @@ PLAN_ENTITLEMENTS: dict[str, PlanEntitlement] = {
         branded_email_enabled=True, remove_platform_mark_enabled=True,
     ),
 }
+# Compatibility entitlement for tenants created by the original custom-plan
+# contract. Keep this as a stable object so callers can use identity checks
+# while all new plans remain in the explicit catalog above.
+CUSTOM_UNLIMITED_ENTITLEMENT = PLAN_ENTITLEMENTS["enterprise"]
 UNKNOWN_PLAN_ENTITLEMENT = PlanEntitlement(
     workspace_limit=0, agent_limit=0, member_limit=0, conversation_limit_monthly=0,
     token_limit_monthly=0, storage_limit_bytes=0, allowed_channels=frozenset(),
@@ -84,5 +88,7 @@ def legacy_plan_aliases() -> dict[str, str]:
 
 def entitlement_for_plan(plan: str) -> PlanEntitlement:
     normalized = plan.strip().lower()
+    if normalized == "legacy_custom_contract":
+        return CUSTOM_UNLIMITED_ENTITLEMENT
     resolved = legacy_plan_aliases().get(normalized, normalized)
     return PLAN_ENTITLEMENTS.get(resolved, UNKNOWN_PLAN_ENTITLEMENT)

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { applyBrandTokens } from '@/theme/brand-tokens';
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 
@@ -43,31 +44,13 @@ function setFavicon(dataUrl: string) {
   link.href = dataUrl;
 }
 
-function applyTokens(brand: PublicBranding) {
-  const root = document.documentElement;
-  const tokens: Record<string, string> = {
-    '--brand-primary': brand.primaryColor,
-    '--brand-secondary': brand.secondaryColor,
-    '--brand-accent': brand.colors.accent ?? brand.primaryColor,
-    '--brand-background': brand.colors.background ?? '#ffffff',
-    '--brand-surface': brand.colors.surface ?? '#ffffff',
-    '--brand-border': brand.colors.border ?? '#e5e7eb',
-    '--brand-text': brand.colors.textPrimary ?? '#111827',
-    '--brand-muted': brand.colors.textSecondary ?? '#6b7280',
-    '--brand-sidebar': brand.colors.sidebarBackground ?? '#ffffff',
-    '--brand-sidebar-text': brand.colors.sidebarText ?? '#111827',
-  };
-  Object.entries(tokens).forEach(([name, value]) => root.style.setProperty(name, value));
-  const font = String(brand.typography.bodyFont ?? '');
-  if (font) root.style.setProperty('--brand-font', font);
-}
-
 export function PublicBrandingProvider({ children }: { children: ReactNode }) {
   const [brand, setBrand] = useState<PublicBranding | null>(null);
   const hostname = useMemo(() => window.location.hostname.toLowerCase(), []);
 
   useEffect(() => {
     let current = true;
+    let cleanupTokens: (() => void) | undefined;
     const controller = new AbortController();
     fetch(`${API_URL}/branding/public?hostname=${encodeURIComponent(hostname)}`, {
       headers: { Accept: 'application/json' },
@@ -81,10 +64,19 @@ export function PublicBrandingProvider({ children }: { children: ReactNode }) {
         setBrand(value);
         if (value.browserTitle) document.title = value.browserTitle;
         setFavicon(value.faviconDataUrl);
-        applyTokens(value);
+        cleanupTokens = applyBrandTokens({
+          primaryColor: value.primaryColor,
+          secondaryColor: value.secondaryColor,
+          colors: value.colors,
+          typography: value.typography,
+        });
       })
       .catch(() => undefined);
-    return () => { current = false; controller.abort(); };
+    return () => {
+      current = false;
+      controller.abort();
+      cleanupTokens?.();
+    };
   }, [hostname]);
 
   return <PublicBrandingContext.Provider value={brand}>{children}</PublicBrandingContext.Provider>;

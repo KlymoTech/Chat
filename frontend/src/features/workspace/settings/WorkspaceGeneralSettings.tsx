@@ -84,7 +84,7 @@ export function WorkspaceGeneralSettings({
         <Field label="Default language"><input disabled={disabled} value={workspace.preferences.defaultLanguage} onChange={(event) => onWorkspace({ ...workspace, preferences: { ...workspace.preferences, defaultLanguage: event.target.value } })} /></Field>
       </div>
       <div className="two-fields">
-        <Field label="Date format"><input disabled={disabled} value={workspace.preferences.dateFormat} onChange={(event) => onWorkspace({ ...workspace, preferences: { ...workspace.preferences, dateFormat: event.target.value } })} /></Field>
+        <Field label="Date format"><input disabled={disabled} value={workspace.preferences.dateFormat} onChange={(event) => onWorkspace({ ...workspace, preferences: { ...workspace.preferences, dateFormat: event.target.value as WorkspaceSettings['preferences']['dateFormat'] } })} /></Field>
         <Field label="Time format"><select disabled={disabled} value={general.timeFormat} onChange={(event) => onBundle({ ...bundle, general: { ...general, timeFormat: event.target.value as '12h' | '24h' } })}><option value="12h">12 hour</option><option value="24h">24 hour</option></select></Field>
       </div>
       <div className="two-fields">

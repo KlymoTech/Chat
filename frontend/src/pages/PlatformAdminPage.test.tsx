@@ -1,10 +1,13 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlatformAdminPage } from '@/pages/PlatformAdminPage';
 
 const mocks = vi.hoisted(() => ({
   overview: vi.fn(),
+  entitlements: vi.fn(),
+  configuration: vi.fn(),
   tenants: vi.fn(),
   tenant: vi.fn(),
 }));
@@ -12,9 +15,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/platform-admin-api', () => ({
   platformAdminApi: {
     overview: mocks.overview,
+    entitlements: mocks.entitlements,
+    configuration: mocks.configuration,
     tenants: mocks.tenants,
     tenant: mocks.tenant,
   },
+}));
+
+vi.mock('@/components/providers', () => ({
+  useAuth: () => ({ session: { user: { id: 'platform-admin', email: 'admin@example.com' } }, assumeSession: vi.fn() }),
+  useToast: () => ({ pushToast: vi.fn() }),
 }));
 
 const overview = {
@@ -55,6 +65,20 @@ const tenantSummary = {
   createdAt: '2026-09-01T00:00:00Z',
 };
 
+const entitlements = [{
+  plan: 'starter', workspaceLimit: 1, agentLimit: 2, memberLimit: 3,
+  conversationLimitMonthly: 1000, tokenLimitMonthly: 500000, storageLimitBytes: 1024,
+  allowedChannels: ['website'], crmEnabled: false, apiEnabled: true, whiteLabelEnabled: false,
+  customDomainEnabled: false, brandedEmailEnabled: false, removePlatformMarkEnabled: false,
+}];
+
+const configuration = {
+  appEnv: 'test', appApiPrefix: '/api/v1', backgroundDispatchEnabled: false, kafkaEnabled: false,
+  educationMultiCourseEnabled: true, requireNvidia: false, allowDeterministicEmbeddings: true,
+  platformImpersonationTtlMinutes: 15, rateLimitFailOpen: true, retrievalCandidateLimit: 40,
+  retrievalContextLimit: 8, knowledgeMaxPdfPages: 500, knowledgeMaxChunks: 2000,
+};
+
 const tenantDetail = {
   ...tenantSummary,
   provider: null,
@@ -75,6 +99,8 @@ const tenantDetail = {
 describe('PlatformAdminPage', () => {
   beforeEach(() => {
     mocks.overview.mockResolvedValue(overview);
+    mocks.entitlements.mockResolvedValue(entitlements);
+    mocks.configuration.mockResolvedValue(configuration);
     mocks.tenants.mockResolvedValue({ items: [tenantSummary], total: 1, limit: 50, offset: 0 });
     mocks.tenant.mockResolvedValue(tenantDetail);
   });
@@ -85,7 +111,7 @@ describe('PlatformAdminPage', () => {
   });
 
   it('renders real platform, subscription, and operations data', async () => {
-    render(<PlatformAdminPage />);
+    render(<MemoryRouter><PlatformAdminPage /></MemoryRouter>);
 
     expect(await screen.findByText('Control plane')).toBeInTheDocument();
     expect(screen.getByText('Operational issues')).toBeInTheDocument();
@@ -98,7 +124,7 @@ describe('PlatformAdminPage', () => {
 
   it('opens a tenant support view with workspace and audit metadata', async () => {
     const user = userEvent.setup();
-    render(<PlatformAdminPage />);
+    render(<MemoryRouter><PlatformAdminPage /></MemoryRouter>);
 
     await user.click(await screen.findByRole('button', { name: /Northstar Academy/ }));
     await waitFor(() => expect(mocks.tenant).toHaveBeenCalledWith('tenant-1'));
@@ -109,7 +135,7 @@ describe('PlatformAdminPage', () => {
 
   it('searches tenants through the server query rather than filtering stale local data', async () => {
     const user = userEvent.setup();
-    render(<PlatformAdminPage />);
+    render(<MemoryRouter><PlatformAdminPage /></MemoryRouter>);
 
     const input = await screen.findByRole('textbox', { name: 'Search tenants' });
     await user.type(input, 'CPA');
@@ -119,9 +145,18 @@ describe('PlatformAdminPage', () => {
 
   it('shows a safe denial state instead of rendering partial tenant data', async () => {
     mocks.overview.mockRejectedValueOnce(new Error('Platform administrator access required'));
-    render(<PlatformAdminPage />);
+    render(<MemoryRouter><PlatformAdminPage /></MemoryRouter>);
 
     expect(await screen.findByText('Platform administrator access required')).toBeInTheDocument();
     expect(screen.queryByText('Tenant administration')).not.toBeInTheDocument();
+  });
+
+  it('keeps the core control plane available when supplemental reads fail', async () => {
+    mocks.entitlements.mockRejectedValueOnce(new Error('Entitlements endpoint unavailable'));
+    mocks.configuration.mockRejectedValueOnce(new Error('Configuration endpoint unavailable'));
+    render(<MemoryRouter><PlatformAdminPage /></MemoryRouter>);
+
+    expect(await screen.findByText('Control plane')).toBeInTheDocument();
+    expect(screen.getByText('Tenant administration')).toBeInTheDocument();
   });
 });
