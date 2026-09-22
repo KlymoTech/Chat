@@ -67,6 +67,7 @@ class RuntimeChangeCreateRequest(RuntimeChangePlanRequest):
     reason: str = Field(min_length=5, max_length=500)
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     operation: Literal["enable", "disable", "switch", "stop", "destroy"] = "switch"
+    requested_capability: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class RuntimeChangeDecisionRequest(BaseModel):
@@ -86,6 +87,7 @@ class RuntimeChangeOut(BaseModel):
     action: str
     classification: str
     operation: str
+    requested_capability: str | None
     requires_approval: bool
     destructive: bool
     source_revision: int
@@ -129,6 +131,11 @@ def _change_response(record: PlatformChangeRecord) -> RuntimeChangeOut:
         action=record.action,
         classification=record.classification,
         operation=str(impact.get("operation", "switch")),
+        requested_capability=(
+            str(impact["requestedCapability"])
+            if impact.get("requestedCapability") is not None
+            else None
+        ),
         requires_approval=record.requires_approval,
         destructive=record.destructive,
         source_revision=record.source_revision,
@@ -159,6 +166,7 @@ def _deployment_dispatch_payload(record: PlatformChangeRecord) -> dict[str, obje
         "action": record.action,
         "classification": record.classification,
         "operation": str((record.impact_json or {}).get("operation", "switch")),
+        "requestedCapability": (record.impact_json or {}).get("requestedCapability"),
         "destructive": record.destructive,
         "sourceRevision": record.source_revision,
         "targetRevision": record.target_revision,
@@ -297,6 +305,11 @@ async def create_runtime_change(
             status_code=status.HTTP_409_CONFLICT,
             detail="infrastructure lifecycle operations require an advanced target revision",
         )
+    if payload.operation in {"stop", "destroy"} and payload.requested_capability is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="infrastructure lifecycle operations require requested_capability",
+        )
     existing = await session.scalar(
         select(PlatformChangeRecord).where(
             PlatformChangeRecord.environment == environment,
@@ -345,6 +358,7 @@ async def create_runtime_change(
             "changedCapabilities": list(analysis.changed_capabilities),
             "impactedCapabilities": list(analysis.impacted_capabilities),
             "operation": payload.operation,
+            "requestedCapability": payload.requested_capability,
         },
         requested_at=now,
         current_spec_json=payload.current.model_dump(mode="json"),
