@@ -23,7 +23,7 @@ backend/src/northstar_api/modules/
 Website page implementations live under `frontend/src/features/website/pages`,
 tenant administration is exposed through `frontend/src/features/admin`, and
 the global super-admin implementation lives under
-`frontend/src/features/super-admin`. The old `platform-admin` frontend and
+`frontend/src/features/super-admin/SuperAdminPage.tsx`. The old `platform-admin` frontend and
 `platform_admin` backend namespaces, plus the legacy `pages/` and
 `routers/` roots, remain thin compatibility adapters during the staged
 migration. New production imports should enter via the feature/module

@@ -40,7 +40,7 @@ const LoginPageView = lazy(() => import('@/features/website/pages/LoginPage').th
 const MFAChallengePageView = lazy(() => import('@/features/website/pages/MFAChallengePage').then((module) => ({ default: module.MFAChallengePage })));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 const OverviewPage = lazy(() => import('@/pages/OverviewPage').then((module) => ({ default: module.OverviewPage })));
-const PlatformAdminPageView = lazy(() => import('@/features/super-admin').then((module) => ({ default: module.PlatformAdminPage })));
+const PlatformAdminPageView = lazy(() => import('@/features/super-admin').then((module) => ({ default: module.SuperAdminPage })));
 const ResetPasswordPageView = lazy(() => import('@/features/website/pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
 const SignupPageView = lazy(() => import('@/features/website/pages/SignupPage').then((module) => ({ default: module.SignupPage })));
 const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));

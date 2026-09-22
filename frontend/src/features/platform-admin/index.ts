@@ -1,5 +1,5 @@
 /** @deprecated Use the explicitly named super-admin feature boundary. */
-export { PlatformAdminPage } from '@/features/super-admin/PlatformAdminPage';
+export { SuperAdminPage as PlatformAdminPage } from '@/features/super-admin/SuperAdminPage';
 export { platformAdminApi } from '@/lib/platform-admin-api';
 export type {
   PlatformOverview,

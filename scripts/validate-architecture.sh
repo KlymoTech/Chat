@@ -41,7 +41,7 @@ required_paths=(
   "frontend/src/features/platform-admin"
   "frontend/src/features/platform-admin/PlatformAdminPage.tsx"
   "frontend/src/features/super-admin"
-  "frontend/src/features/super-admin/PlatformAdminPage.tsx"
+  "frontend/src/features/super-admin/SuperAdminPage.tsx"
   "frontend/src/features/admin"
   "frontend/src/features/admin/index.ts"
   "frontend/src/features/website"

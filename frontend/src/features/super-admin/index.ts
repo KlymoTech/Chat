@@ -1,5 +1,7 @@
 /** Global super-admin control-plane feature boundary. */
-export { PlatformAdminPage } from './PlatformAdminPage';
+export { SuperAdminPage } from './SuperAdminPage';
+/** @deprecated Use SuperAdminPage. */
+export { SuperAdminPage as PlatformAdminPage } from './SuperAdminPage';
 export { platformAdminApi } from '@/lib/platform-admin-api';
 export type {
   PlatformOverview,
