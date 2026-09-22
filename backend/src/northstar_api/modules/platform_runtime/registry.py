@@ -70,6 +70,8 @@ class CapabilityState(BaseModel):
     health: CapabilityHealth
     fallback_active: bool = False
     health_message: str | None = None
+    observed_provider: str | None = None
+    estimated_monthly_cost_usd: float | None = Field(default=None, ge=0)
 
 
 class CapabilityDependencyGraph(BaseModel):
@@ -205,8 +207,8 @@ def _selected_providers(spec: PlatformSpec) -> dict[CapabilityId, str]:
         "secrets": spec.providers.secrets,
         "ai": spec.providers.ai,
         "orchestration": spec.deployment.orchestrator,
-        "metrics": "opentelemetry",
-        "tracing": "opentelemetry",
+        "metrics": "opentelemetry" if spec.observability.metrics else "disabled",
+        "tracing": "opentelemetry" if spec.observability.tracing else "disabled",
         "websocket": "application",
     }
 
@@ -234,7 +236,7 @@ def build_capability_catalog(
                 definition=definition,
                 provider=provider,
                 desired_state="on" if enabled or definition.required else "off",
-                actual_state="disabled" if not enabled else "configured",
+                actual_state="disabled" if not enabled else "unknown",
                 health=_state_health(provider, health, definition.capability_id),
                 fallback_active=False,
             )
@@ -264,6 +266,14 @@ def _changed_capabilities(current: PlatformSpec, desired: PlatformSpec) -> set[C
     changed = {capability_id for capability_id in old if old[capability_id] != new[capability_id]}
     if current.profile != desired.profile or current.deployment.orchestrator != desired.deployment.orchestrator:
         changed.add("orchestration")
+    if current.resources.redis_provisioned != desired.resources.redis_provisioned:
+        changed.add("cache")
+    if current.resources.kafka_provisioned != desired.resources.kafka_provisioned:
+        changed.add("events")
+    if current.resources.opensearch_provisioned != desired.resources.opensearch_provisioned:
+        changed.add("search")
+    if current.observability.tracing != desired.observability.tracing:
+        changed.add("tracing")
     return changed
 
 
