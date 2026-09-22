@@ -132,6 +132,8 @@ export interface PlatformCapabilityState {
   health: 'healthy' | 'degraded' | 'unhealthy' | 'disabled' | 'unknown';
   fallback_active: boolean;
   health_message: string | null;
+  observed_provider: string | null;
+  estimated_monthly_cost_usd: number | null;
 }
 
 export interface PlatformCapabilityCatalog {
@@ -165,6 +167,7 @@ export interface PlatformRuntimeChange {
   status: string;
   action: string;
   classification: string;
+  operation: 'enable' | 'disable' | 'switch' | 'stop' | 'destroy' | string;
   requires_approval: boolean;
   destructive: boolean;
   source_revision: number;
@@ -193,6 +196,162 @@ export interface PlatformRuntimeExecution {
   completed_at: string | null;
   health_result: Record<string, unknown>;
   error: string | null;
+}
+
+
+export type PlatformCapabilityOperation = 'enable' | 'disable' | 'switch' | 'stop' | 'destroy';
+export type PlatformRiskClass = 'green' | 'blue' | 'amber' | 'red' | 'locked';
+
+export interface PlatformDesiredSpec {
+  api_version: string;
+  kind: string;
+  metadata: { environment: string; revision: number };
+  profile: string;
+  deployment: {
+    orchestrator: string;
+    region: string;
+    account_id: string | null;
+    availability_zones: string[];
+    image_digest: string | null;
+  };
+  providers: Record<string, string>;
+  resources: Record<string, boolean>;
+  observability: Record<string, boolean>;
+  reliability: Record<string, unknown>;
+  security: Record<string, unknown>;
+  features: Record<string, boolean>;
+}
+
+export interface PlatformSpecSnapshot {
+  spec: PlatformDesiredSpec;
+  digest: string;
+}
+
+export interface PlatformProviderDescriptor {
+  capability_id: string;
+  provider: string;
+  label: string;
+  implemented: boolean;
+  external_resource: boolean;
+  fallback: boolean;
+}
+
+export interface PlatformControlPolicy {
+  capability_id: string;
+  risk_class: PlatformRiskClass;
+  switch_class: 'runtime' | 'application-provider' | 'infrastructure' | 'migration' | 'locked';
+  mutable: boolean;
+  allowed_operations: PlatformCapabilityOperation[];
+  production_approval_required: boolean;
+  destructive_requires_gitops: boolean;
+}
+
+export interface PlatformEnvironmentPolicy {
+  environment: string;
+  distinct_approver_required: boolean;
+  destructive_requires_gitops: boolean;
+  allow_direct_runtime_flags: boolean;
+  stabilization_seconds: number;
+}
+
+export interface PlatformFeatureDefinition {
+  feature_id: string;
+  label: string;
+  risk_class: PlatformRiskClass;
+  depends_on: string[];
+}
+
+export interface PlatformFeatureState {
+  definition: PlatformFeatureDefinition;
+  enabled: boolean;
+}
+
+export interface PlatformChangePlan {
+  plan_id: string;
+  action: string;
+  classification: string;
+  source_revision: number;
+  target_revision: number;
+  source_digest: string;
+  target_digest: string;
+  requires_approval: boolean;
+  destructive: boolean;
+  steps: string[];
+  blockers: string[];
+  created_at: string;
+}
+
+export interface PlatformCapabilityChangeAnalysis {
+  plan: PlatformChangePlan;
+  changed_capabilities: string[];
+  impacted_capabilities: string[];
+  blockers: string[];
+}
+
+export interface PlatformCapabilityIntentAnalysis {
+  capability_id: string;
+  operation: PlatformCapabilityOperation;
+  policy: PlatformControlPolicy;
+  environment_policy: PlatformEnvironmentPolicy;
+  current: PlatformDesiredSpec;
+  desired: PlatformDesiredSpec;
+  analysis: PlatformCapabilityChangeAnalysis;
+}
+
+export interface PlatformFeatureIntentAnalysis {
+  feature_id: string;
+  current_enabled: boolean;
+  desired_enabled: boolean;
+  current: PlatformDesiredSpec;
+  desired: PlatformDesiredSpec;
+  analysis: PlatformCapabilityChangeAnalysis;
+  environment_policy: PlatformEnvironmentPolicy;
+}
+
+export interface PlatformHealthSnapshot {
+  environment: string;
+  revision: number;
+  overall: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+  healthy: number;
+  degraded: number;
+  unhealthy: number;
+  disabled: number;
+  unknown: number;
+}
+
+export interface PlatformDriftFinding {
+  capability_id: string;
+  severity: 'warning' | 'critical';
+  kind: 'state' | 'provider';
+  desired: string;
+  observed: string;
+  message: string;
+}
+
+export interface PlatformDriftSnapshot {
+  environment: string;
+  revision: number;
+  drift_count: number;
+  unobserved_count: number;
+  findings: PlatformDriftFinding[];
+}
+
+export interface PlatformCostSnapshot {
+  environment: string;
+  revision: number;
+  reported_monthly_usd: number;
+  reported_capabilities: string[];
+  unreported_capabilities: string[];
+}
+
+export interface PlatformConfigVersion {
+  id: string;
+  environment: string;
+  revision: number;
+  digest: string;
+  active: boolean;
+  created_by: string;
+  created_at: string;
 }
 
 export interface PlatformTenantUser {
@@ -269,9 +428,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers: { ...headers(path), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+    const payload = await response.json().catch(() => null) as {
+      error?: { message?: string };
+      detail?: string | { message?: string };
+    } | null;
+    const detail = typeof payload?.detail === 'string' ? payload.detail : payload?.detail?.message;
     throw new PlatformAdminRequestError(
-      payload?.error?.message ?? `Platform admin request failed (${response.status})`,
+      payload?.error?.message ?? detail ?? `Platform admin request failed (${response.status})`,
       response.status,
     );
   }
@@ -326,6 +489,91 @@ export const platformAdminApi = {
 
   runtimeCapacity(apiReplicas = 1): Promise<PlatformCapacityBudget> {
     return request<PlatformCapacityBudget>(`/platform-admin/runtime/capacity?api_replicas=${apiReplicas}`);
+  },
+
+
+  runtimeSpec(environment?: string): Promise<PlatformSpecSnapshot> {
+    const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+    return request<PlatformSpecSnapshot>(`/platform-admin/runtime/spec${query}`);
+  },
+
+  runtimeProviders(): Promise<PlatformProviderDescriptor[]> {
+    return request<PlatformProviderDescriptor[]>('/platform-admin/runtime/providers');
+  },
+
+  runtimePolicies(): Promise<PlatformControlPolicy[]> {
+    return request<PlatformControlPolicy[]>('/platform-admin/runtime/policies');
+  },
+
+  runtimeEnvironments(): Promise<string[]> {
+    return request<string[]>('/platform-admin/runtime/environments');
+  },
+
+  runtimeHealth(environment?: string): Promise<PlatformHealthSnapshot> {
+    const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+    return request<PlatformHealthSnapshot>(`/platform-admin/runtime/health${query}`);
+  },
+
+  runtimeDrift(environment?: string): Promise<PlatformDriftSnapshot> {
+    const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+    return request<PlatformDriftSnapshot>(`/platform-admin/runtime/drift${query}`);
+  },
+
+  runtimeCost(environment?: string): Promise<PlatformCostSnapshot> {
+    const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+    return request<PlatformCostSnapshot>(`/platform-admin/runtime/cost${query}`);
+  },
+
+  runtimeFeatures(environment?: string): Promise<PlatformFeatureState[]> {
+    const query = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+    return request<PlatformFeatureState[]>(`/platform-admin/runtime/features${query}`);
+  },
+
+  planRuntimeFeatureChange(featureId: string, enabled: boolean): Promise<PlatformFeatureIntentAnalysis> {
+    return request<PlatformFeatureIntentAnalysis>(`/platform-admin/runtime/features/${encodeURIComponent(featureId)}/plan`, {
+      method: 'POST', body: JSON.stringify({ enabled }),
+    });
+  },
+
+  createRuntimeFeatureChange(featureId: string, value: { enabled: boolean; reason: string; idempotency_key: string }): Promise<PlatformRuntimeChange> {
+    return request<PlatformRuntimeChange>(`/platform-admin/runtime/features/${encodeURIComponent(featureId)}/changes`, {
+      method: 'POST', body: JSON.stringify(value),
+    });
+  },
+
+  planRuntimeCapabilityChange(
+    capabilityId: string,
+    value: { operation: PlatformCapabilityOperation; provider?: string | null },
+  ): Promise<PlatformCapabilityIntentAnalysis> {
+    return request<PlatformCapabilityIntentAnalysis>(`/platform-admin/runtime/capabilities/${encodeURIComponent(capabilityId)}/plan`, {
+      method: 'POST', body: JSON.stringify(value),
+    });
+  },
+
+  createRuntimeCapabilityChange(
+    capabilityId: string,
+    value: {
+      operation: PlatformCapabilityOperation;
+      provider?: string | null;
+      reason: string;
+      idempotency_key: string;
+    },
+  ): Promise<PlatformRuntimeChange> {
+    return request<PlatformRuntimeChange>(`/platform-admin/runtime/capabilities/${encodeURIComponent(capabilityId)}/changes`, {
+      method: 'POST', body: JSON.stringify(value),
+    });
+  },
+
+  runtimeConfigVersions(environment?: string, limit = 50): Promise<PlatformConfigVersion[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (environment) params.set('environment', environment);
+    return request<PlatformConfigVersion[]>(`/platform-admin/runtime/config/versions?${params.toString()}`);
+  },
+
+  rollbackRuntimeChange(changeId: string, value: { reason: string; idempotency_key: string }): Promise<PlatformRuntimeChange> {
+    return request<PlatformRuntimeChange>(`/platform-admin/runtime/changes/${encodeURIComponent(changeId)}/rollback`, {
+      method: 'POST', body: JSON.stringify(value),
+    });
   },
 
   runtimeChanges(limit = 20): Promise<PlatformRuntimeChange[]> {
