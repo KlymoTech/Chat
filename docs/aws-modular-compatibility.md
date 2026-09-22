@@ -37,7 +37,10 @@ Implemented locally:
   approval records, separation of requestor and approver, and deployment
   execution evidence slots;
 - persisted change request/list/approve/reject endpoints; approval does not
-  execute infrastructure and remains compatible with GitOps handoff;
+  execute infrastructure and remains compatible with GitOps handoff. Approved
+  plans are emitted as `platform.runtime.change.approved.v1` through the
+  transactional outbox so a deployment controller can consume the exact
+  immutable plan inputs;
 - unit coverage for the contract and negative paths.
 
 Not applied automatically because it requires approved infrastructure inputs:

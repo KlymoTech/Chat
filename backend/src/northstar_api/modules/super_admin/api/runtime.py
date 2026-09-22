@@ -1,8 +1,9 @@
-"""Read-only platform capability and change-planning endpoints.
+"""Platform capability, change-planning, and approval endpoints.
 
 These endpoints expose desired-state information to the super-admin control
-center.  They intentionally stop at validation and planning; infrastructure
-mutation belongs to an approved deployment controller or GitOps pipeline.
+center. They persist an immutable review record and publish an approved plan
+through the transactional outbox; infrastructure mutation still belongs to an
+approved deployment controller or GitOps pipeline.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeRecord,
 )
 from northstar_api.routers.platform_admin import PlatformRuntimeManagePrincipal, PlatformSystemReadPrincipal
+from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/platform-admin/runtime", tags=["platform runtime"])
 
@@ -110,6 +112,31 @@ def _change_response(record: PlatformChangeRecord) -> RuntimeChangeOut:
         requested_at=record.requested_at,
         approved_at=record.approved_at,
     )
+
+
+def _deployment_dispatch_payload(record: PlatformChangeRecord) -> dict[str, object]:
+    """Build the immutable payload consumed by a deployment controller.
+
+    The event intentionally contains the exact source/target digests and
+    serialized specifications persisted with the change. A consumer can reject
+    stale or replayed work without trusting mutable process configuration.
+    """
+    return {
+        "changeId": str(record.id),
+        "environment": record.environment,
+        "action": record.action,
+        "classification": record.classification,
+        "destructive": record.destructive,
+        "sourceRevision": record.source_revision,
+        "targetRevision": record.target_revision,
+        "sourceDigest": record.source_digest,
+        "targetDigest": record.target_digest,
+        "idempotencyKey": record.idempotency_key,
+        "reason": record.reason,
+        "planSteps": list(record.plan_steps or ()),
+        "currentSpec": record.current_spec_json,
+        "desiredSpec": record.desired_spec_json,
+    }
 
 
 def _declared_platform_spec() -> PlatformSpec:
@@ -194,7 +221,13 @@ async def create_runtime_change(
 
     now = datetime.now(UTC)
     change_status: ChangeStatus = (
-        "rejected" if analysis.plan.action == "reject" else "completed" if analysis.plan.action == "noop" else "waiting_approval"
+        "rejected"
+        if analysis.plan.action == "reject"
+        else "completed"
+        if analysis.plan.action == "noop"
+        else "waiting_approval"
+        if analysis.plan.requires_approval
+        else "approved"
     )
     record = PlatformChangeRecord(
         id=analysis.plan.plan_id if analysis.plan.plan_id else uuid4(),
@@ -220,7 +253,7 @@ async def create_runtime_change(
         requested_at=now,
         current_spec_json=payload.current.model_dump(mode="json"),
         desired_spec_json=payload.desired.model_dump(mode="json"),
-        approved_at=now if change_status == "completed" else None,
+        approved_at=now if change_status in {"completed", "approved"} else None,
         completed_at=now if change_status == "completed" else None,
     )
     session.add(record)
@@ -236,6 +269,15 @@ async def create_runtime_change(
         after={"status": change_status, "action": analysis.plan.action, "environment": environment},
         metadata={"reason": payload.reason, "idempotencyKey": payload.idempotency_key},
     )
+    if change_status == "approved":
+        enqueue_event(
+            session,
+            tenant_id=principal.tenant_id,
+            aggregate_type="platform_change",
+            aggregate_id=record.id,
+            event_type="platform.runtime.change.approved.v1",
+            payload=_deployment_dispatch_payload(record),
+        )
     try:
         await session.commit()
     except IntegrityError as exc:
@@ -312,6 +354,14 @@ async def approve_runtime_change(
         reason=payload.reason,
         created_at=now,
     ))
+    enqueue_event(
+        session,
+        tenant_id=principal.tenant_id,
+        aggregate_type="platform_change",
+        aggregate_id=record.id,
+        event_type="platform.runtime.change.approved.v1",
+        payload=_deployment_dispatch_payload(record),
+    )
     record_audit_event(
         session,
         tenant_id=principal.tenant_id,

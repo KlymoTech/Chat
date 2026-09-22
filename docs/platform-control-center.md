@@ -29,6 +29,11 @@ provider-neutral portion of that design.
   - `POST /api/v1/platform-admin/runtime/changes/{id}/reject`
 - Change requests are idempotent, persisted with immutable source/target
   digests, and require a different platform operator to approve them.
+- Approved changes are also emitted through the transactional outbox as
+  `platform.runtime.change.approved.v1`. The event carries the immutable
+  source/target digests, revisions, idempotency key, plan steps, and serialized
+  specifications for a deployment controller or GitOps worker. The API never
+  applies Terraform or treats event publication as deployment completion.
 - The existing platform-admin RBAC protects the endpoints. API keys are not
   accepted by the platform control plane.
 - The super-admin page shows the declared profile, providers, and health state.
@@ -43,11 +48,11 @@ live evidence.
 
 ## Next production gates
 
-1. Add an outbox-backed deployment executor with fencing, reconciliation,
-   rollback, and drift detection.
-3. Bind the registry to real health probes and required/optional readiness.
-4. Add Terraform/Helm/GitOps adapters and environment-specific policies.
-5. Run repeatable load, restore, failover, security, and chaos tests against
+1. Add a deployment executor consuming the approved outbox event with fencing,
+   reconciliation, rollback, and drift detection.
+2. Bind the registry to real health probes and required/optional readiness.
+3. Add Terraform/Helm/GitOps adapters and environment-specific policies.
+4. Run repeatable load, restore, failover, security, and chaos tests against
    the exact release SHA.
 
 Until those gates pass, the application should not be marketed as a fully

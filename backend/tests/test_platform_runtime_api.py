@@ -1,5 +1,9 @@
 from northstar_api.modules.platform_runtime import build_capacity_budget
-from northstar_api.modules.super_admin.api.runtime import _declared_platform_spec, router
+from northstar_api.modules.super_admin.api.runtime import (
+    _declared_platform_spec,
+    _deployment_dispatch_payload,
+    router,
+)
 
 
 def test_runtime_control_plane_exposes_only_read_and_plan_operations() -> None:
@@ -29,3 +33,41 @@ def test_capacity_budget_is_explicitly_not_a_user_guarantee() -> None:
     assert budget.model_concurrency_budget == 48
     assert budget.active_user_guarantee is None
     assert budget.measured is False
+
+
+def test_approved_dispatch_payload_carries_immutable_plan_inputs() -> None:
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from northstar_api.modules.platform_runtime.persistence import PlatformChangeRecord
+
+    change = PlatformChangeRecord(
+        id=uuid4(),
+        environment="staging",
+        requested_by=uuid4(),
+        status="approved",
+        action="migrate",
+        classification="migration",
+        requires_approval=True,
+        destructive=False,
+        source_revision=4,
+        target_revision=5,
+        source_digest="a" * 64,
+        target_digest="b" * 64,
+        idempotency_key="change-2026-09-22-001",
+        reason="Move the event provider after verification",
+        plan_steps=["validate_dependencies", "switch_reads_and_writes"],
+        blockers=[],
+        impact_json={},
+        requested_at=datetime.now(UTC),
+        current_spec_json={"metadata": {"revision": 4}},
+        desired_spec_json={"metadata": {"revision": 5}},
+    )
+
+    payload = _deployment_dispatch_payload(change)
+
+    assert payload["changeId"] == str(change.id)
+    assert payload["sourceDigest"] == "a" * 64
+    assert payload["targetDigest"] == "b" * 64
+    assert payload["desiredSpec"] == {"metadata": {"revision": 5}}
+    assert payload["planSteps"] == ["validate_dependencies", "switch_reads_and_writes"]
