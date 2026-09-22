@@ -35,13 +35,13 @@ from northstar_api.modules.platform_runtime import (
     spec_digest,
     transition_change,
 )
-from northstar_api.modules.platform_runtime.control_center import apply_operation_policy
 from northstar_api.modules.platform_runtime.configuration_state import (
     activate_configuration_version,
     catalog_with_observations,
     effective_platform_spec,
     ensure_configuration_version,
 )
+from northstar_api.modules.platform_runtime.control_center import apply_operation_policy
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeApproval,
     PlatformChangeRecord,
