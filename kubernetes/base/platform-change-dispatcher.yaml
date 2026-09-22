@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: northstar-platform-change-dispatcher, namespace: northstar}
+spec:
+  # Execution is intentionally opt-in. Set replicas > 0 only after configuring
+  # PLATFORM_CHANGE_EXECUTOR_URL and PLATFORM_CHANGE_EXECUTOR_TOKEN.
+  replicas: 0
+  selector: {matchLabels: {app: northstar-platform-change-dispatcher}}
+  template:
+    metadata:
+      {labels: {app: northstar-platform-change-dispatcher, app.kubernetes.io/part-of: northstar}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001}
+      containers:
+        - name: platform-change-dispatcher
+          image: northstar/api:replace-with-immutable-tag
+          command: [python, -m, northstar_api.workers.platform_change_dispatcher]
+          envFrom: [{configMapRef: {name: northstar-config}}, {secretRef: {name: northstar-secrets}}]
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: northstar-secrets, key: WORKER_DATABASE_URL}}
+          resources:
+            {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: "1", memory: 512Mi}}
+          securityContext:
+            {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
