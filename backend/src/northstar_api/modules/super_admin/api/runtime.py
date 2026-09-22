@@ -42,7 +42,11 @@ from northstar_api.modules.platform_runtime.configuration_state import (
     effective_platform_spec,
     ensure_configuration_version,
 )
-from northstar_api.modules.platform_runtime.control_center import apply_operation_policy
+from northstar_api.modules.platform_runtime.control_center import (
+    apply_operation_policy,
+    capability_control_policy,
+)
+from northstar_api.modules.platform_runtime.registry import CapabilityId
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeApproval,
     PlatformChangeRecord,
@@ -67,7 +71,7 @@ class RuntimeChangeCreateRequest(RuntimeChangePlanRequest):
     reason: str = Field(min_length=5, max_length=500)
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     operation: Literal["enable", "disable", "switch", "stop", "destroy"] = "switch"
-    requested_capability: str | None = Field(default=None, min_length=1, max_length=80)
+    requested_capability: CapabilityId | None = None
 
 
 class RuntimeChangeDecisionRequest(BaseModel):
@@ -285,7 +289,20 @@ async def create_runtime_change(
 ) -> RuntimeChangeOut:
     """Persist a reviewable change request; never execute infrastructure."""
     if payload.current.metadata.environment != payload.desired.metadata.environment:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="source and target environments must match")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source and target environments must match",
+        )
+    if payload.requested_capability is not None:
+        policy = capability_control_policy(payload.requested_capability)
+        if payload.operation not in policy.allowed_operations:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"{payload.requested_capability} does not allow operation "
+                    f"{payload.operation}"
+                ),
+            )
     analysis = apply_operation_policy(
         analyze_capability_change(payload.current, payload.desired),
         payload.operation,
