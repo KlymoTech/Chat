@@ -118,7 +118,24 @@ export function App() {
       <Route path="workspace/white-label" element={<Navigate to="/workspace/settings/branding" replace />} />
       <Route path="workspace/settings" element={<Navigate to="/workspace/settings/general" replace />} />
       <Route path="workspace/settings/:section" element={<WorkspaceSettingsPage />} />
+      {/* Platform control-plane aliases keep the admin hierarchy addressable
+          while the current control-plane screen owns the shared data loaders. */}
       <Route path="platform-admin" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/dashboard" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/tenants" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/workspaces" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/users" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/subscriptions" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/plans" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/usage" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/channels" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/integrations" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/jobs" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/webhooks" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/audit" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/security" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/support" element={<PlatformAdminPage />} />
+      <Route path="platform-admin/system" element={<PlatformAdminPage />} />
       <Route path="help" element={<HelpCenterPage />} />
       <Route path="help/search" element={<HelpSearchPage />} />
       <Route path="help/categories/:slug" element={<HelpCategoryPage />} />
