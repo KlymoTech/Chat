@@ -4,13 +4,15 @@ The repository uses capability-owned folders. Administrative scopes are kept
 separate from customer-facing website code:
 
 ```text
-frontend/src/features/
-├── admin/             # authenticated tenant/workspace administration boundary
-├── super-admin/       # SaaS-owner / global super-admin control plane
-├── website/           # public website, login, invitations, and widget entrypoints
-├── workspace/         # workspace-owned settings and conversations
-├── branding/          # white-label identity, domains, email, widget, and versions
-└── whatsapp/          # WhatsApp connection, message, webhook, and status capabilities
+frontend/src/
+├── app/                # application shell, routes, and authentication guards
+└── features/
+    ├── admin/          # authenticated tenant/workspace administration boundary
+    ├── super-admin/    # SaaS-owner / global super-admin control plane
+    ├── website/        # public website, login, invitations, and widget entrypoints
+    ├── workspace/      # workspace-owned settings and conversations
+    ├── branding/       # white-label identity, domains, email, widget, and versions
+    └── whatsapp/       # WhatsApp connection, message, webhook, and status capabilities
 
 backend/src/northstar_api/modules/
 ├── admin/             # tenant/workspace administration namespace
