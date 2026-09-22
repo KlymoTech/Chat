@@ -383,6 +383,7 @@ async def create_runtime_capability_change(
             reason=payload.reason,
             idempotency_key=payload.idempotency_key,
             operation=payload.operation,
+            requested_capability=capability_id,
         ),
         principal,
         session,
