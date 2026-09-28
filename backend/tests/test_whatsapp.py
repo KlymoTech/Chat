@@ -23,6 +23,7 @@ from northstar_api.models import (
     ConversationState,
     IntegrationConnection,
     Message,
+    MessageRole,
     Role,
     Tenant,
     WhatsAppConnection,
@@ -33,6 +34,8 @@ from northstar_api.models import (
 )
 from northstar_api.modules.whatsapp import (
     MetaTokenCipher as FeatureMetaTokenCipher,
+)
+from northstar_api.modules.whatsapp import (
     split_whatsapp_text as feature_split_whatsapp_text,
 )
 from northstar_api.routers import integrations as integrations_router
@@ -96,7 +99,7 @@ async def whatsapp_test_plan(client, auth_headers, monkeypatch):
         subscription = await set_subscription_state(session, tenant_id=tenant_id)
         original = subscription.plan, subscription.status
         await set_subscription_state(
-            session, tenant_id=tenant_id, plan="business", status=SubscriptionStatus.ACTIVE
+            session, tenant_id=tenant_id, plan="enterprise", status=SubscriptionStatus.ACTIVE
         )
         await session.commit()
     consumed = set()
@@ -1129,6 +1132,87 @@ async def test_inbound_worker_reuses_thread_and_sends_chunked_grounded_reply(
     await _clear_whatsapp_state()
 
 
+async def test_inbound_worker_refuses_blocked_topic_before_any_chat_or_enrollment_work(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _clear_whatsapp_state()
+    created_agent = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={"name": "Blocked WhatsApp Agent", "description": "Boundary worker test"},
+    )
+    assert created_agent.status_code == 201
+    agent_id = UUID(created_agent.json()["id"])
+    activated = await client.patch(
+        f"/api/v1/agents/{agent_id}", headers=auth_headers, json={"status": "active"}
+    )
+    assert activated.status_code == 200
+    tenant_id = UUID(decode_token(auth_headers["Authorization"].removeprefix("Bearer "), "access")["tid"])
+    async with SessionFactory() as session:
+        agent = await session.get(Agent, agent_id)
+        assert agent is not None
+        agent.security = {**agent.security, "blockedTopics": ["legal advice"]}
+        connection = WhatsAppConnection(
+            tenant_id=tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent_id,
+            waba_id="blocked-boundary",
+            phone_number_id=uuid4().hex,
+            access_token_encrypted=b"encrypted-token",
+            status="connected",
+        )
+        session.add(connection)
+        await session.flush()
+        receipt = WhatsAppInboundMessage(
+            tenant_id=tenant_id,
+            workspace_id=agent.workspace_id,
+            connection_id=connection.id,
+            phone_number_id=connection.phone_number_id,
+            provider_message_id=uuid4().hex,
+            sender_wa_id="15550102",
+            message_type="text",
+            message_text="Can you give LEGAL-advice?",
+            provider_timestamp=datetime.now(UTC),
+            status="queued",
+        )
+        session.add(receipt)
+        await session.commit()
+        receipt_id = receipt.id
+
+    prepare = AsyncMock(side_effect=AssertionError("Blocked content must not reach chat, retrieval, or workflows"))
+    sender = AsyncMock(return_value="wamid.blocked")
+    monkeypatch.setattr(chat_coordinator, "prepare", prepare)
+    monkeypatch.setattr(shared_token_cipher, "decrypt", lambda _: "EA-worker-token")
+    monkeypatch.setattr(shared_whatsapp_client, "send_text", sender)
+
+    await _process_whatsapp_inbound_async(receipt_id)
+
+    prepare.assert_not_awaited()
+    sender.assert_awaited_once()
+    sent = sender.call_args.kwargs["text"].casefold()
+    assert "legal" not in sent and "advice" not in sent
+    async with SessionFactory() as session:
+        persisted = await session.get(WhatsAppInboundMessage, receipt_id)
+        assert persisted is not None
+        assert persisted.status == "processed"
+        assert persisted.outbound_message_ids == ["wamid.blocked"]
+        assert persisted.last_error is None
+        assert persisted.conversation_id is not None
+        messages = (
+            await session.scalars(
+                select(Message)
+                .where(Message.conversation_id == persisted.conversation_id)
+                .order_by(Message.sequence)
+            )
+        ).all()
+        assert [(message.role, message.content) for message in messages] == [
+            (MessageRole.USER, "Can you give LEGAL-advice?"),
+            (MessageRole.ASSISTANT, "I'm sorry, but I can't help with that request."),
+        ]
+
+
 def _webhook_payload(messages: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "object": "whatsapp_business_account",
@@ -1407,9 +1491,10 @@ async def test_create_agent_with_whatsapp_number_is_atomic(client, auth_headers)
     await _clear_whatsapp_state()
 
 
-async def test_whatsapp_worker_authorizes_education_student(client, auth_headers, monkeypatch):
+async def test_whatsapp_worker_requires_curriculum_and_paper_access(client, auth_headers, monkeypatch):
     from test_education_channel_runtime import _seed_authorized_student
 
+    from northstar_api.course_knowledge_models import CourseWhatsappTurn
     from northstar_api.education_conversation_context import EducationConversationContext
     from northstar_api.services.education_chat import education_chat_coordinator
 
@@ -1464,11 +1549,16 @@ async def test_whatsapp_worker_authorizes_education_student(client, auth_headers
     monkeypatch.setattr(shared_token_cipher, "decrypt", lambda _: "test-token")
     monkeypatch.setattr(shared_whatsapp_client, "send_text", sender)
     await _process_whatsapp_inbound_async(receipt_id)
-    assert education_prepare.await_count == 1
+    # A verified enrollment alone does not authorize tutoring. The student
+    # needs a configured curriculum and paper grant before the model is called.
+    assert education_prepare.await_count == 0
     assert generic_prepare.await_count == 0
+    assert "configure curriculum and paper access" in sender.call_args.kwargs["text"]
     async with SessionFactory() as session:
         saved = await session.get(WhatsAppInboundMessage, receipt_id)
         assert saved.status == "processed", saved.last_error
+        first_turn = await session.scalar(select(CourseWhatsappTurn).where(CourseWhatsappTurn.receipt_id == receipt_id))
+        assert first_turn is not None and first_turn.answer_path == "access_denied"
         denied = WhatsAppInboundMessage(
             tenant_id=saved.tenant_id,
             workspace_id=saved.workspace_id,
@@ -1485,10 +1575,12 @@ async def test_whatsapp_worker_authorizes_education_student(client, auth_headers
         await session.commit()
         denied_id = denied.id
     await _process_whatsapp_inbound_async(denied_id)
-    assert education_prepare.await_count == 1
+    assert education_prepare.await_count == 0
     async with SessionFactory() as session:
         denied = await session.get(WhatsAppInboundMessage, denied_id)
         assert denied.status == "rejected"
         assert "Education access" in denied.last_error
+        denied_turn = await session.scalar(select(CourseWhatsappTurn).where(CourseWhatsappTurn.receipt_id == denied_id))
+        assert denied_turn is not None and denied_turn.answer_path == "access_denied"
     assert "contact your institute" in sender.call_args.kwargs["text"]
     await _clear_whatsapp_state()

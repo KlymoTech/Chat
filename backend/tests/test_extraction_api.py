@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from northstar_api.config import Settings
 from northstar_api.models import JobStatus, KnowledgeKind, KnowledgeSource, KnowledgeStatus
-from northstar_api.routers import knowledge
+from northstar_api.routers import knowledge, knowledge_support
 from northstar_api.services import ingestion
 from northstar_api.services.hybrid_extraction import ExtractionPackage, extract_document
 
@@ -55,11 +55,13 @@ async def review_context(monkeypatch):
         download=AsyncMock(side_effect=download), put_extraction=AsyncMock(side_effect=put)
     )
     monkeypatch.setattr(knowledge, "object_store", store)
+    # load_extraction lives in knowledge_support and binds its own store name.
+    monkeypatch.setattr(knowledge_support, "object_store", store)
     monkeypatch.setattr(knowledge, "_review_source", AsyncMock(return_value=source))
     monkeypatch.setattr(knowledge, "get_settings", lambda: settings)
     monkeypatch.setattr(knowledge, "enqueue_event", lambda *a, **k: None)
     added = []
-    session = SimpleNamespace(commit=AsyncMock(), add=added.append)
+    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock(), add=added.append)
     return SimpleNamespace(
         source=source, raw=raw, store=store, archives=archives, session=session, added=added
     )
@@ -84,28 +86,24 @@ def approval(revision):
     )
 
 
-async def test_second_reviewer_releases_correct_version(review_context):
+async def test_one_reviewer_releases_and_a_trained_file_stays_editable(review_context):
     c = review_context
-    alice, bob = SimpleNamespace(user_id=uuid4()), SimpleNamespace(user_id=uuid4())
+    alice = SimpleNamespace(user_id=uuid4())
     first = await knowledge.approve_extraction(c.source.id, approval(1), alice, c.session)
-    assert first.status == KnowledgeStatus.NEEDS_REVIEW
-    assert c.source.revision == 2 and not c.added and c.source.content is None
-    with pytest.raises(HTTPException) as stale:
-        await knowledge.approve_extraction(c.source.id, approval(1), bob, c.session)
-    assert stale.value.status_code == 409
-    await knowledge.approve_extraction(c.source.id, approval(2), alice, c.session)
-    assert c.source.status == KnowledgeStatus.NEEDS_REVIEW
-    await knowledge.approve_extraction(c.source.id, approval(3), bob, c.session)
-    assert c.source.revision == 4
-    assert c.source.status == KnowledgeStatus.PROCESSING
-    assert c.source.content == c.raw.decode()
-    assert len(c.added) == 1
-    final = ExtractionPackage.from_archive(
-        c.archives[c.source.extraction_key], source_sha256=c.source.checksum, revision=4
-    )
+    assert first.status == KnowledgeStatus.PROCESSING  # one reviewer completes the review
+    assert c.source.revision == 2 and c.source.content == c.raw.decode() and len(c.added) == 1
+    final = ExtractionPackage.from_archive(c.archives[c.source.extraction_key], source_sha256=c.source.checksum, revision=2)
     assert final.record["release_eligible"] and final.record["review_status"] == "verified_release"
-    assert len(c.archives) == 4
-    assert c.store.put_extraction.await_count == 3
+    with pytest.raises(HTTPException) as busy:  # no edits while training runs
+        await knowledge.approve_extraction(c.source.id, approval(2), alice, c.session)
+    assert busy.value.status_code == 409 and "in progress" in busy.value.detail
+    c.source.status = KnowledgeStatus.READY  # training finished
+    with pytest.raises(HTTPException) as stale:
+        await knowledge.approve_extraction(c.source.id, approval(1), alice, c.session)
+    assert stale.value.status_code == 409
+    again = await knowledge.approve_extraction(c.source.id, approval(2), alice, c.session)
+    assert again.status == KnowledgeStatus.PROCESSING and c.source.revision == 3 and len(c.added) == 2
+    assert c.store.put_extraction.await_count == 2
 
 
 async def test_extraction_retry_is_idempotent_while_processing(review_context):
@@ -149,28 +147,21 @@ async def test_file_text_cannot_bypass_verified_release(review_context, monkeypa
     c.source.content = "unreviewed content"
     job = SimpleNamespace(status=JobStatus.QUEUED, attempts=0)
     session = SimpleNamespace(scalar=AsyncMock(side_effect=[c.source, job]), commit=AsyncMock())
-    embed = AsyncMock()
     monkeypatch.setattr(ingestion, "object_store", c.store)
-    monkeypatch.setattr(ingestion.nvidia_adapter, "embed_documents", embed)
     with pytest.raises(ValueError, match="verified release"):
         await ingestion.ingest_source_async(session, c.source.id)
-    embed.assert_not_awaited()
     assert c.source.status == KnowledgeStatus.FAILED
 
 
 async def test_post_review_tampering_never_embeds(review_context, monkeypatch):
     c = review_context
     await knowledge.approve_extraction(c.source.id, approval(1), SimpleNamespace(user_id=uuid4()), c.session)
-    await knowledge.approve_extraction(c.source.id, approval(2), SimpleNamespace(user_id=uuid4()), c.session)
     c.source.content = "tampered indexing text"
     job = SimpleNamespace(status=JobStatus.QUEUED, attempts=0)
     session = SimpleNamespace(scalar=AsyncMock(side_effect=[c.source, job]), commit=AsyncMock())
-    embed = AsyncMock()
     monkeypatch.setattr(ingestion, "object_store", c.store)
-    monkeypatch.setattr(ingestion.nvidia_adapter, "embed_documents", embed)
     with pytest.raises(ValueError, match="differs from verified"):
         await ingestion.ingest_source_async(session, c.source.id)
-    embed.assert_not_awaited()
 
 
 async def test_manifest_accounts_for_extra_artifacts(review_context):

@@ -40,7 +40,8 @@ async def test_first_course_menu_numeric_reply_survives_without_prior_selection(
         )
         original_question = "Explain revenue recognition"
         decision, prompt = await authorize_study_access(session, **kwargs, message=original_question)
-        assert not decision.authorized and "Choose an active course" in prompt
+        assert not decision.authorized and "Choose your active course" in prompt
+        assert "*[1]*" in prompt and "Send *Hi*" in prompt
         await session.commit()
         state = await session.scalar(
             select(CourseStudySelection).where(CourseStudySelection.agent_id == agent.id)
@@ -48,7 +49,20 @@ async def test_first_course_menu_numeric_reply_survives_without_prior_selection(
         assert state.enrollment_id is None and state.menu_open
         assert state.pending_question == original_question
         decision, prompt = await authorize_study_access(session, **kwargs, message="99")
-        assert not decision.authorized and "Choose an active course" in prompt
+        assert not decision.authorized and "Choose your active course" in prompt
+        await session.commit()
+        decision, prompt = await authorize_study_access(session, **kwargs, message="Hi")
+        assert not decision.authorized and "Choose your active course" in prompt
+        assert "*[1]*" in prompt
+        await session.commit()
+        decision, prompt = await authorize_study_access(
+            session,
+            **kwargs,
+            message="courses",
+            course_menu_template="*Your {{course_count}} enrolled courses*\n\n{{courses}}\n\nReply with a number.",
+        )
+        assert not decision.authorized and "*Your 2 enrolled courses*" in prompt
+        assert "Reply with a number." in prompt
         await session.commit()
         decision, prompt = await authorize_study_access(session, **kwargs, message="1")
         assert decision.authorized and decision.enrollment_id == UUID(s["enrollment"]["id"])

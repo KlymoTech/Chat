@@ -8,17 +8,20 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Float, bindparam, func, or_, select, text, type_coerce, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.course_knowledge_models import (
+    CourseAcademicReview,
     CourseBatchCurriculum,
     CourseCurriculum,
     CourseDerivedArtifact,
     CourseEnrollmentAccess,
+    CourseFaqEntry,
     CourseIndexEntry,
     CourseKnowledgeRelease,
     CourseMaterialAssignment,
@@ -110,12 +113,20 @@ async def validate_destination(session: AsyncSession, boundary: Boundary, destin
             EducationBatch.tenant_id == boundary.tenant_id, EducationBatch.workspace_id == boundary.workspace_id,
             EducationBatch.status == "active",
         ))
+        if batch is None:
+            raise KnowledgePolicyError("The selected batch is not an active batch of this course")
         binding = await session.scalar(select(CourseBatchCurriculum).where(
-            CourseBatchCurriculum.batch_id == UUID(str(batch_id)), CourseBatchCurriculum.curriculum_id == curriculum.id,
+            CourseBatchCurriculum.batch_id == batch.id,
             CourseBatchCurriculum.tenant_id == boundary.tenant_id, CourseBatchCurriculum.workspace_id == boundary.workspace_id,
         ))
-        if batch is None or binding is None:
-            raise KnowledgePolicyError("The selected batch must be bound to this course curriculum")
+        if binding is None:
+            # Curriculum is not managed in the UI (each course has one syllabus), so a batch of the
+            # course follows it automatically. Links stay immutable once made.
+            session.add(CourseBatchCurriculum(tenant_id=boundary.tenant_id, workspace_id=boundary.workspace_id,
+                                              batch_id=batch.id, curriculum_id=curriculum.id))
+            await session.flush()
+        elif binding.curriculum_id != curriculum.id:
+            raise KnowledgePolicyError(f"Batch {batch.code} follows a different syllabus of this course; create a new batch for this syllabus")
     return course, curriculum
 
 
@@ -359,8 +370,16 @@ async def invalidate_head(session: AsyncSession, boundary: Boundary, course_id: 
     await session.execute(update(CourseReleaseHead).where(*boundary.filters(CourseReleaseHead), CourseReleaseHead.course_id == course_id, CourseReleaseHead.curriculum_id == curriculum_id).values(epoch=CourseReleaseHead.epoch + 1))
 
 
-async def candidate_release(session: AsyncSession, boundary: Boundary, *, course_id: UUID, curriculum_id: UUID, assignment_ids: list[UUID], artifact_ids: list[UUID], reviewer_id: UUID) -> CourseKnowledgeRelease:
-    if not assignment_ids or len(set(assignment_ids)) != len(assignment_ids) or len(set(artifact_ids)) != len(artifact_ids):
+def faq_digest(faq: CourseFaqEntry) -> str:
+    return fingerprint({"course_id": str(faq.course_id), "curriculum_id": str(faq.curriculum_id),
+        "paper_id": str(faq.paper_id) if faq.paper_id else None, "batch_id": str(faq.batch_id) if faq.batch_id else None,
+        "question": faq.question, "variants": faq.variants, "answer": faq.answer,
+        "language": faq.language, "references": faq.references, "revision": faq.revision})
+
+
+async def candidate_release(session: AsyncSession, boundary: Boundary, *, course_id: UUID, curriculum_id: UUID, assignment_ids: list[UUID], artifact_ids: list[UUID], reviewer_id: UUID, faq_ids: list[UUID] | None = None) -> CourseKnowledgeRelease:
+    faq_ids = faq_ids or []
+    if not assignment_ids or len(set(assignment_ids)) != len(assignment_ids) or len(set(artifact_ids)) != len(artifact_ids) or len(set(faq_ids)) != len(faq_ids):
         raise KnowledgePolicyError("A release requires distinct approved assignments and distinct artifact IDs")
     await validate_destination(session, boundary, {"course_id": course_id, "curriculum_id": curriculum_id, "overview": True})
     await release_head(session, boundary, course_id, curriculum_id, create=True, lock=True)
@@ -380,7 +399,30 @@ async def candidate_release(session: AsyncSession, boundary: Boundary, *, course
         artifact = await scoped_row(session, CourseDerivedArtifact, identity, boundary)
         await validate_artifact(session, boundary, artifact, set(map(str, assignment_ids)))
         artifacts.append({"id": str(identity), "fingerprint": artifact_digest(artifact)})
-    manifest = {"version": 1, "course_id": str(course_id), "curriculum_id": str(curriculum_id), "assignments": manifest_items, "artifacts": artifacts}
+    faqs = []
+    for identity in sorted(faq_ids, key=str):
+        faq = await scoped_row(session, CourseFaqEntry, identity, boundary, lock=True)
+        if faq.course_id != course_id or faq.curriculum_id != curriculum_id or faq.status != "approved" or not faq.approved_by:
+            raise KnowledgePolicyError("Every FAQ must be teacher-approved for this exact course and curriculum")
+        for reference in faq.references:
+            if reference.get("kind") == "course_assignment":
+                assignment_id = str(reference.get("assignment_id"))
+                if assignment_id not in {str(item) for item in assignment_ids}:
+                    raise KnowledgePolicyError("A FAQ source assignment must be included in the same release")
+                assignment = await scoped_row(session, CourseMaterialAssignment, UUID(assignment_id), boundary)
+                if (assignment.paper_id is not None and assignment.paper_id != faq.paper_id) or (
+                    assignment.batch_id is not None and assignment.batch_id != faq.batch_id):
+                    raise KnowledgePolicyError("A FAQ audience cannot be broader than its source assignment")
+            if reference.get("kind") == "teacher_review":
+                if faq.review_id is None or str(faq.review_id) != str(reference.get("review_id")):
+                    raise KnowledgePolicyError("The FAQ teacher review reference changed")
+                review = await scoped_row(session, CourseAcademicReview, faq.review_id, boundary)
+                if review.status not in {"confirmed", "corrected"} or review.course_id != faq.course_id:
+                    raise KnowledgePolicyError("The FAQ requires a resolved teacher review for its course")
+        faqs.append({"id": str(identity), "revision": faq.revision, "fingerprint": faq_digest(faq)})
+    manifest = {"version": 2 if faqs else 1, "course_id": str(course_id), "curriculum_id": str(curriculum_id), "assignments": manifest_items, "artifacts": artifacts}
+    if faqs:
+        manifest["faqs"] = faqs
     digest = fingerprint(manifest)
     existing = await session.scalar(select(CourseKnowledgeRelease).where(*boundary.filters(CourseKnowledgeRelease), CourseKnowledgeRelease.course_id == course_id, CourseKnowledgeRelease.curriculum_id == curriculum_id, CourseKnowledgeRelease.manifest_hash == digest))
     if existing:
@@ -408,7 +450,8 @@ async def publish_release(session: AsyncSession, boundary: Boundary, release_id:
     # Re-run index, approval and dependency checks under the authoritative head lock.
     current = await candidate_release(session, boundary, course_id=release.course_id, curriculum_id=release.curriculum_id,
         assignment_ids=[UUID(i["assignment_id"]) for i in release.manifest["assignments"]],
-        artifact_ids=[UUID(i["id"]) for i in release.manifest["artifacts"]], reviewer_id=release.created_by)
+        artifact_ids=[UUID(i["id"]) for i in release.manifest["artifacts"]],
+        faq_ids=[UUID(i["id"]) for i in release.manifest.get("faqs", [])], reviewer_id=release.created_by)
     if current.manifest_hash != release.manifest_hash:
         raise KnowledgePolicyError("Candidate content changed; build and review another release")
     release.status = "published"
@@ -514,6 +557,7 @@ async def resolve_context(session: AsyncSession, boundary: Boundary, enrollment_
     epoch = head.epoch if head else 0
     live_members: list[Any] = []
     live_artifacts: list[Any] = []
+    live_faqs: list[Any] = []
     if release_id is not None:
         release = await scoped_row(session, CourseKnowledgeRelease, release_id, boundary)
         if release.status != "published" or release.course_id != enrollment.course_id or release.curriculum_id != curriculum.id:
@@ -537,21 +581,49 @@ async def resolve_context(session: AsyncSession, boundary: Boundary, enrollment_
             CourseDerivedArtifact.source_fingerprints).where(*boundary.filters(CourseDerivedArtifact),
             CourseDerivedArtifact.id.in_(artifact_ids)).order_by(CourseDerivedArtifact.id))).all()
         live_artifacts = [[str(v) if isinstance(v, UUID) else v for v in row] for row in rows]
+        faq_ids = [UUID(item["id"]) for item in release.manifest.get("faqs", [])]
+        if faq_ids:
+            faq_rows = (await session.execute(select(CourseFaqEntry).where(
+                *boundary.filters(CourseFaqEntry), CourseFaqEntry.id.in_(faq_ids)
+            ).order_by(CourseFaqEntry.id))).scalars().all()
+            live_faqs = [[str(row.id), row.revision, row.status, faq_digest(row)] for row in faq_rows]
     key = fingerprint({
         **{k: v for k, v in asdict(learner).items() if k != "paper_ids"},
         "paper_ids": sorted(paper_ids), "release_id": str(release_id) if release_id else None,
         "epoch": epoch, "teaching_configuration": curriculum.teaching_configuration,
-        "live_members": live_members, "live_artifacts": live_artifacts,
+        "live_members": live_members, "live_artifacts": live_artifacts, "live_faqs": live_faqs,
     })
     return KnowledgeContext(learner, release_id, epoch, key, course.name, curriculum.name, curriculum.teaching_configuration)
 
 
-def authorized_entries(boundary: Boundary, context: KnowledgeContext) -> Any:
-    """This same SQL boundary is used by dense/lexical search and excerpt reads."""
+def authorized_entries(boundary: Boundary, context: KnowledgeContext, *, include_unpublished: bool = False) -> Any:
+    """This same SQL boundary is used by dense/lexical search and excerpt reads.
+
+    include_unpublished is only for staff test conversations: approved, indexed material of the
+    same audience that is not in the active release yet. Every audience rule still applies.
+    """
     learner = context.learner
     paper_filter = CourseMaterialAssignment.overview.is_(True)
     if learner.selected_paper_id is not None and learner.selected_paper_id in learner.paper_ids:
         paper_filter = or_(paper_filter, CourseMaterialAssignment.paper_id == UUID(learner.selected_paper_id))
+    if include_unpublished:
+        return (
+            select(CourseIndexEntry, CourseMaterialAssignment, CourseSourceVersion)
+            .join(CourseMaterialAssignment, CourseIndexEntry.assignment_id == CourseMaterialAssignment.id)
+            .join(CourseSourceVersion, CourseSourceVersion.id == CourseMaterialAssignment.source_version_id)
+            .where(
+                *boundary.filters(CourseIndexEntry), *boundary.filters(CourseMaterialAssignment),
+                *boundary.filters(CourseSourceVersion),
+                CourseMaterialAssignment.course_id == UUID(learner.course_id),
+                CourseMaterialAssignment.curriculum_id == UUID(learner.curriculum_id),
+                CourseMaterialAssignment.status == "approved", CourseMaterialAssignment.index_status == "ready",
+                CourseSourceVersion.withdrawn.is_(False),
+                CourseIndexEntry.assignment_revision == CourseMaterialAssignment.revision,
+                CourseIndexEntry.approval_fingerprint == CourseMaterialAssignment.approval_fingerprint,
+                or_(CourseMaterialAssignment.batch_id.is_(None), CourseMaterialAssignment.batch_id == UUID(learner.batch_id)),
+                paper_filter,
+            )
+        )
     return (
         select(CourseIndexEntry, CourseMaterialAssignment, CourseSourceVersion)
         .join(CourseMaterialAssignment, CourseIndexEntry.assignment_id == CourseMaterialAssignment.id)
@@ -595,18 +667,18 @@ def entry_evidence(entry: CourseIndexEntry, assignment: CourseMaterialAssignment
     )
 
 
-async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, query: str, *, model: Any = None, candidate_limit: int = 60, result_limit: int = 8) -> list[Any]:
+async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, query: str, *, model: Any = None, candidate_limit: int = 60, result_limit: int = 8, include_unpublished: bool = False) -> list[Any]:
     import re
 
     from northstar_api.config import get_settings
     from northstar_api.modules.knowledge.retrieval import _rerank
 
-    if context.release_id is None:
+    if context.release_id is None and not include_unpublished:
         return []
     settings = get_settings()
     candidate_limit = max(1, min(candidate_limit, 200))
     result_limit = max(1, min(result_limit, 30))
-    statement = authorized_entries(boundary, context)
+    statement = authorized_entries(boundary, context, include_unpublished=include_unpublished)
     candidates: dict[str, Any] = {}
     if session.bind is not None and session.bind.dialect.name == "postgresql":
         ts_query = func.websearch_to_tsquery("simple", query)
@@ -624,6 +696,8 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
             score = len(terms & words) / max(1, len(terms | words))
             candidates[str(entry.id)] = entry_evidence(entry, assignment, source, context, score)
     evidence = [e for e in candidates.values() if e.score >= settings.retrieval_min_score]
+    if context.release_id is None:  # unpublished staff test: generated artifacts exist only in releases
+        return _rerank(evidence, query, result_limit)
     # Only published, reviewed artifacts with ALL dependencies currently allowed.
     release = await scoped_row(session, CourseKnowledgeRelease, context.release_id, boundary)
     allowed = {str(identity) for identity in (await session.scalars(statement.with_only_columns(CourseMaterialAssignment.id, maintain_column_froms=True).distinct())).all()}
@@ -654,12 +728,64 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
     return _rerank(evidence, query, result_limit)
 
 
-async def revalidate_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, evidence: list[Any], *, use_paper_override: bool = False) -> None:
+def normalize_faq_question(value: str) -> str:
+    import re
+    return " ".join(re.findall(r"\w+", value.casefold()))
+
+
+async def match_published_faq(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, question: str, language: str) -> tuple[CourseFaqEntry, Any] | None:
+    """Use only a current, teacher-approved FAQ in the selected course release.
+
+    Near-matching is intentionally conservative; a plausible but different exam
+    question must go to evidence retrieval instead of returning a wrong FAQ.
+    """
+    if context.release_id is None:
+        return None
+    release = await scoped_row(session, CourseKnowledgeRelease, context.release_id, boundary)
+    manifest = {item["id"]: item for item in release.manifest.get("faqs", [])}
+    if not manifest:
+        return None
+    entries = (await session.scalars(select(CourseFaqEntry).where(
+        *boundary.filters(CourseFaqEntry), CourseFaqEntry.id.in_([UUID(identity) for identity in manifest]),
+        CourseFaqEntry.course_id == UUID(context.learner.course_id),
+        CourseFaqEntry.curriculum_id == UUID(context.learner.curriculum_id),
+        CourseFaqEntry.status == "approved",
+        or_(CourseFaqEntry.batch_id.is_(None), CourseFaqEntry.batch_id == UUID(context.learner.batch_id)),
+    ))).all()
+    target = normalize_faq_question(question)
+    best: tuple[float, CourseFaqEntry] | None = None
+    for faq in entries:
+        if faq.paper_id is not None and str(faq.paper_id) != context.learner.selected_paper_id:
+            continue
+        if faq.language.casefold() != language.casefold():
+            continue
+        item = manifest[str(faq.id)]
+        if faq.revision != item["revision"] or faq_digest(faq) != item["fingerprint"]:
+            continue
+        for variant in [faq.question, *(faq.variants or [])]:
+            normalized = normalize_faq_question(variant)
+            if not normalized:
+                continue
+            score = 1.0 if normalized == target else SequenceMatcher(None, normalized, target).ratio()
+            if score >= 0.96 and (best is None or score > best[0]):
+                best = (score, faq)
+    if best is None:
+        return None
+    from northstar_api.modules.knowledge.retrieval import Evidence
+    faq = best[1]
+    evidence = Evidence("course_faq", str(faq.id), None, "Teacher-approved course answer", None,
+        faq.answer, best[0], {"faq_fingerprint": faq_digest(faq), "faq_revision": faq.revision,
+        "release_id": str(context.release_id), "context_fingerprint": context.context_fingerprint,
+        "references": faq.references})
+    return faq, evidence
+
+
+async def revalidate_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, evidence: list[Any], *, use_paper_override: bool = False, include_unpublished: bool = False) -> None:
     """Check immediately before persistence/replay; never rely on a cached grant."""
     fresh = await resolve_context(session, boundary, UUID(context.learner.enrollment_id), expected_student_id=UUID(context.learner.student_id), expected_course_id=UUID(context.learner.course_id), expected_batch_id=UUID(context.learner.batch_id), paper_override=UUID(context.learner.selected_paper_id) if context.learner.selected_paper_id else None, use_paper_override=use_paper_override)
     if fresh.context_fingerprint != context.context_fingerprint:
         raise KnowledgePolicyError("Course knowledge or access changed while answering; retry the question")
-    statement = authorized_entries(boundary, fresh)
+    statement = authorized_entries(boundary, fresh, include_unpublished=include_unpublished)
     for item in evidence:
         if item.kind == "course_chunk":
             row = (await session.execute(statement.where(CourseIndexEntry.id == UUID(item.entity_id)))).first()
@@ -671,5 +797,15 @@ async def revalidate_evidence(session: AsyncSession, boundary: Boundary, context
             await validate_artifact(session, boundary, artifact, allowed)
             if artifact_digest(artifact) != item.metadata.get("artifact_fingerprint"):
                 raise KnowledgePolicyError("A derived artifact changed while answering")
+        elif item.kind == "course_faq":
+            faq = await scoped_row(session, CourseFaqEntry, UUID(item.entity_id), boundary)
+            release = await scoped_row(session, CourseKnowledgeRelease, fresh.release_id, boundary) if fresh.release_id else None
+            member = next((row for row in release.manifest.get("faqs", []) if row["id"] == str(faq.id)), None) if release else None
+            if (member is None or faq.status != "approved" or faq.revision != member["revision"]
+                or faq_digest(faq) != member["fingerprint"] or faq_digest(faq) != item.metadata.get("faq_fingerprint")
+                or faq.course_id != UUID(fresh.learner.course_id) or faq.curriculum_id != UUID(fresh.learner.curriculum_id)
+                or (faq.batch_id is not None and str(faq.batch_id) != fresh.learner.batch_id)
+                or (faq.paper_id is not None and str(faq.paper_id) != fresh.learner.selected_paper_id)):
+                raise KnowledgePolicyError("A teacher-approved answer changed or is no longer authorized")
         elif item.source_id is not None or item.kind in {"fact", "chunk"}:
                 raise KnowledgePolicyError("Unscoped private evidence cannot enter an Education answer")

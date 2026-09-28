@@ -368,6 +368,11 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             approved = ExtractionPackage.from_archive(
                 evidence, source_sha256=source.checksum, revision=source.revision
             )
+            if (
+                approved.record["review_status"] != "verified_release"
+                or not approved.record["release_eligible"]
+            ):
+                raise ValueError("File evidence has not passed verified release")
             content = "\n\n".join(
                 f"===PDF_PAGE:{p['number']}===\n{extraction_page_text(p)}"
                 if p.get("source_unit") == "pdf_page" else extraction_page_text(p)

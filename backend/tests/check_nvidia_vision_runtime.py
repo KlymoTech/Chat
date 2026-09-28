@@ -16,7 +16,7 @@ from northstar_api.services import vision
 
 async def main() -> None:
     settings = Settings(_env_file=None, nvidia_api_key="test-only-key")
-    assert settings.extraction_vision_max_tokens == 512
+    assert settings.extraction_vision_max_tokens == 4096
     for overrides in (
         {"extraction_vision_provider": "ollama"},
         {"extraction_vision_model": "another-model"},
@@ -39,9 +39,9 @@ async def main() -> None:
         constructor.assert_called_once_with(
             model="meta/llama-3.2-11b-vision-instruct",
             api_key="test-only-key",
-            temperature=1,
+            temperature=0.1,
             top_p=1,
-            max_completion_tokens=512,
+            max_completion_tokens=4096,
             timeout=120,
         )
         messages = client.ainvoke.call_args.args[0]

@@ -130,7 +130,7 @@ export const educationKnowledgeApi = {
     agentId: string,
     scopes: EducationKnowledgeScopeRef[],
   ): Promise<EducationKnowledgeScope[]> {
-    const unique = new Set(scopes.map((scope) => `${scope.courseId}:${scope.curriculumId}:${scope.paperId ?? ''}:${scope.batchId ?? ''}`));
+    const unique = new Set(scopes.map((scope) => `${scope.courseId}:${scope.paperId ?? ''}:${scope.batchId ?? ''}`));
     if (unique.size !== scopes.length) throw new Error('Each course audience tuple can only be selected once.');
     return withFallback(
       () => remote<EducationKnowledgeScope[]>(`/knowledge/${sourceId}/education-scopes`, 'PUT', { scopes }),
@@ -139,6 +139,12 @@ export const educationKnowledgeApi = {
   },
   approve(assignment: EducationKnowledgeScope): Promise<EducationKnowledgeScope> {
     return remote(`/knowledge/education-assignments/${assignment.id}/approve`, 'POST', {
+      extractionRevision: assignment.extractionRevision ?? 1,
+      mappingRevision: assignment.mappingRevision ?? 1,
+    });
+  },
+  publish(assignment: EducationKnowledgeScope): Promise<EducationKnowledgeScope> {
+    return remote(`/knowledge/education-assignments/${assignment.id}/publish`, 'POST', {
       extractionRevision: assignment.extractionRevision ?? 1,
       mappingRevision: assignment.mappingRevision ?? 1,
     });

@@ -651,3 +651,30 @@ async def test_education_chat_requires_current_authorized_context_before_reserva
             or 0
         )
     assert after == before
+
+
+async def test_course_mapping_needs_no_curriculum_choice(client: AsyncClient, auth_headers: dict[str, str]) -> None:
+    """Curriculum is not chosen in the UI: a Course-only mapping resolves the course's curriculum."""
+    workspace_id, headers = await _workspace_headers(client, auth_headers)
+    seed = uuid.uuid4().hex[:8].upper()
+    course, _ = await _course_batch(client, headers, f"{seed}C")
+    agent = await _education_agent(client, headers, seed)
+    async with SessionFactory() as session:
+        agent_model = await session.scalar(select(Agent).where(Agent.id == uuid.UUID(agent["id"])))
+        assert agent_model is not None
+        tenant_id = agent_model.tenant_id
+    source_id, _ = await _direct_source(
+        tenant_id=tenant_id, workspace_id=uuid.UUID(workspace_id), agent_id=uuid.UUID(agent["id"]),
+        name=f"Course-only Source {seed}", content="course overview knowledge",
+    )
+    saved = await client.put(
+        f"/api/v1/knowledge/{source_id}/education-scopes", headers=headers,
+        json={"scopes": [{"courseId": course["id"]}]},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()[0]["curriculumId"]  # resolved automatically
+    again = await client.put(
+        f"/api/v1/knowledge/{source_id}/education-scopes", headers=headers,
+        json={"scopes": [{"courseId": course["id"]}]},
+    )
+    assert again.json()[0]["curriculumId"] == saved.json()[0]["curriculumId"]  # same one, not a new one

@@ -5,20 +5,22 @@ exactly the release and assignment predicates used by the tutoring runtime.
 """
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
+import re
 import zipfile
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.routing import APIRoute
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +33,7 @@ from northstar_api.course_knowledge_models import (
     CourseCurriculum,
     CourseDerivedArtifact,
     CourseEnrollmentAccess,
+    CourseFaqEntry,
     CourseIndexEntry,
     CourseKnowledgeRelease,
     CourseMaterialAssignment,
@@ -39,6 +42,7 @@ from northstar_api.course_knowledge_models import (
     CourseSourceVersion,
     CourseStudySelection,
     CourseUploadIntent,
+    CourseWhatsappTurn,
 )
 from northstar_api.course_knowledge_schemas import (
     AcademicReviewResolution,
@@ -49,11 +53,15 @@ from northstar_api.course_knowledge_schemas import (
     BatchCurriculum,
     CurriculumCreate,
     EnrollmentAccess,
+    FaqApproval,
+    FaqSave,
     IndexRequest,
     PaperCreate,
     PreviewRequest,
     PublishRequest,
     ReleaseCreate,
+    TeachingConfiguration,
+    TestConversationCreate,
     UploadCreate,
     Withdrawal,
     camel,
@@ -62,8 +70,25 @@ from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education import EducationCourse
 from northstar_api.education_batches import EducationBatch
+from northstar_api.education_conversation_context import (
+    TEST_MODE_PUBLISHED,
+    TEST_MODE_UNPUBLISHED,
+    EducationConversationContext,
+)
 from northstar_api.education_enrollments import EducationEnrollment
-from northstar_api.models import IngestionJob, JobStatus, KnowledgeKind, KnowledgeSource, KnowledgeStatus
+from northstar_api.education_knowledge_scope import EducationKnowledgeScope
+from northstar_api.education_students import EducationStudent
+from northstar_api.models import (
+    Agent,
+    Channel,
+    Conversation,
+    ConversationState,
+    IngestionJob,
+    JobStatus,
+    KnowledgeKind,
+    KnowledgeSource,
+    KnowledgeStatus,
+)
 from northstar_api.modules.knowledge.ingestion import ingest_source_async
 from northstar_api.routers.agents import scoped_agent
 from northstar_api.security import Principal
@@ -77,6 +102,7 @@ from northstar_api.services.course_knowledge import (
     authorized_entries,
     candidate_release,
     entry_evidence,
+    faq_digest,
     prepare_assignment_index,
     publish_release,
     release_head,
@@ -99,6 +125,7 @@ from northstar_api.services.course_knowledge_policy import (
 )
 from northstar_api.services.object_store import InvalidUpload, ObjectStoreUnavailable, object_store
 from northstar_api.services.outbox import enqueue_event
+from northstar_api.services.redaction import mask_sensitive_text
 
 
 class PolicyRoute(APIRoute):
@@ -177,6 +204,53 @@ async def create_curriculum(payload: CurriculumCreate, principal: Manage, sessio
     return record_out(row)
 
 
+DEFAULT_CURRICULUM_CODE = "DEFAULT"
+
+
+@router.post("/education/knowledge/courses/{course_id}/curriculum")
+async def course_curriculum(course_id: UUID, principal: Manage, session: DB) -> dict[str, Any]:
+    """The course's curriculum, created on first use. Curriculum is not chosen in the UI: each
+    course has one active syllabus that papers, batches and releases hang off."""
+    wid = workspace(principal, manage=True)
+    course = await session.scalar(select(EducationCourse).where(EducationCourse.id == course_id, EducationCourse.tenant_id == principal.tenant_id, EducationCourse.workspace_id == wid, EducationCourse.status == "active"))
+    if course is None:
+        raise HTTPException(404, "Active course not found")
+
+    async def existing() -> CourseCurriculum | None:
+        found: CourseCurriculum | None = await session.scalar(select(CourseCurriculum).where(
+            CourseCurriculum.tenant_id == principal.tenant_id, CourseCurriculum.workspace_id == wid,
+            CourseCurriculum.course_id == course.id, CourseCurriculum.active.is_(True),
+        ).order_by(CourseCurriculum.created_at).limit(1))
+        return found
+
+    row = await existing()
+    if row is None:
+        session.add(CourseCurriculum(tenant_id=principal.tenant_id, workspace_id=wid, course_id=course.id,
+                                     code=DEFAULT_CURRICULUM_CODE, name=f"{course.name} syllabus"[:160],
+                                     teaching_configuration=TeachingConfiguration().model_dump()))
+        try:
+            await session.commit()
+        except IntegrityError:  # created concurrently by another request
+            await session.rollback()
+        row = await existing()
+        if row is None:
+            raise HTTPException(409, "The course syllabus could not be prepared; try again")
+    # The course's batches follow its syllabus; link any that are not linked yet.
+    linked = set((await session.scalars(select(CourseBatchCurriculum.batch_id).where(
+        CourseBatchCurriculum.tenant_id == principal.tenant_id, CourseBatchCurriculum.workspace_id == wid))).all())
+    unlinked = (await session.scalars(select(EducationBatch).where(
+        EducationBatch.tenant_id == principal.tenant_id, EducationBatch.workspace_id == wid,
+        EducationBatch.course_id == course.id, EducationBatch.status == "active"))).all()
+    for batch in unlinked:
+        if batch.id not in linked:
+            session.add(CourseBatchCurriculum(tenant_id=principal.tenant_id, workspace_id=wid, batch_id=batch.id, curriculum_id=row.id))
+    try:
+        await session.commit()
+    except IntegrityError:  # linked concurrently
+        await session.rollback()
+    return record_out(row)
+
+
 @router.post("/education/knowledge/papers", status_code=201)
 async def create_paper(payload: PaperCreate, principal: Manage, session: DB) -> dict[str, Any]:
     wid = workspace(principal, manage=True)
@@ -249,14 +323,204 @@ async def status(agent_id: UUID, principal: View, session: DB) -> dict[str, Any]
         ("versions", CourseSourceVersion, {"record", "original_object_key", "extraction_key"}),
         ("assignments", CourseMaterialAssignment, set()), ("releases", CourseKnowledgeRelease, set()),
         ("heads", CourseReleaseHead, set()), ("artifacts", CourseDerivedArtifact, set()),
+        ("faqs", CourseFaqEntry, set()),
         ("access", CourseEnrollmentAccess, set()), ("enrollments", EducationEnrollment, set()), ("academicReviews", CourseAcademicReview, set()),
     ):
         rows = (await session.scalars(select(model).where(*boundary.filters(model)))).all()
         result[key] = [record_out(r, exclude=excluded) for r in rows]
     jobs = (await session.scalars(select(IngestionJob).join(KnowledgeSource, IngestionJob.source_id == KnowledgeSource.id).where(*boundary.filters(KnowledgeSource)).order_by(IngestionJob.created_at.desc()).limit(500))).all()
     result["jobs"] = [record_out(j, exclude={"error_json"}) for j in jobs]
+    legacy = (await session.scalars(select(EducationKnowledgeScope).where(
+        EducationKnowledgeScope.tenant_id == boundary.tenant_id,
+        EducationKnowledgeScope.workspace_id == boundary.workspace_id,
+        EducationKnowledgeScope.agent_id == boundary.agent_id,
+    ))).all()
+    result["legacyScopes"] = [record_out(row) for row in legacy]
+    recent_turns = (await session.scalars(select(CourseWhatsappTurn).where(
+        *boundary.filters(CourseWhatsappTurn),
+        CourseWhatsappTurn.created_at >= datetime.now(UTC) - timedelta(days=7),
+    ).order_by(CourseWhatsappTurn.created_at.desc()).limit(5000))).all()
+    times = sorted(row.latency_ms for row in recent_turns if row.latency_ms is not None)
+    def percentile(p: float) -> int | None:
+        return times[min(len(times) - 1, round((len(times) - 1) * p))] if times else None
+    paths: dict[str, int] = {}
+    for row in recent_turns:
+        paths[row.answer_path] = paths.get(row.answer_path, 0) + 1
+    result["metrics"] = {"sampledTurns7d": len(recent_turns), "answerPaths": paths,
+        "p50Ms": percentile(0.5), "p95Ms": percentile(0.95),
+        "deliveryFailures": sum(row.delivery_status == "failed" for row in recent_turns),
+        "accessRefusals": paths.get("access_denied", 0) + paths.get("refusal", 0),
+        "openKnowledgeGaps": sum(row.status in {"pending", "open", "assigned"} for row in (await session.scalars(select(CourseAcademicReview).where(*boundary.filters(CourseAcademicReview)))).all())}
     result["notice"] = "Processing complete is not publication. Sources without an approved active release are unavailable to students."
     return result
+
+
+def _faq_references(references: list[dict[str, str]]) -> None:
+    from urllib.parse import urlparse
+    for item in references:
+        kind = item.get("kind")
+        if kind == "course_assignment":
+            try:
+                UUID(item.get("assignment_id", ""))
+            except ValueError:
+                raise HTTPException(422, "A course FAQ reference needs a valid assignment ID") from None
+        elif kind == "external":
+            parsed = urlparse(item.get("url", ""))
+            if parsed.scheme not in {"https", "http"} or not parsed.netloc:
+                raise HTTPException(422, "An external FAQ reference needs a valid web URL")
+        elif kind != "teacher_review":
+            raise HTTPException(422, "FAQ references must be course_assignment, external, or teacher_review")
+
+
+@router.get(PREFIX + "/faqs")
+async def list_faqs(agent_id: UUID, principal: View, session: DB, course_id: UUID | None = None) -> list[dict[str, Any]]:
+    boundary = await boundary_for(session, principal, agent_id)
+    statement = select(CourseFaqEntry).where(*boundary.filters(CourseFaqEntry))
+    if course_id:
+        statement = statement.where(CourseFaqEntry.course_id == course_id)
+    rows = (await session.scalars(statement.order_by(CourseFaqEntry.created_at.desc()))).all()
+    return [record_out(row) for row in rows]
+
+
+@router.get(PREFIX + "/whatsapp-turns")
+async def list_whatsapp_turns(agent_id: UUID, principal: View, session: DB,
+    course_id: UUID | None = None, paper_id: UUID | None = None,
+    answer_path: str | None = None, delivery_status: str | None = None,
+    review_status: str | None = None, from_time: datetime | None = None,
+    to_time: datetime | None = None, limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0)) -> list[dict[str, Any]]:
+    boundary = await boundary_for(session, principal, agent_id)
+    query = _turn_query(boundary, course_id=course_id, paper_id=paper_id,
+        answer_path=answer_path, delivery_status=delivery_status,
+        review_status=review_status, from_time=from_time, to_time=to_time)
+    rows = (await session.scalars(query.order_by(CourseWhatsappTurn.created_at.desc(), CourseWhatsappTurn.id.desc()).offset(offset).limit(limit))).all()
+    return [record_out(row) for row in rows]
+
+
+def _turn_query(boundary: Boundary, *, course_id: UUID | None, paper_id: UUID | None,
+    answer_path: str | None, delivery_status: str | None, review_status: str | None,
+    from_time: datetime | None, to_time: datetime | None):
+    query = select(CourseWhatsappTurn).where(*boundary.filters(CourseWhatsappTurn))
+    for column, value in ((CourseWhatsappTurn.course_id, course_id),
+        (CourseWhatsappTurn.paper_id, paper_id), (CourseWhatsappTurn.answer_path, answer_path),
+        (CourseWhatsappTurn.delivery_status, delivery_status),
+        (CourseWhatsappTurn.review_status, review_status)):
+        if value is not None:
+            query = query.where(column == value)
+    if from_time:
+        query = query.where(CourseWhatsappTurn.created_at >= from_time)
+    if to_time:
+        query = query.where(CourseWhatsappTurn.created_at <= to_time)
+    return query
+
+
+@router.get(PREFIX + "/whatsapp-turns/export")
+async def export_whatsapp_turns(agent_id: UUID, principal: View, session: DB,
+    format: str = Query(default="csv", pattern="^(csv|json)$"), course_id: UUID | None = None,
+    paper_id: UUID | None = None, answer_path: str | None = None,
+    delivery_status: str | None = None, review_status: str | None = None,
+    from_time: datetime | None = None, to_time: datetime | None = None) -> Response:
+    boundary = await boundary_for(session, principal, agent_id)
+    query = _turn_query(boundary, course_id=course_id, paper_id=paper_id,
+        answer_path=answer_path, delivery_status=delivery_status,
+        review_status=review_status, from_time=from_time, to_time=to_time)
+    rows = (await session.scalars(query.order_by(CourseWhatsappTurn.created_at, CourseWhatsappTurn.id))).all()
+    fields = ["id", "createdAt", "conversationId", "enrollmentId", "courseId", "curriculumId", "paperId", "batchId",
+        "question", "answer", "answerPath", "deliveryStatus", "reviewId", "reviewStatus", "citations", "latencyMs", "error"]
+    phone = re.compile(r"(?<!\w)\+?\d(?:[\s().-]?\d){9,14}(?!\w)")
+    def safe(value: Any) -> Any:
+        if isinstance(value, str):
+            return phone.sub("[REDACTED_PHONE]", mask_sensitive_text(value))
+        if isinstance(value, list):
+            return [safe(item) for item in value]
+        if isinstance(value, dict):
+            return {key: safe(item) for key, item in value.items()}
+        return value
+    data = []
+    for row in rows:
+        item = record_out(row)
+        data.append({field: safe(item.get(field)) for field in fields})
+    if format == "json":
+        return Response(json.dumps(data, ensure_ascii=False), media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="course-whatsapp-qa.json"', "Cache-Control": "no-store"})
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for item in data:
+        cells = {key: json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else value for key, value in item.items()}
+        writer.writerow({key: "'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value
+            for key, value in cells.items()})
+    return Response(output.getvalue(), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="course-whatsapp-qa.csv"', "Cache-Control": "no-store"})
+
+
+@router.post(PREFIX + "/faqs", status_code=201)
+async def create_faq(agent_id: UUID, payload: FaqSave, principal: Manage, session: DB) -> dict[str, Any]:
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    if payload.expected_revision is not None:
+        raise HTTPException(422, "New FAQs cannot specify an existing revision")
+    await validate_destination(session, boundary, {"course_id": payload.course_id, "curriculum_id": payload.curriculum_id,
+        "paper_id": payload.paper_id, "batch_id": payload.batch_id, "overview": payload.paper_id is None})
+    _faq_references(payload.references)
+    if payload.review_id:
+        review = await scoped_row(session, CourseAcademicReview, payload.review_id, boundary)
+        if review.course_id != payload.course_id or review.status not in {"confirmed", "corrected"}:
+            raise KnowledgePolicyError("Only a resolved review for this course can seed a FAQ")
+    row = CourseFaqEntry(**boundary.values(), **payload.model_dump(exclude={"expected_revision"}), status="draft", revision=1)
+    session.add(row)
+    await session.flush()
+    audit(session, boundary, principal, "faq.created", row.id)
+    await session.commit()
+    return record_out(row)
+
+
+@router.put(PREFIX + "/faqs/{faq_id}")
+async def revise_faq(agent_id: UUID, faq_id: UUID, payload: FaqSave, principal: Manage, session: DB) -> dict[str, Any]:
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    row = await scoped_row(session, CourseFaqEntry, faq_id, boundary, lock=True)
+    if row.status == "withdrawn" or payload.expected_revision != row.revision:
+        raise KnowledgePolicyError("FAQ changed or was withdrawn; reload before editing")
+    await validate_destination(session, boundary, {"course_id": payload.course_id, "curriculum_id": payload.curriculum_id,
+        "paper_id": payload.paper_id, "batch_id": payload.batch_id, "overview": payload.paper_id is None})
+    _faq_references(payload.references)
+    if row.course_id != payload.course_id or row.curriculum_id != payload.curriculum_id:
+        raise KnowledgePolicyError("Create a new FAQ to change its course or curriculum")
+    for key, value in payload.model_dump(exclude={"expected_revision", "course_id", "curriculum_id"}).items():
+        setattr(row, key, value)
+    row.revision += 1
+    row.status = "draft"
+    row.approved_by = None
+    row.approved_at = None
+    await session.flush()
+    audit(session, boundary, principal, "faq.revised", row.id, {"revision": row.revision})
+    await session.commit()
+    return record_out(row)
+
+
+@router.post(PREFIX + "/faqs/{faq_id}/approve")
+async def approve_faq(agent_id: UUID, faq_id: UUID, payload: FaqApproval, principal: Manage, session: DB) -> dict[str, Any]:
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    row = await scoped_row(session, CourseFaqEntry, faq_id, boundary, lock=True)
+    if row.status != "draft" or row.revision != payload.expected_revision:
+        raise KnowledgePolicyError("Review the current draft FAQ revision before approval")
+    row.status = "approved"
+    row.approved_by = principal.user_id
+    row.approved_at = datetime.now(UTC)
+    row.review_reason = payload.reason
+    audit(session, boundary, principal, "faq.approved", row.id, {"fingerprint": faq_digest(row)})
+    await session.commit()
+    return record_out(row)
+
+
+@router.post(PREFIX + "/faqs/{faq_id}/withdraw")
+async def withdraw_faq(agent_id: UUID, faq_id: UUID, payload: Withdrawal, principal: Manage, session: DB) -> dict[str, Any]:
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    row = await scoped_row(session, CourseFaqEntry, faq_id, boundary, lock=True)
+    row.status = "withdrawn"
+    row.review_reason = payload.reason
+    audit(session, boundary, principal, "faq.withdrawn", row.id)
+    await session.commit()
+    return record_out(row)
 
 
 @router.post(PREFIX + "/uploads", status_code=201)
@@ -418,6 +682,69 @@ async def remove_source(agent_id: UUID, version_id: UUID, payload: Withdrawal, p
     return record_out(row, exclude={"record", "original_object_key", "extraction_key"})
 
 
+@router.get(PREFIX + "/test-conversations/candidates")
+async def test_conversation_candidates(agent_id: UUID, principal: Manage, session: DB) -> list[dict[str, Any]]:
+    """The students a reviewer can test as, and why any of them cannot be tutored yet."""
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    rows = (await session.execute(
+        select(EducationEnrollment, EducationStudent, EducationCourse)
+        .join(EducationStudent, EducationStudent.id == EducationEnrollment.student_id)
+        .join(EducationCourse, EducationCourse.id == EducationEnrollment.course_id)
+        .where(*boundary.filters(EducationEnrollment), EducationEnrollment.status == "active")
+        .order_by(EducationCourse.code, EducationStudent.name)
+        .limit(200)
+    )).all()
+    result = []
+    for enrollment, student, course in rows:
+        try:
+            context = await resolve_context(session, boundary, enrollment.id)
+            ready, reason, published = True, None, context.release_id is not None
+        except KnowledgePolicyError as exc:
+            ready, reason, published = False, str(exc), False
+        result.append({"enrollmentId": str(enrollment.id), "studentName": student.name, "studentNumber": student.student_number,
+                       "courseCode": course.code, "courseName": course.name, "ready": ready, "reason": reason,
+                       "hasPublishedRelease": published})
+    return result
+
+
+@router.post(PREFIX + "/test-conversations", status_code=201)
+async def start_test_conversation(agent_id: UUID, payload: TestConversationCreate, principal: Manage, session: DB) -> dict[str, Any]:
+    """Chat with the agent exactly as one of its enrolled students, before finalizing training.
+
+    The enrollment passes the same checks as a real student (active student, batch, dates, paper
+    access), so the test uses the real tutoring pipeline. With include_unpublished the answers
+    may also use approved, indexed material that is not published yet."""
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    context = await resolve_context(session, boundary, payload.enrollment_id)  # policy errors -> 409 with the reason
+    agent = await session.get(Agent, agent_id)
+    student = await session.get(EducationStudent, UUID(context.learner.student_id))
+    if agent is None or student is None:
+        raise HTTPException(404, "Agent or student not found")
+    mode = TEST_MODE_UNPUBLISHED if payload.include_unpublished else TEST_MODE_PUBLISHED
+    conversation = Conversation(
+        tenant_id=boundary.tenant_id, workspace_id=boundary.workspace_id, agent_id=agent.id,
+        visitor_id=f"staff-test:{principal.user_id}", visitor_name=f"Test chat as {student.name}"[:160],
+        channel=Channel.WIDGET, state=ConversationState.OPEN, knowledge_revision=agent.published_knowledge_revision,
+    )
+    session.add(conversation)
+    await session.flush()
+    session.add(EducationConversationContext(
+        tenant_id=boundary.tenant_id, workspace_id=boundary.workspace_id, conversation_id=conversation.id,
+        agent_id=agent.id, student_id=student.id, enrollment_id=payload.enrollment_id,
+        course_id=UUID(context.learner.course_id), batch_id=UUID(context.learner.batch_id), test_mode=mode,
+    ))
+    audit(session, boundary, principal, "test_conversation.started", conversation.id, {"enrollmentId": str(payload.enrollment_id), "mode": mode})
+    await session.commit()
+    published = context.release_id is not None
+    return {
+        "conversationId": str(conversation.id), "mode": mode, "studentName": student.name, "courseName": context.course_name,
+        "hasPublishedRelease": published,
+        "notice": ("Answers use approved material, including material that is not published yet." if payload.include_unpublished
+                   else "Answers use only published material, exactly as this student sees it now." if published
+                   else "Nothing is published for this course yet, so a student would get no course answers. Turn on unpublished material to test the training."),
+    }
+
+
 @router.post(PREFIX + "/preview")
 async def preview_as_student(agent_id: UUID, payload: PreviewRequest, principal: View, session: DB) -> dict[str, Any]:
     boundary = await boundary_for(session, principal, agent_id)
@@ -518,6 +845,9 @@ async def resolve_review(agent_id: UUID, review_id: UUID, payload: AcademicRevie
     boundary = await boundary_for(session, principal, agent_id, manage=True)
     row = await scoped_row(session, CourseAcademicReview, review_id, boundary, lock=True)
     row.status = payload.status
+    await session.execute(update(CourseWhatsappTurn).where(
+        *boundary.filters(CourseWhatsappTurn), CourseWhatsappTurn.review_id == row.id,
+    ).values(review_status=row.status))
     audit(session, boundary, principal, "academic-review.updated", row.id)
     await session.commit()
     return record_out(row)

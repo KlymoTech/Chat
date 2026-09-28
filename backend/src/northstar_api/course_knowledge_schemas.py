@@ -139,6 +139,35 @@ class ReleaseCreate(Contract):
     curriculum_id: UUID
     assignment_ids: list[UUID] = Field(min_length=1, max_length=500)
     artifact_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    faq_ids: list[UUID] = Field(default_factory=list, max_length=500)
+
+
+class FaqSave(Contract):
+    course_id: UUID
+    curriculum_id: UUID
+    paper_id: UUID | None = None
+    batch_id: UUID | None = None
+    question: str = Field(min_length=3, max_length=4000)
+    variants: list[str] = Field(default_factory=list, max_length=20)
+    answer: str = Field(min_length=3, max_length=12000)
+    language: str = Field(default="English", min_length=2, max_length=80)
+    references: list[dict[str, str]] = Field(min_length=1, max_length=30)
+    review_id: UUID | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def distinct_questions(self) -> FaqSave:
+        values = [" ".join(value.casefold().split()) for value in [self.question, *self.variants]]
+        if len(set(values)) != len(values):
+            raise ValueError("FAQ question and variants must be distinct")
+        if any(not value.strip() for value in self.variants):
+            raise ValueError("FAQ variants cannot be blank")
+        return self
+
+
+class FaqApproval(Contract):
+    expected_revision: int = Field(ge=1)
+    reason: str = Field(min_length=3, max_length=2000)
 
 
 class PublishRequest(Contract):
@@ -169,3 +198,10 @@ class ArtifactReview(Contract):
 
 class AcademicReviewResolution(Contract):
     status: Literal["pending", "reviewed", "dismissed"]
+
+
+class TestConversationCreate(Contract):
+    """Start a staff test chat as one enrolled student of an Education agent."""
+
+    enrollment_id: UUID
+    include_unpublished: bool = False

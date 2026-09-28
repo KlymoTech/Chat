@@ -16,8 +16,10 @@ from northstar_api.course_knowledge_models import CourseEnrollmentAccess, Course
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.education_student_identities import StudentIdentityType
 from northstar_api.models import BotWorkflow, Message, MessageRole
+from northstar_api.modules.knowledge.grounding import blocked_topic, blocked_topic_refusal
 from northstar_api.modules.whatsapp.accounts import connection_client
 from northstar_api.modules.whatsapp.graph import split_whatsapp_text
+from northstar_api.services.bot_workflows import matching_system_action
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError, fingerprint
 from northstar_api.services.course_study_access import authorize_study_access
 from northstar_api.services.education_runtime_authorization import (
@@ -25,6 +27,7 @@ from northstar_api.services.education_runtime_authorization import (
     EducationIdentityCandidate,
     authorize_education_access,
 )
+from northstar_api.services.education_workflow_messages import education_workflow_message
 from northstar_api.services.student_identity import find_workspace_student_identity
 
 DENIAL = "Your course access is not active for this WhatsApp number. Please contact your institute to verify your number and enrollment."
@@ -174,7 +177,8 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
             and (check.authorized or check.reason is EducationAccessReason.ENROLLMENT_AMBIGUOUS)
         )
         if not permitted:
-            cached.prompt = DENIAL
+            cached.prompt = await education_workflow_message(session, tenant_id=agent.tenant_id,
+                workspace_id=agent.workspace_id, agent_id=agent.id, action="education_access_denied", default=DENIAL)
             # Do not send a new denial after a partial menu delivery; just stop.
             if cached.sent_ids:
                 receipt.status = "rejected"
@@ -191,6 +195,14 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
                 return check, True
         decision, prompt = check, cached.prompt
     else:
+        menu_step = await matching_system_action(
+            session,
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
+            message=receipt.message_text,
+            system_action="education_course_menu",
+        )
         decision, prompt = await authorize_study_access(
             session,
             tenant_id=agent.tenant_id,
@@ -198,6 +210,7 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
             agent=agent,
             identity=identity,
             message=receipt.message_text,
+            course_menu_template=(str(menu_step.get("message") or "") if menu_step else None),
         )
         if decision.authorized and not prompt:
             selection = await session.scalar(
@@ -230,7 +243,8 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
         )
         if not prompt and decision.authorized:
             return decision, False
-        prompt = prompt or DENIAL
+        prompt = prompt or await education_workflow_message(session, tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id, agent_id=agent.id, action="education_access_denied", default=DENIAL)
         await session.flush()
         verified = await _verified_identity(session, agent, receipt.sender_wa_id)
         daily_welcome = await _daily_menu_welcome(session, agent, verified) if verified else None
@@ -248,6 +262,15 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
             scope_fingerprint=selection_epoch,
         )
         session.add(cached)
+    await session.refresh(agent, attribute_names=["security"])
+    if blocked_topic(prompt, (agent.security or {}).get("blockedTopics", [])):
+        prompt = blocked_topic_refusal()
+        cached.prompt = prompt
+        if cached.sent_ids:
+            receipt.status = "rejected"
+            receipt.last_error = "A never-answer boundary changed during menu delivery"
+            await session.commit()
+            return decision, True
     await session.commit()  # Menu state/receipt must survive a failed provider send.
     provider, token = await connection_client(session, connection)
     chunks = split_whatsapp_text(prompt)
@@ -261,9 +284,10 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
         receipt.outbound_message_ids = list(sent_ids)
         receipt.outbound_message_id = message_id
         await session.commit()
-    receipt.status = "rejected" if prompt == DENIAL else "processed"
+    denied = not decision.authorized and decision.reason is not EducationAccessReason.ENROLLMENT_AMBIGUOUS
+    receipt.status = "rejected" if denied else "processed"
     receipt.processed_at = datetime.now(UTC)
-    receipt.last_error = "Education access: " + decision.reason.value if prompt == DENIAL else None
+    receipt.last_error = "Education access: " + decision.reason.value if denied else None
     await session.commit()
     return decision, True
 
@@ -271,8 +295,14 @@ async def authorize_whatsapp_study(session, *, agent, receipt, connection):
 async def validate_whatsapp_study_reply(session, *, agent, receipt, prepared):
     from northstar_api.course_knowledge_models import CourseResponseContext
     from northstar_api.education_enrollments import EducationEnrollment
+    from northstar_api.modules.knowledge.grounding import blocked_topic
     from northstar_api.services.course_knowledge_chat import validate_course_reply
 
+    # Re-read editable boundaries at delivery time. A topic added while the
+    # model was answering must not leave through a queued WhatsApp send.
+    await session.refresh(agent, attribute_names=["security"])
+    if blocked_topic(receipt.message_text, (agent.security or {}).get("blockedTopics", [])):
+        raise KnowledgePolicyError("A never-answer boundary changed before delivery")
     identity = await _verified_identity(session, agent, receipt.sender_wa_id)
     context = await session.scalar(
         select(CourseResponseContext).where(

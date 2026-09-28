@@ -19,7 +19,9 @@ from northstar_api.services.education_runtime_authorization import (
 from northstar_api.services.workspace_dates import workspace_today
 
 
-async def authorize_study_access(session, *, tenant_id, workspace_id, agent, identity, message):
+async def authorize_study_access(
+    session, *, tenant_id, workspace_id, agent, identity, message, course_menu_template: str | None = None
+):
     decision = await authorize_education_access(
         session,
         tenant_id=tenant_id,
@@ -69,7 +71,12 @@ async def authorize_study_access(session, *, tenant_id, workspace_id, agent, ide
         ):
             valid.append(row)
     choice = await resolve_study_selection(
-        session, Boundary(tenant_id, workspace_id, agent.id), decision.identity_id, valid, message
+        session,
+        Boundary(tenant_id, workspace_id, agent.id),
+        decision.identity_id,
+        valid,
+        message,
+        course_menu_template=course_menu_template,
     )
     if choice.enrollment is None:
         return replace(

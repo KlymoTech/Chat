@@ -1,14 +1,6 @@
 import { readStorage } from '@/lib/storage';
 import { activeWorkspaceId } from '@/lib/workspace-api';
 
-export interface EducationCurriculum {
-  id: string;
-  courseId: string;
-  version: string;
-  name: string;
-  status: 'active' | 'archived';
-}
-
 export interface EducationPaper {
   id: string;
   courseId: string;
@@ -37,9 +29,6 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const educationCatalogApi = {
-  curricula: (courseId?: string) => get<EducationCurriculum[]>(
-    `/education/curricula?status=active${courseId ? `&course_id=${encodeURIComponent(courseId)}` : ''}`,
-  ),
   papers: (curriculumId?: string) => get<EducationPaper[]>(
     `/education/papers?status=active${curriculumId ? `&curriculum_id=${encodeURIComponent(curriculumId)}` : ''}`,
   ),

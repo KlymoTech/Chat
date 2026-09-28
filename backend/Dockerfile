@@ -20,6 +20,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --home-dir /app app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer fontconfig fonts-dejavu-core fonts-noto-core fonts-noto-cjk \
+    tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv

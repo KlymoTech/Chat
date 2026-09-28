@@ -172,7 +172,23 @@ export interface ExtractionBlock {
   related_block_ids?: string[];
   bbox_px?: number[];
   crop?: string;
+  ocr_text?: string;
+  ocr_region_text?: string;
+  ocr_min_confidence?: number | null;
+  proposed_structure?: ExtractionReading;
+  consensus?: 'native_vision' | 'ocr_vision' | 'native_ocr';
+  audit_notes?: string[];
+  readers?: { native_text_layer: boolean; ocr: boolean; vision: boolean };
+  figure_description?: string;
+  figure_description_source?: string;
+  heading_level?: number;
+  reader_text?: string;
+  style?: { font_size_px: number; bold: boolean; italic: boolean; color: string; font: string; align: 'left' | 'center' | 'right' };
+  native_table?: { rows: number; columns: number; column_bounds: number[][]; row_bounds: number[][]; bbox_px: number[] };
+  cell_checks?: Array<{ row: number; column: number; pdf: string; ocr: string; confirmed: boolean; region_pass?: boolean }>;
 }
+
+export interface ExtractionWord { text: string; bbox_px: number[]; line?: number[]; confidence?: number; order?: number; bold?: boolean; italic?: boolean }
 
 export interface ExtractionPage {
   number: number;
@@ -183,10 +199,14 @@ export interface ExtractionPage {
   source_unit?: string;
   printed_page_label?: string | null;
   blocks: ExtractionBlock[];
-  requires_second_review?: boolean;
   primary_review?: { reviewer: string; reviewed_at: string };
-  second_review?: { reviewer: string; reviewed_at: string };
   requires_review?: boolean;
+  width_px?: number;
+  height_px?: number;
+  native_words?: ExtractionWord[];
+  ocr_words?: ExtractionWord[];
+  ocr?: { engine: string; status: string; version?: string; error?: string };
+  inventory_source?: string;
   quality?: { score: number; method: string; reasons: string[]; native_character_count: number; native_word_count: number; native_figure_count: number; native_table_count: number; formula_detected: boolean };
 }
 
@@ -200,6 +220,18 @@ export interface ExtractionRecord {
   checks: Array<{ name: string; status: string; details: string[] }>;
   release_blockers: string[];
   word?: { blocks: unknown[]; channels: unknown[] };
+}
+
+export interface ExtractionAreaSuggestion { text: string; source: string; confirmed: boolean }
+/** One selected area of a page, read by the PDF text layer, OCR and (on request) the vision model. */
+export interface ExtractionAreaResult {
+  page: number;
+  bbox_px: number[];
+  readings: { pdf_text: string; ocr: string; ocr_min_confidence: number | null; ocr_status: string; vision: string | null; vision_status: string };
+  suggestion: ExtractionAreaSuggestion;
+  words: Array<{ text: string; bbox_px: number[] }>;
+  table: { text: string; rows: number; columns: number; cells: Array<{ row: number; column: number; text: string; header: boolean }> } | null;
+  cells: Array<{ row: number; column: number; pdf_text: string; ocr: string; suggestion: ExtractionAreaSuggestion }>;
 }
 
 export interface ExtractionReviewSubmission {
@@ -383,6 +415,8 @@ export const api = {
     list: (agentId: string) => withFallback(() => request<KnowledgeSource[]>(`/agents/${agentId}/knowledge`), async () => { await pause(); return demoKnowledgeList().filter((item) => item.agentId === agentId); }),
     extraction: (sourceId: string) => request<ExtractionRecord>(`/knowledge/${sourceId}/extraction`),
     extractionPage: (sourceId: string, page: number) => requestEvidence(`/knowledge/${sourceId}/extraction/pages/${page}`),
+    extractArea: (sourceId: string, page: number, body: { bboxPx: number[]; vision?: boolean; cells?: Array<{ row: number; column: number; bboxPx: number[] }> }) =>
+      request<ExtractionAreaResult>(`/knowledge/${sourceId}/extraction/pages/${page}/area`, { method: 'POST', body: JSON.stringify(body) }),
     extractionRegion: (sourceId: string, blockId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/regions/${encodeURIComponent(blockId)}`),
     extractionArchive: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/archive`),
     extractionSourcePdf: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/source-pdf`),

@@ -13,7 +13,7 @@ from northstar_api.access_policy import (
     validate_delegated_permissions,
 )
 from northstar_api.models import Role, WorkspaceRole
-from northstar_api.routers import knowledge
+from northstar_api.routers import knowledge, knowledge_facts
 from northstar_api.security import Principal
 
 
@@ -22,7 +22,7 @@ class ScopeChecked(Exception):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("route", [knowledge.list_knowledge, knowledge.create_fact])
+@pytest.mark.parametrize("route", [knowledge.list_knowledge, knowledge_facts.create_fact])
 async def test_agent_scoped_knowledge_routes_forward_principal_restrictions(
     route, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -38,7 +38,10 @@ async def test_agent_scoped_knowledge_routes_forward_principal_restrictions(
         assert kwargs["allowed_agent_ids"] == principal.agent_ids
         raise ScopeChecked
 
-    monkeypatch.setattr(knowledge, "scoped_agent", checked)
+    # list_knowledge and create_fact each bind their own module-level
+    # `scoped_agent` name, so the patch target must follow the route.
+    owning_module = knowledge if route is knowledge.list_knowledge else knowledge_facts
+    monkeypatch.setattr(owning_module, "scoped_agent", checked)
     with pytest.raises(ScopeChecked):
         if route is knowledge.list_knowledge:
             await route(allowed_agent, principal, object())

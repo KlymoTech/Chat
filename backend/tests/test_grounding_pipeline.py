@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from northstar_api.services.grounding import blocked_topic, validate_answer
+from northstar_api.services.grounding import blocked_topic, blocked_topic_refusal, validate_answer
 from northstar_api.services.ingestion import (
     approved_extraction_chunks,
     validate_embedding_batch,
@@ -14,7 +14,12 @@ def evidence(text: str, score: float = 0.5) -> Evidence:
 
 def test_blocked_topic_matches_before_retrieval() -> None:
     assert blocked_topic("Can you give legal advice?", ["legal advice"]) == "legal advice"
+    assert blocked_topic("Can you give LEGAL-advice?", ["legal advice"]) == "legal advice"
+    assert blocked_topic(
+        "Can you give legal advice?", ["Do not answer questions about legal advice"]
+    ) == "Do not answer questions about legal advice"
     assert blocked_topic("What is the refund policy?", ["legal advice"]) is None
+    assert "legal advice" not in blocked_topic_refusal().casefold()
 
 
 def test_grounding_rejects_numeric_mutation() -> None:

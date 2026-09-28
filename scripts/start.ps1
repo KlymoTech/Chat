@@ -137,29 +137,40 @@ try {
     Write-Host "  Project: $($config.name)"
 
     Write-Host '[3/6] Checking configured ports...'
-    $ownPorts = @()
-    $ids = Invoke-Docker -DockerArgs @('ps', '-q', '--filter', "label=com.docker.compose.project=$($config.name)") -Capture
-    if ($ids.Trim()) {
-        $containers = (Invoke-Docker -DockerArgs (@('inspect') + ($ids -split '\s+')) -Capture) | ConvertFrom-Json
-        foreach ($container in $containers) {
-            foreach ($port in $container.NetworkSettings.Ports.PSObject.Properties) {
-                foreach ($binding in $port.Value) { if ($binding.HostPort) { $ownPorts += [int]$binding.HostPort } }
+    # Immediately after Docker Desktop (re)starts, its own containers from this
+    # same project may still be attaching under the compose-project label, so a
+    # single snapshot can misreport their not-yet-labeled ports as external
+    # conflicts. Retry the check briefly before treating it as a real conflict.
+    $portCheckDeadline = (Get-Date).AddSeconds([Math]::Min(20, $TimeoutSeconds))
+    $conflicts = $null
+    do {
+        $ownPorts = @()
+        $ids = Invoke-Docker -DockerArgs @('ps', '-q', '--filter', "label=com.docker.compose.project=$($config.name)") -Capture
+        if ($ids.Trim()) {
+            $containers = (Invoke-Docker -DockerArgs (@('inspect') + ($ids -split '\s+')) -Capture) | ConvertFrom-Json
+            foreach ($container in $containers) {
+                foreach ($port in $container.NetworkSettings.Ports.PSObject.Properties) {
+                    foreach ($binding in $port.Value) { if ($binding.HostPort) { $ownPorts += [int]$binding.HostPort } }
+                }
             }
         }
-    }
-    $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
-    foreach ($service in $config.services.PSObject.Properties) {
-        foreach ($port in $service.Value.ports) {
-            if (-not $port.published -or $port.protocol -eq 'udp') { continue }
-            $published = [int]$port.published
-            if ($published -in $ownPorts) { continue }
-            $occupied = @($listeners | Where-Object { $_.LocalPort -eq $published })
-            if ($occupied.Count) {
-                $owners = ($occupied.OwningProcess | Sort-Object -Unique) -join ', '
-                throw "Port $published for $($service.Name) is already used by process $owners outside this stack. Change the matching port in $EnvFile or stop that application."
+        $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
+        $conflicts = @()
+        foreach ($service in $config.services.PSObject.Properties) {
+            foreach ($port in $service.Value.ports) {
+                if (-not $port.published -or $port.protocol -eq 'udp') { continue }
+                $published = [int]$port.published
+                if ($published -in $ownPorts) { continue }
+                $occupied = @($listeners | Where-Object { $_.LocalPort -eq $published })
+                if ($occupied.Count) {
+                    $owners = ($occupied.OwningProcess | Sort-Object -Unique) -join ', '
+                    $conflicts += "Port $published for $($service.Name) is already used by process $owners outside this stack. Change the matching port in $EnvFile or stop that application."
+                }
             }
         }
-    }
+        if ($conflicts.Count -and (Get-Date) -lt $portCheckDeadline) { Start-Sleep -Seconds 2 }
+    } while ($conflicts.Count -and (Get-Date) -lt $portCheckDeadline)
+    if ($conflicts.Count) { throw ($conflicts -join "`n") }
 
     Write-Host '[4/6] Starting services (cached builds are reused)...'
     # Local attestations change the image index even for a fully cached build,

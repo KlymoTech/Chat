@@ -156,15 +156,34 @@ try {
         $headers = @{ 'ngrok-skip-browser-warning' = 'northstar-readiness-check' }
         $deadline = (Get-Date).AddSeconds(40)
         $publicReady = $false
+        $lastFailureDetail = $null
         do {
             try {
                 $response = Invoke-WebRequest -UseBasicParsing -Uri "$publicUrl/healthz" -Headers $headers -TimeoutSec 10
                 $body = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
                 if ($response.StatusCode -eq 200 -and $body.Trim() -eq 'ok') { $publicReady = $true; break }
-            } catch { }
+                $lastFailureDetail = "HTTP $($response.StatusCode)"
+            } catch {
+                # ngrok's edge reports account/tunnel-level failures (bandwidth caps,
+                # domain conflicts, etc.) as an HTTP error with an Ngrok-Error-Code
+                # header. Surface that instead of a generic "not ready" message, since
+                # those failures will not resolve by simply rerunning the launcher.
+                $webResponse = $_.Exception.Response
+                if ($webResponse) {
+                    $ngrokErrorCode = $webResponse.Headers['Ngrok-Error-Code']
+                    $lastFailureDetail = if ($ngrokErrorCode) {
+                        "HTTP $([int]$webResponse.StatusCode) ($ngrokErrorCode) - see https://ngrok.com/docs/errors/$($ngrokErrorCode.ToLower())/"
+                    } else { "HTTP $([int]$webResponse.StatusCode)" }
+                } else {
+                    $lastFailureDetail = $_.Exception.Message
+                }
+            }
             Start-Sleep -Seconds 1
         } until ((Get-Date) -gt $deadline)
-        if (-not $publicReady) { throw 'The public endpoint is not ready. The ngrok session is saved; rerun this launcher to retry.' }
+        if (-not $publicReady) {
+            $detailSuffix = if ($lastFailureDetail) { " Last response: $lastFailureDetail." } else { '' }
+            throw "The public endpoint is not ready.$detailSuffix The ngrok session is saved; resolve the issue above (this may not be a transient problem) before rerunning this launcher."
+        }
         Write-Host "`nPUBLIC APP: $publicUrl/integrations"
         Write-Host "ZOHO REDIRECT URL: $publicUrl/api/v1/crm/oauth/zoho/callback"
         Write-Host 'Keep this PC and Docker running. The ngrok agent runs in the background.'

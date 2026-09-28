@@ -4,16 +4,60 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from collections import Counter
 from typing import Any
 
 from northstar_api.services.extraction_schema import Cell, digest
 
-CRITICAL = re.compile(r"\d|\b(?:NOT|EXCEPT|least|most|incorrect)\b|[=<>\u2264\u2265\u00b2\u2082]", re.I)
-
 
 def same_text(left: str, right: str) -> bool:
     return re.sub(r"\s+", " ", left).strip() == re.sub(r"\s+", " ", right).strip()
+
+
+_TYPOGRAPHY = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-",
+                             "—": "-", "−": "-", " ": " "})
+
+
+def equivalent_text(left: str, right: str) -> bool:
+    """Same text up to Unicode compatibility forms and typographic quote/dash variants.
+
+    Used only to decide whether independent readers agree; digits, signs, letters and
+    punctuation must still match exactly.
+    """
+    def norm(value: str) -> str:
+        return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).translate(_TYPOGRAPHY)).strip()
+
+    return norm(left) == norm(right)
+
+
+# OCR's classic look-alike glyph confusions. Only these, plus spacing around separators, are
+# tolerated when OCR is used to *confirm* the PDF text layer; the text layer is always what is kept.
+_OCR_LOOKALIKES = str.maketrans({"l": "1", "I": "1", "|": "1", "O": "0", "o": "0", "×": "x", "X": "x"})
+
+
+_SCRIPT_MARK = ""  # stands in for a superscript/subscript character in the text layer
+_SCRIPTS = re.compile("[²³¹⁰-₟]")
+
+
+def ocr_confirms(native: str, ocr: str) -> bool:
+    """OCR confirms the text layer, allowing only OCR's known failure modes: look-alike glyphs,
+    spacing around separators, and superscript/subscript characters, which OCR reads as '?', '2',
+    '7?' or drops. The text layer stays authoritative for those characters."""
+    def canonical(value: str, keep_scripts: bool = False) -> str:
+        if keep_scripts:
+            value = _SCRIPTS.sub(_SCRIPT_MARK, value)
+        value = unicodedata.normalize("NFKC", value).translate(_TYPOGRAPHY).translate(_OCR_LOOKALIKES)
+        value = re.sub(r"\s*([/:;,()])\s*", r"\1", value)
+        return re.sub(r"\s+", " ", value).strip()
+
+    if not native.strip():
+        return False
+    expected, seen = canonical(native, keep_scripts=True), canonical(ocr)
+    if _SCRIPT_MARK not in expected:
+        return expected == seen
+    pattern = "".join(".{0,2}" if part == _SCRIPT_MARK else re.escape(part) for part in re.split(f"({_SCRIPT_MARK})", expected))
+    return re.fullmatch(pattern, seen) is not None
 
 
 def disagreement(native: str, visual: str) -> str:
@@ -24,16 +68,6 @@ def disagreement(native: str, visual: str) -> str:
     ):
         return "CRITICAL_WORD_CONFLICT"
     return "CANDIDATE_CONFLICT"
-
-
-def critical_page(page: dict[str, Any]) -> bool:
-    return bool(
-        CRITICAL.search(
-            page.get("native_text", "") + (page.get("visual_text") or "") + (page.get("selected_text") or "")
-        )
-    ) or any(
-        block["type"] in {"table", "equation", "question", "answer_key"} for block in page.get("blocks", [])
-    )
 
 
 def review_digest(page: dict[str, Any]) -> str:
@@ -179,7 +213,9 @@ def validate(record: dict[str, Any], artifacts: dict[str, bytes]) -> list[dict[s
     by_id = {b["id"]: (p, b) for p in pages for b in p.get("blocks", [])}
     for page in pages:
         for block in page.get("blocks", []):
-            structure = block.get("reviewed_structure") or block.get("visual") or {}
+            # A region settled by reader agreement carries the pipeline's structure (e.g. table cells).
+            settled = block.get("proposed_structure") if block.get("consensus") else None
+            structure = block.get("reviewed_structure") or settled or block.get("visual") or {}
             if block.get("status") == "split":
                 continue
             if not structure.get("complete") or block.get("selected_text") is None:
@@ -266,22 +302,14 @@ def validate(record: dict[str, Any], artifacts: dict[str, bytes]) -> list[dict[s
     for page in pages:
         if not page.get("requires_review"):
             continue
-        primary, second = page.get("primary_review"), page.get("second_review")
+        primary = page.get("primary_review")
         expected = review_digest(page)
         if (
             not primary
             or primary.get("content_sha256") != expected
             or primary.get("source_sha256") != record["source_sha256"]
         ):
-            reviews.append(f"Page {page['number']}: primary source review missing or stale")
-        if critical_page(page) and (
-            not second
-            or second.get("content_sha256") != expected
-            or second.get("source_sha256") != record["source_sha256"]
-            or not primary
-            or second.get("reviewer") == primary.get("reviewer")
-        ):
-            reviews.append(f"Page {page['number']}: independent second review missing or stale")
+            reviews.append(f"Page {page['number']}: review missing or stale")
     reviews.extend(f"{i['id']}: unresolved {i['code']}" for i in open_issues)
     check("human_acceptance", reviews)
     return checks
@@ -297,7 +325,6 @@ def metrics(record: dict[str, Any]) -> dict[str, Any]:
         "regions_read": sum(bool(b.get("visual")) for b in blocks),
         "candidate_agreements": sum(b.get("agreement", False) for b in blocks),
         "primary_reviews": sum(bool(p.get("primary_review")) for p in pages),
-        "second_reviews": sum(bool(p.get("second_review")) for p in pages),
         "measured_transcription_accuracy": "NOT_MEASURED",
         "issue_counts": dict(Counter(i["code"] for i in record["issues"] if i.get("status") != "resolved")),
     }

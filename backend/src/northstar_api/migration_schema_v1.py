@@ -402,22 +402,6 @@ class Conversation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
 
-class BotWorkflow(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    __tablename__ = "bot_workflows"
-    __table_args__ = (
-        UniqueConstraint("agent_id", name="uq_bot_workflows_agent"),
-        Index("ix_bot_workflows_scope", "tenant_id", "workspace_id", "purpose", "status"),
-    )
-
-    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
-    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
-    name: Mapped[str] = mapped_column(String(160))
-    purpose: Mapped[str] = mapped_column(String(40))
-    status: Mapped[str] = mapped_column(String(20), default="draft")
-    steps_json: Mapped[list[dict[str, Any]]] = mapped_column(MutableListJSON, default=list)
-
-
 class Message(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "messages"
     __table_args__ = (
@@ -441,7 +425,6 @@ class Message(Base, UUIDPrimaryKeyMixin):
     sequence: Mapped[int] = mapped_column(Integer)
     role: Mapped[MessageRole] = mapped_column(enum_column(MessageRole, "message_role"))
     content: Mapped[str] = mapped_column(Text)
-    content_json: Mapped[dict[str, Any]] = mapped_column(MutableJSON, default=dict)
     content_fingerprint: Mapped[str | None] = mapped_column(String(64))
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     model_request_id: Mapped[str | None] = mapped_column(String(200))

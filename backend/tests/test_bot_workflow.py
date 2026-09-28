@@ -111,17 +111,22 @@ def test_enrolled_student_template_is_backend_owned_and_calendar_scoped() -> Non
     assert workflow.purpose.value == "education"
     assert workflow.status == "draft"
     assert [step.id for step in workflow.steps] == [
-        "edu_daily_welcome", "edu_enrollment_route", "edu_course_session",
-        "edu_switch_course", "edu_help",
+        "edu_greeting_course_menu", "edu_daily_welcome", "edu_enrollment_route", "edu_course_session",
+        "edu_switch_course", "edu_help", "edu_paper_menu", "edu_selection_confirmed",
+        "edu_missing_access", "edu_access_denied", "edu_missing_material", "edu_web_label", "edu_review_notice", "edu_retry",
     ]
-    welcome = workflow.steps[0]
+    greeting = workflow.steps[0]
+    assert greeting.trigger_value == "hi"
+    assert greeting.config["systemAction"] == "education_course_menu"
+    assert "{{courses}}" in greeting.message
+    welcome = workflow.steps[1]
     assert welcome.repeat_policy == "once_per_calendar_day"
     assert welcome.calendar_timezone == "Asia/Kolkata"
     assert welcome.config == {
         "systemAction": "education_daily_welcome", "continueOriginalMessage": True
     }
-    assert workflow.steps[1].config["dynamicSource"] == "verified_active_enrollments"
-    assert workflow.steps[3].trigger_value == "switch course"
+    assert workflow.steps[2].config["dynamicSource"] == "verified_active_enrollments"
+    assert workflow.steps[4].trigger_value == "switch course"
 
 
 async def test_template_catalog_applies_and_persists_for_an_education_agent(
@@ -146,7 +151,8 @@ async def test_template_catalog_applies_and_persists_for_an_education_agent(
     assert applied.status_code == 200, applied.text
     body = applied.json()
     assert body["status"] == "draft"
-    assert body["steps"][0]["config"]["systemAction"] == "education_daily_welcome"
+    assert body["steps"][0]["config"]["systemAction"] == "education_course_menu"
+    assert body["steps"][1]["config"]["systemAction"] == "education_daily_welcome"
     saved = await client.get(f"/api/v1/bot-workflows/{created.json()['id']}", headers=headers)
     assert saved.status_code == 200
     assert saved.json()["id"] == body["id"]

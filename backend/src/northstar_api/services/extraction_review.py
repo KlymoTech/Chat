@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from northstar_api.services.extraction_schema import Reading, digest
-from northstar_api.services.extraction_validation import critical_page, review_digest
+from northstar_api.services.extraction_validation import review_digest
 
 
 def apply_review(
@@ -150,12 +150,10 @@ def _apply_review(
             "source_sha256": record["source_sha256"],
             "structure_confirmed": True,
         }
-        primary = page.get("primary_review")
-        if primary and primary["content_sha256"] == after and primary["reviewer"] != reviewer:
-            page["second_review"] = review
-        elif not primary or primary["content_sha256"] != after:
-            page["primary_review"] = review
-        page["requires_second_review"] = critical_page(page)
+        # One reviewer's save completes a page; later edits simply record a newer review.
+        page["primary_review"] = review
+        for legacy in ("second_review", "requires_second_review", "second_review_waived"):
+            page.pop(legacy, None)
         history.append(
             {
                 "kind": "page",

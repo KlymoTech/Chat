@@ -15,6 +15,7 @@
     "api:lint": "uv run --project backend ruff check backend",
     "api:test": "uv run --project backend pytest -c backend/pyproject.toml backend/tests",
     "api:typecheck": "uv run --project backend mypy --config-file backend/pyproject.toml backend/src",
+    "architecture:audit": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainability-audit.ps1",
     "compose:config": "docker compose config --quiet",
     "compose:up": "docker compose up --build -d",
     "compose:down": "docker compose down",

@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   batches: vi.fn<() => Promise<EducationBatch[]>>(),
   sourceScopes: vi.fn<(sourceId: string) => Promise<EducationKnowledgeScope[]>>(),
   setSourceScopes: vi.fn(),
+  approve: vi.fn(),
+  publish: vi.fn(),
 }));
 
 vi.mock('@/lib/education-api', () => ({
@@ -21,10 +23,20 @@ vi.mock('@/lib/education-api', () => ({
   },
 }));
 
+vi.mock('@/lib/education-catalog-api', () => ({
+  educationCatalogApi: {
+    papers: () => Promise.resolve([
+      { id: 'paper-cpa-1', courseId: 'course-cpa', curriculumId: 'curriculum-cpa', code: 'P1', name: 'Paper 1', status: 'active' },
+    ]),
+  },
+}));
+
 vi.mock('@/lib/education-knowledge-api', () => ({
   educationKnowledgeApi: {
     sourceScopes: mocks.sourceScopes,
     setSourceScopes: mocks.setSourceScopes,
+    approve: mocks.approve,
+    publish: mocks.publish,
   },
 }));
 
@@ -77,6 +89,19 @@ describe('EducationKnowledgeScopeManager', () => {
     vi.clearAllMocks();
   });
 
+  it('offers a review-and-publish action for a trained draft mapping', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const draft = { id: 'scope-draft', sourceId: source.id, factId: null, agentId: source.agentId, workspaceId: 'workspace-1', courseId: 'course-cpa', paperId: null, batchId: 'batch-cpa-a', materialType: 'notes', extractionRevision: 1, mappingRevision: 1, approvalStatus: 'draft' as const, createdAt: '', updatedAt: '' };
+    mocks.sourceScopes.mockResolvedValue([draft]);
+    mocks.approve.mockResolvedValue({ ...draft, approvalStatus: 'approved' });
+    mocks.publish.mockResolvedValue({ ...draft, approvalStatus: 'published' });
+    render(<ToastProvider><EducationKnowledgeScopeManager agentId="agent-education" sources={[source]} /></ToastProvider>);
+    await user.click(await screen.findByRole('button', { name: 'Review & publish' }));
+    await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(draft));
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(draft));
+  });
+
   it('marks unscoped Education knowledge as blocked and saves a Course/Batch pair', async () => {
     const user = userEvent.setup();
     render(
@@ -85,23 +110,24 @@ describe('EducationKnowledgeScopeManager', () => {
       </ToastProvider>,
     );
 
-    expect(await screen.findByText('Unscoped · blocked')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Manage scope' }));
+    expect(await screen.findByText('Unassigned · blocked')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Manage mappings' }));
 
     const courseSelect = screen.getByLabelText('Course');
-    const batchSelect = screen.getByLabelText('Batch');
+    const batchSelect = screen.getByLabelText('Audience');
     await user.selectOptions(courseSelect, 'course-cpa');
     expect(screen.getByRole('option', { name: /CPA-A/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /CMA-A/ })).not.toBeInTheDocument();
     await user.selectOptions(batchSelect, 'batch-cpa-a');
-    await user.click(screen.getByRole('button', { name: 'Add pair' }));
-    expect(screen.getByText('CPA · CPA-A')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add assignment' }));
+    expect(screen.getByText('CPA · Overview · CPA-A')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Curriculum')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Save scope' }));
+    await user.click(screen.getByRole('button', { name: 'Save draft mappings' }));
     await waitFor(() => expect(mocks.setSourceScopes).toHaveBeenCalledWith(
       source.id,
       'agent-education',
-      [{ courseId: 'course-cpa', batchId: 'batch-cpa-a' }],
+      [{ courseId: 'course-cpa', paperId: null, batchId: 'batch-cpa-a', materialType: 'notes' }],  // no curriculum: the server resolves it
     ));
     await waitFor(() => expect(screen.queryByText(/Education scope · CPA Handbook/)).not.toBeInTheDocument());
   });
@@ -113,16 +139,59 @@ describe('EducationKnowledgeScopeManager', () => {
         <EducationKnowledgeScopeManager agentId="agent-education" sources={[source]} />
       </ToastProvider>,
     );
-    await screen.findByText('Unscoped · blocked');
-    await user.click(screen.getByRole('button', { name: 'Manage scope' }));
+    await screen.findByText('Unassigned · blocked');
+    await user.click(screen.getByRole('button', { name: 'Manage mappings' }));
 
     for (let index = 0; index < 2; index += 1) {
       await user.selectOptions(screen.getByLabelText('Course'), 'course-cpa');
-      await user.selectOptions(screen.getByLabelText('Batch'), 'batch-cpa-a');
-      await user.click(screen.getByRole('button', { name: 'Add pair' }));
+      await user.selectOptions(screen.getByLabelText('Audience'), 'batch-cpa-a');
+      await user.click(screen.getByRole('button', { name: 'Add assignment' }));
     }
 
     expect(screen.getByRole('alert')).toHaveTextContent('already selected');
     expect(mocks.setSourceScopes).not.toHaveBeenCalled();
+  });
+});
+
+describe('Course mapping waits for completed training', () => {
+  beforeEach(() => {
+    mocks.courses.mockResolvedValue(courses);
+    mocks.batches.mockResolvedValue(batches);
+    mocks.sourceScopes.mockResolvedValue([]);
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it('offers mapping only for trained material', async () => {
+    render(
+      <ToastProvider>
+        <EducationKnowledgeScopeManager agentId="agent-education" sources={[
+          source, { ...source, id: 'source-review', name: 'draft.pdf', status: 'needs_review' }]} />
+      </ToastProvider>,
+    );
+    expect(await screen.findByText('Map after training: finish the extraction review')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Manage mappings' })).toHaveLength(1);
+  });
+});
+
+describe('Course mappings without a curriculum step', () => {
+  beforeEach(() => {
+    mocks.courses.mockResolvedValue(courses);
+    mocks.batches.mockResolvedValue(batches);
+    mocks.sourceScopes.mockResolvedValue([]);
+    mocks.setSourceScopes.mockResolvedValue([]);
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it('lists the course’s papers directly and sends no curriculum', async () => {
+    const user = userEvent.setup();
+    render(<ToastProvider><EducationKnowledgeScopeManager agentId="agent-education" sources={[source]} /></ToastProvider>);
+    await user.click(await screen.findByRole('button', { name: 'Manage mappings' }));
+    await user.selectOptions(screen.getByLabelText('Course'), 'course-cpa');
+    await user.selectOptions(screen.getByLabelText('Paper'), 'paper-cpa-1');
+    await user.click(screen.getByRole('button', { name: 'Add assignment' }));
+    expect(screen.getByText('CPA · P1 · All batches')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save draft mappings' }));
+    await waitFor(() => expect(mocks.setSourceScopes).toHaveBeenCalledWith(source.id, 'agent-education',
+      [{ courseId: 'course-cpa', paperId: 'paper-cpa-1', batchId: null, materialType: 'notes' }]));
   });
 });

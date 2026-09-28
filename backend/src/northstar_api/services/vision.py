@@ -29,7 +29,8 @@ def _client(settings: Settings | None = None) -> ChatNVIDIA:
     return ChatNVIDIA(
         model=VISION_MODEL,
         api_key=settings.nvidia_api_key.get_secret_value(),
-        temperature=1,
+        # Verbatim transcription: sampling noise changes digits and breaks the JSON contract.
+        temperature=0.1,
         top_p=1,
         max_completion_tokens=settings.extraction_vision_max_tokens,
         timeout=settings.extraction_vision_timeout_seconds,
@@ -79,7 +80,32 @@ async def read_evidence(image: bytes, settings: Settings, prompt: str) -> dict[s
     }
 
 
+def _normalize_probe_answer(raw: str) -> str:
+    """Strip markdown emphasis/quoting models commonly wrap short answers in.
+
+    The probe still requires an exact match of the challenge token; this only
+    tolerates formatting (e.g. `**2F59B3D9**`), not a fuzzy/partial match.
+    """
+    return raw.strip().strip("*_`\"' ")
+
+
+PROBE_ATTEMPTS = 3
+
+
 async def verify_image_capability(settings: Settings) -> tuple[dict[str, Any], bytes]:
+    """Retry the probe so one transient network error or misread does not disable vision for a
+    whole document. Each attempt uses a fresh challenge, and every attempt is kept as evidence."""
+    attempts: list[dict[str, Any]] = []
+    for _ in range(PROBE_ATTEMPTS):
+        result, pixels = await _probe_image_capability(settings)
+        attempts.append({k: v for k, v in result.items() if k != "attempts"})
+        if result["status"] == "PASSED":
+            break
+    result["attempts"] = attempts
+    return result, pixels
+
+
+async def _probe_image_capability(settings: Settings) -> tuple[dict[str, Any], bytes]:
     """The answer exists only in the pixels, never in the model instruction."""
     challenge = secrets.token_hex(4).upper()
     image = Image.new("RGB", (640, 160), "white")
@@ -99,7 +125,7 @@ async def verify_image_capability(settings: Settings) -> tuple[dict[str, Any], b
             pixels, settings, "Return only the characters printed in this image, exactly."
         )
         result.update(response)
-        if response.get("finish_reason") == "stop" and response.get("raw", "").strip() == challenge:
+        if response.get("finish_reason") == "stop" and _normalize_probe_answer(response.get("raw", "")) == challenge:
             result["status"] = "PASSED"
     except Exception as exc:
         result["error"] = type(exc).__name__

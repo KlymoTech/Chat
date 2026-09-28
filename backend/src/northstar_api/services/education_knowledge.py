@@ -19,6 +19,7 @@ from northstar_api.education_knowledge_schemas import (
 from northstar_api.education_knowledge_scope import EducationKnowledgeScope
 from northstar_api.education_papers import EducationPaper
 from northstar_api.models import Agent
+from northstar_api.services.education_catalog import ensure_default_curriculum
 
 
 async def require_education_agent(
@@ -72,12 +73,31 @@ async def validate_scope_pairs(
                     detail="Education knowledge scope Batch must belong to the selected Course",
                 )
 
-        curriculum_id = pair.curriculum_id or (batch.curriculum_id if batch else None)
-        if curriculum_id is None:
-            raise HTTPException(
-                status_code=422,
-                detail="Education knowledge scope requires a Curriculum when no Batch is selected",
+        # Curriculum is not chosen in the UI: it follows the selected Paper, else the Batch, else the
+        # Course's active curriculum (every course has one; it is created on first use).
+        curriculum_id = pair.curriculum_id
+        if curriculum_id is None and pair.paper_id is not None:
+            curriculum_id = await session.scalar(
+                select(EducationPaper.curriculum_id).where(
+                    EducationPaper.id == pair.paper_id,
+                    EducationPaper.tenant_id == tenant_id,
+                    EducationPaper.workspace_id == workspace_id,
+                    EducationPaper.course_id == pair.course_id,
+                )
             )
+            if curriculum_id is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Education knowledge scope Paper must belong to the selected Course",
+                )
+        if curriculum_id is None and batch is not None:
+            curriculum_id = batch.curriculum_id
+        if curriculum_id is None:
+            curriculum_id = (
+                await ensure_default_curriculum(
+                    session, tenant_id=tenant_id, workspace_id=workspace_id, course_id=pair.course_id
+                )
+            ).id
         curriculum = await session.scalar(
             select(EducationCurriculum).where(
                 EducationCurriculum.id == curriculum_id,

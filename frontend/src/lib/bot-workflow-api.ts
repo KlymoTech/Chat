@@ -7,7 +7,7 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\
 const SESSION_KEY = 'northstar.session';
 export type WorkflowPurpose = 'support' | 'lead_generation' | 'education';
 export type WorkflowFormat = 'text' | 'buttons' | 'list' | 'table' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'cta_url' | 'flow' | 'product' | 'product_list' | 'catalog' | 'template';
-export type WorkflowTrigger = 'command' | 'contains' | 'condition' | 'fallback';
+export type WorkflowTrigger = 'command' | 'contains' | 'condition' | 'fallback' | 'event';
 export interface WorkflowCondition { field: 'message' | 'channel'; operator: 'equals' | 'contains' | 'not_contains' | 'starts_with'; value: string }
 export type WorkflowRepeatPolicy = 'every_match' | 'once_per_conversation' | 'once_per_24_hours' | 'once_per_calendar_day';
 export interface WorkflowStep { id: string; name: string; triggerType: WorkflowTrigger; triggerValue: string; messageFormat: WorkflowFormat; message: string; buttons: Array<{ id: string; title: string }>; table: { columns: string[]; rows: string[][] } | null; template: { name: string; language: string; preview: string } | null; config: Record<string, unknown>; condition: WorkflowCondition | null; trueStepId: string | null; falseStepId: string | null; nextStepId: string | null; positionX: number; positionY: number; botBehavior: 'complete' | 'wait_for_next_trigger'; waitingMessage: string; waitRepeatCount: number; repeatPolicy: WorkflowRepeatPolicy; maxSends: number | null; cooldownMinutes: number; calendarTimezone: string; enabled: boolean }

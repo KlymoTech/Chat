@@ -37,7 +37,7 @@ class WorkflowCondition(APIModel):
 class BotWorkflowStep(APIModel):
     id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field(min_length=1, max_length=120)
-    trigger_type: Literal["command", "contains", "condition", "fallback"]
+    trigger_type: Literal["command", "contains", "condition", "fallback", "event"]
     trigger_value: str = Field(default="", max_length=240)
     message_format: Literal[
         "text",
@@ -108,6 +108,9 @@ class BotWorkflowSave(APIModel):
             raise ValueError("Workflow step IDs must be unique")
         if sum(step.trigger_type == "fallback" and step.enabled for step in steps) > 1:
             raise ValueError("Only one enabled fallback step is allowed")
+        event_actions = [str(step.config.get("systemAction")) for step in steps if step.enabled and step.trigger_type == "event"]
+        if len(set(event_actions)) != len(event_actions):
+            raise ValueError("Only one enabled message per Education event is allowed")
         return steps
 
     @model_validator(mode="after")
@@ -120,6 +123,14 @@ class BotWorkflowSave(APIModel):
         for step in self.steps:
             if not step.enabled:
                 continue
+            if step.trigger_type == "event":
+                allowed = {"education_selection_confirmed", "education_paper_menu", "education_access_denied", "education_missing_access",
+                    "education_missing_material", "education_web_label", "education_review_notice", "education_retry"}
+                if self.purpose is not AgentPurpose.EDUCATION or step.config.get("systemAction") not in allowed or step.message_format != "text" or not step.message.strip():
+                    raise ValueError(f"{step.name}: choose a supported Education event and enter a text message")
+                continue
+            if self.purpose is AgentPurpose.EDUCATION and step.config.get("systemAction") == "education_course_menu" and step.trigger_type != "command":
+                raise ValueError(f"{step.name}: the verified course menu requires an exact command trigger")
             if step.trigger_type not in {"fallback", "condition"} and not step.trigger_value.strip():
                 raise ValueError(f"{step.name}: command and keyword triggers require a value")
             if step.trigger_type == "condition":

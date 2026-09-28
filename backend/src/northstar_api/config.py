@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     kafka_enabled: bool = False
     background_dispatch_enabled: bool = False
     education_multi_course_enabled: bool = True
+    education_whatsapp_tutor_enabled: bool = True
+    education_approved_faq_enabled: bool = True
 
     s3_endpoint_url: str | None = None
     s3_public_endpoint_url: str | None = None
@@ -59,7 +61,10 @@ class Settings(BaseSettings):
         "meta/llama-3.2-11b-vision-instruct"
     )
     extraction_vision_timeout_seconds: float = Field(default=120, ge=5, le=600)
-    extraction_vision_max_tokens: int = Field(default=512, ge=256, le=32768)
+    extraction_vision_max_tokens: int = Field(default=4096, ge=256, le=32768)
+    extraction_ocr_enabled: bool = True
+    extraction_ocr_language: str = Field(default="eng", pattern=r"^[a-z_]{3,}(\+[a-z_]{3,})*$")
+    extraction_ocr_timeout_seconds: float = Field(default=90, ge=5, le=600)
     extraction_render_dpi: int = Field(default=300, ge=72, le=600)
     extraction_max_image_pixels: int = Field(default=12_000_000, ge=1_000_000, le=40_000_000)
     extraction_max_calls_per_page: int = Field(default=96, ge=4, le=256)

@@ -46,7 +46,30 @@ Development can use deterministic feature-hash embeddings without an API key. Pr
 
 Grounded chat loads up to eight eligible prior messages capped to the last 6,000 characters. With the default masking control, provider keys, emails, credential values, and valid payment-card numbers are redacted before persistence/model use. PostgreSQL retrieval filters by tenant, agent, approval status, and knowledge revision before combining 2,048-dimensional HNSW/cosine `halfvec` and full-text/GIN candidates with reciprocal-rank fusion and an absolute score threshold.
 
+## Document extraction accuracy
+
+Each PDF region is read by up to three independent readers: the PDF text layer, Tesseract OCR (installed in the backend image) and the vision model. A region's text is accepted automatically only when two readers agree; otherwise it gets a draft plus a review issue. Vision is called only where the other two cannot already settle a region (images, charts, scans, disagreements). Tables are rebuilt as cell grids from word positions and checked cell by cell.
+
+Accuracy is measured against a generated gold set (`northstar_api/evaluation/gold.py`: ruled, striped, wide-column and whitespace tables, two columns, a raster chart, multi-page text and scanned copies), with known ground truth:
+
+```bash
+uv run python -m northstar_api.evaluation.benchmark --out report.json          # offline: layout, order, tables, drafts
+uv run python -m northstar_api.evaluation.benchmark --live --out report.json   # also calls the vision model
+```
+
+`tests/test_extraction_benchmark.py` runs the offline benchmark in CI and fails on any false accept or on any drop in CER, reading order or table-cell accuracy. Run it inside the backend image to include OCR and the scanned documents.
+
 For S3-compatible uploads, `S3_ENDPOINT_URL` is the current process's private/download address and `S3_PUBLIC_ENDPOINT_URL` is the browser-visible address used when signing upload forms. Containers use `http://minio:9000` internally; a backend process running directly on the host uses `http://localhost:9000` for both settings. `/uploads/presign` requires SHA-256 of the exact file bytes. Its multipart policy signs the generated staging key, type, declared size/checksum metadata, and content-length range. Source creation pins and reads the staged version, verifies actual size/type/digest, conditionally copies the exact ETag/version to `knowledge/`, verifies the copy, and removes staging before committing the source/job.
+
+## Education WhatsApp tutor rollout
+
+Apply Alembic revision `0070_course_faq_whatsapp_audit` before deploying the API and WhatsApp worker. `EDUCATION_MULTI_COURSE_ENABLED` controls enrolled-course routing; `EDUCATION_WHATSAPP_TUTOR_ENABLED=false` fails closed for Education WhatsApp while staging a rollout; `EDUCATION_APPROVED_FAQ_ENABLED=false` disables the new fast Q&A lookup without changing the published release or audit history.
+
+In Education → Course Knowledge, choose the Education agent and course. Existing trained files can be snapshotted without re-extraction. Review their course/paper/batch mapping and blocks, approve and prepare the index, grant enrollment paper access, then publish an exact release. The older source-mapping badge is not the WhatsApp tutor's release. Use “Start published student chat” with a real enrollment before testing the connected number.
+
+Teachers can save a Q&A draft from a resolved academic review or verified source, approve it, and include it in the next release. Only a matching, current FAQ in that release takes the fast path. The student-facing course menu and fallback copy are editable in the Education bot workflow; backend access checks and blocked topics are not. Staff can download scoped WhatsApp Q&A CSV or JSON from the same Course Knowledge screen. These exports do not train the bot automatically.
+
+Watch the Course Knowledge dashboard for answer-path counts, p50/p95 response time, delivery failures and open reviews. A provider-accepted message is recorded as `submitted`; Meta delivery callbacks advance it to `sent`, `delivered`, `read` or `failed`.
 
 ## Processes
 

@@ -11,6 +11,7 @@ from celery.signals import task_failure  # type: ignore[import-untyped]
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
 from northstar_api.metrics import INGESTION_TASKS
@@ -21,10 +22,12 @@ from northstar_api.models import (
     Conversation,
     ConversationState,
     Message,
+    MessageRole,
     WhatsAppConnection,
     WhatsAppInboundMessage,
     WhatsAppOutboundDelivery,
 )
+from northstar_api.modules.knowledge.grounding import blocked_topic, blocked_topic_refusal
 from northstar_api.modules.knowledge.ingestion import ExtractionYield, ingest_source_async
 from northstar_api.modules.whatsapp.accounts import connection_client
 from northstar_api.modules.whatsapp.graph import (
@@ -60,6 +63,97 @@ def deliverable_whatsapp_answer(answer: str) -> str:
     if not answer.strip() or answer.strip() == FAILED_RESPONSE_PLACEHOLDER:
         raise RuntimeError("Refusing to deliver an incomplete assistant response")
     return answer
+
+
+async def _record_whatsapp_exchange(
+    session,
+    *,
+    agent: Agent,
+    receipt: WhatsAppInboundMessage,
+    answer: str,
+) -> Conversation:
+    """Persist non-model WhatsApp exchanges so they are visible in Conversations."""
+
+    idempotency_key = "wa:" + hashlib.sha256(receipt.provider_message_id.encode()).hexdigest()
+    existing_user = await session.scalar(
+        select(Message).where(
+            Message.tenant_id == receipt.tenant_id,
+            Message.idempotency_key == idempotency_key,
+            Message.role == MessageRole.USER,
+        )
+    )
+    if existing_user is not None:
+        conversation = await session.get(Conversation, existing_user.conversation_id)
+        if conversation is None:
+            raise RuntimeError("WhatsApp message has no conversation")
+        receipt.conversation_id = conversation.id
+        return conversation
+
+    conversation = await session.scalar(
+        select(Conversation)
+        .where(
+            Conversation.tenant_id == receipt.tenant_id,
+            Conversation.workspace_id == receipt.workspace_id,
+            Conversation.agent_id == agent.id,
+            Conversation.channel == Channel.WHATSAPP,
+            Conversation.visitor_id == receipt.sender_wa_id,
+            Conversation.state != ConversationState.RESOLVED,
+        )
+        .order_by(Conversation.updated_at.desc())
+        .limit(1)
+    )
+    if conversation is None:
+        conversation = Conversation(
+            tenant_id=receipt.tenant_id,
+            workspace_id=receipt.workspace_id,
+            agent_id=agent.id,
+            visitor_id=receipt.sender_wa_id,
+            visitor_name=receipt.sender_name or "WhatsApp visitor",
+            channel=Channel.WHATSAPP,
+            knowledge_revision=agent.published_knowledge_revision,
+        )
+        session.add(conversation)
+        await session.flush()
+    elif receipt.sender_name:
+        conversation.visitor_name = receipt.sender_name
+
+    details = dict(conversation.visitor_details or {})
+    details.setdefault("phone", "+" + receipt.sender_wa_id.lstrip("+"))
+    conversation.visitor_details = details
+    conversation.unread_count += 1
+    last_sequence = await session.scalar(
+        select(func.max(Message.sequence)).where(Message.conversation_id == conversation.id)
+    )
+    user_sequence = int(last_sequence or 0) + 1
+    session.add_all(
+        (
+            Message(
+                tenant_id=receipt.tenant_id,
+                workspace_id=receipt.workspace_id,
+                conversation_id=conversation.id,
+                sequence=user_sequence,
+                role=MessageRole.USER,
+                content=receipt.message_text,
+                content_fingerprint=hashlib.sha256(receipt.message_text.encode()).hexdigest(),
+                idempotency_key=idempotency_key,
+                finish_reason="stop",
+            ),
+            Message(
+                tenant_id=receipt.tenant_id,
+                workspace_id=receipt.workspace_id,
+                conversation_id=conversation.id,
+                sequence=user_sequence + 1,
+                role=MessageRole.ASSISTANT,
+                content=answer,
+                content_json={"type": "text", "systemReply": True},
+                completion_tokens=max(1, len(answer.split())),
+                finish_reason="stop",
+            ),
+        )
+    )
+    receipt.conversation_id = conversation.id
+    await session.flush()
+    return conversation
 
 
 @celery_app.task(  # type: ignore[untyped-decorator]
@@ -165,15 +259,32 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                     Agent.deleted_at.is_(None),
                 )
             )
+            education_mode = bool(agent and await get_agent_purpose(
+                session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id,
+                agent_id=agent.id) is AgentPurpose.EDUCATION)
+            if education_mode:
+                from northstar_api.services.course_whatsapp_audit import sync_course_whatsapp_turn
+
+                await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
             if not agent or agent.status != AgentStatus.ACTIVE:
                 receipt.status = "ignored"
                 receipt.last_error = "The assigned bot is not published"
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
+                await session.commit()
+                return
+            if education_mode and not get_settings().education_whatsapp_tutor_enabled:
+                receipt.status = "rejected"
+                receipt.last_error = "Education WhatsApp tutor is disabled for rollout"
+                await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
                 await session.commit()
                 return
             if not token_expiry_is_current(connection.token_expires_at):
                 connection.status = "reconnect_required"
                 receipt.status = "reconnect_required"
                 receipt.last_error = "WhatsApp access token expired"
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
                 await session.commit()
                 return
             customer_message_at = receipt.provider_timestamp or receipt.created_at
@@ -185,6 +296,37 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             ):
                 receipt.status = "rejected"
                 receipt.last_error = "24-hour customer-service window is closed"
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
+                await session.commit()
+                return
+            # This is deliberately ahead of Education enrollment handling,
+            # greetings, workflows, knowledge retrieval, and web fallback.
+            # A WhatsApp customer still receives a short refusal instead of a
+            # transient worker failure caused by the coordinator's 422 guard.
+            if blocked_topic(receipt.message_text, (agent.security or {}).get("blockedTopics", [])):
+                from northstar_api.services.course_whatsapp_audit import sync_course_whatsapp_turn
+                await _record_whatsapp_exchange(
+                    session, agent=agent, receipt=receipt, answer=blocked_topic_refusal()
+                )
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt, answer_path="refusal")
+                await session.commit()
+                provider_client, access_token = await connection_client(session, connection)
+                provider_id = await provider_client.send_text(
+                    access_token,
+                    phone_number_id=connection.phone_number_id,
+                    to=receipt.sender_wa_id,
+                    text=blocked_topic_refusal(),
+                )
+                receipt.outbound_message_ids = [provider_id]
+                receipt.outbound_message_id = provider_id
+                receipt.status = "processed"
+                receipt.processed_at = datetime.now(UTC)
+                receipt.last_error = None
+                connection.last_error = None
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt, answer_path="refusal")
                 await session.commit()
                 return
             conversation = await session.scalar(
@@ -201,25 +343,53 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 .limit(1)
             )
             coordinator = chat_coordinator
-            from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
-
-            education_mode = (
-                await get_agent_purpose(
-                    session, tenant_id=agent.tenant_id, workspace_id=agent.workspace_id, agent_id=agent.id
-                )
-                is AgentPurpose.EDUCATION
-            )
             if education_mode:
                 from northstar_api.lead_crm.channels import CanonicalInboundEvent, CanonicalSender
                 from northstar_api.lead_crm.domain import ChannelProvider
                 from northstar_api.services.course_whatsapp import authorize_whatsapp_study
+                from northstar_api.services.course_whatsapp_audit import sync_course_whatsapp_turn
                 from northstar_api.services.education_chat import education_chat_coordinator
                 from northstar_api.workers.channel_event_consumer import _get_or_create_education_conversation
 
+                # Persist the real inbound text before a course-selection reply
+                # resumes a pending academic question under this receipt.
+                await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
+                await session.commit()
                 decision, menu_handled = await authorize_whatsapp_study(
                     session, agent=agent, receipt=receipt, connection=connection
                 )
                 if menu_handled:
+                    from northstar_api.course_knowledge_dispatch import CourseStudyReceipt
+                    from northstar_api.course_knowledge_models import CourseStudySelection
+
+                    menu_prompt = await session.scalar(
+                        select(CourseStudyReceipt.prompt).where(
+                            CourseStudyReceipt.receipt_id == receipt.id,
+                            CourseStudyReceipt.tenant_id == receipt.tenant_id,
+                            CourseStudyReceipt.workspace_id == receipt.workspace_id,
+                            CourseStudyReceipt.agent_id == agent.id,
+                        )
+                    )
+                    await _record_whatsapp_exchange(
+                        session,
+                        agent=agent,
+                        receipt=receipt,
+                        answer=str(menu_prompt or "Your enrollment request has been received."),
+                    )
+                    from northstar_api.services.course_whatsapp_audit import sync_course_whatsapp_turn
+                    selection = await session.scalar(select(CourseStudySelection).where(
+                        CourseStudySelection.tenant_id == agent.tenant_id,
+                        CourseStudySelection.workspace_id == agent.workspace_id,
+                        CourseStudySelection.agent_id == agent.id,
+                        CourseStudySelection.identity_id == decision.identity_id,
+                    )) if decision.identity_id else None
+                    course_menu_open = bool(selection and selection.menu_open and
+                        selection.interaction_state == "awaiting_course_selection")
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt,
+                        answer_path="refusal" if str(menu_prompt) == blocked_topic_refusal()
+                        else "workflow" if decision.authorized or course_menu_open
+                        else "access_denied")
+                    await session.commit()
                     return
                 event = CanonicalInboundEvent(
                     event_id=receipt.id,
@@ -246,6 +416,8 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
             except EntitlementError as exc:
                 receipt.status = "rejected"
                 receipt.last_error = f"plan entitlement: {exc.code}"[:500]
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
                 await session.commit()
                 logger.info(
                     "whatsapp_plan_entitlement_rejected",
@@ -278,6 +450,10 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 conversation.visitor_details = details
                 conversation.unread_count += 1
                 receipt.conversation_id = prepared.conversation_id
+                await session.commit()
+            if education_mode:
+                from northstar_api.services.course_whatsapp_audit import sync_course_whatsapp_turn
+                await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
                 await session.commit()
 
             provider_client, access_token = await connection_client(session, connection)
@@ -367,12 +543,16 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                 receipt.outbound_message_ids = list(sent_ids)
                 receipt.outbound_message_id = provider_id
                 receipt.conversation_id = prepared.conversation_id
+                if education_mode:
+                    await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
                 await session.commit()
             receipt.status = "processed"
             receipt.processed_at = datetime.now(UTC)
             receipt.conversation_id = prepared.conversation_id
             receipt.last_error = None
             connection.last_error = None
+            if education_mode:
+                await sync_course_whatsapp_turn(session, agent=agent, receipt=receipt)
             await session.commit()
 
     try:
@@ -417,6 +597,11 @@ async def _process_whatsapp_inbound_async(event_id: UUID) -> None:
                     connection.last_error = "Inbound message processing failed"
                     if isinstance(exc, WhatsAppGraphError) and exc.requires_reconnect:
                         connection.status = "reconnect_required"
+                    failed_agent = await session.get(Agent, connection.agent_id)
+                    if (failed_agent and await get_agent_purpose(session, tenant_id=failed_agent.tenant_id,
+                        workspace_id=failed_agent.workspace_id, agent_id=failed_agent.id) is AgentPurpose.EDUCATION):
+                        from northstar_api.services.course_whatsapp_audit import sync_course_whatsapp_turn
+                        await sync_course_whatsapp_turn(session, agent=failed_agent, receipt=receipt)
                 await session.commit()
                 if permanent_graph_error:
                     return

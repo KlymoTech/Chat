@@ -12,6 +12,13 @@ _CRITICAL_WORDS = re.compile(r"\b(?:not|except|least|most|incorrect|never|only)\
 _NUMERIC = re.compile(r"[-+−]?\d+(?:[.,]\d+)*(?:\s*%|\s*[A-Za-z]+)?")
 _TOKENS = re.compile(r"[A-Za-z][A-Za-z0-9']{2,}")
 _STOPWORDS = frozenset("the and for that this with from are was were your you can not use only about what how".split())
+BLOCKED_TOPIC_REFUSAL = "I'm sorry, but I can't help with that request."
+_BOUNDARY_INSTRUCTION = re.compile(
+    r"^(?:(?:do\s+not|don(?:'| )?t|never|must\s+not)\s+)?"
+    r"(?:answer|respond(?:\s+to)?|discuss|help(?:\s+with)?)"
+    r"(?:\s+(?:questions?\s+)?(?:about|on|regarding))?\s+",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,12 +28,28 @@ class GroundingCheck:
 
 
 def blocked_topic(question: str, topics: Iterable[str]) -> str | None:
-    normalized = question.casefold()
+    # Treat line items as phrases, rather than making punctuation or repeated
+    # whitespace an easy way to evade a saved boundary (for example, "legal-\n advice").
+    normalized = " ".join(re.findall(r"\w+", question.casefold()))
     for topic in topics:
-        value = topic.strip().casefold()
+        value = " ".join(re.findall(r"\w+", topic.casefold()))
+        # Permit an administrator to write a natural-language instruction in
+        # the textbox ("Do not answer questions about legal advice") while
+        # keeping the enforced boundary as the actual topic.
+        value = _BOUNDARY_INSTRUCTION.sub("", value, count=1) or value
         if value and value in normalized:
             return topic.strip()
     return None
+
+
+def blocked_topic_refusal() -> str:
+    """A content-free reply for channels which require a customer response.
+
+    Do not repeat the configured phrase here: it could itself be sensitive and
+    would turn a refusal into an echo of the prohibited topic.
+    """
+
+    return BLOCKED_TOPIC_REFUSAL
 
 
 def validate_answer(answer: str, evidence: list[Evidence]) -> GroundingCheck:

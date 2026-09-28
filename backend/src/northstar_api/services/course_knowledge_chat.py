@@ -13,22 +13,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.course_knowledge_models import CourseAcademicReview, CourseResponseContext
-from northstar_api.education_conversation_context import EducationConversationContext
+from northstar_api.education_conversation_context import TEST_MODE_UNPUBLISHED, EducationConversationContext
 from northstar_api.models import Agent, Channel, ConversationState, Message, MessageRole
-from northstar_api.modules.knowledge.grounding import blocked_topic, validate_answer
+from northstar_api.modules.knowledge.grounding import blocked_topic, blocked_topic_refusal, validate_answer
 from northstar_api.modules.knowledge.retrieval import Evidence
-from northstar_api.modules.whatsapp.messages import format_whatsapp_reply
 from northstar_api.schemas import ChatStreamRequest
 from northstar_api.services.bot_workflows import match_bot_workflow
 from northstar_api.services.chat import ChatCoordinator, PreparedChat, ReservedChat, whatsapp_welcome
 from northstar_api.services.course_knowledge import (
     Boundary,
     KnowledgeContext,
+    match_published_faq,
     resolve_context,
     retrieve_course_evidence,
     revalidate_evidence,
 )
 from northstar_api.services.course_knowledge_policy import KnowledgePolicyError
+from northstar_api.services.education_workflow_messages import education_workflow_message
 from northstar_api.services.llm import ModelUnavailableError, runtime_model_profile
 from northstar_api.services.redaction import mask_sensitive_text
 from northstar_api.services.web_fallback import related_web_evidence, selected_web_fallback
@@ -91,7 +92,12 @@ async def validate_course_reply(session: AsyncSession, prepared: PreparedChat, a
     if context.context_fingerprint != row.context_fingerprint:
         raise KnowledgePolicyError("Course access or published material changed before delivery")
     evidence = [Evidence(**item) for item in row.citations]
-    await revalidate_evidence(session, boundary, context, evidence)
+    stored = await session.scalar(select(EducationConversationContext).where(
+        *boundary.filters(EducationConversationContext),
+        EducationConversationContext.conversation_id == prepared.conversation_id,
+    ))
+    await revalidate_evidence(session, boundary, context, evidence,
+                              include_unpublished=bool(stored and stored.test_mode == TEST_MODE_UNPUBLISHED))
 
 
 class CourseKnowledgeChatCoordinator(ChatCoordinator):
@@ -155,6 +161,8 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
             )
         except KnowledgePolicyError as exc:
             raise HTTPException(403, str(exc)) from None
+        # Staff test conversations may include approved material that is not published yet.
+        unpublished = stored.test_mode == TEST_MODE_UNPUBLISHED
         raw_message = request.message.strip()
         blocked = blocked_topic(raw_message, (agent.security or {}).get("blockedTopics", []))
         if blocked:
@@ -209,6 +217,8 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 session, tenant_id=tenant_id, workspace_id=agent.workspace_id,
                 agent_id=agent.id, conversation_id=reserved.conversation_id,
                 message=raw_message, channel=channel.value,
+                allowed_fallback_action="education_daily_welcome", include_waiting=False,
+                commands_only=True,
             )
             workflow_format = workflow_reply.message_format if workflow_reply else None
             daily_welcome = None
@@ -223,11 +233,19 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
             welcome = whatsapp_welcome(agent, raw_message) if channel is Channel.WHATSAPP else None
             evidence: list[Evidence] = []
             fallback_reason = None
+            answer_path = "workflow"
+            faq_match = (await match_published_faq(session, boundary, context, message, agent.language)
+                         if get_settings().education_approved_faq_enabled and not workflow_reply and not welcome and not unpublished else None)
             if workflow_reply:
                 answer = workflow_reply.content
             elif welcome:
                 answer = welcome
+            elif faq_match:
+                answer = faq_match[0].answer
+                evidence = [faq_match[1]]
+                answer_path = "faq"
             else:
+                answer_path = "document"
                 history = await course_history(session, reserved, boundary, context)
                 evidence = await retrieve_course_evidence(
                     session,
@@ -235,6 +253,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                     context,
                     message,
                     model=self.model,
+                    include_unpublished=unpublished,
                     candidate_limit=int((agent.model_profile or {}).get("rerankCandidates", 60)),
                     result_limit=int((agent.model_profile or {}).get("finalContextChunks", 8)),
                 )
@@ -253,20 +272,27 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                         f"[S{i} | {e.title} | source references: {e.metadata.get('source_references', e.metadata.get('source_block_ids', []))}]\n{e.text}"
                         for i, e in enumerate(evidence, 1)
                     )
-                    generated = await self.model.generate_grounded(
-                        instructions=instructions,
-                        question=message,
-                        evidence=evidence_text,
-                        conversation_history=history,
-                        language=agent.language,
-                        tone=agent.tone.value,
-                        model_profile=runtime_profile,
-                        allow_external_evidence=False,
-                    )
-                    answer = generated.content
-                    if not validate_answer(answer, evidence).allowed:
+                    try:
+                        generated = await self.model.generate_grounded(
+                            instructions=instructions,
+                            question=message,
+                            evidence=evidence_text,
+                            conversation_history=history,
+                            language=agent.language,
+                            tone=agent.tone.value,
+                            model_profile=runtime_profile,
+                            allow_external_evidence=False,
+                        )
+                    except ModelUnavailableError:
+                        answer = await education_workflow_message(session, **boundary.values(),
+                            action="education_retry", default="I could not safely complete that answer right now. Please try again shortly.")
+                        answer_path = "retry"
                         evidence = []
-                        fallback_reason = "grounding_validation_failed"
+                    else:
+                        answer = generated.content
+                        if not validate_answer(answer, evidence).allowed:
+                            evidence = []
+                            fallback_reason = "grounding_validation_failed"
                 else:
                     fallback_reason = "no_authorized_published_evidence"
                 if fallback_reason:
@@ -292,33 +318,66 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                         )
                     if external:
                         runtime_profile = await runtime_model_profile(session, agent)
-                        generated = await self.model.generate_grounded(
-                            instructions=instructions,
-                            question=message,
-                            evidence="\n\n".join(
-                                f"[S{i} | {e.title}]\n{e.text}" for i, e in enumerate(external, 1)
-                            ),
-                            conversation_history="",
-                            language=agent.language,
-                            tone=agent.tone.value,
-                            model_profile=runtime_profile,
-                            allow_external_evidence=True,
-                        )
-                        if validate_answer(generated.content, external).allowed:
-                            answer, evidence = generated.content, external
+                        try:
+                            generated = await self.model.generate_grounded(
+                                instructions=instructions,
+                                question=message,
+                                evidence="\n\n".join(
+                                    f"[S{i} | {e.title}]\n{e.text}" for i, e in enumerate(external, 1)
+                                ),
+                                conversation_history="",
+                                language=agent.language,
+                                tone=agent.tone.value,
+                                model_profile=runtime_profile,
+                                allow_external_evidence=True,
+                            )
+                        except ModelUnavailableError:
+                            answer = await education_workflow_message(session, **boundary.values(),
+                                action="education_retry", default="I could not safely complete that answer right now. Please try again shortly.")
+                            answer_path = "retry"
+                            fallback_reason = None
                         else:
-                            answer = "No reliable answer was found in the permitted sources."
-                    elif policy == "public":
-                        runtime_profile = await runtime_model_profile(session, agent)
-                        answer = await self._general_answer(agent, message, "", runtime_profile)
+                            if validate_answer(generated.content, external).allowed:
+                                answer, evidence = generated.content, external
+                                answer_path = "web"
+                                urls = [item.url for item in external if item.url]
+                                if urls:
+                                    answer += "\n\nSources: " + " ".join(urls)
+                            else:
+                                answer = "No reliable answer was found in the permitted sources."
+                                answer_path = "unavailable"
                     else:
-                        answer = "Your institute has not published sufficient authorized material for this question. Please ask your teacher."
-                    answer = f"{context.course_name}: not verified against your published course material. This question has been sent for teacher review.\n\n{answer}"
+                        answer = await education_workflow_message(session, **boundary.values(),
+                            action="education_missing_material",
+                            default="Your institute has not published sufficient authorized material for this question. Please ask your teacher.",
+                            values={"course": context.course_name})
+                        answer_path = "unavailable"
+                    if answer_path == "retry":
+                        label = ""
+                        review_notice = ""
+                    elif answer_path == "web":
+                        label = await education_workflow_message(session, **boundary.values(),
+                            action="education_web_label",
+                            default=f"{context.course_name}: external web information, not verified against your published course material.",
+                            values={"course": context.course_name})
+                    else:
+                        label = f"{context.course_name}: no approved course answer was found."
+                    if answer_path != "retry":
+                        review_notice = await education_workflow_message(session, **boundary.values(),
+                            action="education_review_notice", default="This question has been sent for teacher review.",
+                            values={"course": context.course_name})
+                        answer = f"{label} {review_notice}\n\n{answer}"
             if channel is Channel.WHATSAPP and not workflow_reply:
                 answer = format_whatsapp_reply(agent, answer)
             if daily_welcome:
                 answer = f"{daily_welcome}\n\n📚 *Active course: {context.course_name}*\n\n{answer}"
-            await revalidate_evidence(session, boundary, context, evidence)
+            # A blocked phrase can enter through an approved FAQ, workflow
+            # message, retrieved source, or generated web answer too.
+            if blocked_topic(answer, (agent.security or {}).get("blockedTopics", [])):
+                answer = blocked_topic_refusal()
+                evidence = []
+                answer_path = "refusal"
+            await revalidate_evidence(session, boundary, context, evidence, include_unpublished=unpublished)
             session.add(
                 CourseResponseContext(
                     **boundary.values(),
@@ -326,6 +385,7 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                     enrollment_id=stored.enrollment_id,
                     context_fingerprint=context.context_fingerprint,
                     citations=[asdict(e) for e in evidence],
+                    answer_path=answer_path,
                 )
             )
             if fallback_reason:

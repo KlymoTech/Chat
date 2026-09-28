@@ -20,15 +20,18 @@ from PIL import Image, ImageOps, ImageSequence
 from pypdf import PdfReader
 
 from northstar_api.config import Settings
+from northstar_api.services.extraction_ocr import ocr_page
+from northstar_api.services.extraction_reconcile import needs_vision, reconcile_block
 from northstar_api.services.extraction_regions import (
     PROMPT_VERSION,
+    native_layout,
+    ocr_layout,
     read_page,
     recover_disputes,
     region_artifacts,
 )
 from northstar_api.services.extraction_schema import digest
 from northstar_api.services.extraction_validation import (
-    critical_page,
     disagreement,
     metrics,
     same_text,
@@ -463,8 +466,19 @@ def native_pdf(page: Any, scale: float) -> dict[str, Any]:
                     "image_sha256": hashlib.sha256(value.get("image", b"")).hexdigest(),
                 }
             )
+    styled_spans = [
+        (fitz.Rect(span["bbox"]), int(span.get("flags", 0)), str(span.get("font", "")))
+        for block in blocks if block["type"] == "text" for span in block["spans"] if span.get("text", "").strip()
+    ]
     for word in page.get_text("words"):
-        words.append({"bbox_px": box(word[:4]), "text": word[4], "line": [word[5], word[6]]})
+        entry: dict[str, Any] = {"bbox_px": box(word[:4]), "text": word[4], "line": [word[5], word[6]]}
+        # Carry the span's weight and slant onto the word, so the editor can show mixed bold/italic.
+        center = fitz.Point((word[0] + word[2]) / 2, (word[1] + word[3]) / 2)
+        span = next(((flags, font) for rect, flags, font in styled_spans if rect.contains(center)), None)
+        if span:
+            entry["bold"] = bool(span[0] & 16) or "bold" in span[1].lower()
+            entry["italic"] = bool(span[0] & 2) or "italic" in span[1].lower()
+        words.append(entry)
     tables = []
     try:
         for table in page.find_tables().tables:
@@ -481,6 +495,11 @@ def native_pdf(page: Any, scale: float) -> dict[str, Any]:
         table_error = None
     except Exception as exc:
         table_error = type(exc).__name__
+    try:
+        # Vector diagrams (lines, shapes) have no image block; cluster them into figure regions.
+        drawings = [box(rect) for rect in page.cluster_drawings()]
+    except Exception:
+        drawings = []
     annotations = [{"type": a.type, "rect": list(a.rect), "info": a.info} for a in page.annots() or []]
     widgets = [
         {"name": w.field_name, "value": w.field_value, "rect": list(w.rect)} for w in page.widgets() or []
@@ -489,6 +508,7 @@ def native_pdf(page: Any, scale: float) -> dict[str, Any]:
         "native_blocks": blocks,
         "native_words": words,
         "native_tables": tables,
+        "native_drawings": drawings,
         "native_table_error": table_error,
         "annotations": annotations,
         "form_fields": widgets,
@@ -621,20 +641,50 @@ async def extract_document(
                 record["vision_capability"] = probe
                 artifacts["capability/image.png"] = pixels
                 artifacts["capability/result.json"] = json.dumps(probe, sort_keys=True).encode()
+            region_problems: list[dict[str, Any]] = []
             if quality["vision_required"]:
+                ocr = await ocr_page(image, settings)
+                page["ocr"] = {key: value for key, value in ocr.items() if key != "words"}
+                page["ocr_words"] = ocr["words"]
+                if ocr["status"] == "unavailable":
+                    issue(number, "OCR_UNAVAILABLE", "OCR could not run; regions are checked against two readers only")
                 page["vision_capability"] = record["vision_capability"]
-                if record["vision_capability"]["status"] == "PASSED":
-                    visual = await read_page(image, number, settings)
+                # Where to look: the PDF's own layout, else OCR paragraphs (scans), else the model.
+                if page.get("native_words"):
+                    layout, layout_source = native_layout(page, width, height), "native_layout"
+                elif page["ocr_words"]:
+                    layout, layout_source = ocr_layout(page, width, height), "ocr_layout"
+                else:
+                    layout, layout_source = None, "visual_inventory"
+                vision_ready = record["vision_capability"]["status"] == "PASSED"
+                if vision_ready or layout:
+                    visual = await read_page(image, number, settings, layout, layout_source=layout_source,
+                                             use_vision=vision_ready,
+                                             vision_for=lambda box: needs_vision(page, box))
+                    if not vision_ready:
+                        # The text layer and OCR can still settle regions 2 of 2; nothing is lost.
+                        visual["problems"].append({"code": "VISION_MODEL_UNAVAILABLE", "technical": False,
+                                                   "message": "The vision model was unavailable; regions were checked "
+                                                              "with the PDF text layer and OCR only"})
                 else:
                     visual = {
                         "blocks": [], "vision_attempts": [], "visual_text": "", "inventory_complete": False,
                         "problems": [{"code": "VISION_CAPABILITY_FAILED", "message": "NVIDIA image-content capability probe failed", "technical": True}],
                     }
-                for problem in visual.pop("problems"):
-                    issue(number, **problem)
+                # Region problems are issued after the three-reader comparison below, which can
+                # settle a failed vision reading when the text layer and OCR agree exactly.
+                region_problems = visual.pop("problems")
                 page.update(visual)
                 if page.get("visual_text"):
                     page["quality"]["method"] = "native_text_plus_vision"
+            elif page.get("native_words"):
+                # A clean text layer needs no vision or review, but it still gets regions, so the
+                # editor shows the page's real structure (headings, tables with cells, styles).
+                visual = await read_page(image, number, settings, native_layout(page, width, height),
+                                         use_vision=False)
+                region_problems = visual.pop("problems")
+                page.update(visual)
+                page["text_layer_trusted"] = True
             for reason in quality["reasons"]:
                 issue(number, "LOW_EXTRACTION_QUALITY", f"Page quality signal: {reason}")
             page["coordinate_system"] = "rendered_image_pixels_top_left"
@@ -648,6 +698,7 @@ async def extract_document(
                 }
             )
             leaves = [b for b in page["blocks"] if b["status"] != "split"]
+            settled: set[str] = set()
             for block in page['blocks']:
                 if page.get('source_unit') == 'word_rendered_page':
                     block['source_page_number'] = None
@@ -656,42 +707,61 @@ async def extract_document(
                 block["transform_id"] = page["transform_id"]
                 if block['status'] == 'split':
                     continue
-                selected_words = [
-                    w for w in page.get("native_words", []) if inside(w["bbox_px"], block["bbox_px"])
-                ]
-                block["native_text"] = " ".join(w["text"] for w in selected_words)
-                reading = block.get("visual")
-                if reading:
-                    block["original_printed_label"] = reading.get("printed_label")
-                    for cell in reading.get("cells", []):
-                        cell["cell_id"] = f"{block['id']}-R{cell['row']}C{cell['column']}"
-                    block["agreement"] = bool(block["native_text"]) and same_text(
-                        block["native_text"], reading["text"]
-                    )
-                    if block["agreement"]:
-                        block["selected_text"] = reading["text"]
-                    elif block["native_text"]:
-                        issue(
-                            number,
-                            disagreement(block["native_text"], reading["text"]),
-                            "Native and visual region candidates differ",
-                            block["id"],
-                        )
-                block["requires_second_review"] = block["type"] in {
-                    "table",
-                    "equation",
-                    "question",
-                    "answer_key",
-                }
+                if await reconcile_block(block, page, image, settings, issue, trusted_text_layer=bool(page.get("text_layer_trusted"))):
+                    settled.add(block["id"])
+            children: dict[str, list[dict[str, Any]]] = {}
+            for block in page["blocks"]:
+                if block.get("parent_id"):
+                    children.setdefault(block["parent_id"], []).append(block)
+
+            def settled_from_text_layer(block_id: str) -> bool:
+                """Every leaf under a split region is settled and anchored to text-layer words."""
+                kids = children.get(block_id, [])
+                return bool(kids) and all(
+                    settled_from_text_layer(k["id"]) if k["status"] == "split"
+                    else k.get("selected_text") is not None and (bool(k.get("native_text")) or k["selected_text"] == "")
+                    for k in kids
+                )
+
+            for problem in region_problems:
+                if problem["code"] == "VISION_UNAVAILABLE" and problem.get("block_id") in settled:
+                    continue
+                # Words are assigned to exactly one piece by position, so when every piece is settled
+                # from the text layer nothing can be lost or duplicated at the crop boundaries.
+                if problem["code"] == "SPLIT_BOUNDARY_REVIEW" and settled_from_text_layer(problem.get("block_id") or ""):
+                    continue
+                issue(number, **problem)
             if page["requires_image"]:
-                for native_block in page.get("native_blocks", []):
-                    if not any(inside(native_block["bbox_px"], b["bbox_px"]) for b in leaves):
-                        issue(
-                            number,
-                            "NATIVE_REGION_UNACCOUNTED",
-                            f"Native object {native_block['id']} is absent from the visual inventory",
-                        )
-            if page.get("visual_text") and native and not same_text(native, page["visual_text"]):
+                def accounted(native_block: dict[str, Any]) -> bool:
+                    # Every word must sit in some region; a block split into side-by-side parts
+                    # has its centre in the gap, so the block's own centre is not a fair test.
+                    words = [w for w in page.get("native_words", []) if inside(w["bbox_px"], native_block["bbox_px"])]
+                    boxes = [native_block["bbox_px"]] if not words else [w["bbox_px"] for w in words]
+                    return all(any(inside(box, b["bbox_px"]) for b in leaves) for box in boxes)
+
+                missing = [native_block["id"] for native_block in page.get("native_blocks", []) if not accounted(native_block)]
+                if missing:
+                    # One reviewable issue per page, not one per text block.
+                    shown = ", ".join(missing[:8]) + (f" and {len(missing) - 8} more" if len(missing) > 8 else "")
+                    issue(
+                        number,
+                        "NATIVE_REGION_UNACCOUNTED",
+                        f"{len(missing)} native object{'s' if len(missing) != 1 else ''} "
+                        f"absent from the visual inventory: {shown}",
+                    )
+            # Region-level comparison already covers every text-layer region (settled, or raised as its
+            # own issue with a text-layer draft), so the whole-page diff would only repeat it.
+            reconciled = bool(leaves) and all(
+                b.get("selected_text") is not None or b.get("proposed_structure") is not None
+                for b in leaves
+                if b.get("native_text")
+            )
+            if (
+                not reconciled
+                and page.get("visual_text")
+                and native
+                and not same_text(native, page["visual_text"])
+            ):
                 issue(
                     number,
                     disagreement(native, page["visual_text"]),
@@ -737,7 +807,6 @@ async def extract_document(
                 page["selected_text"] = "\n".join(b["selected_text"] for b in leaves)
             elif page.get("blank") and not native:
                 page["selected_text"] = ""
-            page["requires_second_review"] = critical_page(page) and page["requires_review"]
             disputed = {
                 i["block_id"] for i in issues[start:] if i.get("block_id") and "CONFLICT" in i["code"]
             }
@@ -983,9 +1052,11 @@ async def extract_document(
             for name in ("native_extract", "render", "visual_inventory", "region_reading", "reconcile")
         ]
     )
-    record["review_status"] = (
-        "needs_review" if any(page.get("requires_review") for page in pages) else "verified_release"
-    )
+    # A locked source has no pages to review; keep its password state visible.
+    if record.get("review_status") != "needs_password":
+        record["review_status"] = (
+            "needs_review" if any(page.get("requires_review") for page in pages) else "verified_release"
+        )
     record["stages"].append({"stage": "human_review", "status": "pending" if record["review_status"] == "needs_review" else "not_required"})
     package = ExtractionPackage(record, artifacts)
     package.refresh()

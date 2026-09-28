@@ -43,8 +43,8 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
   </label>;
 }
 
-interface ModalProps { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg'; closeDisabled?: boolean }
-export function Modal({ open, onClose, title, description, children, footer, size = 'md', closeDisabled = false }: ModalProps) {
+interface ModalProps { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg' | 'xl'; closeDisabled?: boolean; bodyClassName?: string }
+export function Modal({ open, onClose, title, description, children, footer, size = 'md', closeDisabled = false, bodyClassName = '' }: ModalProps) {
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -79,7 +79,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !closeDisabled) onClose(); }}>
     <div ref={dialogRef} tabIndex={-1} className={`modal modal--${size}`} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined}>
       <div className="modal__header"><div><h2 id={titleId}>{title}</h2>{description ? <p id={descriptionId}>{description}</p> : null}</div><button className="icon-button" onClick={onClose} aria-label="Close dialog" disabled={closeDisabled}><X /></button></div>
-      <div className="modal__body">{children}</div>{footer ? <div className="modal__footer">{footer}</div> : null}
+      <div className={`modal__body ${bodyClassName}`.trim()}>{children}</div>{footer ? <div className="modal__footer">{footer}</div> : null}
     </div>
   </div>;
 }

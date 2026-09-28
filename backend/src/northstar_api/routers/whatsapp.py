@@ -12,7 +12,8 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import select, text
+from sqlalchemy import String, or_, select, text
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -398,6 +399,29 @@ async def receive_delivery_statuses(
                         await session.flush()
                 except IntegrityError:
                     pass
+                # Keep the Education Q&A audit in sync with Meta's eventual
+                # delivery evidence, without making the webhook depend on it.
+                from northstar_api.course_knowledge_models import CourseWhatsappTurn
+                inbound_candidates = (await session.scalars(select(WhatsAppInboundMessage).where(
+                    WhatsAppInboundMessage.tenant_id == connection.tenant_id,
+                    WhatsAppInboundMessage.workspace_id == connection.workspace_id,
+                    WhatsAppInboundMessage.connection_id == connection.id,
+                    or_(WhatsAppInboundMessage.outbound_message_id == provider_id,
+                        sql_cast(WhatsAppInboundMessage.outbound_message_ids, String).contains(provider_id)),
+                ))).all()
+                inbound = next((row for row in inbound_candidates
+                    if provider_id in (row.outbound_message_ids or [row.outbound_message_id])), None)
+                if inbound is not None:
+                    turn = await session.scalar(select(CourseWhatsappTurn).where(
+                        CourseWhatsappTurn.receipt_id == inbound.id,
+                        CourseWhatsappTurn.tenant_id == connection.tenant_id,
+                        CourseWhatsappTurn.workspace_id == connection.workspace_id,
+                    ))
+                    if turn is not None:
+                        order = {"pending": 0, "queued": 0, "submitted": 0, "sent": 1, "delivered": 2, "read": 3, "failed": 4}
+                        if order.get(status, 0) >= order.get(turn.delivery_status, 0):
+                            turn.delivery_status = status
+                            turn.error = str(code)[:40] if status == "failed" and code is not None else turn.error
                 await session.commit()
 
 

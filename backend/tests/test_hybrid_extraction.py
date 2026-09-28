@@ -11,20 +11,23 @@ from unittest.mock import AsyncMock
 import fitz
 import pytest
 from docx import Document
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from northstar_api.config import Settings
+from northstar_api.services import extraction_reconcile as reconcile
 from northstar_api.services import extraction_regions as regions
 from northstar_api.services import hybrid_extraction as hybrid
 from northstar_api.services.extraction_review import apply_review
-from northstar_api.services.extraction_schema import Reading
+from northstar_api.services.extraction_schema import Reading, parse_response
 from northstar_api.services.extraction_validation import table_errors
 from northstar_api.services.extraction_word import inspect_word
 
 
 @pytest.fixture
 def settings():
-    return Settings(_env_file=None, extraction_render_dpi=72, extraction_region_retries=3)
+    return Settings(
+        _env_file=None, extraction_render_dpi=72, extraction_region_retries=3, extraction_ocr_enabled=False
+    )
 
 
 @pytest.fixture
@@ -95,23 +98,32 @@ def resolutions(record):
     ]
 
 
-async def test_independent_reading_and_two_reviewers(reader, settings):
+async def test_one_review_releases_the_page(reader, settings):
     package = await hybrid.extract_document(pdf_bytes(), "source.pdf", settings)
     assert package.record["pages"][0]["selected_text"] == "Value -12.50"
     assert all("Value -12.50" not in call.args[2] for call in reader.call_args_list)
-    assert not package.record["release_eligible"]
+    assert not package.record["release_eligible"]  # a person still checks the page once
     apply_review(package.record, submissions(package.record), resolutions(package.record), "alice")
     package.refresh()
-    assert not package.record["release_eligible"]
-    apply_review(package.record, submissions(package.record), [], "alice")
-    package.refresh()
-    assert not package.record["release_eligible"]
-    apply_review(package.record, submissions(package.record), [], "bob")
-    package.refresh()
     assert package.record["release_eligible"], package.record["checks"]
+    assert "second_review" not in package.record["pages"][0]
+    # Text changed after the review no longer matches what was reviewed: release is blocked.
     package.record["pages"][0]["blocks"][0]["selected_text"] = "Value 12.50"
     package.refresh()
     assert not package.record["release_eligible"]
+
+
+async def test_one_review_releases_a_page_the_reviewer_decided(reader, settings):
+    reader.side_effect = None
+    reader.return_value = {"raw": json.dumps({"kind": "paragraph", "text": "Value 12.50", "complete": True}),
+                           "finish_reason": "stop"}  # vision disagrees; the reviewer decides
+    package = await hybrid.extract_document(pdf_bytes(), "source.pdf", settings)
+    review = submissions(package.record)
+    review[0]["blocks"][0]["selected_text"] = review[0]["blocks"][0]["structure"]["text"] = "Value -12.50"
+    review[0]["selected_text"] = "Value -12.50"
+    apply_review(package.record, review, resolutions(package.record), "alice")
+    package.refresh()
+    assert package.record["release_eligible"], package.record["checks"]
 
 
 async def test_review_is_atomic(reader, settings):
@@ -205,14 +217,79 @@ async def test_content_mutations_block(reader, settings, mutation, expected):
     assert not package.record["release_eligible"]
 
 
+def png_bytes(text="Value -12.50"):
+    image = Image.new("RGB", (400, 300), "white")
+    ImageDraw.Draw(image).text((30, 40), text, fill="black")
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
 async def test_bounded_truncation_keeps_raw_output(reader, settings):
     reader.side_effect = None
     reader.return_value = {"raw": '{"regions":[', "finish_reason": "length"}
-    package = await hybrid.extract_document(pdf_bytes(), "source.pdf", settings)
-    assert reader.await_count <= 1 + settings.extraction_region_retries
-    assert any(i["code"] == "VISUAL_INVENTORY_FAILED" for i in package.issues)
+    package = await hybrid.extract_document(png_bytes(), "source.png", settings)
+    # One inventory attempt, then the whole-page reading and its bounded split recovery.
+    assert reader.await_count <= 2 + settings.extraction_region_retries
+    assert any(i["code"] == "VISION_UNAVAILABLE" and i["technical"] for i in package.issues)
     assert package.record["pages"][0]["vision_attempts"][0]["raw"] == '{"regions":['
     assert package.archive()
+
+
+async def test_image_without_layout_falls_back_to_whole_page_reading(reader, settings):
+    async def read(image, settings, prompt):
+        if prompt == regions.INVENTORY_PROMPT:
+            return {"raw": "The image presents an overview of the page.", "finish_reason": "stop"}
+        return {"raw": json.dumps({"kind": "paragraph", "text": "Value -12.50", "complete": True}), "finish_reason": "stop"}
+
+    reader.side_effect = read
+    package = await hybrid.extract_document(png_bytes(), "source.png", settings)
+    page = package.record["pages"][0]
+    codes = [i["code"] for i in package.issues]
+    assert reader.await_count == 2  # one inventory attempt, no recursive split, one page reading
+    assert "VISUAL_INVENTORY_FAILED" not in codes
+    assert codes.count("LAYOUT_FALLBACK_WHOLE_PAGE") == 1
+    assert not any(i["technical"] for i in package.issues if i["code"] == "LAYOUT_FALLBACK_WHOLE_PAGE")
+    assert page["inventory_source"] == "whole_page_fallback" and page["inventory_complete"]
+    assert [b["visual"]["text"] for b in page["blocks"]] == ["Value -12.50"]
+
+
+async def test_pdf_regions_come_from_native_layout(reader, settings):
+    package = await hybrid.extract_document(pdf_bytes(), "source.pdf", settings)
+    page = package.record["pages"][0]
+    prompts = [call.args[2] for call in reader.await_args_list]
+    assert regions.INVENTORY_PROMPT not in prompts
+    assert page["inventory_source"] == "native_layout" and page["inventory_complete"]
+    assert page["blocks"] and all(b["visual"] for b in page["blocks"])
+    assert "NATIVE_REGION_UNACCOUNTED" not in {i["code"] for i in package.issues}
+
+
+def test_native_layout_absorbs_labels_into_figures_and_bounds_region_count():
+    page = {
+        "native_blocks": [{"id": f"N{i:04d}", "type": "text", "text": f"line {i}", "bbox_px": [10, 10 + i * 12, 300, 20 + i * 12]} for i in range(60)]
+        + [{"id": "N9998", "type": "text", "text": "Pump P-03", "bbox_px": [420, 820, 480, 840]}],
+        "native_tables": [],
+        "native_drawings": [[400, 800, 900, 1000], [0, 0, 1000, 1000], [100, 500, 102, 900]],
+    }
+    layout = regions.native_layout(page, 1000, 1100)
+    kinds = [kind for kind, _ in layout]
+    assert len(layout) <= regions.MAX_LAYOUT_REGIONS
+    assert kinds.count("figure") == 1  # full-page background and hairline are ignored
+    figure = next(box for kind, box in layout if kind == "figure")
+    assert figure[0] <= 420 and figure[2] >= 480  # the diagram label is inside the figure crop
+    assert not any(kind == "paragraph" and box[1] >= 800 for kind, box in layout)
+
+
+def test_parse_response_accepts_json_wrapped_in_prose():
+    raw = 'Here is the transcription:\n{"kind":"paragraph","text":"Value -12.50","complete":true}\nHope this helps.'
+    assert parse_response(raw, Reading).text == "Value -12.50"
+
+
+def test_parse_response_still_rejects_prose_and_invalid_schema():
+    with pytest.raises(ValueError):
+        parse_response("The image presents a comprehensive overview.", Reading)
+    with pytest.raises(ValueError):
+        parse_response('Sure: {"kind":"paragraph","text":"x","complete":true,"invented":1}', Reading)
 
 
 async def test_failed_capability_prevents_document_calls(reader, settings, monkeypatch):
@@ -222,7 +299,21 @@ async def test_failed_capability_prevents_document_calls(reader, settings, monke
     monkeypatch.setattr(hybrid, "verify_image_capability", failed)
     package = await hybrid.extract_document(pdf_bytes(), "source.pdf", settings)
     reader.assert_not_awaited()
-    assert any(i["code"] == "VISION_CAPABILITY_FAILED" for i in package.issues)
+    # The text layer still yields reviewable regions; the outage is recorded, not a blocker.
+    unavailable = next(i for i in package.issues if i["code"] == "VISION_MODEL_UNAVAILABLE")
+    assert not unavailable["technical"]
+    leaves = [b for b in package.record["pages"][0]["blocks"] if b["status"] != "split"]
+    assert leaves and all(b["proposed_structure"]["text"] for b in leaves)
+
+
+async def test_failed_capability_with_nothing_else_to_read_blocks_release(reader, settings, monkeypatch):
+    async def failed(_):
+        return {"status": "FAILED"}, b"probe"
+
+    monkeypatch.setattr(hybrid, "verify_image_capability", failed)
+    package = await hybrid.extract_document(png_bytes(), "scan.png", settings)  # no text layer, OCR off
+    reader.assert_not_awaited()
+    assert any(i["code"] == "VISION_CAPABILITY_FAILED" and i["technical"] for i in package.issues)
 
 
 async def test_checkpoint_resume_preserves_completed_pages(reader, settings):
@@ -456,7 +547,8 @@ async def test_background_batches_resume_without_rereading(reader, settings, mon
     session = SimpleNamespace(scalar=AsyncMock(side_effect=[source, job]), commit=AsyncMock())
     await ingestion.ingest_source_async(session, source.id)
     assert source.status == KnowledgeStatus.NEEDS_REVIEW
-    assert len(archives) == 1 and reader.await_count == 6
+    # One region reading per page: PDF regions come from the native layout, not a vision inventory call.
+    assert len(archives) == 1 and reader.await_count == 3
     restored = hybrid.ExtractionPackage.from_archive(archives[0], source_sha256=source.checksum, revision=1)
     assert len(restored.record["pages"]) == 3
     assert not restored.record["release_eligible"]
@@ -499,3 +591,281 @@ async def test_encrypted_pdf_has_password_state_and_draft(settings):
     assert package.record['review_status'] == 'needs_password'
     assert package.issues[0]['code'] == 'NEEDS_PASSWORD'
     assert package.archive()
+
+
+async def test_capability_probe_retries_transient_failures(monkeypatch, settings):
+    from northstar_api.services import vision
+
+    monkeypatch.setattr(vision.secrets, "token_hex", lambda n: "2f59b3d9")
+    responses = iter([TimeoutError(), {"raw": "2F59B3D9", "finish_reason": "stop"}])
+
+    async def read(*args):
+        value = next(responses)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    monkeypatch.setattr(vision, "read_evidence", read)
+    result, _ = await vision.verify_image_capability(settings)
+    assert result["status"] == "PASSED"
+    assert [a["status"] for a in result["attempts"]] == ["FAILED", "PASSED"]
+    assert result["attempts"][0]["error"] == "TimeoutError"
+
+
+async def test_unreadable_page_reports_missing_native_regions_once(reader, settings, monkeypatch):
+    # A layout that only covers the first line leaves the other five text blocks unaccounted for.
+    monkeypatch.setattr(hybrid, "native_layout", lambda page, width, height: [("paragraph", [20, 15, 380, 40])])
+    quality = hybrid.native_page_quality
+    monkeypatch.setattr(
+        hybrid, "native_page_quality",
+        lambda native, details: {**quality(native, details), "reasons": ["forced"], "vision_required": True, "review_required": True},
+    )
+    with fitz.open() as pdf:
+        page = pdf.new_page(width=400, height=300)
+        for row in range(6):
+            page.insert_text((30, 30 + row * 40), f"Paragraph {row} -12.50")
+        raw = pdf.tobytes()
+    package = await hybrid.extract_document(raw, "source.pdf", settings)
+    unaccounted = [i for i in package.issues if i["code"] == "NATIVE_REGION_UNACCOUNTED"]
+    assert len(unaccounted) == 1
+    assert unaccounted[0]["message"].startswith("5 native objects absent")
+
+
+def test_native_layout_joins_striped_table_rows_into_one_region():
+    rows = [[40, 200 + r * 30, 960, 220 + r * 30] for r in range(5)]
+    page = {
+        "native_blocks": [{"id": f"N{r:04d}", "type": "text", "text": f"row {r}", "bbox_px": box} for r, box in enumerate(rows)],
+        "native_tables": [],
+        # Only the shaded rows are drawn; the white middle row splits the clusters.
+        "native_drawings": [[30, 195, 970, 255], [30, 285, 970, 345]],
+    }
+    layout = regions.native_layout(page, 1000, 1000)
+    assert [kind for kind, _ in layout] == ["unknown"]  # a text-filled drawing is read as text, not a figure
+    assert layout[0][1][1] <= 195 and layout[0][1][3] >= 345
+
+
+def ocr_from_pdf(raw, replace=None):
+    """OCR stand-in: the PDF's own words at their rendered positions (72 dpi => scale 1)."""
+    with fitz.open(stream=raw, filetype="pdf") as pdf:
+        words = pdf[0].get_text("words")
+    replace = replace or {}
+    return {
+        "engine": "tesseract", "version": "test", "status": "complete",
+        "words": [
+            {"text": replace.get(w[4], w[4]), "bbox_px": [round(v) for v in w[:4]], "confidence": 96.0,
+             "line": [w[5], 0, w[6]], "order": i}
+            for i, w in enumerate(words)
+        ],
+    }
+
+
+def vision_reads(text, *, fail=False):
+    async def read(image, settings, prompt):
+        if fail:
+            return {"raw": "The image shows a number.", "finish_reason": "stop"}
+        return {"raw": json.dumps({"kind": "paragraph", "text": text, "complete": True}), "finish_reason": "stop"}
+    return read
+
+
+@pytest.fixture
+def ocr_settings(settings):
+    return settings.model_copy(update={"extraction_ocr_enabled": True})
+
+
+async def test_text_layer_and_ocr_outvote_a_vision_misread(reader, ocr_settings, monkeypatch):
+    raw = pdf_bytes("Value -12.50")
+
+    async def ocr(image, settings):
+        return ocr_from_pdf(raw)
+
+    monkeypatch.setattr(hybrid, "ocr_page", ocr)
+    reader.side_effect = vision_reads("Value 12.50")  # vision drops the minus sign
+    package = await hybrid.extract_document(raw, "source.pdf", ocr_settings)
+    block = package.record["pages"][0]["blocks"][0]
+    assert block["consensus"] == "native_ocr"
+    assert block["selected_text"] == "Value -12.50"
+    assert block["proposed_structure"]["text"] == "Value -12.50"
+    assert block["ocr_text"] == "Value -12.50" and block["audit_notes"]
+    assert "NUMERIC_CONFLICT" not in {i["code"] for i in package.issues}
+
+
+async def test_text_layer_and_ocr_settle_a_failed_vision_reading(reader, ocr_settings, monkeypatch):
+    raw = pdf_bytes("Value -12.50")
+
+    async def ocr(image, settings):
+        return ocr_from_pdf(raw)
+
+    monkeypatch.setattr(hybrid, "ocr_page", ocr)
+    reader.side_effect = vision_reads("", fail=True)
+    package = await hybrid.extract_document(raw, "source.pdf", ocr_settings)
+    leaves = [b for b in package.record["pages"][0]["blocks"] if b["status"] != "split"]
+    settled = [b for b in leaves if b.get("consensus") == "native_ocr" and b.get("native_text")]
+    assert settled and all(b["selected_text"] for b in settled)
+    settled_ids = {b["id"] for b in settled}
+    assert not any(
+        i["code"] == "VISION_UNAVAILABLE" and i.get("block_id") in settled_ids for i in package.issues
+    )
+
+
+async def test_three_way_disagreement_stays_a_review_issue(reader, ocr_settings, monkeypatch):
+    raw = pdf_bytes("Value -12.50")
+
+    async def ocr(image, settings):
+        return ocr_from_pdf(raw, replace={"-12.50": "-12.80"})
+
+    monkeypatch.setattr(hybrid, "ocr_page", ocr)
+    reader.side_effect = vision_reads("Value 12.50")
+    package = await hybrid.extract_document(raw, "source.pdf", ocr_settings)
+    block = package.record["pages"][0]["blocks"][0]
+    assert block.get("selected_text") is None and "consensus" not in block
+    assert block["proposed_structure"]["text"] == "Value -12.50"  # draft is the text layer, still undecided
+    conflict = next(i for i in package.issues if i["code"] == "NUMERIC_CONFLICT")
+    assert conflict["message"] == "PDF text, OCR and vision readings differ"
+
+
+async def test_unavailable_ocr_is_reported_without_blocking(reader, ocr_settings, monkeypatch):
+    async def ocr(image, settings):
+        return {"engine": "tesseract", "status": "unavailable", "error": "TesseractNotFoundError", "words": []}
+
+    monkeypatch.setattr(hybrid, "ocr_page", ocr)
+    package = await hybrid.extract_document(pdf_bytes(), "source.pdf", ocr_settings)
+    issue = next(i for i in package.issues if i["code"] == "OCR_UNAVAILABLE")
+    assert not issue["technical"]
+    assert package.record["pages"][0]["blocks"][0]["consensus"] == "native_vision"
+
+
+async def test_figures_get_a_separate_model_description(reader, settings):
+    async def read(image, settings, prompt):
+        if prompt == regions.DESCRIPTION_PROMPT:
+            return {"raw": "A tank feeds a filter, then a pump, which supplies three zones.", "finish_reason": "stop"}
+        return {"raw": json.dumps({"kind": "figure", "text": "Tank T-01", "complete": True, "figure_labels": ["Tank T-01"]}),
+                "finish_reason": "stop"}
+
+    reader.side_effect = read
+    page = await regions.read_page(png_bytes(), 1, settings, layout=[("figure", [0, 0, 400, 300])])
+    block = page["blocks"][0]
+    assert block["figure_description"].startswith("A tank feeds a filter")
+    assert block["figure_description_source"] == "vision_model_generated"
+    assert block["visual"]["text"] == "Tank T-01"  # description never replaces source text
+
+
+def test_equivalent_text_ignores_typography_but_not_values():
+    from northstar_api.services.extraction_validation import equivalent_text
+
+    assert equivalent_text("“Rate” − 12.5 – kg", '"Rate" - 12.5 - kg')
+    assert not equivalent_text("12.50", "12.80")
+    assert not equivalent_text("Value -12.50", "Value 12.50")
+
+
+def test_ocr_lines_keep_source_line_breaks():
+    from northstar_api.services.extraction_ocr import lines_text
+
+    words = [{"text": t, "line": line, "order": i} for i, (t, line) in enumerate(
+        [("Zone", [1, 1, 1]), ("Crop", [1, 1, 1]), ("A1", [1, 1, 2]), ("Tomato", [1, 1, 2])])]
+    assert lines_text(words) == "Zone Crop\nA1 Tomato"
+
+
+def test_ocr_confirms_text_layer_only_across_lookalike_glyphs():
+    from northstar_api.services.extraction_validation import ocr_confirms
+
+    assert ocr_confirms("A1 132 7 125 REVIEW", "Al 132 7 125 REVIEW")
+    assert ocr_confirms("2,240 L/day × 7 days", "2,240 L/day x 7 days")
+    assert ocr_confirms("SEP 2026 2 / 2", "SEP 2026 2/2")
+    assert not ocr_confirms("Total 285 15 270 -", "Total 285 15 270 2")
+    assert not ocr_confirms("53 3 50", "53 8 50")
+    assert not ocr_confirms("10 5", "105")
+    assert not ocr_confirms("", "")
+
+
+async def test_region_ocr_pass_confirms_text_the_page_pass_missed(reader, ocr_settings, monkeypatch):
+    raw = pdf_bytes("Value -12.50")
+
+    async def page_ocr(image, settings):
+        return ocr_from_pdf(raw, replace={"Value": "Va1ue?"})  # page-level OCR garbles a word
+
+    async def region_ocr(image, box, settings):
+        return {"text": "Value -12.50", "words": []}
+
+    monkeypatch.setattr(hybrid, "ocr_page", page_ocr)
+    monkeypatch.setattr(reconcile, "ocr_region", region_ocr)
+    reader.side_effect = vision_reads("Value 12.50")
+    package = await hybrid.extract_document(raw, "source.pdf", ocr_settings)
+    block = package.record["pages"][0]["blocks"][0]
+    assert block["consensus"] == "native_ocr" and block["ocr_region_text"] == "Value -12.50"
+    assert block["audit_notes"][0].startswith("A region-level OCR pass confirms the PDF text layer")
+
+
+async def test_failed_vision_without_ocr_agreement_is_a_decision_not_a_blocker(reader, ocr_settings, monkeypatch):
+    raw = pdf_bytes("Total 285 15 270 -")
+
+    async def page_ocr(image, settings):
+        return ocr_from_pdf(raw, replace={"-": "2"})
+
+    async def region_ocr(image, box, settings):
+        return None
+
+    monkeypatch.setattr(hybrid, "ocr_page", page_ocr)
+    monkeypatch.setattr(reconcile, "ocr_region", region_ocr)
+    reader.side_effect = vision_reads("", fail=True)
+    package = await hybrid.extract_document(raw, "source.pdf", ocr_settings)
+    leaves = [b for b in package.record["pages"][0]["blocks"] if b["status"] != "split"]
+    drafted = [b for b in leaves if b.get("proposed_structure") and not b.get("consensus")]
+    assert drafted
+    ids = {b["id"] for b in drafted}
+    region_issues = [i for i in package.issues if i.get("block_id") in ids]
+    assert region_issues and not any(i["technical"] for i in region_issues)
+
+
+async def test_failed_vision_on_an_image_with_only_ocr_text_is_a_decision(reader, ocr_settings, monkeypatch):
+    async def page_ocr(image, settings):
+        return {"engine": "tesseract", "version": "test", "status": "complete",
+                "words": [{"text": "Week", "bbox_px": [30, 30, 90, 50], "confidence": 90.0, "line": [1, 1, 1], "order": 0}]}
+
+    monkeypatch.setattr(hybrid, "ocr_page", page_ocr)
+
+    async def read(image, settings, prompt):
+        if prompt == regions.INVENTORY_PROMPT:
+            return {"raw": json.dumps({"regions": [{"kind": "figure", "bbox": [0, 0, 1000, 1000]}], "complete": True}), "finish_reason": "stop"}
+        return {"raw": "not json", "finish_reason": "stop"}
+
+    reader.side_effect = read
+    package = await hybrid.extract_document(png_bytes(), "chart.png", ocr_settings)
+    leaves = [b for b in package.record["pages"][0]["blocks"] if b["status"] != "split"]
+    drafted = [b for b in leaves if (b.get("proposed_structure") or {}).get("text") == "Week"]
+    assert drafted
+    single = [i for i in package.issues if i["code"] == "SINGLE_READER" and i["block_id"] == drafted[0]["id"]]
+    assert single and not single[0]["technical"]
+    assert not any(i["code"] == "VISION_UNAVAILABLE" and i["block_id"] == drafted[0]["id"] for i in package.issues)
+
+
+async def test_vision_is_skipped_where_text_layer_and_ocr_already_agree(reader, ocr_settings, monkeypatch):
+    raw = pdf_bytes("Value -12.50")
+
+    async def ocr(image, settings):
+        return ocr_from_pdf(raw)
+
+    monkeypatch.setattr(hybrid, "ocr_page", ocr)
+    reader.side_effect = vision_reads("", fail=True)  # would fail and split the region if it were called
+    package = await hybrid.extract_document(raw, "source.pdf", ocr_settings)
+    blocks = package.record["pages"][0]["blocks"]
+    assert reader.await_count == 0  # 2 of 3 already met: no vision call, no split, no boundary check
+    assert not any(b["status"] == "split" for b in blocks)
+    assert all(b["consensus"] == "native_ocr" for b in blocks)
+    codes = {i["code"] for i in package.issues}
+    assert "SPLIT_BOUNDARY_REVIEW" not in codes and "NUMERIC_CONFLICT" not in codes
+
+
+async def test_split_image_regions_still_get_a_boundary_check(reader, settings):
+    calls = {"n": 0}
+
+    async def read(image, settings, prompt):
+        calls["n"] += 1
+        if prompt == regions.INVENTORY_PROMPT:
+            return {"raw": json.dumps({"regions": [{"kind": "paragraph", "bbox": [0, 0, 1000, 1000]}], "complete": True}), "finish_reason": "stop"}
+        if calls["n"] == 2:  # the full-page crop fails once, its halves are read
+            return {"raw": "not json", "finish_reason": "stop"}
+        return {"raw": json.dumps({"kind": "paragraph", "text": "half", "complete": True}), "finish_reason": "stop"}
+
+    reader.side_effect = read
+    package = await hybrid.extract_document(png_bytes(), "scan.png", settings)
+    assert "SPLIT_BOUNDARY_REVIEW" in {i["code"] for i in package.issues}

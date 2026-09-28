@@ -255,6 +255,52 @@ async def test_verified_identity_and_valid_enrollment_authorize_access(
     assert decision.event_payload()["authorized"] is True
 
 
+async def test_two_batches_of_same_course_offer_menu_without_blocking_other_courses(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    workspace_id, headers = await _workspace_headers(client, auth_headers)
+    course = await _create_course(client, headers, "AUTH-DUAL-BATCH")
+    other = await _create_course(client, headers, "AUTH-OTHER")
+    first_batch = await _create_batch(client, headers, course_id=course["id"], code="AUTH-BATCH-A")
+    second_batch = await _create_batch(client, headers, course_id=course["id"], code="AUTH-BATCH-B")
+    other_batch = await _create_batch(client, headers, course_id=other["id"], code="AUTH-OTHER-A")
+    student = await _create_student(client, headers, "AUTH-DUAL-001")
+    agent = await _create_agent(client, headers, name="Dual Batch Education Agent")
+    await _create_identity(client, headers, student_id=student["id"], identity_type="whatsapp", identifier="+919876540099")
+    first = await _create_enrollment(client, headers, student_id=student["id"], course_id=course["id"], batch_id=first_batch["id"], agent_id=agent["id"])
+    second = await _create_enrollment(client, headers, student_id=student["id"], course_id=course["id"], batch_id=second_batch["id"], agent_id=agent["id"])
+    other_enrollment = await _create_enrollment(client, headers, student_id=student["id"], course_id=other["id"], batch_id=other_batch["id"], agent_id=agent["id"])
+    activated = await client.patch(f"/api/v1/agents/{agent['id']}", headers=headers, json={"status": "active"})
+    assert activated.status_code == 200, activated.text
+    agent_model = await _agent(agent["id"])
+    identity = EducationIdentityCandidate(StudentIdentityType.WHATSAPP, "+919876540099")
+    async with SessionFactory() as session:
+        menu = await authorize_education_access(session, tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id), agent=agent_model, identity=identity,
+            message="Hi", as_of=date(2026, 9, 10))
+        await session.commit()
+    assert menu.reason is EducationAccessReason.ENROLLMENT_AMBIGUOUS
+    async with SessionFactory() as session:
+        ambiguous_name = await authorize_education_access(session, tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id), agent=agent_model, identity=identity,
+            message=course["code"], as_of=date(2026, 9, 10))
+        await session.commit()
+    assert ambiguous_name.reason is EducationAccessReason.ENROLLMENT_AMBIGUOUS
+    async with SessionFactory() as session:
+        selected = await authorize_education_access(session, tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id), agent=agent_model, identity=identity,
+            message="1", as_of=date(2026, 9, 10))
+        await session.commit()
+    assert selected.authorized is True
+    assert selected.enrollment_id in {uuid.UUID(first["id"]), uuid.UUID(second["id"]), uuid.UUID(other_enrollment["id"])}
+    async with SessionFactory() as session:
+        switched = await authorize_education_access(session, tenant_id=agent_model.tenant_id,
+            workspace_id=uuid.UUID(workspace_id), agent=agent_model, identity=identity,
+            message=other["code"], as_of=date(2026, 9, 10))
+    assert switched.authorized is True
+    assert switched.enrollment_id == uuid.UUID(other_enrollment["id"])
+
+
 async def test_access_denies_unverified_wrong_agent_and_invalid_date_windows(
     client: AsyncClient,
     auth_headers: dict[str, str],

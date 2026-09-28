@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.course_knowledge_models import (
@@ -16,6 +16,7 @@ from northstar_api.course_knowledge_models import (
     CoursePracticeAttempt,
     CourseResponseContext,
     CourseStudySelection,
+    CourseWhatsappTurn,
 )
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
@@ -227,6 +228,10 @@ async def assign_review(review_id: UUID, payload: ReviewAssign, principal: Manag
         raise HTTPException(409, "Closed reviews cannot be reassigned")
     row.assigned_reviewer = payload.reviewer_id
     row.status = "assigned"
+    await session.execute(update(CourseWhatsappTurn).where(
+        CourseWhatsappTurn.review_id == row.id,
+        *_scope(CourseWhatsappTurn, principal),
+    ).values(review_status=row.status))
     await session.commit()
     await session.refresh(row)
     return ReviewOut.model_validate(row)
@@ -247,6 +252,10 @@ async def resolve_review(
     row.status = payload.outcome
     row.reviewed_at = datetime.now(UTC)
     row.correction_delivery_status = "requested" if payload.request_correction_delivery else "not_requested"
+    await session.execute(update(CourseWhatsappTurn).where(
+        CourseWhatsappTurn.review_id == row.id,
+        *_scope(CourseWhatsappTurn, principal),
+    ).values(review_status=row.status))
     await session.commit()
     await session.refresh(row)
     return ReviewOut.model_validate(row)

@@ -317,6 +317,55 @@ class CourseResponseContext(AgentBoundary, Base):
     )
     context_fingerprint: Mapped[str] = mapped_column(String(64), index=True)
     citations: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list)
+    answer_path: Mapped[str] = mapped_column(String(30), default="document")
+
+
+class CourseFaqEntry(Record, AgentBoundary, Base):
+    __tablename__ = "course_knowledge_faq_entries"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'approved', 'withdrawn')", name="ck_faq_status"),
+        Index("ix_ck_faq_audience", "tenant_id", "workspace_id", "agent_id", "course_id", "curriculum_id", "paper_id", "batch_id"),
+    )
+    course_id: Mapped[UUID] = mapped_column(ForeignKey("education_courses.id", ondelete="RESTRICT"))
+    curriculum_id: Mapped[UUID] = mapped_column(ForeignKey("course_knowledge_curricula.id", ondelete="RESTRICT"))
+    paper_id: Mapped[UUID | None] = mapped_column(ForeignKey("course_knowledge_papers.id", ondelete="RESTRICT"))
+    batch_id: Mapped[UUID | None] = mapped_column(ForeignKey("education_batches.id", ondelete="RESTRICT"))
+    question: Mapped[str] = mapped_column(Text)
+    variants: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list)
+    answer: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(80), default="English")
+    references: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    approved_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_reason: Mapped[str] = mapped_column(Text, default="")
+    review_id: Mapped[UUID | None] = mapped_column(ForeignKey("course_knowledge_academic_reviews.id", ondelete="SET NULL"))
+
+
+class CourseWhatsappTurn(Record, AgentBoundary, Base):
+    __tablename__ = "course_knowledge_whatsapp_turns"
+    __table_args__ = (UniqueConstraint("receipt_id", name="uq_ck_whatsapp_turn_receipt"),)
+    receipt_id: Mapped[UUID] = mapped_column(index=True)
+    conversation_id: Mapped[UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"))
+    question_message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
+    answer_message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
+    review_id: Mapped[UUID | None] = mapped_column(ForeignKey("course_knowledge_academic_reviews.id", ondelete="SET NULL"))
+    review_status: Mapped[str | None] = mapped_column(String(20))
+    enrollment_id: Mapped[UUID | None] = mapped_column(ForeignKey("education_enrollments.id", ondelete="SET NULL"))
+    course_id: Mapped[UUID | None] = mapped_column(ForeignKey("education_courses.id", ondelete="SET NULL"))
+    curriculum_id: Mapped[UUID | None] = mapped_column(ForeignKey("course_knowledge_curricula.id", ondelete="SET NULL"))
+    paper_id: Mapped[UUID | None] = mapped_column(ForeignKey("course_knowledge_papers.id", ondelete="SET NULL"))
+    batch_id: Mapped[UUID | None] = mapped_column(ForeignKey("education_batches.id", ondelete="SET NULL"))
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    answer_path: Mapped[str] = mapped_column(String(30), default="pending")
+    delivery_status: Mapped[str] = mapped_column(String(30), default="pending")
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT, default=list)
+    context_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    provider_message_ids: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, default=list)
+    error: Mapped[str | None] = mapped_column(String(500))
 
 
 class CourseAcademicReview(Record, AgentBoundary, Base):

@@ -12,7 +12,10 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
-from northstar_api import __version__
+from northstar_api import (
+    __version__,
+    education_tutor,  # noqa: F401  # register tutor tables before local schema creation
+)
 from northstar_api.config import get_settings
 from northstar_api.database import (
     SessionFactory,

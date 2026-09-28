@@ -319,17 +319,9 @@ async def authorize_education_access(
         session.add(context)
         await session.flush()
 
-    if len({item.course_id for item in valid}) != len(valid):
-        return _decision(
-            authorized=False,
-            reason=EducationAccessReason.ENROLLMENT_CONFIGURATION_CONFLICT,
-            agent=agent,
-            identity_id=student_identity.id,
-            student_id=student_identity.student_id,
-        )
-
     selected: EducationEnrollment | None = None
     normalized_message = " ".join((message or "").casefold().split())
+    ambiguous_course = False
 
     # A number is meaningful only while a persisted course menu is active.
     if normalized_message.isdigit() and context.pending_enrollment_ids:
@@ -363,14 +355,13 @@ async def authorize_education_access(
             requested_course = next(iter(unique_matches.values()))
             matching_enrollments = [item for item in valid if item.course_id == requested_course.id]
             if len(matching_enrollments) > 1:
-                return _decision(
-                    authorized=False,
-                    reason=EducationAccessReason.ENROLLMENT_CONFIGURATION_CONFLICT,
-                    agent=agent,
-                    identity_id=student_identity.id,
-                    student_id=student_identity.student_id,
-                )
+                # A student may legitimately attend different batches of the
+                # same course. Require the numbered course/batch menu instead
+                # of denying all their other enrollments.
+                ambiguous_course = True
             selected = matching_enrollments[0] if matching_enrollments else None
+            if ambiguous_course:
+                selected = None
             if not matching_enrollments:
                 context.pending_enrollment_ids = []
                 return _decision(
@@ -384,7 +375,7 @@ async def authorize_education_access(
     if selected is None and len(valid) == 1:
         selected = valid[0]
     force_course_menu = normalized_message in {"courses", "switch course", "switch courses"}
-    if selected is None and context.active_enrollment_id is not None and not force_course_menu:
+    if selected is None and context.active_enrollment_id is not None and not force_course_menu and not ambiguous_course:
         selected = next((item for item in valid if item.id == context.active_enrollment_id), None)
     if selected is not None:
         if context.active_enrollment_id != selected.id:

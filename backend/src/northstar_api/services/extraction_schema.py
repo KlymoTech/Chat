@@ -133,4 +133,16 @@ def parse_response(raw: Any, schema: type[Inventory] | type[Reading]) -> Invento
         value = value[7:-3].strip()
     elif value.startswith("```") and value.endswith("```"):
         value = value[3:-3].strip()
-    return schema.model_validate_json(value)
+    try:
+        return schema.model_validate_json(value)
+    except ValueError:
+        # Small vision models often wrap valid JSON in a sentence or code fence.
+        # Accept the first complete JSON object; the schema stays exactly as strict.
+        start = value.find("{")
+        if start < 0:
+            raise
+        try:
+            candidate, _ = json.JSONDecoder().raw_decode(value, start)
+        except json.JSONDecodeError:
+            raise ValueError("Response contains no complete JSON object") from None
+        return schema.model_validate_json(json.dumps(candidate))

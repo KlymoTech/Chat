@@ -16,6 +16,7 @@ from northstar_api.education import EducationCourse
 from northstar_api.education_batches import EducationBatch
 from northstar_api.services.course_knowledge import Boundary, _serialize
 from northstar_api.services.course_knowledge_policy import explicit_choice, numbered_choice
+from northstar_api.services.education_workflow_messages import education_workflow_message
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +26,12 @@ class StudyChoice:
 
 
 async def resolve_study_selection(
-    session: AsyncSession, boundary: Boundary, identity_id: UUID, valid: list[Any], message: str
+    session: AsyncSession,
+    boundary: Boundary,
+    identity_id: UUID,
+    valid: list[Any],
+    message: str,
+    course_menu_template: str | None = None,
 ) -> StudyChoice:
     await _serialize(session, f"course-selection:{boundary.workspace_id}:{boundary.agent_id}:{identity_id}")
     state = await session.scalar(
@@ -115,15 +121,24 @@ async def resolve_study_selection(
             and not text_value.isdigit()
         ):
             state.pending_question = message.strip() or None
-        lines = ["Choose an active course enrollment:"]
-        lines.extend(
-            f"{i}. {course_by_id[e.course_id].name} — {batch_by_id[e.batch_id].name}"
+        options = "\n".join(
+            f"*[{i}]*  {course_by_id[e.course_id].name}\n     Batch: {batch_by_id[e.batch_id].name}"
             for i, e in enumerate(choices, 1)
         )
-        lines.append(
-            "Reply with a number or 'course <course code>'. Only your current enrollments are shown."
+        default_template = (
+            "📚 *Choose your active course*\n\n{{courses}}\n\n"
+            "Reply with the number for the course you want to study.\n"
+            "Send *Hi* or *courses* anytime to see this menu again."
         )
-        return StudyChoice(None, "\n".join(lines))
+        template = (course_menu_template or default_template).strip()
+        # {{courses}} is intentionally the only dynamic content. The workflow
+        # author controls every other word and the secure enrollment list is
+        # inserted only after access has been verified.
+        if "{{courses}}" not in template:
+            template = f"{template}\n\n{{{{courses}}}}"
+        return StudyChoice(None, template.replace("{{courses}}", options).replace(
+            "{{course_count}}", str(len(choices))
+        ))
 
     course_options = [
         (
@@ -142,7 +157,7 @@ async def resolve_study_selection(
         selected = numbered.split(":", 1)[1] if numbered else selected
         if selected is None:
             return course_menu()
-    if text_value in {"courses", "/courses", "change course", "switch course"}:
+    if text_value in {"hi", "hello", "hey", "courses", "/courses", "change course", "switch course"}:
         return course_menu()
     if selected is None and re.match(r"^/?course\s+", text_value):
         return course_menu()
@@ -170,9 +185,11 @@ async def resolve_study_selection(
         .with_for_update()
     )
     if access is None:
+        default = f"{course_by_id[enrollment.course_id].name} is selected. Your institute must configure curriculum and paper access before tutoring can begin."
         return StudyChoice(
             None,
-            f"{course_by_id[enrollment.course_id].name} is selected. Your institute must configure curriculum and paper access before tutoring can begin.",
+            await education_workflow_message(session, **boundary.values(), action="education_missing_access",
+                default=default, values={"course": course_by_id[enrollment.course_id].name}),
         )
     papers = (
         await session.scalars(
@@ -192,7 +209,7 @@ async def resolve_study_selection(
         access.selected_paper_id = None
         access.revision += 1
 
-    def paper_menu() -> StudyChoice:
+    async def paper_menu() -> StudyChoice:
         state.menu_ids = [f"paper:{p.id}" for p in papers] + ["paper:overview"]
         state.menu_open = True
         state.menu_id = uuid4()
@@ -216,7 +233,10 @@ async def resolve_study_selection(
                 "Reply with a number, 'paper <paper code>', or 'overview'. Send 'courses' to change courses.",
             ]
         )
-        return StudyChoice(enrollment, "\n".join(lines))
+        default = "\n".join(lines)
+        return StudyChoice(enrollment, await education_workflow_message(session, **boundary.values(),
+            action="education_paper_menu", default=default,
+            values={"course": course_by_id[enrollment.course_id].name, "papers": "\n".join(lines[1:])}))
 
     paper_id = (
         explicit_choice(message, [(str(p.id), [p.code, p.name]) for p in papers], prefix="paper")
@@ -233,11 +253,11 @@ async def resolve_study_selection(
             overview = value == "overview"
             paper_id = None if overview else value
         if paper_id is None and not overview and not selected:
-            return paper_menu()
+            return await paper_menu()
     if text_value in {"papers", "/papers", "change paper", "switch paper"} or (
         text_value.startswith(("paper ", "/paper ")) and paper_id is None
     ):
-        return paper_menu()
+        return await paper_menu()
     if paper_id is not None or overview:
         next_paper = UUID(paper_id) if paper_id else None
         if access.selected_paper_id != next_paper:
@@ -252,10 +272,10 @@ async def resolve_study_selection(
         pending = state.pending_question
         if pending:
             return StudyChoice(enrollment)
-        return StudyChoice(
-            enrollment,
-            f"Selected: {course_by_id[enrollment.course_id].name} / {label}. Ask your question. No documents were retrained or reprocessed.",
-        )
+        default = f"Selected: {course_by_id[enrollment.course_id].name} / {label}. Ask your question. No documents were retrained or reprocessed."
+        return StudyChoice(enrollment, await education_workflow_message(session, **boundary.values(),
+            action="education_selection_confirmed", default=default,
+            values={"course": course_by_id[enrollment.course_id].name, "paper": label}))
     if selected is not None or changed:
-        return paper_menu()
+        return await paper_menu()
     return StudyChoice(enrollment)

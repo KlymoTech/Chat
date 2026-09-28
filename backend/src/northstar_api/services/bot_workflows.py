@@ -24,9 +24,48 @@ def _matches(step: dict[str, Any], incoming: str) -> bool:
     normalized = incoming.strip().casefold()
     if kind == "fallback":
         return True
+    if kind == "event":
+        return False
     if kind == "command":
         return normalized == trigger or normalized == trigger.lstrip("/")
     return bool(trigger and trigger in normalized)
+
+
+async def matching_system_action(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    agent_id: UUID,
+    message: str,
+    system_action: str,
+) -> dict[str, Any] | None:
+    """Return the first active workflow action that matches an inbound message.
+
+    Enrollment checks run before a conversation is created, so they cannot use
+    ``match_bot_workflow`` (which deliberately depends on conversation state).
+    This small matcher keeps those secure, pre-conversation replies controlled
+    by the same saved workflow and its top-to-bottom step order.
+    """
+    workflow = await session.scalar(
+        select(BotWorkflow).where(
+            BotWorkflow.tenant_id == tenant_id,
+            BotWorkflow.workspace_id == workspace_id,
+            BotWorkflow.agent_id == agent_id,
+            BotWorkflow.status == "active",
+        )
+    )
+    if workflow is None:
+        return None
+    for step in workflow.steps_json or []:
+        if (
+            step.get("enabled", True)
+            and (step.get("config") or {}).get("systemAction") == system_action
+            and (system_action != "education_course_menu" or step.get("triggerType") == "command")
+            and _matches(step, message)
+        ):
+            return step
+    return None
 
 
 def _render(step: dict[str, Any]) -> WorkflowReply:
@@ -105,6 +144,9 @@ async def match_bot_workflow(
     message: str,
     channel: str = "widget",
     include_fallback: bool = True,
+    allowed_fallback_action: str | None = None,
+    include_waiting: bool = True,
+    commands_only: bool = False,
 ) -> WorkflowReply | None:
     workflow = await session.scalar(
         select(BotWorkflow).where(
@@ -136,16 +178,20 @@ async def match_bot_workflow(
     if last_step:
         next_id = last_step.get("nextStepId") or last_step.get("next_step_id")
         next_step = by_id.get(str(next_id)) if next_id else None
-        if next_step and _matches(next_step, message) and _allowed_by_frequency(next_step, sent, now):
+        if next_step and (not commands_only or next_step.get("triggerType") == "command") and _matches(next_step, message) and _allowed_by_frequency(next_step, sent, now):
             return _render(next_step)
-        if next_step:
+        if next_step and include_waiting:
             waiting = _waiting_reply(last_step, sent)
             if waiting:
                 return waiting
     for step in enabled:
         kind = step.get("triggerType") or step.get("trigger_type")
+        if commands_only and kind not in {"command", "fallback"}:
+            continue
         if kind == "fallback":
             fallback = step
+        elif kind == "event":
+            continue
         elif kind == "condition":
             condition = step.get("condition") or {}
             actual = channel if condition.get("field") == "channel" else message
@@ -173,9 +219,10 @@ async def match_bot_workflow(
         elif _matches(step, message):
             if _allowed_by_frequency(step, sent, now):
                 return _render(step)
-    if include_fallback and fallback and _allowed_by_frequency(fallback, sent, now):
+    if (include_fallback and fallback and _allowed_by_frequency(fallback, sent, now)
+        and (allowed_fallback_action is None or (fallback.get("config") or {}).get("systemAction") == allowed_fallback_action)):
         return _render(fallback)
-    for previous in sent:
+    for previous in sent if include_waiting else []:
         previous_id = str((previous.content_json or {}).get("workflowStepId") or "")
         if previous_id in by_id:
             waiting = _waiting_reply(by_id[previous_id], sent)

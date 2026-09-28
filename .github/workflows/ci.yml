@@ -79,6 +79,8 @@ jobs:
         with: {persist-credentials: false}
       - name: Validate repository architecture
         run: bash scripts/validate-architecture.sh
+      - name: Maintainability size audit (informational)
+        run: pwsh -NoProfile -File scripts/maintainability-audit.ps1
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: kubectl kustomize kubernetes/base > /tmp/northstar.yaml

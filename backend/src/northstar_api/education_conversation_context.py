@@ -3,10 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, UniqueConstraint, false, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
+
+# Staff test conversations (see migration 0069). Real students keep test_mode NULL.
+TEST_MODE_PUBLISHED = "published"
+TEST_MODE_UNPUBLISHED = "unpublished"
 
 
 class EducationConversationContext(Base):
@@ -69,6 +73,8 @@ class EducationConversationContext(Base):
         default=False,
         server_default=false(),
     )
+    # Set only by the staff test endpoint: "published" or "unpublished". NULL for real students.
+    test_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -24,6 +24,8 @@ export interface KnowledgeRecord {
   indexError?: string | null;
   revision?: number;
   blockIds?: string[];
+  selectedBlockIds?: string[];
+  approvalStatus?: string;
   topicIds?: string[];
   paperIds?: string[];
   selectedPaperId?: string | null;
@@ -39,11 +41,16 @@ export interface KnowledgeRecord {
   fingerprint?: string;
   reviewStatus?: string;
   question?: string;
+  answer?: string;
+  variants?: string[];
+  references?: Array<Record<string, string>>;
+  reviewId?: string | null;
+  approvedBy?: string | null;
   reason?: string;
   step?: string;
   progress?: number;
   validation?: { warnings?: Array<{ code: string; evidence: string }>; [key: string]: unknown };
-  manifest?: { assignments: Array<{ assignment_id: string }>; artifacts: Array<{ id: string }> };
+  manifest?: { assignments: Array<{ assignment_id: string }>; artifacts: Array<{ id: string }>; faqs?: Array<{ id: string }> };
   [key: string]: unknown;
 }
 export interface KnowledgeCatalog {
@@ -60,11 +67,26 @@ export interface KnowledgeStatus {
   releases: KnowledgeRecord[];
   heads: KnowledgeRecord[];
   artifacts: KnowledgeRecord[];
+  faqs: KnowledgeRecord[];
   access: KnowledgeRecord[];
   enrollments: KnowledgeRecord[];
   academicReviews: KnowledgeRecord[];
   jobs: KnowledgeRecord[];
+  legacyScopes: KnowledgeRecord[];
+  metrics?: { sampledTurns7d: number; answerPaths: Record<string, number>; p50Ms: number | null; p95Ms: number | null; deliveryFailures: number; accessRefusals: number; openKnowledgeGaps: number };
   notice: string;
+}
+export interface WhatsappTurn {
+  id: string;
+  createdAt: string;
+  question: string;
+  answer: string;
+  answerPath: string;
+  deliveryStatus: string;
+  reviewStatus: string | null;
+  courseId: string | null;
+  paperId: string | null;
+  citations: Array<Record<string, unknown>>;
 }
 export interface SourceBlock {
   id: string;
