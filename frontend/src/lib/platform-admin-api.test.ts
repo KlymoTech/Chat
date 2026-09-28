@@ -69,6 +69,9 @@ describe('platformAdminApi', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Access denied' } }, 403));
     await expect(platformAdminApi.overview()).rejects.toThrow('Access denied');
 
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'source desired state is stale' }, 409));
+    await expect(platformAdminApi.runtimeSpec()).rejects.toThrow('source desired state is stale');
+
     fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable'));
     await expect(platformAdminApi.tenants()).rejects.toThrow('Network unavailable');
   });
@@ -85,6 +88,82 @@ describe('platformAdminApi', () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       '/api/v1/platform-admin/permissions',
       expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+
+  it('plans capability changes before creating them and never uses a direct apply endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      capability_id: 'cache',
+      operation: 'disable',
+      policy: {
+        capability_id: 'cache', risk_class: 'blue', switch_class: 'application-provider',
+        mutable: true, allowed_operations: ['disable'], production_approval_required: true,
+        destructive_requires_gitops: true,
+      },
+      environment_policy: {
+        environment: 'production', distinct_approver_required: true,
+        destructive_requires_gitops: true, allow_direct_runtime_flags: false,
+        stabilization_seconds: 300,
+      },
+      current: {},
+      desired: {},
+      analysis: {
+        plan: {
+          plan_id: 'plan-1', action: 'restart', classification: 'restart',
+          source_revision: 4, target_revision: 5, source_digest: 'a'.repeat(64),
+          target_digest: 'b'.repeat(64), requires_approval: true, destructive: false,
+          steps: ['validate_dependencies'], blockers: [], created_at: new Date().toISOString(),
+        },
+        changed_capabilities: ['cache'], impacted_capabilities: ['cache'], blockers: [],
+      },
+    }));
+    const plan = await platformAdminApi.planRuntimeCapabilityChange('cache', { operation: 'disable' });
+    expect(plan.analysis.plan.requires_approval).toBe(true);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/v1/platform-admin/runtime/capabilities/cache/plan',
+      expect.objectContaining({ method: 'POST' }),
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      id: 'change-1', environment: 'production', requested_by: 'user-1', approved_by: null,
+      status: 'waiting_approval', action: 'restart', classification: 'restart', operation: 'disable',
+      requires_approval: true, destructive: false, source_revision: 4, target_revision: 5,
+      source_digest: 'a'.repeat(64), target_digest: 'b'.repeat(64),
+      idempotency_key: 'control-1', reason: 'Disable cache safely', plan_steps: [],
+      blockers: [], changed_capabilities: ['cache'], impacted_capabilities: ['cache'],
+      requested_at: new Date().toISOString(), approved_at: null,
+    }), 201));
+    await platformAdminApi.createRuntimeCapabilityChange('cache', {
+      operation: 'disable',
+      reason: 'Disable cache safely',
+      idempotency_key: 'control-1',
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/v1/platform-admin/runtime/capabilities/cache/changes',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock.mock.calls.flatMap((call) => [String(call[0])]).some((url) => url.endsWith('/apply'))).toBe(false);
+  });
+
+  it('uses a reviewed rollback endpoint with an idempotency key', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      id: 'rollback-1', environment: 'staging', requested_by: 'user-1', approved_by: null,
+      status: 'waiting_approval', action: 'restart', classification: 'restart', operation: 'switch',
+      requires_approval: true, destructive: false, source_revision: 8, target_revision: 9,
+      source_digest: 'a'.repeat(64), target_digest: 'b'.repeat(64), idempotency_key: 'rollback-key',
+      reason: 'Rollback failed deployment', plan_steps: [], blockers: [], changed_capabilities: [],
+      impacted_capabilities: [], requested_at: new Date().toISOString(), approved_at: null,
+    }), 201));
+
+    await platformAdminApi.rollbackRuntimeChange('change-8', {
+      reason: 'Rollback failed deployment',
+      idempotency_key: 'rollback-key',
+    });
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/v1/platform-admin/runtime/changes/change-8/rollback',
+      expect.objectContaining({ method: 'POST' }),
     );
   });
 });

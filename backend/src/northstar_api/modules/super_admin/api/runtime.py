@@ -9,6 +9,7 @@ approved deployment controller or GitOps pipeline.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -31,8 +32,21 @@ from northstar_api.modules.platform_runtime import (
     approver_is_distinct,
     build_capability_catalog,
     build_capacity_budget,
+    spec_digest,
     transition_change,
 )
+from northstar_api.modules.platform_runtime.configuration_state import (
+    activate_configuration_version,
+    apply_capability_observations,
+    catalog_with_observations,
+    effective_platform_spec,
+    ensure_configuration_version,
+)
+from northstar_api.modules.platform_runtime.control_center import (
+    apply_operation_policy,
+    capability_control_policy,
+)
+from northstar_api.modules.platform_runtime.registry import CapabilityId
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeApproval,
     PlatformChangeRecord,
@@ -56,6 +70,8 @@ class RuntimeChangePlanRequest(BaseModel):
 class RuntimeChangeCreateRequest(RuntimeChangePlanRequest):
     reason: str = Field(min_length=5, max_length=500)
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    operation: Literal["enable", "disable", "switch", "stop", "destroy"] = "switch"
+    requested_capability: CapabilityId | None = None
 
 
 class RuntimeChangeDecisionRequest(BaseModel):
@@ -74,6 +90,8 @@ class RuntimeChangeOut(BaseModel):
     status: ChangeStatus
     action: str
     classification: str
+    operation: str
+    requested_capability: str | None
     requires_approval: bool
     destructive: bool
     source_revision: int
@@ -116,6 +134,12 @@ def _change_response(record: PlatformChangeRecord) -> RuntimeChangeOut:
         status=record.status,
         action=record.action,
         classification=record.classification,
+        operation=str(impact.get("operation", "switch")),
+        requested_capability=(
+            str(impact["requestedCapability"])
+            if impact.get("requestedCapability") is not None
+            else None
+        ),
         requires_approval=record.requires_approval,
         destructive=record.destructive,
         source_revision=record.source_revision,
@@ -145,6 +169,8 @@ def _deployment_dispatch_payload(record: PlatformChangeRecord) -> dict[str, obje
         "environment": record.environment,
         "action": record.action,
         "classification": record.classification,
+        "operation": str((record.impact_json or {}).get("operation", "switch")),
+        "requestedCapability": (record.impact_json or {}).get("requestedCapability"),
         "destructive": record.destructive,
         "sourceRevision": record.source_revision,
         "targetRevision": record.target_revision,
@@ -201,15 +227,33 @@ def _declared_platform_spec() -> PlatformSpec:
 
 
 @router.get("/capabilities", response_model=CapabilityCatalog)
-async def get_runtime_capabilities(_: PlatformSystemReadPrincipal) -> CapabilityCatalog:
-    """Return the declared capability state and dependency graph."""
-    return build_capability_catalog(_declared_platform_spec())
+async def get_runtime_capabilities(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+    environment: str | None = Query(default=None, min_length=1, max_length=32),
+) -> CapabilityCatalog:
+    """Return verified desired state overlaid with runtime observations."""
+    fallback = _declared_platform_spec()
+    try:
+        spec = await effective_platform_spec(session, fallback, environment=environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return await catalog_with_observations(session, spec)
 
 
 @router.get("/dependencies")
-async def get_runtime_dependencies(_: PlatformSystemReadPrincipal) -> dict[str, object]:
-    """Return a stable dependency graph for the control-center graph view."""
-    catalog = build_capability_catalog(_declared_platform_spec())
+async def get_runtime_dependencies(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+    environment: str | None = Query(default=None, min_length=1, max_length=32),
+) -> dict[str, object]:
+    """Return a stable dependency graph for the effective desired state."""
+    fallback = _declared_platform_spec()
+    try:
+        spec = await effective_platform_spec(session, fallback, environment=environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    catalog = build_capability_catalog(spec)
     return catalog.dependencies.model_dump(mode="json")
 
 
@@ -244,8 +288,45 @@ async def create_runtime_change(
     session: DBSession,
 ) -> RuntimeChangeOut:
     """Persist a reviewable change request; never execute infrastructure."""
-    analysis = analyze_capability_change(payload.current, payload.desired)
+    if payload.current.metadata.environment != payload.desired.metadata.environment:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source and target environments must match",
+        )
+    if payload.requested_capability is not None:
+        policy = capability_control_policy(payload.requested_capability)
+        if payload.operation not in policy.allowed_operations:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"{payload.requested_capability} does not allow operation "
+                    f"{payload.operation}"
+                ),
+            )
+    analysis = apply_operation_policy(
+        analyze_capability_change(payload.current, payload.desired),
+        payload.operation,
+    )
     environment = payload.desired.metadata.environment
+    try:
+        effective = await effective_platform_spec(session, _declared_platform_spec(), environment=environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if spec_digest(effective) != analysis.plan.source_digest:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="source desired state is stale; refresh the control center and plan again",
+        )
+    if analysis.plan.action == "noop" and payload.operation in {"stop", "destroy"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="infrastructure lifecycle operations require an advanced target revision",
+        )
+    if payload.operation in {"stop", "destroy"} and payload.requested_capability is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="infrastructure lifecycle operations require requested_capability",
+        )
     existing = await session.scalar(
         select(PlatformChangeRecord).where(
             PlatformChangeRecord.environment == environment,
@@ -258,13 +339,19 @@ async def create_runtime_change(
         return _change_response(existing)
 
     now = datetime.now(UTC)
+    destructive = analysis.plan.destructive or payload.operation == "destroy"
+    requires_approval = (
+        analysis.plan.requires_approval
+        or payload.operation in {"stop", "destroy"}
+        or environment == "production"
+    )
     change_status: ChangeStatus = (
         "rejected"
         if analysis.plan.action == "reject"
         else "completed"
         if analysis.plan.action == "noop"
         else "waiting_approval"
-        if analysis.plan.requires_approval
+        if requires_approval
         else "approved"
     )
     record = PlatformChangeRecord(
@@ -274,8 +361,8 @@ async def create_runtime_change(
         status=change_status,
         action=analysis.plan.action,
         classification=analysis.plan.classification,
-        requires_approval=analysis.plan.requires_approval,
-        destructive=analysis.plan.destructive,
+        requires_approval=requires_approval,
+        destructive=destructive,
         source_revision=analysis.plan.source_revision,
         target_revision=analysis.plan.target_revision,
         source_digest=analysis.plan.source_digest,
@@ -287,6 +374,8 @@ async def create_runtime_change(
         impact_json={
             "changedCapabilities": list(analysis.changed_capabilities),
             "impactedCapabilities": list(analysis.impacted_capabilities),
+            "operation": payload.operation,
+            "requestedCapability": payload.requested_capability,
         },
         requested_at=now,
         current_spec_json=payload.current.model_dump(mode="json"),
@@ -295,6 +384,11 @@ async def create_runtime_change(
         completed_at=now if change_status == "completed" else None,
     )
     session.add(record)
+    if change_status not in {"rejected", "completed"}:
+        try:
+            await ensure_configuration_version(session, record)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     record_audit_event(
         session,
         tenant_id=principal.tenant_id,
@@ -386,18 +480,16 @@ async def list_runtime_executions(
     return [_execution_response(record) for record in records]
 
 
-@router.post("/changes/{change_id}/executions", response_model=RuntimeExecutionOut, status_code=status.HTTP_201_CREATED)
-async def report_runtime_execution(
+async def persist_runtime_execution_report(
     change_id: UUID,
     payload: DeploymentExecutionReport,
-    principal: PlatformRuntimeManagePrincipal,
     session: DBSession,
+    *,
+    audit_tenant_id: UUID,
+    actor_user_id: UUID | None,
+    actor_type: str,
 ) -> RuntimeExecutionOut:
-    """Persist one idempotent deployment stage and health report.
-
-    This endpoint records evidence only. Provider-specific mutation remains in
-    the external deployment controller that consumed the approved outbox event.
-    """
+    """Persist idempotent deployment evidence after validating the approved plan."""
     record = await session.get(PlatformChangeRecord, change_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="platform change not found")
@@ -414,7 +506,10 @@ async def report_runtime_execution(
             or existing.pipeline != payload.pipeline
             or existing.status != payload.phase
         ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="execution report key is already in use",
+            )
         return _execution_response(existing)
 
     current_status: ChangeStatus = record.status
@@ -426,7 +521,39 @@ async def report_runtime_execution(
             detail=f"cannot report phase {payload.phase} from change status {record.status}",
         ) from exc
     if record.source_digest != payload.source_digest or record.target_digest != payload.target_digest:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution digest does not match the approved plan")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="execution digest does not match the approved plan",
+        )
+
+    if payload.phase == "completed":
+        if not payload.health_result:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="completed execution requires health evidence",
+            )
+        impact = record.impact_json or {}
+        required_observations = {
+            str(value)
+            for value in impact.get("changedCapabilities", ())
+            if isinstance(value, str)
+        }
+        requested_capability = impact.get("requestedCapability")
+        if isinstance(requested_capability, str):
+            required_observations.add(requested_capability)
+        observed_capabilities = {
+            observation.capability_id
+            for observation in payload.capability_observations
+        }
+        missing_observations = sorted(required_observations - observed_capabilities)
+        if missing_observations:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "completed execution is missing capability observations: "
+                    + ", ".join(missing_observations)
+                ),
+            )
 
     now = datetime.now(UTC)
     terminal = payload.phase in {"completed", "failed", "rolled_back"}
@@ -446,18 +573,34 @@ async def report_runtime_execution(
     record.started_at = record.started_at or now
     if terminal:
         record.completed_at = now
+    if payload.phase == "completed":
+        try:
+            await activate_configuration_version(session, record)
+            target_spec = PlatformSpec.model_validate(record.desired_spec_json)
+            await apply_capability_observations(
+                session,
+                target_spec,
+                payload.capability_observations,
+            )
+        except ValueError as exc:
+            await session.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     session.add(execution)
     record_audit_event(
         session,
-        tenant_id=principal.tenant_id,
-        actor_user_id=principal.user_id,
+        tenant_id=audit_tenant_id,
+        actor_user_id=actor_user_id,
         action="platform.runtime.change.execution_reported",
         entity_type="platform_change",
         entity_id=str(change_id),
         category="system",
-        severity="error" if payload.phase == "failed" else "info",
+        severity="critical" if payload.phase == "failed" else "info",
         after={"status": payload.phase, "pipeline": payload.pipeline},
-        metadata={"reportKey": payload.report_key, "health": payload.health_result},
+        metadata={
+            "reportKey": payload.report_key,
+            "health": payload.health_result,
+            "actorType": actor_type,
+        },
     )
     try:
         await session.commit()
@@ -477,9 +620,34 @@ async def report_runtime_execution(
             or existing.pipeline != payload.pipeline
             or existing.status != payload.phase
         ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use") from exc
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="execution report key is already in use",
+            ) from exc
         return _execution_response(existing)
     return _execution_response(execution)
+
+
+@router.post(
+    "/changes/{change_id}/executions",
+    response_model=RuntimeExecutionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def report_runtime_execution(
+    change_id: UUID,
+    payload: DeploymentExecutionReport,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> RuntimeExecutionOut:
+    """Record deployment evidence submitted by an authenticated human operator."""
+    return await persist_runtime_execution_report(
+        change_id,
+        payload,
+        session,
+        audit_tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        actor_type="platform-admin",
+    )
 
 
 @router.post("/changes/{change_id}/approve", response_model=RuntimeChangeOut)
@@ -579,5 +747,6 @@ __all__ = [
     "RuntimeChangeOut",
     "RuntimeChangePlanRequest",
     "RuntimeExecutionOut",
+    "persist_runtime_execution_report",
     "router",
 ]

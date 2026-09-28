@@ -22,6 +22,7 @@ import {
   type PlatformRuntimeExecution,
 } from '@/lib/platform-admin-api';
 import { persistActiveWorkspace } from '@/lib/workspace-api';
+import { PlatformControlCenter } from './PlatformControlCenter';
 
 function formatPlan(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -183,6 +184,23 @@ export function SuperAdminPage() {
     } finally { setOperationBusy(false); }
   };
 
+
+  const rollbackRuntimeChange = async (change: PlatformRuntimeChange) => {
+    const reason = window.prompt('Reason / ticket for this rollback:', `Rollback ${change.reason}`)?.trim() ?? '';
+    if (reason.length < 5) return;
+    if (!window.confirm(`Create a reviewed rollback from revision ${change.target_revision} back to its previous desired state?\n\nThe rollback receives a new revision and follows the normal approval/deployment workflow.`)) return;
+    setOperationBusy(true);
+    try {
+      const rollback = await platformAdminApi.rollbackRuntimeChange(change.id, {
+        reason,
+        idempotency_key: `rollback-${Date.now()}-${change.id}`.slice(0, 128),
+      });
+      setRuntimeChanges((current) => [rollback, ...current]);
+    } catch (reasonValue) {
+      setError(reasonValue instanceof Error ? reasonValue.message : 'Rollback request could not be created');
+    } finally { setOperationBusy(false); }
+  };
+
   if (loading && !overview) return <PageLoader />;
   if (error && !overview) {
     return <div className="page"><Card className="workspace-panel"><div className="workspace-empty-row"><ShieldCheck /><span><strong>Platform administrator access required</strong><small>Access check failed: {error}</small></span></div></Card></div>;
@@ -241,10 +259,11 @@ export function SuperAdminPage() {
       <div className="workspace-plan-grid"><Metric label="Environment" value={configuration.appEnv} /><Metric label="Background dispatch" value={configuration.backgroundDispatchEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Kafka analytics" value={configuration.kafkaEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Course isolation" value={configuration.educationMultiCourseEnabled ? 'Enabled' : 'Disabled'} /><Metric label="Impersonation TTL" value={`${configuration.platformImpersonationTtlMinutes} minutes`} /><Metric label="Retrieval context" value={`${configuration.retrievalContextLimit} chunks / ${configuration.retrievalCandidateLimit} candidates`} /></div>
     </Card> : null}
 
-    {runtimeCatalog ? <Card className="workspace-panel">
-      <div className="card-heading"><div><h3>Platform capabilities</h3><p>Desired state and dependency-aware health snapshot for the declared {runtimeCatalog.profile} profile.</p></div><ShieldCheck /></div>
-      <div className="workspace-plan-grid">{runtimeCatalog.capabilities.map((capability) => <div key={capability.definition.capability_id}><small>{capability.definition.category} {capability.definition.locked ? '· locked' : ''}</small><strong>{capability.definition.capability_id}</strong><small>{capability.provider} · {capability.health}</small></div>)}</div>
-    </Card> : null}
+    {runtimeCatalog ? <PlatformControlCenter
+      catalog={runtimeCatalog}
+      canManage={platformPermissions.includes('platform.runtime.manage')}
+      onChangeCreated={(change) => setRuntimeChanges((current) => [change, ...current.filter((item) => item.id !== change.id)])}
+    /> : null}
 
     {capacityBudget ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Capacity budget</h3><p>Configuration-derived ceilings; run a workload test before making a user-capacity claim.</p></div><Activity /></div>
@@ -253,7 +272,7 @@ export function SuperAdminPage() {
 
     {runtimeChanges.length ? <Card className="workspace-panel">
       <div className="card-heading"><div><h3>Platform change history</h3><p>Every request is persisted with a plan digest and approval state. Infrastructure is applied only by the deployment pipeline.</p></div><Activity /></div>
-      <div className="agent-row-list">{runtimeChanges.map((change) => { const latestExecution = runtimeExecutions[change.id]?.[0]; return <div className="agent-row" key={change.id}><span className="agent-avatar">{change.action.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{change.environment} · {change.action}</strong><small>{change.reason} · {change.changed_capabilities.join(', ') || 'No capability delta'}</small><small>{latestExecution ? `Execution: ${latestExecution.pipeline} · ${latestExecution.status}` : 'No execution evidence reported'}</small></span><span className="agent-row__metric"><small>Revision</small><strong>{change.source_revision} → {change.target_revision}</strong></span><span className="agent-row__metric"><small>Evidence</small><strong>{runtimeExecutions[change.id]?.length ?? 0}</strong></span><span className="agent-row__status"><Badge tone={change.status === 'approved' ? 'success' : change.status === 'rejected' ? 'danger' : 'warning'}>{change.status}</Badge></span>{change.status === 'waiting_approval' && platformPermissions.includes('platform.runtime.manage') ? <span className="workspace-panel__actions"><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'approve')}>Approve</Button><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'reject')}>Reject</Button></span> : null}</div>; })}</div>
+      <div className="agent-row-list">{runtimeChanges.map((change) => { const latestExecution = runtimeExecutions[change.id]?.[0]; const tone = change.status === 'completed' || change.status === 'approved' ? 'success' : change.status === 'rejected' || change.status === 'failed' ? 'danger' : 'warning'; return <div className="agent-row" key={change.id}><span className="agent-avatar">{change.action.charAt(0).toUpperCase()}</span><span className="agent-row__main"><strong>{change.environment} · {change.operation} · {change.action}</strong><small>{change.reason} · {change.changed_capabilities.join(', ') || 'No capability delta'}</small><small>{latestExecution ? `Execution: ${latestExecution.pipeline} · ${latestExecution.status}` : 'No execution evidence reported'}</small></span><span className="agent-row__metric"><small>Revision</small><strong>{change.source_revision} → {change.target_revision}</strong></span><span className="agent-row__metric"><small>Evidence</small><strong>{runtimeExecutions[change.id]?.length ?? 0}</strong></span><span className="agent-row__status"><Badge tone={tone}>{change.status}</Badge></span>{change.status === 'waiting_approval' && platformPermissions.includes('platform.runtime.manage') ? <span className="workspace-panel__actions"><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'approve')}>Approve</Button><Button variant="secondary" disabled={operationBusy} onClick={() => void decideRuntimeChange(change, 'reject')}>Reject</Button></span> : null}{change.status === 'completed' && platformPermissions.includes('platform.runtime.manage') ? <Button variant="secondary" disabled={operationBusy} onClick={() => void rollbackRuntimeChange(change)}>Rollback</Button> : null}</div>; })}</div>
     </Card> : null}
 
     {platformPermissions.length ? <Card className="workspace-panel">

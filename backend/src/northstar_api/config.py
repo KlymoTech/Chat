@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     education_whatsapp_tutor_enabled: bool = True
     education_approved_faq_enabled: bool = True
 
+    # Platform control-plane deployment executor. This channel is deliberately
+    # independent of optional Kafka so Kafka can itself be disabled safely.
+    platform_change_executor_url: str | None = None
+    platform_change_executor_token: SecretStr | None = None
+    platform_change_report_token: SecretStr | None = None
+    platform_change_executor_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    platform_change_executor_poll_seconds: float = Field(default=1, gt=0, le=60)
+    platform_change_executor_max_attempts: int = Field(default=50, ge=1, le=1000)
+
     s3_endpoint_url: str | None = None
     s3_public_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
@@ -181,6 +190,9 @@ class Settings(BaseSettings):
         "crm_dynamics365_client_secret",
         "crm_pipedrive_client_id",
         "crm_pipedrive_client_secret",
+        "platform_change_executor_url",
+        "platform_change_executor_token",
+        "platform_change_report_token",
         mode="before",
     )
     @classmethod
@@ -205,6 +217,19 @@ class Settings(BaseSettings):
             raise ValueError("CRM OAuth URLs must be absolute HTTP(S) URLs")
         if parsed.query or parsed.fragment:
             raise ValueError("CRM OAuth URLs cannot contain a query string or fragment")
+        return normalized
+
+    @field_validator("platform_change_executor_url")
+    @classmethod
+    def validate_platform_executor_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("PLATFORM_CHANGE_EXECUTOR_URL must be an absolute HTTP(S) URL")
+        if parsed.query or parsed.fragment:
+            raise ValueError("PLATFORM_CHANGE_EXECUTOR_URL cannot contain a query string or fragment")
         return normalized
 
     @field_validator("nvidia_temperature")
@@ -239,6 +264,16 @@ class Settings(BaseSettings):
                     f"CRM_{name}_CLIENT_ID and CRM_{name}_CLIENT_SECRET must be provided together"
                 )
         oauth_configured = any(client_id and client_secret for _, client_id, client_secret in oauth_pairs)
+        executor_values = (
+            self.platform_change_executor_url,
+            self.platform_change_executor_token,
+            self.platform_change_report_token,
+        )
+        if any(executor_values) and not all(executor_values):
+            raise ValueError(
+                "PLATFORM_CHANGE_EXECUTOR_URL, PLATFORM_CHANGE_EXECUTOR_TOKEN, and "
+                "PLATFORM_CHANGE_REPORT_TOKEN must be provided together"
+            )
 
         if self.app_env == "production":
             if self.app_auto_create_schema:
@@ -262,6 +297,11 @@ class Settings(BaseSettings):
                 raise ValueError("ALLOW_DETERMINISTIC_EMBEDDINGS must be false in production")
             if self.rate_limit_fail_open:
                 raise ValueError("RATE_LIMIT_FAIL_OPEN must be false in production")
+            if (
+                self.platform_change_executor_url
+                and not self.platform_change_executor_url.startswith("https://")
+            ):
+                raise ValueError("PLATFORM_CHANGE_EXECUTOR_URL must use HTTPS in production")
             if not self.s3_configured:
                 raise ValueError("Production requires configured object storage")
             if any(origin == "*" for origin in self.app_cors_origins):
