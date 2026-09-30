@@ -1,10 +1,12 @@
 import { ArrowRight, Check, RefreshCw, Search, Settings2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth, useWorkspace } from '@/components/providers';
 import { Badge, Button, Card } from '@/components/ui';
 import { IntegrationSetupModal } from '@/components/integration-setup-modal';
 import { WhatsAppIntegrationModal } from '@/components/whatsapp-integration-modal';
+import { TelegramSetupModal } from '@/components/telegram-setup-modal';
+import { ZohoOneClickIntegration } from '@/components/ZohoOneClickIntegration';
 import { api } from '@/lib/api';
 import { crmOneClickApi } from '@/lib/crm-one-click-api';
 import { leadCrmApi } from '@/lib/lead-crm-api';
@@ -19,9 +21,11 @@ export function IntegrationsHubPage() {
 function IntegrationCatalogPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<IntegrationCategory>('All integrations');
-  const [selected, setSelected] = useState<CatalogIntegration | null>(null);
+  const [selected, setSelected] = useState<CatalogIntegration | null>(() => params.get('provider') === 'telegram' ? integrationCatalog.find(item => item.id === 'telegram') ?? null : null);
+  const [zohoOpen, setZohoOpen] = useState(() => params.get('provider') === 'zoho');
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
   const canManage = session?.user.role === 'owner' || session?.user.role === 'admin';
   const providers = useApi(() => crmOneClickApi.providers());
@@ -43,6 +47,8 @@ function IntegrationCatalogPage() {
   const open = (item: CatalogIntegration) => {
     if (item.id === 'widget') navigate('/deploy');
     else if (item.id === 'whatsapp') setWhatsAppOpen(true);
+    else if (item.id === 'telegram') setSelected(item);
+    else if (item.id === 'zoho') setZohoOpen(true);
     else setSelected(item);
   };
 
@@ -52,6 +58,7 @@ function IntegrationCatalogPage() {
     {error && <div className="catalog-notice catalog-notice--error" role="alert">Connection information could not be loaded: {error} <Button variant="ghost" onClick={refresh}>Try again</Button></div>}
     {!canManage && <p className="catalog-notice">An owner or administrator can connect platforms for this workspace.</p>}
     {loading && <p role="status" className="catalog-loading">Refreshing connection status…</p>}
+    {zohoOpen && <section aria-label="Zoho CRM connection"><div className="catalog-section-heading"><div><h2>Zoho CRM</h2><p>Platform-managed authorization for this workspace.</p></div><Button variant="ghost" onClick={() => setZohoOpen(false)}>Close</Button></div><ZohoOneClickIntegration /></section>}
     {(['Connected', 'CRM', 'Channels', 'Developer'] as const).map(group => {
       const groupItems = items.filter(item => group === 'Connected' ? statusFor(item) === 'healthy' : item.category === group && statusFor(item) !== 'healthy');
       if (!groupItems.length) return null;
@@ -64,7 +71,7 @@ function IntegrationCatalogPage() {
       })}</div></section>;
     })}
     {!items.length && <Card className="catalog-empty"><Search size={28} /><h2>No integrations found</h2><p>Try another name or category.</p><Button variant="secondary" onClick={() => { setSearch(''); setCategory('All integrations'); }}>Clear filters</Button></Card>}
-    {selected && <IntegrationSetupModal item={selected} provider={providers.data?.find(value => value.id === selected.id)} crmConnections={crm.data ?? []} channelConnections={channels.data ?? []} canManage={canManage} onClose={() => setSelected(null)} onChanged={refresh} />}
+    {selected?.id === 'telegram' ? <TelegramSetupModal connections={channels.data ?? []} canManage={canManage} onClose={() => setSelected(null)} onChanged={refresh} /> : selected && <IntegrationSetupModal item={selected} provider={providers.data?.find(value => value.id === selected.id)} crmConnections={crm.data ?? []} channelConnections={channels.data ?? []} canManage={canManage} onClose={() => setSelected(null)} onChanged={refresh} />}
     <WhatsAppIntegrationModal open={whatsAppOpen} onClose={() => setWhatsAppOpen(false)} onConnectionChanged={refresh} />
   </div>;
 }

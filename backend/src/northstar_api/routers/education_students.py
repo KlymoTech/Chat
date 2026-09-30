@@ -80,9 +80,17 @@ async def _student_out(student: EducationStudent, session: AsyncSession) -> Stud
         .order_by(EducationStudentIdentity.is_primary.desc(), EducationStudentIdentity.created_at)
         .limit(1)
     )
+    telegram_identity = await session.scalar(
+        select(EducationStudentIdentity)
+        .where(EducationStudentIdentity.student_id == student.id, EducationStudentIdentity.workspace_id == student.workspace_id, EducationStudentIdentity.identity_type == "telegram", EducationStudentIdentity.status != "revoked")
+        .order_by(EducationStudentIdentity.is_primary.desc(), EducationStudentIdentity.created_at)
+        .limit(1)
+    )
     result = StudentOut.model_validate(student)
     result.whatsapp_number = identity.normalized_identifier if identity else None
     result.whatsapp_verified = bool(identity and identity.status == "verified")
+    result.telegram_user_id = telegram_identity.normalized_identifier if telegram_identity else None
+    result.telegram_verified = bool(telegram_identity and telegram_identity.status == "verified")
     return result
 
 
@@ -138,6 +146,35 @@ async def _save_whatsapp(session, student, number, verified):
     )
 
 
+async def _save_telegram(session, student, user_id, verified):
+    from datetime import UTC, datetime
+
+    from northstar_api.education_student_identities import EducationStudentIdentity
+
+    identities = (await session.scalars(select(EducationStudentIdentity).where(
+        EducationStudentIdentity.student_id == student.id,
+        EducationStudentIdentity.workspace_id == student.workspace_id,
+        EducationStudentIdentity.identity_type == "telegram",
+    ).with_for_update())).all()
+    target = next((item for item in identities if item.normalized_identifier == user_id), None)
+    for item in identities:
+        if item.is_primary and item is not target:
+            item.is_primary, item.status, item.verified_at = False, "revoked", None
+    if user_id:
+        if target is None:
+            target = EducationStudentIdentity(tenant_id=student.tenant_id, workspace_id=student.workspace_id, student_id=student.id, identity_type="telegram", identifier=user_id, normalized_identifier=user_id)
+            session.add(target)
+        target.is_primary = True
+        target.status = "verified" if verified else "pending"
+        target.verified_at = datetime.now(UTC) if verified else None
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "This Telegram user ID is already linked to another student in this workspace") from None
+    enqueue_event(session, tenant_id=student.tenant_id, aggregate_type="education_student", aggregate_id=student.id, event_type="education.student.telegram.updated.v1", payload={"studentId": str(student.id), "configured": bool(user_id), "verified": bool(user_id and verified)})
+
+
 @router.get("", response_model=list[StudentOut])
 async def list_students(
     principal: EducationViewPrincipal,
@@ -181,6 +218,8 @@ async def create_student(
     student = EducationStudent(
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
+        telegram_phone_number=payload.telegram_phone_number,
+        telegram_phone_verified=bool(payload.telegram_phone_number and payload.telegram_phone_verified),
         student_number=payload.student_number,
         name=payload.name,
         email=str(payload.email) if payload.email is not None else None,
@@ -199,6 +238,8 @@ async def create_student(
         ) from None
     if payload.whatsapp_number:
         await _save_whatsapp(session, student, payload.whatsapp_number, payload.whatsapp_verified)
+    if payload.telegram_user_id:
+        await _save_telegram(session, student, payload.telegram_user_id, payload.telegram_verified)
     enqueue_event(
         session,
         tenant_id=principal.tenant_id,
@@ -256,12 +297,41 @@ async def update_student(
             student_id=student.id,
         )
 
+    await session.refresh(student, with_for_update=True)
     changed_fields: list[str] = []
+    if "telegram_phone_number" in payload.model_fields_set and payload.telegram_phone_number != student.telegram_phone_number:
+        from northstar_api.education_student_identities import EducationStudentIdentity
+        identities = (await session.scalars(select(EducationStudentIdentity).where(
+            EducationStudentIdentity.tenant_id == student.tenant_id,
+            EducationStudentIdentity.workspace_id == student.workspace_id,
+            EducationStudentIdentity.student_id == student.id,
+            EducationStudentIdentity.identity_type == "telegram",
+        ).with_for_update())).all()
+        for identity in identities:
+            if identity.status != "revoked":
+                identity.status = "pending"
+            identity.is_primary, identity.verified_at = False, None
+        student.telegram_phone_number = payload.telegram_phone_number
+        student.telegram_phone_verified = False
+        changed_fields.extend(["telegram_phone_number", "telegram_phone_verified"])
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(409, "This Telegram phone number is already assigned in this workspace") from None
+    if "telegram_phone_verified" in payload.model_fields_set:
+        confirmed = bool(student.telegram_phone_number and payload.telegram_phone_verified)
+        if student.telegram_phone_verified != confirmed:
+            student.telegram_phone_verified = confirmed
+            changed_fields.append("telegram_phone_verified")
     if "whatsapp_number" in payload.model_fields_set:
         await _save_whatsapp(session, student, payload.whatsapp_number, payload.whatsapp_verified)
         changed_fields.append("whatsapp_number")
+    if "telegram_user_id" in payload.model_fields_set:
+        await _save_telegram(session, student, payload.telegram_user_id, payload.telegram_verified)
+        changed_fields.append("telegram_user_id")
     for field_name in payload.model_fields_set:
-        if field_name in {"whatsapp_number", "whatsapp_verified"}:
+        if field_name in {"whatsapp_number", "whatsapp_verified", "telegram_phone_number", "telegram_phone_verified", "telegram_user_id", "telegram_verified"}:
             continue
         value = getattr(payload, field_name)
         if field_name != "email" and value is None:

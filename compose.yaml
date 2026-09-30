@@ -17,7 +17,22 @@ x-api-environment: &api-environment
   APP_CORS_ORIGINS: '${APP_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}'
   CRM_OAUTH_PUBLIC_BASE_URL: ${CRM_OAUTH_PUBLIC_BASE_URL:-http://localhost:8100}
   CRM_OAUTH_FRONTEND_ORIGIN: ${CRM_OAUTH_FRONTEND_ORIGIN:-http://localhost:3100}
+  ZOHO_CLIENT_ID: ${ZOHO_CLIENT_ID:-}
+  ZOHO_CLIENT_SECRET: ${ZOHO_CLIENT_SECRET:-}
+  ZOHO_CLIENT_SECRET_US: ${ZOHO_CLIENT_SECRET_US:-}
+  ZOHO_CLIENT_SECRET_IN: ${ZOHO_CLIENT_SECRET_IN:-}
+  ZOHO_CLIENT_SECRET_EU: ${ZOHO_CLIENT_SECRET_EU:-}
+  ZOHO_CLIENT_SECRET_AU: ${ZOHO_CLIENT_SECRET_AU:-}
+  ZOHO_CLIENT_SECRET_JP: ${ZOHO_CLIENT_SECRET_JP:-}
+  ZOHO_CLIENT_SECRET_CA: ${ZOHO_CLIENT_SECRET_CA:-}
+  ZOHO_CLIENT_SECRET_CN: ${ZOHO_CLIENT_SECRET_CN:-}
+  ZOHO_ACCOUNTS_URL: ${ZOHO_ACCOUNTS_URL:-https://accounts.zoho.com}
+  ZOHO_API_DOMAIN: ${ZOHO_API_DOMAIN:-https://www.zohoapis.com}
+  ZOHO_API_VERSION: ${ZOHO_API_VERSION:-v8}
+  ZOHO_OAUTH_SCOPES: ${ZOHO_OAUTH_SCOPES:-ZohoCRM.modules.ALL,ZohoCRM.settings.ALL,ZohoCRM.org.READ}
   ZOHO_OAUTH_FRONTEND_URL: ${ZOHO_OAUTH_FRONTEND_URL:-http://localhost:3100/integrations}
+  ZOHO_OAUTH_REDIRECT_URI: ${ZOHO_OAUTH_REDIRECT_URI:-}
+  ZOHO_LIVE_CERTIFICATION_ENABLED: ${ZOHO_LIVE_CERTIFICATION_ENABLED:-true}
   EMAIL_VERIFICATION_FRONTEND_URL: ${EMAIL_VERIFICATION_FRONTEND_URL:-http://localhost:3100/verify-email}
   PASSWORD_RESET_FRONTEND_URL: ${PASSWORD_RESET_FRONTEND_URL:-http://localhost:3100/reset-password}
   WORKSPACE_INVITATION_FRONTEND_URL: ${WORKSPACE_INVITATION_FRONTEND_URL:-http://localhost:3100/workspace-invitation}
@@ -86,6 +101,10 @@ x-api-environment: &api-environment
   META_SIGNUP_SESSION_TTL_SECONDS: ${META_SIGNUP_SESSION_TTL_SECONDS:-600}
   WHATSAPP_DISPATCH_MAX_ATTEMPTS: ${WHATSAPP_DISPATCH_MAX_ATTEMPTS:-8}
   CRM_CREDENTIAL_ENCRYPTION_KEY: ${CRM_CREDENTIAL_ENCRYPTION_KEY:-replace-with-at-least-32-random-characters-for-crm}
+  TELEGRAM_MANAGER_BOT_TOKEN: ${TELEGRAM_MANAGER_BOT_TOKEN:-}
+  TELEGRAM_MANAGER_BOT_USERNAME: ${TELEGRAM_MANAGER_BOT_USERNAME:-}
+  TELEGRAM_MANAGER_WEBHOOK_SECRET: ${TELEGRAM_MANAGER_WEBHOOK_SECRET:-}
+  TELEGRAM_PUBLIC_BASE_URL: ${TELEGRAM_PUBLIC_BASE_URL:-}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
   STRIPE_PRICE_STARTER: ${STRIPE_PRICE_STARTER:-}
@@ -265,7 +284,7 @@ services:
   # Slow document extraction must not share a consumer channel with WhatsApp.
   whatsapp-worker:
     <<: *celery-worker
-    command: ["celery", "-A", "northstar_api.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${WHATSAPP_CELERY_CONCURRENCY:-2}", "--queues=whatsapp.inbound,whatsapp.outbound"]
+    command: ["celery", "-A", "northstar_api.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${WHATSAPP_CELERY_CONCURRENCY:-2}", "--queues=whatsapp.inbound,whatsapp.outbound,telegram.outbound"]
     environment:
       <<: *api-environment
       DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
@@ -280,6 +299,30 @@ services:
       DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
       DATABASE_APPLY_RUNTIME_ROLE: "false"
       OTEL_SERVICE_NAME: northstar-job-dispatcher
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks:
+      - data
+      - events
+    security_opt:
+      - no-new-privileges:true
+
+  # Dispatches approved Course Knowledge assignments to the existing ingest
+  # worker queue.  It is deliberately separate from the general dispatcher so
+  # slow course-index retries cannot delay inbound channel traffic.
+  course-knowledge-dispatcher:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.course_knowledge_dispatcher"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      OTEL_SERVICE_NAME: northstar-course-knowledge-dispatcher
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -388,6 +431,29 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [data, events, egress]
+    security_opt: [no-new-privileges:true]
+
+  # Optional Zoho Flow mirror for non-Education lead events.  It consumes the
+  # existing Kafka lead topics and remains idle until both settings are set.
+  zoho-flow-lead-delivery:
+    <<: *api-runtime
+    command: ["python", "-m", "northstar_api.workers.zoho_flow_lead_delivery"]
+    environment:
+      <<: *api-environment
+      DATABASE_URL: ${WORKER_DATABASE_URL:-postgresql+asyncpg://northstar_service:replace-local-postgres-service-password@postgres:5432/northstar}
+      DATABASE_APPLY_RUNTIME_ROLE: "false"
+      ZOHO_FLOW_LEAD_WEBHOOK_URL: ${ZOHO_FLOW_LEAD_WEBHOOK_URL:-}
+      ZOHO_FLOW_LEAD_WORKSPACE_ID: ${ZOHO_FLOW_LEAD_WORKSPACE_ID:-}
+      ZOHO_FLOW_WEBHOOK_TIMEOUT_SECONDS: ${ZOHO_FLOW_WEBHOOK_TIMEOUT_SECONDS:-10}
+      OTEL_SERVICE_NAME: northstar-zoho-flow-lead-delivery
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
         condition: service_healthy
     healthcheck:
       disable: true

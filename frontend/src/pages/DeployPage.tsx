@@ -590,7 +590,7 @@ function IntegrationDeployPanel({ integration, connected, onToggle, onWebsite }:
       {connected ? <Badge tone="success"><Check /> Connected</Badge> : null}
     </div>
     <div className="share-actions integration-deploy-actions">
-      {integration.id === 'website' ? <Button icon={Code2} onClick={onWebsite}>View embed options</Button> : integration.id === 'whatsapp' ? <Link to="/integrations"><Button icon={ExternalLink}>{connected ? 'Manage WhatsApp' : 'Connect WhatsApp'}</Button></Link> : <Button disabled={integration.comingSoon || updating} onClick={() => void toggle()}>{integration.comingSoon ? 'Coming soon' : updating ? 'Updating...' : connected ? 'Disable channel' : 'Enable channel'}</Button>}
+      {integration.id === 'telegram' ? <Link to="/integrations?provider=telegram"><Button icon={ExternalLink}>Set up Telegram bot</Button></Link> : integration.id === 'website' ? <Button icon={Code2} onClick={onWebsite}>View embed options</Button> : integration.id === 'whatsapp' ? <Link to="/integrations"><Button icon={ExternalLink}>{connected ? 'Manage WhatsApp' : 'Connect WhatsApp'}</Button></Link> : <Button disabled={integration.comingSoon || updating} onClick={() => void toggle()}>{integration.comingSoon ? 'Coming soon' : updating ? 'Updating...' : connected ? 'Disable channel' : 'Enable channel'}</Button>}
       <Link to="/integrations"><Button variant="secondary">All integrations</Button></Link>
     </div>
   </SharePanel>;

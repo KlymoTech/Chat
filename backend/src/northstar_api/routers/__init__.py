@@ -17,6 +17,7 @@ from northstar_api.routers import (
     channel_operations,
     channel_webhook_events,
     channels,
+    telegram_connect,
     chat,
     conversations,
     course_knowledge,
@@ -81,6 +82,7 @@ from northstar_api.modules.super_admin.api.runtime import router as platform_run
 from northstar_api.services.entitlement_guard import enforce_plan_entitlements
 
 api_router = APIRouter(dependencies=[Depends(enforce_plan_entitlements)])
+api_router.include_router(telegram_connect.router)
 api_router.include_router(auth.router)
 api_router.include_router(organization_sessions.router)
 api_router.include_router(onboarding.router)

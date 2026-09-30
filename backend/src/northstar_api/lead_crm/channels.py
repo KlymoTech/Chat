@@ -16,6 +16,7 @@ class ChannelConnectionContext:
     provider: ChannelProvider
     configuration: dict[str, Any]
     credentials: dict[str, Any] = field(repr=False)
+    public_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

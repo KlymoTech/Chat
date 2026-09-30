@@ -604,28 +604,99 @@ def _cosine(left: list[float], right: list[float]) -> float:
     return dot / (norm_left * norm_right) if norm_left and norm_right else 0.0
 
 
-def _rerank(evidence: list[Evidence], query: str, limit: int) -> list[Evidence]:
-    """Cheap deterministic reranking after vectorless lexical retrieval.
+_QUERY_FILLER = frozenset({
+    "a", "an", "and", "are", "can", "code", "could", "did", "do", "does", "document", "for",
+    "give", "had", "has", "have", "how", "i", "is", "it", "its", "me", "of", "please", "tell",
+    "the", "this", "to", "was", "were", "what", "when", "where", "which", "who", "why", "with",
+    "you",
+})
 
-    Exact terms and critical qualifiers receive a small boost. This improves
-    latency versus a second model call while keeping numbers and NOT/EXCEPT
-    visible to the ranking decision.
+
+# Small, deterministic normalization for ordinary question grammar.  This is
+# deliberately not semantic expansion: it only joins direct inflections of the
+# same fact term, so "begin" can find "began" without making unrelated course
+# material eligible.
+_TERM_NORMALIZATION = {
+    "began": "begin",
+    "became": "become",
+    "built": "build",
+    "created": "create",
+    "found": "find",
+    "went": "go",
+    "led": "lead",
+    "made": "make",
+    "ran": "run",
+    "saw": "see",
+    "won": "win",
+}
+
+
+def _canonical_term(token: str) -> str:
+    """Normalize a token without changing identifiers, codes, or phrases."""
+    value = _TERM_NORMALIZATION.get(token, token)
+    # Conservative regular inflections cover forms such as governs/governed
+    # while leaving short words and hyphenated identifiers intact.
+    if "-" not in value and len(value) > 4:
+        if value.endswith("ies"):
+            value = f"{value[:-3]}y"
+        elif value.endswith("ed"):
+            value = value[:-1] if value[:-1].endswith("e") else value[:-2]
+        elif value.endswith("s") and not value.endswith(("ss", "us", "is")):
+            value = value[:-1]
+    return value
+
+
+def normalized_query_terms(query: str) -> tuple[str, ...]:
+    """Return meaningful, stable search terms rather than conversational filler."""
+    tokens = re.findall(r"[\w-]+", query.casefold())
+    return tuple(
+        dict.fromkeys(_canonical_term(token) for token in tokens if token not in _QUERY_FILLER)
+    )
+
+
+def answer_matches_question(answer: str, query: str) -> bool:
+    """A short factual reply must repeat the requested entity, not merely any source fact."""
+    anchors = set(normalized_query_terms(query))
+    if not anchors:
+        return False
+    answer_terms = {_canonical_term(token) for token in re.findall(r"[\w-]+", answer.casefold())}
+    return anchors <= answer_terms
+
+
+def _rerank(evidence: list[Evidence], query: str, limit: int) -> list[Evidence]:
+    """Deterministically rank evidence using meaningful entities and exact phrases.
+
+    Metadata deliberately records the components so an academic reviewer can
+    understand a retrieval decision without re-running the query.
     """
-    query_terms = set(re.findall(r"\w+", query.casefold()))
+    meaningful = normalized_query_terms(query)
+    query_terms = set(meaningful)
     critical = set(re.findall(r"\b(?:not|except|least|most|incorrect)\b", query.casefold()))
-    scored: list[tuple[float, Evidence]] = []
-    seen_sources: set[str] = set()
+    phrase = " ".join(meaningful)
+    scored: list[tuple[float, str, Evidence]] = []
     for item in evidence:
-        terms = set(re.findall(r"\w+", item.text.casefold()))
+        searchable = f"{item.title}\n{item.text}".casefold()
+        terms = {_canonical_term(token) for token in re.findall(r"[\w-]+", searchable)}
         overlap = len(query_terms & terms) / max(1, len(query_terms))
         critical_overlap = len(critical & terms) / max(1, len(critical)) if critical else 0.0
-        diversity_bonus = 0.015 if item.source_id not in seen_sources else 0.0
-        score = item.score + (0.08 * overlap) + (0.30 * critical_overlap) + diversity_bonus
-        scored.append((score, item))
-        if item.source_id:
-            seen_sources.add(item.source_id)
-    scored.sort(key=lambda value: value[0], reverse=True)
-    return [replace_evidence(item, score) for score, item in scored[: max(1, limit)]]
+        exact_phrase = bool(phrase and len(meaningful) >= 2 and phrase in searchable)
+        # Entity/phrase matches are intentionally stronger than generic lexical
+        # similarity.  This stops a bare word such as "code" from tying a
+        # Sunday-code block with an unrelated project-code block.
+        score = item.score + (0.70 * overlap) + (0.65 if exact_phrase else 0.0) + (0.30 * critical_overlap)
+        metadata = dict(item.metadata)
+        metadata["retrieval"] = {
+            "query_terms": list(meaningful),
+            "term_coverage": round(overlap, 4),
+            "critical_coverage": round(critical_overlap, 4),
+            "exact_phrase": exact_phrase,
+            "base_score": round(item.score, 4),
+            "final_score": round(score, 4),
+        }
+        ranked = replace_evidence(item, score, metadata=metadata)
+        scored.append((score, item.entity_id, ranked))
+    scored.sort(key=lambda value: (-value[0], value[1]))
+    return [item for _, _, item in scored[: max(1, limit)]]
 
 
 def replace_evidence(
@@ -634,6 +705,7 @@ def replace_evidence(
     *,
     lexical_score: float | None = None,
     fusion_score: float | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> Evidence:
     return Evidence(
         kind=item.kind,
@@ -643,7 +715,7 @@ def replace_evidence(
         url=item.url,
         text=item.text,
         score=score,
-        metadata=item.metadata,
+        metadata=item.metadata if metadata is None else metadata,
         dense_score=item.dense_score,
         lexical_score=item.lexical_score if lexical_score is None else lexical_score,
         fusion_score=item.fusion_score if fusion_score is None else fusion_score,

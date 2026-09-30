@@ -1,0 +1,218 @@
+[
+  {
+    "path": ".env.example",
+    "sha256": "3e48f97198c5bac535b339a30f70fee83157896bcff0efb1fbb62bf91d4c5a14"
+  },
+  {
+    "path": "README.md",
+    "sha256": "8d9996b7b62279106b0e50e7fca09106816d827248ce32436306ec36ce519c2c"
+  },
+  {
+    "path": "compose.yaml",
+    "sha256": "b4f1933635ff701a4008358ac8df6e7b0b6b7ae96578492c4a75dd49a775ad73"
+  },
+  {
+    "path": "backend/src/northstar_api/config.py",
+    "sha256": "fb6a6f24db9723ad769454d266f792b0e65b5ea5c429520fadf7710bb3c84995"
+  },
+  {
+    "path": "backend/src/northstar_api/telegram_provisioning.py",
+    "sha256": "ab3715468b9d598dc4a15c6210ed05268b916d8abcc41c30abe01eabe1da4332"
+  },
+  {
+    "path": "backend/src/northstar_api/services/telegram.py",
+    "sha256": "d3778ae2118a3cbc2775df38075fb1d34fe10fb64b840d01b316c968efd3d8cc"
+  },
+  {
+    "path": "backend/src/northstar_api/services/telegram_enrollment.py",
+    "sha256": "52cc82049a9141f0087ab4afcf1a21a1fbabc9b183fd431b93c06613fafdaf70"
+  },
+  {
+    "path": "backend/src/northstar_api/services/telegram_provisioning.py",
+    "sha256": "7f1c81f2697e10c145c2b514a7084c5f7fa8baaf81bbb627febc529d9cb5d220"
+  },
+  {
+    "path": "backend/src/northstar_api/services/telegram_manager_setup.py",
+    "sha256": "eb59a1eb45ca83e5b640d997ceb617e546c7a87483b60806f936926407f9d973"
+  },
+  {
+    "path": "backend/src/northstar_api/routers/__init__.py",
+    "sha256": "6fd235424918b0ed1d1fc74447c962f36696e67febe87a3ec4f9221bd41c861a"
+  },
+  {
+    "path": "backend/src/northstar_api/routers/channels.py",
+    "sha256": "3b3457e51f975a38d3d3487d396609b7fc84dc5b7ed6be618c894d2b5ad1f6cf"
+  },
+  {
+    "path": "backend/src/northstar_api/routers/telegram_connect.py",
+    "sha256": "55af62629318531d0fda969298a27e7ab400300bbc08007e44a382ea0cd61c75"
+  },
+  {
+    "path": "backend/src/northstar_api/routers/agents.py",
+    "sha256": "f324819765a33ff5822a958f7fbc6e8792e3f3d439513d699dd6b55ab3e4cdc3"
+  },
+  {
+    "path": "backend/src/northstar_api/routers/integrations.py",
+    "sha256": "bc924deda20e9099ba693d1e58aa86ef09700a46f51c24b1fdeadce62bf19d4c"
+  },
+  {
+    "path": "backend/src/northstar_api/routers/education_students.py",
+    "sha256": "dd2a15b53b39ca54bc6524dbc8dd486e1a92cfef2c1e7681c551b994d1bcd105"
+  },
+  {
+    "path": "backend/src/northstar_api/lead_crm/channel_providers.py",
+    "sha256": "5a028f12ced44450ea525074aef704bc4e03e5f118bf0359cbed897b4a191bbc"
+  },
+  {
+    "path": "backend/src/northstar_api/lead_crm/channel_models.py",
+    "sha256": "79b0fa378364357276828e1764848f34be28705b4f4423b6821383e9f3857d32"
+  },
+  {
+    "path": "backend/src/northstar_api/lead_crm/channels.py",
+    "sha256": "97e5bd61b47e89c0bb3af9e19cd9c0e5dc495aceecb8e3dfa3f571cf9c1fed52"
+  },
+  {
+    "path": "backend/src/northstar_api/lead_crm/channel_scope.py",
+    "sha256": "e29c99ca32b277cab14a4a74147a2d06e988d09224fc647ea7f6cdd96843f0dd"
+  },
+  {
+    "path": "backend/src/northstar_api/entitlements.py",
+    "sha256": "34b933999ba128a3c21f27b5fe92db95ba3cb962a598048f9bece678ff30f7bb"
+  },
+  {
+    "path": "backend/src/northstar_api/schemas.py",
+    "sha256": "1db6dd242c7f06824e019ac2af8bdb418f07945b089cb1f445e8a0199c0d9b7d"
+  },
+  {
+    "path": "backend/src/northstar_api/education_students.py",
+    "sha256": "5c94bff462421083085e0074673cf07bb07d0a4306ca6cc5e0eb6d5adce11915"
+  },
+  {
+    "path": "backend/src/northstar_api/education_student_schemas.py",
+    "sha256": "8761c9b07340d15018789a21295bde495909c3cd8bc10c798cc59de8f197cd44"
+  },
+  {
+    "path": "backend/src/northstar_api/workers/telegram_tasks.py",
+    "sha256": "d3cb08caffa3f1e97960caa7f266035deab7a90bc548d082ca96a4e67e1c06e6"
+  },
+  {
+    "path": "backend/src/northstar_api/workers/channel_event_consumer.py",
+    "sha256": "0ab5febc1d16cf61d5a580480087356fe1c0c6f56164d0e5cca2b13b4d882a2f"
+  },
+  {
+    "path": "backend/src/northstar_api/workers/celery_app.py",
+    "sha256": "d78c92a4b332dd02323a9447e577bb87055172ed289b60ae02e5deb960ff7431"
+  },
+  {
+    "path": "backend/src/northstar_api/workers/job_dispatcher.py",
+    "sha256": "bb3ed5db9214e7e20ad38631368aeb3c89d709cd08e8beb5b3931f3580d08be5"
+  },
+  {
+    "path": "backend/src/northstar_api/workers/channel_health_monitor.py",
+    "sha256": "9918c640360cad92b5f4c40b90ccfcbd3c49c78aee63fc07b6562dd0904b1857"
+  },
+  {
+    "path": "backend/migrations/env.py",
+    "sha256": "316f9d1e62c523cb6433aad60caa7a47266d71240934427db4ef20b325efa36b"
+  },
+  {
+    "path": "backend/migrations/versions/0032_telegram_outbound.py",
+    "sha256": "54eb2a05a69fc65c18910be5371477f92f28908f9a7b71ddcb84895b94eaa6fe"
+  },
+  {
+    "path": "backend/migrations/versions/0067_telegram_phone_enrollment.py",
+    "sha256": "b8dbc2a9706245df3bdb34c4e498c60bc7d1a5b11c7757686a6e2f519468a335"
+  },
+  {
+    "path": "backend/migrations/versions/0068_telegram_phone_confirmation.py",
+    "sha256": "b8496f0caa2fc429a824cfadc83e11c9a0d8b4f10427dfa79940c0c7400161c3"
+  },
+  {
+    "path": "backend/migrations/versions/0069_telegram_managed_bots.py",
+    "sha256": "e5c57638e8c971528583048806bf52d4cb432f71f1c75a6bcd8ce105effcc5c6"
+  },
+  {
+    "path": "backend/migrations/versions/0070_telegram_multiple_accounts.py",
+    "sha256": "579e5c173e7b528150bca4eac3e1922b7daf5673ad3579eb056cfd078e052752"
+  },
+  {
+    "path": "backend/tests/test_telegram_managed.py",
+    "sha256": "6f8ad05399b77b7ffb0c0b8384592584167e67a112d043b2c58cbe341387005e"
+  },
+  {
+    "path": "backend/tests/test_telegram_outbound.py",
+    "sha256": "d9e72e0c3723b13743bbda430f1d546d02a57fb6c16bb7702bdfe4d35e005f80"
+  },
+  {
+    "path": "backend/tests/test_telegram_phone_enrollment.py",
+    "sha256": "9f0d2078030977ccd6884f6fbbe0d2e5d47d8db2d317071fec2815139e936a08"
+  },
+  {
+    "path": "backend/tests/test_channel_health_monitor.py",
+    "sha256": "31ec155f58010477085de910850ccce3e9209131a0bf460cb096787887d78a78"
+  },
+  {
+    "path": "frontend/src/components/telegram-setup-modal.tsx",
+    "sha256": "46bf991dfd6e70583dc04d7d4f9cea3b9a27af7eed8d9a4df66307ab76fbe9d6"
+  },
+  {
+    "path": "frontend/src/components/telegram-setup-modal.test.tsx",
+    "sha256": "6c5c5ec139e210a0ab9c14aff0b750de2cc8328d517fe3ce1cdebd9143c1d5cb"
+  },
+  {
+    "path": "frontend/src/components/integration-setup-modal.tsx",
+    "sha256": "004902fe1a77d4b4636ada6e7b95b495d9bb0c62aec7fd3085f1f29d125e2a9c"
+  },
+  {
+    "path": "frontend/src/pages/IntegrationsHubPage.tsx",
+    "sha256": "3e70d12ea7959eb8f35f355b669b8041dd5babef32b52f1e5e0b2918159e86e5"
+  },
+  {
+    "path": "frontend/src/pages/DeployPage.tsx",
+    "sha256": "95e8f0fa94eaacc1ae44ac3f6ec7729f681f6c09b9072dfd0128c8fc418ec346"
+  },
+  {
+    "path": "frontend/src/pages/StudentsPage.tsx",
+    "sha256": "a44faf096845d93b87338a89b11e46ab7f0cb15d5ae821affccccf5686397bda"
+  },
+  {
+    "path": "frontend/src/lib/lead-crm-api.ts",
+    "sha256": "86c0908cf8645e6d3aca2b3b3aa11f9b325c76565b51032491e726fb5f64508a"
+  },
+  {
+    "path": "frontend/src/lib/integration-catalog.ts",
+    "sha256": "3669ceea6c3ad2650acbe6adc82f9ff68c2d54f0d46b7cc7e78dde7db93d3f6e"
+  },
+  {
+    "path": "frontend/src/lib/education-student-api.ts",
+    "sha256": "10b58ee0921ae83aab88afd899c16bd70b6c6b32d50a08102799cb2e98194429"
+  },
+  {
+    "path": "frontend/src/types.ts",
+    "sha256": "ab54c46ab8b31c85f753c81a4abdcf357635a8a259a2834a35970473b2e554bd"
+  },
+  {
+    "path": "frontend/public/brands/telegram.svg",
+    "sha256": "05f6898c0c087f84c8bcf65e93721bde65abe34093045d4e9ecddbb8dc9f6a18"
+  },
+  {
+    "path": "docs/telegram-student-enrollment.md",
+    "sha256": "3c16329d2e4a8fea84f056ca7e2f0c016f00f386a3cb954ff3eebd4bf21db5a8"
+  },
+  {
+    "path": "docs/telegram-managed-bots.md",
+    "sha256": "7b53edea48f400f49840c8383aa895b39e0a4ba097a01372b227ce9db0f1967e"
+  },
+  {
+    "path": "docs/telegram-managed-implementation.md",
+    "sha256": "b6745a3602f77a6b119fcc8d70f121758d5ded688b1479baf77be58d98eceebe"
+  },
+  {
+    "path": "scripts/configure-telegram-manager.py",
+    "sha256": "1ffb31b5c0d6804db73b39b79cdf14f96fdff9c3ba6216a570cfba8251ce940b"
+  },
+  {
+    "path": "reports/verify-managed-telegram.py",
+    "sha256": "a177482c8f5dda738b7e0c918d18add8a6780ba5df60510952ba72cea6daff3e"
+  }
+]

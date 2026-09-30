@@ -5,7 +5,8 @@ from northstar_api.services.ingestion import (
     approved_extraction_chunks,
     validate_embedding_batch,
 )
-from northstar_api.services.retrieval import Evidence, _rerank, replace_evidence
+from northstar_api.services.retrieval import Evidence, _rerank, answer_matches_question, normalized_query_terms, replace_evidence
+from northstar_api.services.course_knowledge import assess_course_evidence
 
 
 def evidence(text: str, score: float = 0.5) -> Evidence:
@@ -36,6 +37,55 @@ def test_rerank_boosts_exact_critical_terms() -> None:
         2,
     )
     assert "NOT valid" in ranked[0].text
+
+
+def test_rerank_prioritizes_exact_entity_phrase_over_generic_code() -> None:
+    ranked = _rerank(
+        [
+            evidence("The secret project code is BLUE-ORBIT-752.", 0.2),
+            evidence("Sunday's code is 2 + 2 = 4.", 0.2),
+        ],
+        "Tell me the Sunday code.",
+        2,
+    )
+    assert "Sunday" in ranked[0].text
+    assert ranked[0].metadata["retrieval"]["query_terms"] == ["sunday"]
+
+
+def test_answer_must_repeat_requested_entity() -> None:
+    assert normalized_query_terms("What is the meta book code?") == ("meta", "book")
+    assert answer_matches_question("The meta book code is moon-light-8.", "What is the meta book code?")
+    assert not answer_matches_question("The secret project code is BLUE-ORBIT-752.", "What is the meta book code?")
+
+
+def test_normalization_allows_question_grammar_without_broadening_course_scope() -> None:
+    assert normalized_query_terms("When did the Indus Valley Civilization begin?") == (
+        "indus", "valley", "civilization", "begin"
+    )
+    assert normalized_query_terms("Who created the Taj Mahal?") == ("create", "taj", "mahal")
+    assert normalized_query_terms("When did India become a sovereign republic?") == (
+        "india", "become", "sovereign", "republic"
+    )
+
+
+def test_course_assessment_accepts_authorized_indian_history_facts_with_inflections() -> None:
+    cases = (
+        ("The Indus valley Civilization began around 2500 BCE.", "When did the Indus Valley Civilization begin?"),
+        ("Shah Jahan created the Taj Mahal.", "Who created the Taj Mahal?"),
+        ("India then became a sovereign republic in 1950.", "When did India become a sovereign republic?"),
+        ("India finally won its freedom on August 15, 1947.", "When did India finally win its freedom?"),
+    )
+    for text, question in cases:
+        result = assess_course_evidence([evidence(text)], question, 1)
+        assert result.blocked_reason is None
+        assert result.evidence
+
+
+def test_course_assessment_blocks_generic_or_ambiguous_evidence() -> None:
+    items = [evidence("Sunday code is four.", 0.2), evidence("Sunday code is seven.", 0.2)]
+    result = assess_course_evidence(items, "Tell me the Sunday code", 2)
+    assert result.evidence == []
+    assert result.blocked_reason == "ambiguous_course_evidence"
 
 
 def test_approved_chunks_keep_page_and_region_provenance() -> None:

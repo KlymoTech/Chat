@@ -136,7 +136,7 @@ class AgentAppearance(APIModel):
     custom_domain: str = Field(default="", max_length=253)
     whatsapp: WhatsAppMessageSettings | None = None
     deployment_channel: Literal[
-        "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
+        "website", "whatsapp", "telegram", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
     ] = "website"
 
     @field_validator("primary_color", "surface_color")
@@ -216,14 +216,14 @@ class AgentCreate(APIModel):
     tone: AgentTone = AgentTone.FRIENDLY
     language: str = Field(default="English", min_length=2, max_length=60)
     deployment_channel: Literal[
-        "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
+        "website", "whatsapp", "telegram", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
     ] = "website"
 
 
 class AgentDuplicate(APIModel):
     name: str = Field(min_length=2, max_length=120)
     deployment_channel: Literal[
-        "website", "whatsapp", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
+        "website", "whatsapp", "telegram", "instagram", "facebook", "slack", "teams", "api", "notion", "zapier"
     ] = "website"
 
 

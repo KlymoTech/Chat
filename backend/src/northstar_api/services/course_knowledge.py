@@ -36,6 +36,7 @@ from northstar_api.services.course_knowledge_policy import (
     LearnerScope,
     audience_intersection,
     canonical_blocks,
+    duplicate_similarity,
     fingerprint,
     mapping_fingerprint,
     mismatch_warnings,
@@ -251,9 +252,36 @@ async def save_assignment(session: AsyncSession, boundary: Boundary, payload: di
     from northstar_api.education import EducationCourse
     courses = (await session.scalars(select(EducationCourse).where(EducationCourse.tenant_id == boundary.tenant_id, EducationCourse.workspace_id == boundary.workspace_id))).all()
     current = next(c for c in courses if c.id == assignment.course_id)
+    candidate_text = "\n".join(block["text"] for block in chosen)
+    existing_rows = (await session.execute(
+        select(CourseMaterialAssignment, CourseSourceVersion)
+        .join(CourseSourceVersion, CourseSourceVersion.id == CourseMaterialAssignment.source_version_id)
+        .where(
+            *boundary.filters(CourseMaterialAssignment),
+            CourseMaterialAssignment.id != assignment.id,
+            CourseMaterialAssignment.course_id == assignment.course_id,
+            CourseMaterialAssignment.curriculum_id == assignment.curriculum_id,
+            CourseMaterialAssignment.paper_id == assignment.paper_id,
+            CourseMaterialAssignment.batch_id == assignment.batch_id,
+            CourseMaterialAssignment.overview == assignment.overview,
+            CourseMaterialAssignment.status != "withdrawn",
+        )
+    )).all()
+    duplicate_warnings = []
+    for existing, existing_source in existing_rows:
+        existing_text = "\n".join(block["text"] for block in selected_blocks(canonical_blocks(existing_source.record), existing.block_ids))
+        similarity = duplicate_similarity(candidate_text, existing_text)
+        if similarity >= 0.70:
+            duplicate_warnings.append({
+                "code": "possible_duplicate_source",
+                "assignment_id": str(existing.id),
+                "source_version_id": str(existing_source.id),
+                "similarity": round(similarity, 4),
+                "action": "teacher_review_required",
+            })
     assignment.validation = {
         "mapping_review_required": True,
-        "warnings": mismatch_warnings(source.title, chosen, [current.code, current.name], [(str(c.id), [c.code, c.name]) for c in courses if c.id != current.id]),
+        "warnings": mismatch_warnings(source.title, chosen, [current.code, current.name], [(str(c.id), [c.code, c.name]) for c in courses if c.id != current.id]) + duplicate_warnings,
         "block_count": len(chosen), "source_record_hash": source.record_hash,
     }
     await invalidate_head(session, boundary, assignment.course_id, assignment.curriculum_id)
@@ -516,6 +544,13 @@ class KnowledgeContext:
     teaching_configuration: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class CourseRetrievalAssessment:
+    evidence: list[Any]
+    diagnostics: list[dict[str, Any]]
+    blocked_reason: str | None = None
+
+
 async def resolve_context(session: AsyncSession, boundary: Boundary, enrollment_id: UUID, *, expected_student_id: UUID | None = None, expected_course_id: UUID | None = None, expected_batch_id: UUID | None = None, paper_override: UUID | None = None, use_paper_override: bool = False) -> KnowledgeContext:
     from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
     from northstar_api.education import EducationCourse
@@ -667,14 +702,55 @@ def entry_evidence(entry: CourseIndexEntry, assignment: CourseMaterialAssignment
     )
 
 
-async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, query: str, *, model: Any = None, candidate_limit: int = 60, result_limit: int = 8, include_unpublished: bool = False) -> list[Any]:
+def assess_course_evidence(evidence: list[Any], query: str, result_limit: int) -> CourseRetrievalAssessment:
+    """Allow a course answer only when its matching evidence is decisive.
+
+    This is deliberately stricter than ordinary RAG: an ambiguous education
+    fact becomes a teacher-review task, never a best-effort guess.
+    """
+    from northstar_api.modules.knowledge.retrieval import _rerank, normalized_query_terms
+
+    ranked = _rerank(evidence, query, result_limit)
+    diagnostics = [
+        {
+            "entity_id": item.entity_id,
+            "title": item.title,
+            "kind": item.kind,
+            "score": round(item.score, 4),
+            "retrieval": item.metadata.get("retrieval", {}),
+        }
+        for item in ranked
+    ]
+    terms = normalized_query_terms(query)
+    if not terms:
+        return CourseRetrievalAssessment([], diagnostics, "query_has_no_specific_terms")
+    if not ranked:
+        return CourseRetrievalAssessment([], diagnostics, "no_authorized_published_evidence")
+    top = ranked[0]
+    coverage = float(top.metadata.get("retrieval", {}).get("term_coverage", 0.0))
+    if coverage < 1.0:
+        return CourseRetrievalAssessment([], diagnostics, "insufficient_entity_match")
+    if len(ranked) > 1:
+        next_item = ranked[1]
+        margin = top.score - next_item.score
+        diagnostics[0]["margin_to_next"] = round(margin, 4)
+        # A near tie between independently indexed facts is not a reliable
+        # answer.  Stable sorting makes it reproducible; this margin makes it
+        # safe rather than accidentally choosing upload order.
+        if margin < 0.15:
+            return CourseRetrievalAssessment([], diagnostics, "ambiguous_course_evidence")
+    return CourseRetrievalAssessment(ranked, diagnostics)
+
+
+async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, context: KnowledgeContext, query: str, *, model: Any = None, candidate_limit: int = 60, result_limit: int = 8, include_unpublished: bool = False, return_assessment: bool = False) -> list[Any] | CourseRetrievalAssessment:
     import re
 
     from northstar_api.config import get_settings
     from northstar_api.modules.knowledge.retrieval import _rerank
 
     if context.release_id is None and not include_unpublished:
-        return []
+        assessment = CourseRetrievalAssessment([], [], "no_published_release")
+        return assessment if return_assessment else []
     settings = get_settings()
     candidate_limit = max(1, min(candidate_limit, 200))
     result_limit = max(1, min(result_limit, 30))
@@ -684,6 +760,25 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
         ts_query = func.websearch_to_tsquery("simple", query)
         rank = func.ts_rank_cd(func.to_tsvector("simple", CourseIndexEntry.content), ts_query)
         lexical = (await session.execute(statement.add_columns(rank.label("rank")).where(ts_query.op("@@")(func.to_tsvector("simple", CourseIndexEntry.content))).order_by(rank.desc()).limit(candidate_limit))).all()
+        # websearch_to_tsquery joins ordinary words with AND.  That is too
+        # strict for a short course fact: "What is the secret project code?"
+        # should still retrieve "The secret project code is ..." even though
+        # the source does not contain the conversational word "what".  The
+        # fallback remains inside the same fully authorized SQL statement and
+        # only broadens matching after the precise search finds nothing.
+        if not lexical:
+            terms = list(dict.fromkeys(re.findall(r"\w+", query.casefold())))
+            if terms:
+                broad_query = func.to_tsquery("simple", " | ".join(terms))
+                broad_rank = func.ts_rank_cd(
+                    func.to_tsvector("simple", CourseIndexEntry.content), broad_query
+                )
+                lexical = (await session.execute(
+                    statement.add_columns(broad_rank.label("rank"))
+                    .where(broad_query.op("@@")(func.to_tsvector("simple", CourseIndexEntry.content)))
+                    .order_by(broad_rank.desc())
+                    .limit(candidate_limit)
+                )).all()
         for entry, assignment, source, raw_score in lexical:
             evidence = entry_evidence(entry, assignment, source, context, min(1.0, float(raw_score)))
             candidates[evidence.entity_id] = evidence
@@ -697,7 +792,8 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
             candidates[str(entry.id)] = entry_evidence(entry, assignment, source, context, score)
     evidence = [e for e in candidates.values() if e.score >= settings.retrieval_min_score]
     if context.release_id is None:  # unpublished staff test: generated artifacts exist only in releases
-        return _rerank(evidence, query, result_limit)
+        assessment = assess_course_evidence(evidence, query, result_limit)
+        return assessment if return_assessment else assessment.evidence
     # Only published, reviewed artifacts with ALL dependencies currently allowed.
     release = await scoped_row(session, CourseKnowledgeRelease, context.release_id, boundary)
     allowed = {str(identity) for identity in (await session.scalars(statement.with_only_columns(CourseMaterialAssignment.id, maintain_column_froms=True).distinct())).all()}
@@ -725,7 +821,8 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
         if score >= settings.retrieval_min_score:
             from northstar_api.modules.knowledge.retrieval import Evidence
             evidence.append(Evidence("course_artifact", str(artifact.id), None, f"Teacher-reviewed {artifact.artifact_type}", None, artifact.content, score, {"context_fingerprint": context.context_fingerprint, "release_id": str(context.release_id), "artifact_fingerprint": artifact_digest(artifact), "assignment_ids": artifact.assignment_ids, "source_version_ids": artifact.source_version_ids, "source_block_ids": artifact.source_block_ids, "answer_key_validated": artifact.answer_key_validated}))
-    return _rerank(evidence, query, result_limit)
+    assessment = assess_course_evidence(evidence, query, result_limit)
+    return assessment if return_assessment else assessment.evidence
 
 
 def normalize_faq_question(value: str) -> str:

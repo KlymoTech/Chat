@@ -123,6 +123,7 @@ class ChannelOutboundDelivery(Base):
     provider: Mapped[str] = mapped_column(String(60), nullable=False)
     recipient_external_id: Mapped[str] = mapped_column(String(180), nullable=False)
     status: Mapped[str] = mapped_column(String(40), default="queued", nullable=False)
+    reply_markup: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     provider_message_ids: Mapped[list[str]] = mapped_column(MutableListJSON, default=list, nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     dispatch_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

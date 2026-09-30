@@ -6,6 +6,11 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+# Register the existing FK targets when this task is started directly by the
+# ingestion worker (rather than through the API router import graph).
+from northstar_api import education as _education
+from northstar_api import education_batches as _education_batches
+from northstar_api import models as _models
 from northstar_api.config import get_settings
 from northstar_api.course_knowledge_models import CourseMaterialAssignment
 from northstar_api.database import build_engine, set_tenant_context, tenant_context

@@ -127,6 +127,7 @@ class Channel(str, enum.Enum):
     API = "api"
     SLACK = "slack"
     WHATSAPP = "whatsapp"
+    TELEGRAM = "telegram"
 
 
 class MessageRole(str, enum.Enum):

@@ -7,6 +7,10 @@ export type StudentCustomFields = Record<string, string | number | boolean | nul
 export interface EducationStudent {
   whatsappNumber?: string | null;
   whatsappVerified?: boolean;
+  telegramPhoneNumber?: string | null;
+  telegramPhoneVerified?: boolean;
+  telegramUserId?: string | null;
+  telegramVerified?: boolean;
   id: string;
   tenantId: string;
   workspaceId: string;
@@ -22,6 +26,10 @@ export interface EducationStudent {
 export interface StudentCreateInput {
   whatsappNumber?: string | null;
   whatsappVerified?: boolean;
+  telegramPhoneNumber?: string | null;
+  telegramPhoneVerified?: boolean;
+  telegramUserId?: string | null;
+  telegramVerified?: boolean;
   studentNumber: string;
   name: string;
   email?: string | null;
@@ -31,6 +39,10 @@ export interface StudentCreateInput {
 export interface StudentPatchInput {
   whatsappNumber?: string | null;
   whatsappVerified?: boolean;
+  telegramPhoneNumber?: string | null;
+  telegramPhoneVerified?: boolean;
+  telegramUserId?: string | null;
+  telegramVerified?: boolean;
   studentNumber?: string;
   name?: string;
   email?: string | null;
@@ -146,7 +158,7 @@ function localList(filters: StudentFilters = {}): EducationStudent[] {
     .filter((student) => {
       if (!search) return true;
       const custom = Object.entries(student.customFields).map(([key, value]) => `${key} ${String(value ?? '')}`).join(' ');
-      return `${student.studentNumber} ${student.name} ${student.email ?? ''} ${custom}`.toLowerCase().includes(search);
+      return `${student.studentNumber} ${student.name} ${student.email ?? ''} ${student.telegramPhoneNumber ?? ''} ${custom}`.toLowerCase().includes(search);
     })
     .sort((left, right) => left.name.localeCompare(right.name) || left.studentNumber.localeCompare(right.studentNumber));
 }
@@ -163,6 +175,10 @@ function localCreate(input: StudentCreateInput): EducationStudent {
     id: `student-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
     tenantId: 'tenant-demo',
     workspaceId: currentWorkspaceId,
+    telegramPhoneNumber: input.telegramPhoneNumber?.trim() || null,
+    telegramPhoneVerified: Boolean(input.telegramPhoneNumber?.trim() && input.telegramPhoneVerified),
+    telegramUserId: input.telegramUserId?.trim() || null,
+    telegramVerified: Boolean(input.telegramUserId?.trim() && input.telegramVerified),
     studentNumber,
     name: normalizeName(input.name),
     email: normalizeEmail(input.email),

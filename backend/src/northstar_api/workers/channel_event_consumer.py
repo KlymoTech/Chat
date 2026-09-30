@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import structlog
 from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
 from aiokafka.structs import TopicPartition  # type: ignore[import-untyped]
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,7 +17,7 @@ from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
 from northstar_api.education_conversation_context import EducationConversationContext
-from northstar_api.lead_crm.channel_models import ChannelConnection
+from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
 from northstar_api.lead_crm.channels import CanonicalInboundEvent, ChannelConnectionContext, channel_registry
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
@@ -27,6 +28,7 @@ from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import configure_logging
 from northstar_api.models import (
     Agent,
+    AgentStatus,
     Channel,
     Conversation,
     ConversationState,
@@ -35,16 +37,21 @@ from northstar_api.models import (
     MessageRole,
     ProcessedEvent,
 )
+from northstar_api.schemas import ChatStreamRequest
+from northstar_api.services.chat import PreparedChat
+from northstar_api.services.education_chat import education_chat_coordinator
 from northstar_api.services.education_conversation_policy import education_source
 from northstar_api.services.education_runtime_authorization import (
     EducationAccessDecision,
     EducationAccessReason,
     authorize_education_access,
+    education_course_menu,
     identity_candidate_for_event,
 )
 from northstar_api.services.entitlements import EntitlementError, require_capacity, require_channel
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.workers.event_utils import EventEnvelope, parse_envelope, quarantine_event
+from northstar_api.workers.telegram_tasks import send_telegram_message
 
 settings = get_settings()
 configure_logging(settings)
@@ -67,12 +74,46 @@ def _conversation_channel(provider: ChannelProvider) -> Channel:
         return Channel.WIDGET
     if provider == ChannelProvider.SLACK:
         return Channel.SLACK
+    if provider == ChannelProvider.TELEGRAM:
+        return Channel.TELEGRAM
     return Channel.API
 
 
 def _visitor_key(event: CanonicalInboundEvent) -> str:
     source = event.conversation_reference or event.sender.external_id or event.external_event_id
     return f"{event.provider.value}:{source}"[:128]
+
+
+async def _queue_telegram_reply(session: AsyncSession, *, connection: ChannelConnection, event: CanonicalInboundEvent, prepared: PreparedChat, reply_markup: dict | None = None) -> None:
+    """Persist and queue Telegram output through the existing delivery worker."""
+    chat_id = event.conversation_reference
+    if not chat_id or not chat_id.removeprefix("-").isdigit():
+        return
+    message = await session.scalar(select(Message).where(Message.id == prepared.assistant_message_id, Message.tenant_id == event.tenant_id))
+    if message is None or not message.content.strip():
+        return
+    delivery = ChannelOutboundDelivery(tenant_id=event.tenant_id, workspace_id=message.workspace_id, connection_id=connection.id, message_id=message.id, provider=ChannelProvider.TELEGRAM.value, reply_markup=reply_markup, recipient_external_id=chat_id, status="queued")
+    message.finish_reason = "queued"
+    session.add(delivery)
+    await session.commit()
+    try:
+        await asyncio.to_thread(send_telegram_message.apply_async, args=[str(delivery.id)], queue="telegram.outbound", routing_key="telegram.outbound")
+        delivery.dispatch_attempts += 1
+        delivery.dispatched_at, delivery.next_dispatch_at, delivery.last_error = datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=5), None
+    except Exception:
+        delivery.dispatch_attempts += 1
+        delivery.status, delivery.next_dispatch_at, delivery.last_error = "failed", datetime.now(UTC), "queue dispatch unavailable"
+    await session.commit()
+
+
+async def _queue_telegram_notice(session: AsyncSession, *, connection: ChannelConnection, event: CanonicalInboundEvent, conversation: Conversation, notice: str, reply_markup: dict | None = None) -> None:
+    await _persist_message(session, event=event, conversation=conversation)
+    await session.flush()
+    sequence = int(await session.scalar(select(func.coalesce(func.max(Message.sequence), 0)).where(Message.tenant_id == event.tenant_id, Message.workspace_id == conversation.workspace_id, Message.conversation_id == conversation.id)) or 0)
+    reply = Message(tenant_id=event.tenant_id, workspace_id=conversation.workspace_id, conversation_id=conversation.id, sequence=sequence + 1, role=MessageRole.ASSISTANT, content=notice, finish_reason="stop")
+    session.add(reply)
+    await session.flush()
+    await _queue_telegram_reply(session, connection=connection, event=event, prepared=PreparedChat(conversation.id, reply.id, reply.content, []), reply_markup=reply_markup)
 
 
 async def _get_or_create_conversation(
@@ -155,6 +196,45 @@ async def _get_or_create_education_conversation(
     )
     if conversation:
         return conversation
+
+    # A conversation may have begun before the learner's Education access was
+    # configured (for example while their Telegram ID was being linked).  Keep
+    # that same channel thread once it becomes authorized, provided it is not
+    # already scoped to another enrollment.  This preserves the single
+    # customer-visible conversation rather than creating a duplicate thread.
+    unscoped_conversation = await session.scalar(
+        select(Conversation)
+        .outerjoin(
+            EducationConversationContext,
+            EducationConversationContext.conversation_id == Conversation.id,
+        )
+        .where(
+            Conversation.tenant_id == event.tenant_id,
+            Conversation.workspace_id == agent.workspace_id,
+            Conversation.agent_id == agent.id,
+            Conversation.visitor_id == visitor_id,
+            Conversation.state == ConversationState.OPEN,
+            EducationConversationContext.conversation_id.is_(None),
+        )
+        .order_by(Conversation.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if unscoped_conversation:
+        session.add(
+            EducationConversationContext(
+                tenant_id=event.tenant_id,
+                workspace_id=agent.workspace_id,
+                conversation_id=unscoped_conversation.id,
+                agent_id=agent.id,
+                student_id=decision.student_id,
+                enrollment_id=decision.enrollment_id,
+                course_id=decision.course_id,
+                batch_id=decision.batch_id,
+            )
+        )
+        await session.flush()
+        return unscoped_conversation
 
     await require_capacity(session, tenant_id=event.tenant_id, resource="conversations")
     conversation = Conversation(
@@ -289,6 +369,18 @@ async def _process_education_message(
             workspace_id=agent.workspace_id,
         )
     else:
+        if canonical.provider is ChannelProvider.TELEGRAM:
+            from northstar_api.services.telegram_enrollment import telegram_enrollment_notice
+
+            notice = await telegram_enrollment_notice(session, event=canonical, agent=agent)
+            if notice:
+                conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+                await _queue_telegram_notice(session, connection=connection, event=canonical, conversation=conversation, notice=notice[0], reply_markup=notice[1])
+                raw.processing_status = "processed"
+                raw.processed_at = datetime.now(UTC)
+                raw.attempt_count += 1
+                await session.commit()
+                return
         identity, mapping_reason = identity_candidate_for_event(
             canonical,
             allow_unsigned_widget=bool(connection.configuration_json.get("allowUnsigned", False)),
@@ -318,7 +410,47 @@ async def _process_education_message(
             agent=agent,
             decision=decision,
         )
-        await _persist_message(session, event=canonical, conversation=conversation)
+        if canonical.provider is ChannelProvider.TELEGRAM and canonical.message and canonical.message.text:
+            try:
+                prepared = await education_chat_coordinator.prepare(
+                    session,
+                    tenant_id=canonical.tenant_id,
+                    workspace_id=agent.workspace_id,
+                    request=ChatStreamRequest(agent_id=agent.id, message=canonical.message.text, conversation_id=conversation.id, visitor_id=_visitor_key(canonical), idempotency_key=f"channel:telegram:{canonical.connection_key}:{canonical.message.external_message_id or canonical.external_event_id}"[:128]),
+                    channel=Channel.TELEGRAM,
+                )
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+                await _queue_telegram_notice(session, connection=connection, event=canonical, conversation=conversation, notice="Your course assistant is not ready to answer yet. Please contact your school or course administrator.")
+            else:
+                await _queue_telegram_reply(session, connection=connection, event=canonical, prepared=prepared)
+        else:
+            await _persist_message(session, event=canonical, conversation=conversation)
+    elif (
+        canonical.provider is ChannelProvider.TELEGRAM
+        and decision.reason is EducationAccessReason.ENROLLMENT_AMBIGUOUS
+        and decision.student_id is not None
+    ):
+        # WhatsApp already renders a persisted course-choice prompt when a
+        # learner has more than one active enrollment.  Telegram follows the
+        # same authorization decision, so render that existing menu here too
+        # instead of silently rejecting a question from an unselected course.
+        conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+        notice = await education_course_menu(
+            session,
+            tenant_id=canonical.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
+            student_id=decision.student_id,
+        )
+        await _queue_telegram_notice(
+            session,
+            connection=connection,
+            event=canonical,
+            conversation=conversation,
+            notice=notice,
+        )
 
     access_payload = {
         **decision.event_payload(),

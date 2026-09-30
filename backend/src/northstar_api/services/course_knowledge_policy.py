@@ -17,6 +17,20 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
+def duplicate_similarity(left: str, right: str) -> float:
+    """Deterministic candidate signal for teacher-reviewed source merging.
+
+    It intentionally never deletes or merges content.  A 70% overlap only
+    creates a visible review warning; a teacher remains the canonical-source
+    decision maker.
+    """
+    left_terms = set(re.findall(r"[\w-]+", left.casefold()))
+    right_terms = set(re.findall(r"[\w-]+", right.casefold()))
+    if not left_terms or not right_terms:
+        return 0.0
+    return len(left_terms & right_terms) / len(left_terms | right_terms)
+
+
 @dataclass(frozen=True, slots=True)
 class Audience:
     tenant_id: str

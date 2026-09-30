@@ -25,6 +25,7 @@ from northstar_api.lead_crm.models import RawWebhookEvent
 from northstar_api.models import Agent
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
+from northstar_api.services.telegram import TelegramAPIError, telegram_client
 
 router = APIRouter(tags=["channels"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -107,6 +108,7 @@ def _context(value: ChannelConnection, credentials: dict[str, Any]) -> ChannelCo
         provider=ChannelProvider(value.provider),
         configuration=value.configuration_json,
         credentials=credentials,
+        public_id=value.public_id,
     )
 
 
@@ -361,6 +363,14 @@ async def disable_channel_connection(
     if not scoped:
         raise HTTPException(status_code=404, detail="Channel connection not found in this workspace")
     value, _ = scoped
+    if value.provider == ChannelProvider.TELEGRAM.value and value.credentials_encrypted:
+        credentials = _credentials(value)
+        token = str(credentials.get("bot_token") or "")
+        if token:
+            try:
+                await telegram_client.delete_webhook(token)
+            except TelegramAPIError as exc:
+                raise HTTPException(502, "Telegram could not remove the webhook. The connection remains active; try again.") from exc
     value.status = "disabled"
     value.credentials_encrypted = None
     value.credentials_ref = None

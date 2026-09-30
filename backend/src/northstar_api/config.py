@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from pydantic import EmailStr, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +21,13 @@ class Settings(BaseSettings):
     visitor_trusted_proxy_cidrs: str = ""
 
     app_name: str = "Northstar API"
+    # Platform-owned Telegram manager credentials used only by the one-click
+    # provisioning control plane. Tenant bot credentials remain encrypted in
+    # the existing channel connection store.
+    telegram_manager_bot_token: SecretStr | None = None
+    telegram_manager_bot_username: str = ""
+    telegram_manager_webhook_secret: SecretStr | None = None
+    telegram_public_base_url: str = ""
     app_env: Literal["development", "test", "staging", "production"] = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
@@ -131,6 +139,13 @@ class Settings(BaseSettings):
     crm_pipedrive_client_id: str | None = None
     crm_pipedrive_client_secret: SecretStr | None = None
 
+    # Optional Zoho Flow lead webhook.  This is deliberately separate from
+    # the existing CRM provider delivery configuration and remains disabled
+    # until both a workspace scope and webhook URL are configured.
+    zoho_flow_lead_webhook_url: SecretStr | None = None
+    zoho_flow_lead_workspace_id: UUID | None = None
+    zoho_flow_webhook_timeout_seconds: float = Field(default=10, gt=0, le=60)
+
     rate_limit_fail_open: bool = True
     login_rate_limit_per_minute: int = Field(default=8, ge=1, le=10_000)
     login_global_rate_limit_per_minute: int = Field(default=120, ge=1, le=100_000)
@@ -181,6 +196,9 @@ class Settings(BaseSettings):
         "crm_dynamics365_client_secret",
         "crm_pipedrive_client_id",
         "crm_pipedrive_client_secret",
+        "zoho_flow_lead_webhook_url",
+        "telegram_manager_bot_token",
+        "telegram_manager_webhook_secret",
         mode="before",
     )
     @classmethod

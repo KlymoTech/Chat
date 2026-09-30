@@ -9,7 +9,7 @@ from northstar_api.course_knowledge_schemas import AssignmentSave, Destination, 
 from northstar_api.services.course_knowledge_policy import (
     Audience, KnowledgePolicyError, LearnerScope, audience_intersection,
     canonical_blocks, explicit_choice, fingerprint, mapping_fingerprint,
-    mismatch_warnings, numbered_choice, scoped_chunks, text_record, validate_vectors,
+    duplicate_similarity, mismatch_warnings, numbered_choice, scoped_chunks, text_record, validate_vectors,
 )
 
 
@@ -115,6 +115,11 @@ def test_content_extraction_mapping_revisions_invalidate_approval():
 def test_wrong_course_warning_requires_explicit_source_identifier():
     assert mismatch_warnings("CPA course notes", [], ["CMA"], [("cpa", ["CPA"])])
     assert not mismatch_warnings("Accounting and financial reporting", [], ["CMA"], [("cpa", ["CPA"])])
+
+
+def test_duplicate_similarity_flags_only_substantially_matching_source_text():
+    assert duplicate_similarity("Sunday code is four and Tuesday code is apple", "Sunday code is four and Tuesday code is apple") == 1.0
+    assert duplicate_similarity("Sunday code is four", "The secret project code is blue orbit") < 0.70
 
 
 @pytest.mark.parametrize("vector", [[], [0, 0], [1], [float("nan"), 1], [float("inf"), 1]])

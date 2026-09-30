@@ -66,6 +66,7 @@ AgentChannelType = Literal[
 LEGACY_APPEARANCE_CHANNELS = {
     "website",
     "whatsapp",
+    "telegram",
     "instagram",
     "facebook",
     "slack",
@@ -214,6 +215,12 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOutWithPur
             WhatsAppConnection.workspace_id == agent.workspace_id,
         )
     )
+    binding = await _channel_binding(session, agent)
+    appearance = deepcopy(agent.appearance)
+    # Telegram has long been stored in the relational binding. Surface that
+    # binding to current clients so the managed Telegram picker sees it.
+    if binding.channel_type == "telegram":
+        appearance["deploymentChannel"] = "telegram"
     return AgentOutWithPurpose(
         whatsapp_number=(whatsapp.display_phone_number or None) if whatsapp else None,
         id=agent.id,
@@ -232,7 +239,7 @@ async def agent_response(session: AsyncSession, agent: Agent) -> AgentOutWithPur
         knowledge_count=knowledge,
         last_updated=agent.updated_at,
         created_at=agent.created_at,
-        appearance=AgentAppearance.model_validate(agent.appearance),
+        appearance=AgentAppearance.model_validate(appearance),
         model=AgentModelProfile.model_validate(agent.model_profile),
         security=AgentSecurity.model_validate(agent.security),
     )
@@ -688,29 +695,45 @@ async def update_agent(
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(agent_id: UUID, principal: AgentsDeletePrincipal, session: DB) -> Response:
     from datetime import UTC, datetime
+    from northstar_api.routers.whatsapp_accounts import setup_lock
 
-    agent = await scoped_agent(
-        session, principal.tenant_id, agent_id,
-        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
-    )
-    if await has_non_terminal_enrollment(
-        session,
-        tenant_id=agent.tenant_id,
-        workspace_id=agent.workspace_id,
-        agent_id=agent.id,
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Resolve non-terminal Education Enrollments before deleting this Agent.",
+    # A phone number belongs to one active agent, not to an archived one.  Keep
+    # the connection (and its encrypted Meta credentials) but release the
+    # agent assignment as part of the same protected delete operation.
+    async with setup_lock(principal):
+        agent = await scoped_agent(
+            session, principal.tenant_id, agent_id,
+            workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
         )
-    agent.deleted_at = datetime.now(UTC)
-    enqueue_event(
-        session,
-        tenant_id=principal.tenant_id,
-        aggregate_type="agent",
-        aggregate_id=agent.id,
-        event_type="agent.deleted.v1",
-        payload={"agentId": str(agent.id), "workspaceId": str(agent.workspace_id)},
-    )
-    await session.commit()
+        if await has_non_terminal_enrollment(
+            session,
+            tenant_id=agent.tenant_id,
+            workspace_id=agent.workspace_id,
+            agent_id=agent.id,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Resolve non-terminal Education Enrollments before deleting this Agent.",
+            )
+        connections = await session.scalars(
+            select(WhatsAppConnection)
+            .where(
+                WhatsAppConnection.tenant_id == agent.tenant_id,
+                WhatsAppConnection.workspace_id == agent.workspace_id,
+                WhatsAppConnection.agent_id == agent.id,
+            )
+            .with_for_update()
+        )
+        for connection in connections:
+            connection.agent_id = None
+        agent.deleted_at = datetime.now(UTC)
+        enqueue_event(
+            session,
+            tenant_id=principal.tenant_id,
+            aggregate_type="agent",
+            aggregate_id=agent.id,
+            event_type="agent.deleted.v1",
+            payload={"agentId": str(agent.id), "workspaceId": str(agent.workspace_id)},
+        )
+        await session.commit()
     return Response(status_code=204)

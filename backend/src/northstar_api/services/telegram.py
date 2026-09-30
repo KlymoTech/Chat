@@ -56,7 +56,7 @@ class TelegramBotClient:
             raise TelegramAPIError("Telegram bot token is not configured", requires_reconnect=True)
         return f"{TELEGRAM_API_BASE}/bot{token}/{method}"
 
-    async def _request(self, bot_token: str, method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _request(self, bot_token: str, method: str, payload: dict[str, Any] | None = None) -> Any:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(self._method_url(bot_token, method), json=payload or {})
@@ -74,7 +74,7 @@ class TelegramBotClient:
 
         if response.is_success and body.get("ok") is True:
             result = body.get("result")
-            return result if isinstance(result, dict) else {}
+            return result
 
         error_code = body.get("error_code")
         try:
@@ -99,13 +99,47 @@ class TelegramBotClient:
         )
 
     async def get_me(self, bot_token: str) -> dict[str, Any]:
-        return await self._request(bot_token, "getMe")
+        result = await self._request(bot_token, "getMe")
+        if not isinstance(result, dict):
+            raise TelegramAPIError("Telegram returned an invalid bot identity")
+        return result
 
-    async def send_text(self, bot_token: str, *, chat_id: str, text: str) -> str:
+    async def get_managed_bot_token(self, manager_token: str, bot_id: str) -> str:
+        result = await self._request(manager_token, "getManagedBotToken", {"user_id": int(bot_id)})
+        if not isinstance(result, str) or not result:
+            raise TelegramAPIError("Telegram did not return a managed bot token")
+        return result
+
+    async def set_webhook(self, bot_token: str, *, url: str, secret_token: str, allowed_updates: list[str] | None = None) -> None:
+        # The legacy managed path can still request Business updates. Normal
+        # connections pass their ordinary-update allowlist explicitly.
+        result = await self._request(bot_token, "setWebhook", {"url": url, "secret_token": secret_token, "allowed_updates": allowed_updates or ["message", "edited_message", "business_message"]})
+        if result is not True:
+            raise TelegramAPIError("Telegram webhook registration was not acknowledged")
+
+    async def delete_webhook(self, bot_token: str) -> None:
+        if await self._request(bot_token, "deleteWebhook", {"drop_pending_updates": True}) is not True:
+            raise TelegramAPIError("Telegram did not acknowledge webhook removal")
+
+    async def get_webhook_info(self, bot_token: str) -> dict[str, Any]:
+        result = await self._request(bot_token, "getWebhookInfo")
+        if not isinstance(result, dict):
+            raise TelegramAPIError("Telegram returned invalid webhook information")
+        return result
+
+    async def allow_managed_bot_students(self, manager_token: str, bot_id: str) -> None:
+        result = await self._request(manager_token, "setManagedBotAccessSettings", {"user_id": int(bot_id), "is_access_restricted": False})
+        if result is not True:
+            raise TelegramAPIError("Telegram could not enable student access")
+
+    async def answer_callback(self, bot_token: str, callback_id: str) -> None:
+        await self._request(bot_token, "answerCallbackQuery", {"callback_query_id": callback_id})
+
+    async def send_text(self, bot_token: str, *, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> str:
         result = await self._request(
             bot_token,
             "sendMessage",
-            {"chat_id": chat_id, "text": text},
+            {"chat_id": chat_id, "text": text, **({"reply_markup": reply_markup} if reply_markup else {})},
         )
         message_id = result.get("message_id")
         if message_id is None:

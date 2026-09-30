@@ -1491,6 +1491,55 @@ async def test_create_agent_with_whatsapp_number_is_atomic(client, auth_headers)
     await _clear_whatsapp_state()
 
 
+async def test_deleting_agent_releases_its_whatsapp_number(client, auth_headers):
+    await _clear_whatsapp_state()
+    baseline = await client.post(
+        "/api/v1/agents", headers=auth_headers, json={"name": "Reusable number context"}
+    )
+    assert baseline.status_code == 201, baseline.text
+    async with SessionFactory() as session:
+        owner = await session.get(Agent, UUID(baseline.json()["id"]))
+        number = WhatsAppConnection(
+            tenant_id=owner.tenant_id,
+            workspace_id=owner.workspace_id,
+            waba_id="reusable-waba",
+            phone_number_id="reusable-number",
+            display_phone_number="+15550200",
+            verified_name="Reusable number",
+            access_token_encrypted=b"test",
+            status="connected",
+        )
+        session.add(number)
+        await session.commit()
+        number_id = str(number.id)
+    first = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={
+            "name": "First number owner",
+            "deploymentChannel": "whatsapp",
+            "whatsappConnectionId": number_id,
+        },
+    )
+    assert first.status_code == 201, first.text
+    deleted = await client.delete(f"/api/v1/agents/{first.json()['id']}", headers=auth_headers)
+    assert deleted.status_code == 204, deleted.text
+    async with SessionFactory() as session:
+        number = await session.get(WhatsAppConnection, UUID(number_id))
+        assert number.agent_id is None
+    replacement = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={
+            "name": "Replacement number owner",
+            "deploymentChannel": "whatsapp",
+            "whatsappConnectionId": number_id,
+        },
+    )
+    assert replacement.status_code == 201, replacement.text
+    await _clear_whatsapp_state()
+
+
 async def test_whatsapp_worker_requires_curriculum_and_paper_access(client, auth_headers, monkeypatch):
     from test_education_channel_runtime import _seed_authorized_student
 

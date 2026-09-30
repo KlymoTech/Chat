@@ -4,6 +4,9 @@ import { activeWorkspaceId } from '@/lib/workspace-api';
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
 
+export interface TelegramBotInfo { managed: boolean; botId: string; botName: string; botUsername: string; studentUrl: string; }
+export interface TelegramProvisioningStatus { sessionId: string; status: string; connectionId: string | null; telegramUrl?: string; error?: string | null; bot?: TelegramBotInfo | null; }
+
 export type CRMProviderId = 'zoho' | 'salesforce' | 'hubspot' | 'dynamics365' | 'pipedrive' | 'freshsales' | 'generic_rest' | 'generic_webhook';
 export type CRMHealthState = 'healthy' | 'degraded' | 'unhealthy' | 'auth_required' | 'rate_limited' | 'configuration_error' | 'unknown' | 'draft' | 'connecting' | 'disabled';
 
@@ -263,6 +266,11 @@ export const leadCrmApi = {
   cancelDelivery: (id: string) => call<CRMDeliveryView>(`/crm/deliveries/${id}/cancel`, { method: 'POST' }),
   channelProviders: () => call<ChannelProviderInfo[]>('/channels/providers'),
   channelConnections: () => call<ChannelConnectionView[]>('/channels/connections'),
+  connectTelegramBot: (value: { agentId: string; name: string; botToken: string }) =>
+    call<ChannelConnectionView>('/channels/telegram/connect', { method: 'POST', body: JSON.stringify(value) }),
+  startTelegramConnection: (agentId: string, account?: { accountId?: string; connectionId?: string }) => call<TelegramProvisioningStatus>('/channels/telegram/connect/start', { method: 'POST', body: JSON.stringify({ agentId, ...account }) }),
+  getTelegramProvisioningStatus: (id: string) => call<TelegramProvisioningStatus>(`/channels/telegram/provisioning/${id}`),
+  disconnectTelegramConnection: (id: string) => call<void>(`/channels/connections/${id}`, { method: 'DELETE' }),
   createChannelConnection: (value: { provider: string; name: string; agentId?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
     call<ChannelConnectionView>('/channels/connections', { method: 'POST', body: JSON.stringify(value) }),
   testChannelConnection: (id: string) => call<Record<string, string>>(`/channels/connections/${id}/test`, { method: 'POST' }),

@@ -15,6 +15,7 @@ interface PreviewRuntimeState {
 const channelNames: Record<DeploymentChannel, string> = {
   website: 'Website',
   whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
   instagram: 'Instagram',
   facebook: 'Facebook Messenger',
   slack: 'Slack',
@@ -50,10 +51,11 @@ function findTarget(): HTMLElement | null {
 function channelFromFrame(target: HTMLElement): DeploymentChannel | null {
   const frame = target.querySelector<HTMLElement>('.channel-frame');
   if (!frame) return target.querySelector('.browser-mock') ? 'website' : null;
+  if (frame.classList.contains('telegram-template')) return 'telegram';
   if (frame.classList.contains('whatsapp-template')) return 'whatsapp';
   if (frame.classList.contains('instagram-template')) return 'instagram';
   if (frame.classList.contains('messenger-template')) return 'facebook';
-  for (const channel of ['slack', 'teams', 'api', 'notion', 'zapier'] as const) {
+  for (const channel of ['telegram', 'slack', 'teams', 'api', 'notion', 'zapier'] as const) {
     if (frame.classList.contains(`generic-channel-template--${channel}`)) return channel;
   }
   return null;

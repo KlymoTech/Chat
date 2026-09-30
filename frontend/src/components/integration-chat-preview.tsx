@@ -31,6 +31,7 @@ interface PreviewMessage {
 }
 
 const channelDetails = {
+  telegram: { name: 'Telegram', icon: SendHorizontal, accent: '#229ed9' },
   whatsapp: { name: 'WhatsApp', icon: MessageSquareText, accent: '#1fa855' },
   instagram: { name: 'Instagram', icon: Instagram, accent: '#d946ef' },
   facebook: { name: 'Facebook Messenger', icon: Facebook, accent: '#0866ff' },

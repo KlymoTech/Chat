@@ -13,6 +13,11 @@ import structlog
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+# The dispatcher queries CourseMaterialAssignment directly, so it must load
+# the model modules which own that record's foreign-key targets.
+from northstar_api import education as _education
+from northstar_api import education_batches as _education_batches
+from northstar_api import models as _models
 from northstar_api.config import get_settings
 from northstar_api.course_knowledge_dispatch import CourseIndexDispatch
 from northstar_api.course_knowledge_models import CourseMaterialAssignment

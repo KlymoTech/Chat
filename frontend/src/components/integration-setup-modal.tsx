@@ -42,7 +42,9 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
   const callbackUrl = provider?.oauthRedirectUri ?? '';
   const canonicalChannel = item.id === 'facebook_messenger' ? 'facebook' : item.id;
   const planAllowed = !!entitlements.data && (isChannel ? entitlements.data.features.allowedChannels.includes(canonicalChannel) || entitlements.data.features.allowedChannels.includes(item.id) : entitlements.data.features.crm);
-  const availableAgents = (agents.data ?? []).filter(agent => !agent.appearance.deploymentChannel || agent.appearance.deploymentChannel === canonicalChannel);
+  // Telegram is a connection binding, not a legacy appearance value. Existing
+  // agents may therefore use Telegram without changing their display channel.
+  const availableAgents = (agents.data ?? []).filter(agent => item.id === 'telegram' || !agent.appearance.deploymentChannel || agent.appearance.deploymentChannel === canonicalChannel);
 
   useEffect(() => {
     const receive = (event: MessageEvent<CRMOAuthPopupMessage>) => {

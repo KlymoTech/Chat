@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ class EducationStudent(Base):
 
     __tablename__ = "education_students"
     __table_args__ = (
+        UniqueConstraint("workspace_id", "telegram_phone_number", name="uq_student_telegram_phone"),
         UniqueConstraint(
             "workspace_id",
             "student_number",
@@ -48,6 +49,8 @@ class EducationStudent(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    telegram_phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    telegram_phone_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
     student_number: Mapped[str] = mapped_column(String(80), nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)

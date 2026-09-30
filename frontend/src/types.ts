@@ -1,7 +1,7 @@
 export type AgentStatus = 'active' | 'draft' | 'training' | 'error';
 export type AgentTone = 'professional' | 'friendly' | 'concise' | 'empathetic' | 'playful';
 export type AgentPurpose = 'support' | 'lead_generation' | 'education';
-export type DeploymentChannel = 'website' | 'whatsapp' | 'instagram' | 'facebook' | 'slack' | 'teams' | 'api' | 'notion' | 'zapier';
+export type DeploymentChannel = 'website' | 'whatsapp' | 'telegram' | 'instagram' | 'facebook' | 'slack' | 'teams' | 'api' | 'notion' | 'zapier';
 export type KnowledgeKind = 'file' | 'url' | 'text' | 'sitemap';
 export type KnowledgeStatus = 'ready' | 'processing' | 'needs_review' | 'failed';
 

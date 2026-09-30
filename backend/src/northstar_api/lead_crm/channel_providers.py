@@ -284,7 +284,7 @@ class TelegramConnector(ChannelConnector):
                 received_at=received_at,
                 conversation_reference=str(chat.get("id") or "") or None,
                 raw_event_id=raw_event_id,
-                metadata={"chatType": chat.get("type"), "username": sender.get("username")},
+                metadata={"chatType": chat.get("type"), "username": sender.get("username"), "contact": message.get("contact"), "forwarded": bool(message.get("forward_origin") or message.get("forward_date"))},
             )
         ]
 
@@ -304,6 +304,16 @@ class TelegramConnector(ChannelConnector):
                 return {"status": "unhealthy"}
             return {"status": "configuration_error"}
         username = str(identity.get("username") or "")
+        expected_url = str((context.configuration.get("telegram") or {}).get("webhookUrl") or "")
+        if expected_url:
+            try:
+                webhook = await telegram_client.get_webhook_info(bot_token)
+            except TelegramAPIError as exc:
+                if exc.retryable:
+                    return {"status": "unhealthy"}
+                return {"status": "configuration_error"}
+            if str(webhook.get("url") or "") != expected_url or webhook.get("last_error_message"):
+                return {"status": "unhealthy"}
         return {"status": "healthy", **({"username": username} if username else {})}
 
 

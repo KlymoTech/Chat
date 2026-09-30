@@ -116,6 +116,7 @@ async def _send_telegram_delivery_async(delivery_id: UUID) -> None:
                     bot_token,
                     chat_id=delivery.recipient_external_id,
                     text=chunk,
+                    **({"reply_markup": delivery.reply_markup} if delivery.reply_markup else {}),
                 )
                 sent_ids.append(provider_id)
                 delivery.provider_message_ids = list(sent_ids)

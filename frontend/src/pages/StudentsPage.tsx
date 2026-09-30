@@ -26,6 +26,10 @@ interface CustomFieldRow {
 interface StudentFormState {
   whatsappNumber: string;
   whatsappVerified: boolean;
+  telegramPhoneNumber: string;
+  telegramPhoneVerified: boolean;
+  telegramUserId: string;
+  telegramVerified: boolean;
   studentNumber: string;
   name: string;
   email: string;
@@ -35,6 +39,10 @@ interface StudentFormState {
 const emptyForm: StudentFormState = {
   whatsappNumber: '',
   whatsappVerified: false,
+  telegramPhoneNumber: '',
+  telegramPhoneVerified: false,
+  telegramUserId: '',
+  telegramVerified: false,
   studentNumber: '',
   name: '',
   email: '',
@@ -81,7 +89,7 @@ export function StudentsPage() {
         .map(([key, value]) => `${key} ${String(value ?? '')}`)
         .join(' ');
       const matchesSearch = !query
-        || `${student.studentNumber} ${student.name} ${student.email ?? ''} ${student.whatsappNumber ?? ''} ${custom}`.toLowerCase().includes(query);
+        || `${student.studentNumber} ${student.name} ${student.email ?? ''} ${student.whatsappNumber ?? ''} ${student.telegramPhoneNumber ?? ''} ${custom}`.toLowerCase().includes(query);
       return matchesStatus && matchesSearch;
     });
   }, [search, status, students.data]);
@@ -101,6 +109,10 @@ export function StudentsPage() {
     setForm({
       whatsappNumber: student.whatsappNumber ?? '',
       whatsappVerified: student.whatsappVerified ?? false,
+      telegramPhoneNumber: student.telegramPhoneNumber ?? '',
+      telegramPhoneVerified: student.telegramPhoneVerified ?? false,
+      telegramUserId: student.telegramUserId ?? '',
+      telegramVerified: student.telegramVerified ?? false,
       studentNumber: student.studentNumber,
       name: student.name,
       email: student.email ?? '',
@@ -160,6 +172,10 @@ export function StudentsPage() {
           email: email || null,
           whatsappNumber: form.whatsappNumber.trim() || null,
           whatsappVerified: form.whatsappVerified,
+          telegramPhoneNumber: form.telegramPhoneNumber.trim() || null,
+          telegramPhoneVerified: Boolean(form.telegramPhoneNumber.trim() && form.telegramPhoneVerified),
+          telegramUserId: form.telegramUserId.trim() || null,
+          telegramVerified: Boolean(form.telegramUserId.trim() && form.telegramVerified),
           customFields,
         });
         pushToast(`${name} updated`);
@@ -170,6 +186,10 @@ export function StudentsPage() {
           email: email || null,
           whatsappNumber: form.whatsappNumber.trim() || null,
           whatsappVerified: form.whatsappVerified,
+          telegramPhoneNumber: form.telegramPhoneNumber.trim() || null,
+          telegramPhoneVerified: Boolean(form.telegramPhoneNumber.trim() && form.telegramPhoneVerified),
+          telegramUserId: form.telegramUserId.trim() || null,
+          telegramVerified: Boolean(form.telegramUserId.trim() && form.telegramVerified),
           customFields,
         });
         pushToast(`${name} created`);
@@ -294,7 +314,7 @@ export function StudentsPage() {
         <thead><tr><th>Student ID</th><th>Student</th><th>Custom fields</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{records.map((student) => <tr key={student.id}>
           <td><code>{student.studentNumber}</code></td>
-          <td><strong>{student.name}</strong><small>{student.email || 'No email'}</small><small>WhatsApp: {student.whatsappNumber || 'Not added'}{student.whatsappNumber ? student.whatsappVerified ? ' - Verified' : ' - Verification needed' : ''}</small></td>
+          <td><strong>{student.name}</strong><small>{student.email || 'No email'}</small><small>WhatsApp: {student.whatsappNumber || 'Not added'}{student.whatsappNumber ? student.whatsappVerified ? ' - Verified' : ' - Verification needed' : ''}</small><small>Telegram: {student.telegramUserId ? `ID ${student.telegramUserId}${student.telegramVerified ? ' - Account linked' : ' - Verification needed'}` : student.telegramPhoneNumber ? `${student.telegramPhoneNumber}${student.telegramPhoneVerified ? ' - Phone verified; account not linked' : ' - Verification needed'}` : 'Not added'}</small></td>
           <td>{Object.keys(student.customFields).length
             ? <div className="student-custom-summary">{Object.entries(student.customFields).slice(0, 3).map(([key, value]) => <span key={key}><b>{key}</b>: {String(value ?? '')}</span>)}</div>
             : <span className="student-muted">None</span>}</td>
@@ -377,6 +397,15 @@ export function StudentsPage() {
         </Field>
         {form.whatsappNumber.trim() ? <label><input type="checkbox" checked={form.whatsappVerified} onChange={(event) => setForm((current) => ({ ...current, whatsappVerified: event.target.checked }))} /> I have confirmed this WhatsApp number belongs to this student.</label> : null}
         <p>A verified number and an active Course / Batch / Bot enrollment are required for WhatsApp course access.</p>
+        <Field label="Student Telegram phone number" htmlFor="student-telegram-phone" hint="Enter the phone number registered with Telegram, including country code (e.g. +919876543210).">
+          <input id="student-telegram-phone" type="tel" value={form.telegramPhoneNumber} maxLength={40} placeholder="+919876543210" autoComplete="off" onChange={(event) => setForm((current) => ({ ...current, telegramPhoneNumber: event.target.value, telegramPhoneVerified: false }))} />
+        </Field>
+        {form.telegramPhoneNumber.trim() ? <label><input type="checkbox" checked={form.telegramPhoneVerified} onChange={(event) => setForm((current) => ({ ...current, telegramPhoneVerified: event.target.checked }))} /> I have confirmed this Telegram phone number belongs to this student.</label> : null}
+        <Field label="Telegram user ID" htmlFor="student-telegram-id" hint="Use the student’s numeric Telegram user ID, not their @username or phone number.">
+          <input id="student-telegram-id" inputMode="numeric" value={form.telegramUserId} maxLength={20} placeholder="123456789" autoComplete="off" onChange={(event) => setForm((current) => ({ ...current, telegramUserId: event.target.value.replace(/\D/g, ''), telegramVerified: false }))} />
+        </Field>
+        {form.telegramUserId.trim() ? <label><input type="checkbox" checked={form.telegramVerified} onChange={(event) => setForm((current) => ({ ...current, telegramVerified: event.target.checked }))} /> Link this Telegram account to the student</label> : null}
+        <p>Turn on the link switch and save. This links the numeric Telegram account in one step. Telegram does not provide a safe way to find an account from a phone number.</p>
         <Field label="Email" htmlFor="student-email" hint="Optional profile contact. Login/channel identities are managed separately.">
           <input
             id="student-email"

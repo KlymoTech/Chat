@@ -1,4 +1,4 @@
-import { WhatsApp, Slack, Teams, Notion, Zapier, Messenger } from '@/components/provider-logo';
+import { WhatsApp, Telegram, Slack, Teams, Notion, Zapier, Messenger } from '@/components/provider-logo';
 import { Instagram } from '@/components/social-icons';
 import {
   MessageCircle, MoreVertical,
@@ -26,6 +26,7 @@ type Labels = {
 const channelNames: Record<DeploymentChannel, string> = {
   website: 'Website',
   whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
   instagram: 'Instagram',
   facebook: 'Facebook Messenger',
   slack: 'Slack',
@@ -38,6 +39,7 @@ const channelNames: Record<DeploymentChannel, string> = {
 const channelAccents: Record<DeploymentChannel, string> = {
   website: '#146cf6',
   whatsapp: '#1fa855',
+  telegram: '#229ed9',
   instagram: '#d946ef',
   facebook: '#0866ff',
   slack: '#611f69',
@@ -152,6 +154,7 @@ function ChannelIcon({ channel }: { channel: DeploymentChannel }) {
           : channel === 'teams' ? Teams
             : channel === 'api' ? Terminal
               : channel === 'notion' ? Notion
+                : channel === 'telegram' ? Telegram
                 : channel === 'zapier' ? Zapier
                   : MessageCircle;
   return <Icon />;

@@ -51,9 +51,13 @@ class StudentCreate(APIModel):
     email: EmailStr | None = None
     whatsapp_number: str | None = Field(default=None, max_length=40)
     whatsapp_verified: bool = False
+    telegram_phone_number: str | None = Field(default=None, max_length=40)
+    telegram_phone_verified: bool = False
+    telegram_user_id: str | None = Field(default=None, max_length=20)
+    telegram_verified: bool = False
     preferred_language: str = Field(default="English", min_length=2, max_length=80)
 
-    @field_validator("whatsapp_number")
+    @field_validator("whatsapp_number", "telegram_phone_number")
     @classmethod
     def valid_whatsapp(cls, value: str | None) -> str | None:
         from northstar_api.education_student_identities import StudentIdentityType
@@ -64,6 +68,14 @@ class StudentCreate(APIModel):
             if value and value.strip()
             else None
         )
+
+    @field_validator("telegram_user_id")
+    @classmethod
+    def valid_telegram_user_id(cls, value: str | None) -> str | None:
+        from northstar_api.education_student_identities import StudentIdentityType
+        from northstar_api.services.student_identity import normalize_student_identity
+
+        return normalize_student_identity(StudentIdentityType.TELEGRAM, value) if value and value.strip() else None
 
     custom_fields: dict[str, Any] = Field(default_factory=dict)
 
@@ -96,8 +108,13 @@ class StudentCreate(APIModel):
 class StudentPatch(APIModel):
     whatsapp_number: str | None = Field(default=None, max_length=40)
     whatsapp_verified: bool = False
+    telegram_phone_number: str | None = Field(default=None, max_length=40)
+    telegram_phone_verified: bool = False
+    telegram_user_id: str | None = Field(default=None, max_length=20)
+    telegram_verified: bool = False
     preferred_language: str | None = Field(default=None, min_length=2, max_length=80)
-    valid_whatsapp = field_validator("whatsapp_number")(StudentCreate.valid_whatsapp.__func__)
+    valid_whatsapp = field_validator("whatsapp_number", "telegram_phone_number")(StudentCreate.valid_whatsapp.__func__)
+    valid_telegram_user_id = field_validator("telegram_user_id")(StudentCreate.valid_telegram_user_id.__func__)
 
     student_number: str | None = Field(default=None, min_length=1, max_length=80)
     name: str | None = Field(default=None, min_length=2, max_length=160)
@@ -134,6 +151,10 @@ class StudentPatch(APIModel):
 class StudentOut(APIModel):
     whatsapp_number: str | None = None
     whatsapp_verified: bool = False
+    telegram_phone_number: str | None = None
+    telegram_phone_verified: bool = False
+    telegram_user_id: str | None = None
+    telegram_verified: bool = False
     id: UUID
     tenant_id: UUID
     workspace_id: UUID

@@ -88,6 +88,7 @@ def _context(connection: ChannelConnection, credentials: dict[str, Any]) -> Chan
         provider=ChannelProvider(connection.provider),
         configuration=dict(connection.configuration_json or {}),
         credentials=dict(credentials),
+        public_id=connection.public_id,
     )
 
 

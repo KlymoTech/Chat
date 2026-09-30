@@ -29,7 +29,8 @@ COPY --from=builder --chown=app:app /app/migrations /app/migrations
 COPY --from=builder --chown=app:app /app/help_content /app/help_content
 COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN /app/.venv/bin/playwright install --with-deps chromium
+ARG INSTALL_PLAYWRIGHT=true
+RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then /app/.venv/bin/playwright install --with-deps chromium; fi
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
