@@ -41,7 +41,6 @@ function IntegrationCatalogPage() {
     if (item.id === 'widget') return 'available';
     if (item.id === 'whatsapp') return integrations.data?.find(value => value.id === 'whatsapp')?.connected ? 'healthy' : undefined;
     const connection = connectionFor(item);
-    if (connection?.status === 'healthy' && item.category === 'Channels' && !('last_event_at' in connection && connection.last_event_at)) return 'webhook_pending';
     return connection?.status;
   };
   const open = (item: CatalogIntegration) => {

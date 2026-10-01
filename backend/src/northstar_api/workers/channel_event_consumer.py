@@ -218,7 +218,9 @@ async def _get_or_create_education_conversation(
         )
         .order_by(Conversation.created_at.desc())
         .limit(1)
-        .with_for_update()
+        # The context is an outer join here. PostgreSQL cannot lock the
+        # nullable right side of that join, so lock only the conversation row.
+        .with_for_update(of=Conversation)
     )
     if unscoped_conversation:
         session.add(

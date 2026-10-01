@@ -75,7 +75,10 @@ function KnowledgeWorkspace() {
   const [answerKeyVerified, setAnswerKeyVerified] = useState(false);
   const permissions = activeWorkspace?.permissions ?? [];
   const owner = session?.user.role === 'owner' || session?.user.role === 'admin';
-  const canManage = owner || permissions.includes('*') || (permissions.includes('education.manage') && permissions.includes('knowledge.manage'));
+  // Course Knowledge endpoints are governed by knowledge.manage. Requiring a
+  // second, unrelated Education permission disabled valid workspace admins in
+  // the UI even though the API allowed the same action.
+  const canManage = owner || permissions.includes('*') || permissions.includes('knowledge.manage');
   // Curriculum is not chosen on this page: each course has one syllabus, created on first use.
   const curriculum = catalog.curricula.find(c => c.courseId === course && c.active !== false)?.id ?? '';
   const papers = catalog.papers.filter(p => p.curriculumId === curriculum);
