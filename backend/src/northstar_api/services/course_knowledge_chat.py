@@ -401,6 +401,8 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                             action="education_review_notice", default="This question has been sent for teacher review.",
                             values={"course": context.course_name})
                         answer = f"{label} {review_notice}\n\n{answer}"
+                    if channel is Channel.TELEGRAM and answer_path == "unavailable":
+                        answer += "\n\nSend switch course anytime to see this menu again."
             if channel is Channel.WHATSAPP and not workflow_reply:
                 answer = format_whatsapp_reply(agent, answer)
             if daily_welcome:

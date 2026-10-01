@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,6 +8,7 @@ import httpx
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
 TELEGRAM_TEXT_LIMIT = 4096
+COURSE_SWITCH_HINT = "Send switch course anytime to see this menu again."
 
 
 @dataclass(slots=True)
@@ -136,10 +138,26 @@ class TelegramBotClient:
         await self._request(bot_token, "answerCallbackQuery", {"callback_query_id": callback_id})
 
     async def send_text(self, bot_token: str, *, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> str:
+        # The course fallback is stored as plain text for the conversation
+        # audit log. Only the Telegram delivery turns its fixed command phrase
+        # into safe HTML, escaping all other text first.
+        has_switch_hint = COURSE_SWITCH_HINT in text
+        rendered = (
+            html.escape(text).replace(
+                COURSE_SWITCH_HINT, "Send <b>switch course</b> anytime to see this menu again."
+            )
+            if has_switch_hint
+            else text
+        )
         result = await self._request(
             bot_token,
             "sendMessage",
-            {"chat_id": chat_id, "text": text, **({"reply_markup": reply_markup} if reply_markup else {})},
+            {
+                "chat_id": chat_id,
+                "text": rendered,
+                **({"parse_mode": "HTML"} if has_switch_hint else {}),
+                **({"reply_markup": reply_markup} if reply_markup else {}),
+            },
         )
         message_id = result.get("message_id")
         if message_id is None:
