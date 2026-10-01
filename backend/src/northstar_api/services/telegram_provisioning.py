@@ -24,6 +24,7 @@ from northstar_api.lead_crm.channel_scope import AgentChannelBinding, WorkspaceC
 from northstar_api.lead_crm.credentials import CredentialStoreError, credential_store
 from northstar_api.models import (
     Agent,
+    AgentStatus,
     TenantMembership,
     User,
     Workspace,
@@ -244,6 +245,13 @@ async def connect_normal_bot(
         raise HTTPException(502, "Telegram did not verify the configured webhook")
     connection.status = "healthy"
     connection.last_health_at = datetime.now(UTC)
+    # Education agents begin in draft so they cannot answer before their
+    # enrollment boundary exists. A fully verified Telegram connection is the
+    # deployment step that makes this channel live; without this transition a
+    # healthy new bot accepts webhook traffic but the runtime rejects it before
+    # it can create a conversation.
+    if agent.status is AgentStatus.DRAFT:
+        agent.status = AgentStatus.ACTIVE
     await session.flush()
     return connection
 
@@ -374,6 +382,8 @@ async def configure(session: AsyncSession, value: TelegramProvisioning, bot_id: 
     connection.status = "healthy"
     connection.last_health_at = datetime.now(UTC)
     connection.last_error = None
+    if agent.status is AgentStatus.DRAFT:
+        agent.status = AgentStatus.ACTIVE
     value.status, value.error = "connected", None
     logger.info(
         "telegram_connection_completed", provisioning_id=str(value.id), connection_id=str(connection.id)
