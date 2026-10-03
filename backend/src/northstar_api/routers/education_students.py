@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -407,4 +407,83 @@ async def archive_student(
             },
         )
         await session.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/{student_id}/permanent", status_code=204)
+async def permanently_delete_student(
+    student_id: UUID,
+    principal: EducationManagePrincipal,
+    session: DB,
+) -> Response:
+    """Permanently remove a student and all student-owned enrollment access."""
+    workspace_id = _workspace_id(principal)
+    student = await _scoped_student(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        student_id=student_id,
+    )
+
+    # These tables intentionally have RESTRICT/no-cascade foreign keys so that
+    # ordinary enrollment edits cannot discard history.  A confirmed permanent
+    # deletion removes them first, while retaining the conversation itself.
+    from northstar_api.education_conversation_context import EducationConversationContext
+    from northstar_api.education_enrollment_events import EducationEnrollmentEvent
+    from northstar_api.education_enrollments import EducationEnrollment
+    from northstar_api.education_student_activity import EducationStudentActivityEvent
+
+    try:
+        await session.execute(
+            delete(EducationConversationContext).where(
+                EducationConversationContext.tenant_id == principal.tenant_id,
+                EducationConversationContext.workspace_id == workspace_id,
+                EducationConversationContext.student_id == student.id,
+            )
+        )
+        await session.execute(
+            delete(EducationStudentActivityEvent).where(
+                EducationStudentActivityEvent.tenant_id == principal.tenant_id,
+                EducationStudentActivityEvent.workspace_id == workspace_id,
+                EducationStudentActivityEvent.student_id == student.id,
+            )
+        )
+        await session.execute(
+            delete(EducationEnrollmentEvent).where(
+                EducationEnrollmentEvent.tenant_id == principal.tenant_id,
+                EducationEnrollmentEvent.workspace_id == workspace_id,
+                EducationEnrollmentEvent.student_id == student.id,
+            )
+        )
+        enrollment_delete = await session.execute(
+            delete(EducationEnrollment).where(
+                EducationEnrollment.tenant_id == principal.tenant_id,
+                EducationEnrollment.workspace_id == workspace_id,
+                EducationEnrollment.student_id == student.id,
+            )
+        )
+        enrollment_count = enrollment_delete.rowcount or 0
+        student_number = student.student_number
+        await session.delete(student)
+        enqueue_event(
+            session,
+            tenant_id=principal.tenant_id,
+            aggregate_type="education_student",
+            aggregate_id=student_id,
+            event_type="education.student.deleted.v1",
+            payload={
+                "studentId": str(student_id),
+                "workspaceId": str(workspace_id),
+                "studentNumber": student_number,
+                "deletedEnrollmentCount": enrollment_count,
+            },
+        )
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Student could not be deleted because protected related records remain",
+        ) from None
+
     return Response(status_code=204)

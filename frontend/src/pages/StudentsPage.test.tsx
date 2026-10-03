@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   create: vi.fn<(input: StudentCreateInput) => Promise<EducationStudent>>(),
   update: vi.fn<(studentId: string, patch: StudentPatchInput) => Promise<EducationStudent>>(),
   archive: vi.fn<(studentId: string) => Promise<void>>(),
+  permanentlyDelete: vi.fn<(studentId: string) => Promise<void>>(),
 }));
 
 vi.mock('@/lib/education-student-api', () => ({
@@ -74,6 +75,9 @@ describe('StudentsPage', () => {
       if (index < 0) throw new Error('Student not found');
       students[index] = { ...students[index]!, status: 'archived', updatedAt: new Date().toISOString() };
     });
+    apiMocks.permanentlyDelete.mockImplementation(async (studentId) => {
+      students = students.filter((student) => student.id !== studentId);
+    });
   });
 
   afterEach(() => {
@@ -104,6 +108,10 @@ describe('StudentsPage', () => {
       email: 'riya@example.com',
       whatsappNumber: '+919876540123',
       whatsappVerified: true,
+      telegramPhoneNumber: null,
+      telegramPhoneVerified: false,
+      telegramUserId: null,
+      telegramVerified: false,
       customFields: { language: 'Hindi' },
     }));
     expect(await screen.findByText('Riya Singh')).toBeInTheDocument();
@@ -122,6 +130,10 @@ describe('StudentsPage', () => {
       email: 'riya@example.com',
       whatsappNumber: '+919876540123',
       whatsappVerified: true,
+      telegramPhoneNumber: null,
+      telegramPhoneVerified: false,
+      telegramUserId: null,
+      telegramVerified: false,
       customFields: { language: 'Hindi' },
     }));
     expect(await screen.findByText('Riya S. Singh')).toBeInTheDocument();
@@ -171,5 +183,19 @@ describe('StudentsPage', () => {
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Custom field names must be unique.');
     expect(apiMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('permanently deletes a student only after confirmation', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ToastProvider><StudentsPage /></ToastProvider></MemoryRouter>);
+
+    expect(await screen.findByText('Asha Verma')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText(/This cannot be undone/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Delete permanently' }));
+
+    await waitFor(() => expect(apiMocks.permanentlyDelete).toHaveBeenCalledWith('student-1'));
+    await waitFor(() => expect(screen.queryByText('Asha Verma')).not.toBeInTheDocument());
   });
 });

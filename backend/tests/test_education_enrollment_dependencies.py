@@ -141,3 +141,72 @@ async def test_non_terminal_enrollment_protects_student_course_batch_and_agent(
         headers=headers,
     )
     assert archive_course_after_terminal.status_code == 204, archive_course_after_terminal.text
+
+
+async def test_permanent_student_delete_removes_active_enrollments_only(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+) -> None:
+    course_response = await client.post(
+        "/api/v1/education/courses",
+        headers=auth_headers,
+        json={"code": "DELETE-STUDENT", "name": "Permanent Delete Course"},
+    )
+    assert course_response.status_code == 201, course_response.text
+    course = course_response.json()
+    batch_response = await client.post(
+        "/api/v1/education/batches",
+        headers=auth_headers,
+        json={"courseId": course["id"], "code": "DELETE-STUDENT-A", "name": "Delete Batch"},
+    )
+    assert batch_response.status_code == 201, batch_response.text
+    batch = batch_response.json()
+    student_response = await client.post(
+        "/api/v1/education/students",
+        headers=auth_headers,
+        json={
+            "studentNumber": "DELETE-STUDENT-1",
+            "name": "Delete Me",
+            "telegramUserId": "88332211",
+            "telegramVerified": True,
+        },
+    )
+    assert student_response.status_code == 201, student_response.text
+    student = student_response.json()
+    agent_response = await client.post(
+        "/api/v1/agents",
+        headers=auth_headers,
+        json={
+            "name": "Permanent Delete Education Agent",
+            "description": "Only used for a delete test",
+            "purpose": "education",
+            "deploymentChannel": "website",
+        },
+    )
+    assert agent_response.status_code == 201, agent_response.text
+    agent = agent_response.json()
+    enrollment_response = await client.post(
+        "/api/v1/education/enrollments",
+        headers=auth_headers,
+        json={
+            "studentId": student["id"],
+            "courseId": course["id"],
+            "batchId": batch["id"],
+            "agentId": agent["id"],
+            "status": "active",
+        },
+    )
+    assert enrollment_response.status_code == 201, enrollment_response.text
+
+    deleted = await client.delete(
+        f"/api/v1/education/students/{student['id']}/permanent",
+        headers=auth_headers,
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    assert (await client.get(f"/api/v1/education/students/{student['id']}", headers=auth_headers)).status_code == 404
+    enrollments = await client.get("/api/v1/education/enrollments", headers=auth_headers)
+    assert enrollments.status_code == 200, enrollments.text
+    assert all(item["studentId"] != student["id"] for item in enrollments.json())
+    assert (await client.get(f"/api/v1/education/courses/{course['id']}", headers=auth_headers)).status_code == 200
+    assert (await client.get(f"/api/v1/education/batches/{batch['id']}", headers=auth_headers)).status_code == 200

@@ -171,7 +171,7 @@ export interface Conversation {
   agentId: string;
   visitorName: string;
   visitorEmail?: string;
-  channel: 'widget' | 'api' | 'slack' | 'whatsapp';
+  channel: 'widget' | 'api' | 'slack' | 'whatsapp' | 'telegram' | 'instagram' | 'facebook_messenger' | 'custom';
   state: ConversationState;
   sentiment: 'positive' | 'neutral' | 'negative';
   preview: string;

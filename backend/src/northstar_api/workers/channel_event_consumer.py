@@ -77,6 +77,12 @@ def _conversation_channel(provider: ChannelProvider) -> Channel:
         return Channel.SLACK
     if provider == ChannelProvider.TELEGRAM:
         return Channel.TELEGRAM
+    if provider == ChannelProvider.INSTAGRAM:
+        return Channel.INSTAGRAM
+    if provider == ChannelProvider.FACEBOOK_MESSENGER:
+        return Channel.FACEBOOK_MESSENGER
+    if provider == ChannelProvider.CUSTOM:
+        return Channel.CUSTOM
     return Channel.API
 
 

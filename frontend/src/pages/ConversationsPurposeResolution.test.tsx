@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   educationSalesSettings: vi.fn(),
   updateState: vi.fn(),
   reply: vi.fn(),
+  channelProviders: vi.fn(),
 }));
 
 vi.mock('@/components/providers', () => ({
@@ -46,6 +47,10 @@ vi.mock('@/lib/education-sales-settings-api', () => ({
   educationSalesSettingsApi: {
     get: mocks.educationSalesSettings,
   },
+}));
+
+vi.mock('@/lib/lead-crm-api', () => ({
+  leadCrmApi: { channelProviders: mocks.channelProviders },
 }));
 
 const baseConversation: Conversation = {
@@ -105,6 +110,7 @@ describe('ConversationsPage purpose-aware resolution feedback', () => {
     });
     mocks.updateState.mockResolvedValue(baseConversation);
     mocks.reply.mockResolvedValue(undefined);
+    mocks.channelProviders.mockResolvedValue([]);
   });
 
   afterEach(() => {

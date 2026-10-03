@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   batchList: vi.fn(),
   enrollmentList: vi.fn(),
   studentList: vi.fn(),
+  channelProviders: vi.fn(),
 }));
 
 vi.mock('@/components/providers', () => ({
@@ -58,6 +59,10 @@ vi.mock('@/lib/education-enrollment-api', () => ({
 
 vi.mock('@/lib/education-student-api', () => ({
   educationStudentApi: { list: mocks.studentList },
+}));
+
+vi.mock('@/lib/lead-crm-api', () => ({
+  leadCrmApi: { channelProviders: mocks.channelProviders },
 }));
 
 const emptyPage: PageResult<Conversation> = { items: [], total: 0, page: 1, pageSize: 50 };
@@ -105,6 +110,12 @@ describe('ConversationsPage Education filters', () => {
         name: 'Unassigned Student', email: null, customFields: {}, status: 'active',
         createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
       },
+    ]);
+    mocks.channelProviders.mockResolvedValue([
+      { id: 'telegram', name: 'Telegram', runtimeRegistered: true },
+      { id: 'instagram', name: 'Instagram', runtimeRegistered: true },
+      { id: 'facebook_messenger', name: 'Facebook Messenger', runtimeRegistered: true },
+      { id: 'notion', name: 'Notion', runtimeRegistered: false },
     ]);
     mocks.updateState.mockResolvedValue(undefined);
     mocks.reply.mockResolvedValue(undefined);
@@ -174,6 +185,22 @@ describe('ConversationsPage Education filters', () => {
       courseId: undefined,
       batchId: undefined,
       studentId: undefined,
+    }), expect.any(AbortSignal)));
+  });
+
+  it('lists registered messaging integrations and filters by the selected channel', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+
+    const channel = await screen.findByRole('combobox', { name: 'Filter by channel' });
+    expect(await screen.findByRole('option', { name: 'Telegram' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Instagram' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Facebook Messenger' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Notion' })).not.toBeInTheDocument();
+
+    await user.selectOptions(channel, 'telegram');
+    await waitFor(() => expect(mocks.conversationList).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'telegram',
     }), expect.any(AbortSignal)));
   });
 });

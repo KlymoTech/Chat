@@ -3,7 +3,7 @@ import { ProviderLogo, WhatsApp } from '@/components/provider-logo';
 import { WhatsAppMessages } from '@/components/whatsapp-messages';
 import { WhatsAppReplyComposer, type StructuredReply } from '@/components/whatsapp-reply-composer';
 import { VisitorDetailsEditor } from '@/components/visitor-details-editor';
-import { Archive, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, GraduationCap, Inbox, Info, Mail, MessageCircle, MoreHorizontal, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
+import { Archive, Bot, CheckCircle2, ChevronDown, CircleAlert, Clock3, ExternalLink, Filter, GraduationCap, Inbox, Info, Mail, MessageCircle, Search, Send, Smile, Sparkles, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast, useWorkspace } from '@/components/providers';
@@ -15,6 +15,7 @@ import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/e
 import { educationEnrollmentApi, type EducationEnrollment } from '@/lib/education-enrollment-api';
 import { educationStudentApi, type EducationStudent } from '@/lib/education-student-api';
 import { leadStatuses } from '@/lib/lead-status';
+import { leadCrmApi } from '@/lib/lead-crm-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import { usePollingApi } from '@/lib/use-polling-api';
@@ -22,7 +23,18 @@ import type { Conversation, ConversationState } from '@/types';
 import './ConversationsPage.css';
 import { WhatsAppTemplateComposer } from '@/components/whatsapp-template-composer';
 
-type ChannelFilter = 'all' | 'widget' | 'api' | 'slack' | 'whatsapp';
+type ChannelFilter = 'all' | Conversation['channel'];
+
+const channelLabels: Record<Exclude<ChannelFilter, 'all'>, string> = {
+  widget: 'Website',
+  api: 'API',
+  slack: 'Slack',
+  whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
+  instagram: 'Instagram',
+  facebook_messenger: 'Facebook Messenger',
+  custom: 'Custom channel',
+};
 
 export function ConversationsPage() {
   const [params, setParams] = useSearchParams();
@@ -47,6 +59,16 @@ export function ConversationsPage() {
   }, [search]);
 
   const agents = useApi(() => api.agents.list(), [activeWorkspace?.id]);
+  const channelProviders = useApi(() => leadCrmApi.channelProviders(), [activeWorkspace?.id]);
+  const channelOptions = useMemo(() => {
+    const available = new Set<Exclude<ChannelFilter, 'all'>>(['widget', 'api']);
+    for (const provider of channelProviders.data ?? []) {
+      if (!provider.runtimeRegistered) continue;
+      const channel = provider.id as Exclude<ChannelFilter, 'all'>;
+      if (channel in channelLabels) available.add(channel);
+    }
+    return Array.from(available).sort((left, right) => channelLabels[left].localeCompare(channelLabels[right]));
+  }, [channelProviders.data]);
   const filterAgent = agentId === 'all' ? null : agents.data?.find((item) => item.id === agentId) ?? null;
   const isEducationAgent = filterAgent?.purpose === 'education';
 
@@ -212,12 +234,12 @@ export function ConversationsPage() {
   if (result.loading && !result.data) return <PageLoader />;
   return <div className="inbox-page">
     <section className={`conversation-list-panel ${selected ? 'has-selection' : ''}`}>
-      <div className="inbox-title"><div><h2>Conversations</h2><Badge tone="brand">{result.data?.total ?? 0} results</Badge></div><button className="icon-button" aria-label="Conversation actions"><MoreHorizontal /></button></div>
+      <div className="inbox-title"><div><h2>Conversations</h2><Badge tone="brand">{result.data?.total ?? 0} results</Badge></div></div>
       <div className={`inbox-update-status${result.error ? " inbox-update-status--error" : ""}`} role="status">{result.error ? <>Could not refresh. Retrying automatically.<button type="button" onClick={result.reload}>Retry now</button></> : "Messages update automatically"}</div>
       <div className="inbox-tools">
         <div className="search-box"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" /></div>
         <div className="filter-select"><Filter /><select value={agentId} onChange={(event) => changeAgent(event.target.value)} aria-label="Filter by agent"><option value="all">All agents</option>{agents.data?.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown /></div>
-        <div className="filter-select"><Filter /><select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)} aria-label="Filter by channel"><option value="all">All channels</option><option value="widget">Website</option><option value="whatsapp">WhatsApp</option><option value="slack">Slack</option><option value="api">API</option></select><ChevronDown /></div>
+        <div className="filter-select"><Filter /><select value={channel} onChange={(event) => setChannel(event.target.value as ChannelFilter)} aria-label="Filter by channel"><option value="all">All channels</option>{channelOptions.map((value) => <option key={value} value={value}>{channelLabels[value]}</option>)}</select><ChevronDown /></div>
         <div className="filter-select"><GraduationCap /><select value={purposeFilter} onChange={(event) => setPurposeFilter(event.target.value as typeof purposeFilter)} aria-label="Filter by purpose"><option value="all">All purposes</option><option value="education">Education</option><option value="lead_generation">Lead generation</option><option value="support">Support</option></select><ChevronDown /></div>
         <div className="filter-select"><Filter /><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)} aria-label="Filter conversations"><option value="all">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="resolved">Resolved</option></select><ChevronDown /></div>
       </div>

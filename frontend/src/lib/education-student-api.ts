@@ -59,6 +59,7 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\
 const DEMO_MODE = (import.meta.env.VITE_DEMO_MODE as string | undefined) === 'true';
 const SESSION_KEY = 'northstar.session';
 const STUDENTS_KEY = 'northstar.education.students';
+const ENROLLMENTS_KEY = 'northstar.education.enrollments';
 
 export class EducationStudentApiError extends Error {
   constructor(message: string, readonly status: number, readonly detail?: unknown) {
@@ -222,6 +223,20 @@ function localUpdate(studentId: string, patch: StudentPatchInput): EducationStud
   return updated;
 }
 
+function localPermanentDelete(studentId: string): void {
+  const currentWorkspaceId = workspaceId();
+  const students = storedStudents();
+  const exists = students.some((student) => student.id === studentId && student.workspaceId === currentWorkspaceId);
+  if (!exists) throw new EducationStudentApiError('Student not found', 404);
+
+  persistStudents(students.filter((student) => student.id !== studentId || student.workspaceId !== currentWorkspaceId));
+  const enrollments = readStorage<Array<{ studentId?: string; workspaceId?: string }>>(ENROLLMENTS_KEY, []);
+  writeStorage(
+    ENROLLMENTS_KEY,
+    enrollments.filter((enrollment) => enrollment.studentId !== studentId || enrollment.workspaceId !== currentWorkspaceId),
+  );
+}
+
 export const educationStudentApi = {
   list(filters: StudentFilters = {}): Promise<EducationStudent[]> {
     const params = new URLSearchParams();
@@ -259,6 +274,12 @@ export const educationStudentApi = {
     return withFallback(
       () => remote<void>(`/education/students/${studentId}`, 'DELETE'),
       async () => { localUpdate(studentId, { status: 'archived' }); },
+    );
+  },
+  permanentlyDelete(studentId: string): Promise<void> {
+    return withFallback(
+      () => remote<void>(`/education/students/${studentId}/permanent`, 'DELETE'),
+      async () => { localPermanentDelete(studentId); },
     );
   },
 };

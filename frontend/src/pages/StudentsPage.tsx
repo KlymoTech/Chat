@@ -1,4 +1,4 @@
-import { Archive, GraduationCap, Link2, Pencil, Plus, RotateCcw, Search, UserRound, X } from 'lucide-react';
+import { Archive, GraduationCap, Link2, Pencil, Plus, RotateCcw, Search, Trash2, UserRound, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { StudentEnrollmentsModal } from '@/components/student-enrollments-modal';
@@ -79,6 +79,8 @@ export function StudentsPage() {
   const [saving, setSaving] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<EducationStudent | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EducationStudent | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [reactivating, setReactivating] = useState<string>();
 
   const records = useMemo(() => {
@@ -231,6 +233,24 @@ export function StudentsPage() {
     }
   };
 
+  const permanentlyDeleteStudent = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await educationStudentApi.permanentlyDelete(deleteTarget.id);
+      pushToast(`${deleteTarget.name} deleted permanently`);
+      setDeleteTarget(null);
+      if (identityStudent?.id === deleteTarget.id) setIdentityStudent(null);
+      if (enrollmentStudent?.id === deleteTarget.id) setEnrollmentStudent(null);
+      if (editing?.id === deleteTarget.id) closeEditor();
+      students.reload();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Student could not be deleted', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const addCustomField = () => {
     if (form.customFields.length >= 50) return;
     setForm((current) => ({
@@ -325,6 +345,7 @@ export function StudentsPage() {
             <Button variant="secondary" size="sm" icon={Link2} onClick={() => setIdentityStudent(student)}>Identities</Button>
             <Button variant="secondary" size="sm" icon={GraduationCap} onClick={() => setEnrollmentStudent(student)}>Enrollments</Button>
             <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEdit(student)}>Edit</Button>
+            <Button variant="danger" size="sm" icon={Trash2} onClick={() => setDeleteTarget(student)}>Delete</Button>
             {student.status === 'active'
               ? <Button variant="ghost" size="sm" icon={Archive} onClick={() => setArchiveTarget(student)}>Archive</Button>
               : <Button
@@ -459,6 +480,22 @@ export function StudentsPage() {
       </>}
     >
       <p className="student-archive-copy">{archiveTarget ? <><strong>{archiveTarget.studentNumber}</strong> · {archiveTarget.name}</> : null}</p>
+    </Modal>
+
+    <Modal
+      open={Boolean(deleteTarget)}
+      onClose={() => { if (!deleting) setDeleteTarget(null); }}
+      title="Delete student permanently?"
+      description="This cannot be undone. The student's enrollments, verified channel identities, and student-owned access records will be removed."
+      size="sm"
+      closeDisabled={deleting}
+      footer={<>
+        <Button variant="secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</Button>
+        <Button variant="danger" disabled={deleting} onClick={() => void permanentlyDeleteStudent()}>{deleting ? 'Deleting…' : 'Delete permanently'}</Button>
+      </>}
+    >
+      <p className="student-archive-copy">{deleteTarget ? <><strong>{deleteTarget.studentNumber}</strong> · {deleteTarget.name}</> : null}</p>
+      <p className="student-archive-copy">Courses, batches, Agents, and shared training material will not be deleted.</p>
     </Modal>
   </div>;
 }
