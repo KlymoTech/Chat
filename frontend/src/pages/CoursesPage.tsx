@@ -10,6 +10,8 @@ import {
 } from '@/lib/education-api';
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
+import { api } from '@/lib/api';
+import { leadCrmApi, type ChannelConnectionView } from '@/lib/lead-crm-api';
 import './CoursesPage.css';
 
 type CourseFilter = 'all' | CourseStatus;
@@ -18,12 +20,17 @@ interface CourseFormState {
   code: string;
   name: string;
   description: string;
+  simplifiedWorkflow: boolean;
+  assignedAgentId: string;
+  allowedChannelConnectionIds: string[];
 }
 
-const emptyForm: CourseFormState = { code: '', name: '', description: '' };
+const emptyForm: CourseFormState = { code: '', name: '', description: '', simplifiedWorkflow: false, assignedAgentId: '', allowedChannelConnectionIds: [] };
 
 export function CoursesPage() {
   const courses = useApi(() => educationApi.courses.list());
+  const agents = useApi(() => api.agents.list());
+  const connections = useApi(() => leadCrmApi.channelConnections());
   const { pushToast } = useToast();
   const [params] = useSearchParams();
   const [search, setSearch] = useState(() => params.get('search') ?? '');
@@ -58,7 +65,7 @@ export function CoursesPage() {
 
   const openEdit = (course: EducationCourse) => {
     setEditing(course);
-    setForm({ code: course.code, name: course.name, description: course.description });
+    setForm({ code: course.code, name: course.name, description: course.description, simplifiedWorkflow: course.simplifiedWorkflow ?? false, assignedAgentId: course.assignedAgentId ?? '', allowedChannelConnectionIds: course.allowedChannelConnectionIds ?? [] });
     setFormError('');
     setEditorOpen(true);
   };
@@ -83,6 +90,10 @@ export function CoursesPage() {
       setFormError('Course name must contain at least 2 characters.');
       return;
     }
+    if (form.simplifiedWorkflow && !form.assignedAgentId) {
+      setFormError('Choose the active Education Agent that this simplified Course will use.');
+      return;
+    }
     setSaving(true);
     setFormError('');
     try {
@@ -91,10 +102,14 @@ export function CoursesPage() {
           code,
           name,
           description: form.description,
+          simplifiedWorkflow: form.simplifiedWorkflow,
+          assignedAgentId: form.assignedAgentId || null,
+          allowedChannelConnectionIds: form.allowedChannelConnectionIds,
+          confirmAgentReassignment: editing.assignedAgentId !== (form.assignedAgentId || null) ? window.confirm("Replace this Course's Education Agent? Future student questions will use the replacement after its knowledge is ready.") : undefined,
         });
         pushToast(`${name} updated`);
       } else {
-        await educationApi.courses.create({ code, name, description: form.description });
+        await educationApi.courses.create({ code, name, description: form.description, simplifiedWorkflow: form.simplifiedWorkflow, assignedAgentId: form.assignedAgentId || undefined, allowedChannelConnectionIds: form.allowedChannelConnectionIds });
         pushToast(`${name} created`);
       }
       closeEditor();
@@ -265,6 +280,24 @@ export function CoursesPage() {
             placeholder="Course catalog description"
           />
         </Field>
+        <label className="course-simplified-toggle"><input type="checkbox" checked={form.simplifiedWorkflow} onChange={(event) => setForm((current) => ({ ...current, simplifiedWorkflow: event.target.checked, assignedAgentId: event.target.checked ? current.assignedAgentId : '' }))} /> Simplified workflow — assign one Education Agent; no papers</label>
+        {form.simplifiedWorkflow ? <>
+          <Field label="Assigned Education Agent" htmlFor="course-assigned-agent" hint="Students inherit this Agent through the Course.">
+            <select id="course-assigned-agent" value={form.assignedAgentId} onChange={(event) => setForm((current) => ({ ...current, assignedAgentId: event.target.value }))}>
+              <option value="">Select an Education Agent</option>
+              {(agents.data ?? []).filter((agent) => agent.purpose === 'education' && ['active', 'draft'].includes(agent.status)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.status === 'draft' ? ' (draft — activate after enrollment)' : ''}</option>)}
+            </select>
+          </Field>
+          <Field label="Allowed shared Telegram / WhatsApp connections" htmlFor="course-channel-connections" hint="Select every connection that enrolled students may use for this Course.">
+            <div id="course-channel-connections" className="course-channel-options" role="group" aria-label="Allowed shared Telegram and WhatsApp connections">
+              {(connections.data ?? []).filter((connection: ChannelConnectionView) => ['telegram', 'whatsapp'].includes(connection.provider) && connection.status !== 'disabled').map((connection: ChannelConnectionView) => {
+                const selected = form.allowedChannelConnectionIds.includes(connection.id);
+                return <label key={connection.id} className="course-channel-option"><input type="checkbox" checked={selected} onChange={() => setForm((current) => ({ ...current, allowedChannelConnectionIds: selected ? current.allowedChannelConnectionIds.filter((id) => id !== connection.id) : [...current.allowedChannelConnectionIds, connection.id] }))} /> {connection.name} ({connection.provider})</label>;
+              })}
+              {!connections.loading && !(connections.data ?? []).some((connection: ChannelConnectionView) => ['telegram', 'whatsapp'].includes(connection.provider) && connection.status !== 'disabled') ? <p className="course-channel-options__empty">No active Telegram or WhatsApp connections are available.</p> : null}
+            </div>
+          </Field>
+        </> : null}
         {formError ? <p className="course-form-error" role="alert">{formError}</p> : null}
       </form>
     </Modal>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -8,12 +9,13 @@ import pytest
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
-Path("northstar-test.db").unlink(missing_ok=True)
+_TEST_DATABASE = Path(tempfile.gettempdir()) / f"northstar-test-{os.getpid()}.db"
+_TEST_DATABASE.unlink(missing_ok=True)
 
 os.environ.update(
     {
         "APP_ENV": "test",
-        "DATABASE_URL": "sqlite+aiosqlite:///./northstar-test.db",
+        "DATABASE_URL": f"sqlite+aiosqlite:///{_TEST_DATABASE.as_posix()}",
         "REDIS_URL": "redis://127.0.0.1:6399/15",
         "APP_AUTO_CREATE_SCHEMA": "true",
         "JWT_SECRET": "test-only-secret-with-more-than-thirty-two-characters",

@@ -300,6 +300,22 @@ async def create_enrollment(
     session: DB,
 ) -> EnrollmentOut:
     workspace_id = _workspace_id(principal)
+    course_for_agent = await session.scalar(select(EducationCourse).where(
+        EducationCourse.id == payload.course_id,
+        EducationCourse.tenant_id == principal.tenant_id,
+        EducationCourse.workspace_id == workspace_id,
+    ))
+    if course_for_agent is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    agent_id = payload.agent_id
+    if course_for_agent.simplified_workflow:
+        if course_for_agent.assigned_agent_id is None:
+            raise HTTPException(status_code=409, detail="Simplified Course needs an assigned Education Agent before enrollment")
+        if agent_id is not None and agent_id != course_for_agent.assigned_agent_id:
+            raise HTTPException(status_code=422, detail="Simplified Course enrollments inherit the Course Agent")
+        agent_id = course_for_agent.assigned_agent_id
+    if agent_id is None:
+        raise HTTPException(status_code=422, detail="Legacy enrollments require an Education Agent")
     _, _, batch, _ = await _validate_assignment(
         session,
         tenant_id=principal.tenant_id,
@@ -307,10 +323,10 @@ async def create_enrollment(
         student_id=payload.student_id,
         course_id=payload.course_id,
         batch_id=payload.batch_id,
-        agent_id=payload.agent_id,
+        agent_id=agent_id,
         require_active_domain=True,
     )
-    curriculum_id = await _validate_paper_access(
+    curriculum_id = None if course_for_agent.simplified_workflow else await _validate_paper_access(
         session,
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
@@ -328,9 +344,9 @@ async def create_enrollment(
         course_id=payload.course_id,
         curriculum_id=curriculum_id,
         batch_id=payload.batch_id,
-        agent_id=payload.agent_id,
-        all_papers=payload.all_papers,
-        paper_ids=[str(item) for item in payload.paper_ids],
+        agent_id=agent_id,
+        all_papers=True if course_for_agent.simplified_workflow else payload.all_papers,
+        paper_ids=[] if course_for_agent.simplified_workflow else [str(item) for item in payload.paper_ids],
         starts_on=payload.starts_on,
         ends_on=payload.ends_on,
         status=payload.status.value,
@@ -438,6 +454,18 @@ async def update_enrollment(
     next_ends_on = payload.ends_on if "ends_on" in payload.model_fields_set else enrollment.ends_on
     _validate_date_range(next_starts_on, next_ends_on)
 
+    next_course = await session.scalar(select(EducationCourse).where(
+        EducationCourse.id == next_course_id, EducationCourse.tenant_id == principal.tenant_id,
+        EducationCourse.workspace_id == workspace_id,
+    ))
+    if next_course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if next_course.simplified_workflow:
+        if next_course.assigned_agent_id is None:
+            raise HTTPException(status_code=409, detail="Simplified Course needs an assigned Education Agent before enrollment")
+        if payload.agent_id is not None and payload.agent_id != next_course.assigned_agent_id:
+            raise HTTPException(status_code=422, detail="Simplified Course enrollments inherit the Course Agent")
+        next_agent_id = next_course.assigned_agent_id
     if next_status in _NON_TERMINAL or assignment_changed:
         _, _, next_batch, _ = await _validate_assignment(
             session,
@@ -449,7 +477,7 @@ async def update_enrollment(
             agent_id=next_agent_id,
             require_active_domain=next_status in _NON_TERMINAL,
         )
-        next_curriculum_id = await _validate_paper_access(
+        next_curriculum_id = None if next_course.simplified_workflow else await _validate_paper_access(
             session,
             tenant_id=principal.tenant_id,
             workspace_id=workspace_id,
@@ -471,6 +499,8 @@ async def update_enrollment(
             value = value.value
         elif field_name == "paper_ids":
             value = [str(item) for item in (value or [])]
+        elif field_name == "agent_id" and next_course.simplified_workflow:
+            value = next_agent_id
         if getattr(enrollment, field_name) == value:
             continue
         setattr(enrollment, field_name, value)
@@ -480,6 +510,16 @@ async def update_enrollment(
         enrollment.curriculum_id = next_curriculum_id
         if "curriculum_id" not in changed_fields:
             changed_fields.append("curriculum_id")
+    if next_course.simplified_workflow:
+        if enrollment.all_papers is not True:
+            enrollment.all_papers = True
+            changed_fields.append("all_papers")
+        if enrollment.paper_ids:
+            enrollment.paper_ids = []
+            changed_fields.append("paper_ids")
+        if enrollment.agent_id != next_agent_id:
+            enrollment.agent_id = next_agent_id
+            changed_fields.append("agent_id")
 
     if not changed_fields:
         return _enrollment_out(enrollment)

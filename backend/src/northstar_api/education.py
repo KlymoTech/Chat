@@ -60,6 +60,13 @@ class EducationCourse(Base):
     aliases: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=CourseStatus.ACTIVE.value)
+    # New simplified courses inherit their tutor from the course rather than
+    # asking staff to repeat it for every enrollment.
+    simplified_workflow: Mapped[bool] = mapped_column(default=False, nullable=False)
+    assigned_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    allowed_channel_connection_ids: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

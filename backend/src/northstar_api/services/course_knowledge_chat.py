@@ -161,6 +161,15 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
             )
         except KnowledgePolicyError as exc:
             raise HTTPException(403, str(exc)) from None
+        if context.learner.curriculum_id == "simplified":
+            # Authorization above verifies the active student, enrollment,
+            # batch, assigned Agent and ready training source.  Let the normal
+            # approved-agent knowledge path answer; it remains scoped to this
+            # dedicated Agent and does not enter legacy paper/release lookup.
+            return await super().prepare(
+                session, tenant_id=tenant_id, workspace_id=workspace_id,
+                allowed_agent_ids=allowed_agent_ids, request=request, channel=channel,
+            )
         # Staff test conversations may include approved material that is not published yet.
         unpublished = stored.test_mode == TEST_MODE_UNPUBLISHED
         raw_message = request.message.strip()

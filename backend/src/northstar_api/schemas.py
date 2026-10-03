@@ -278,6 +278,8 @@ class KnowledgeCreate(APIModel):
     object_key: str | None = Field(default=None, max_length=1000)
     education_destination: EducationKnowledgeDestination | None = None
     unassigned_inbox: bool = False
+    # Explicit direct training for a dedicated simplified Education Agent.
+    simplified_training: bool = False
 
     @field_validator("content")
     @classmethod

@@ -98,6 +98,9 @@ class CourseEnrollmentAccess(AgentBoundary, Base):
     )
     revision: Mapped[int] = mapped_column(Integer, default=1)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Individual grants remain authoritative.  Bulk synchronization is allowed
+    # to repair only records it created itself, never a staff-managed grant.
+    access_origin: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
 
 
 class CourseStudySelection(Record, AgentBoundary, Base):

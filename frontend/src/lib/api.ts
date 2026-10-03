@@ -423,11 +423,11 @@ export const api = {
     extractionText: (sourceId: string) => requestEvidence(`/knowledge/${sourceId}/extraction/text`),
     retryExtraction: (sourceId: string) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/retry`, { method: 'POST' }),
     approveExtraction: (sourceId: string, submission: ExtractionReviewSubmission) => request<KnowledgeSource>(`/knowledge/${sourceId}/extraction/approve`, { method: 'POST', body: JSON.stringify(submission) }),
-    add: (agentId: string, input: { name: string; kind: KnowledgeKind; url?: string; content?: string; file?: File }) => withFallback(async () => {
+    add: (agentId: string, input: { name: string; kind: KnowledgeKind; url?: string; content?: string; file?: File; simplifiedTraining?: boolean }) => withFallback(async () => {
       const objectKey = input.file ? await uploadKnowledgeFile(input.file) : undefined;
       return request<KnowledgeSource>(`/agents/${agentId}/knowledge`, {
         method: 'POST',
-        body: JSON.stringify({ name: input.name, kind: input.kind, url: input.url, content: input.content, objectKey }),
+        body: JSON.stringify({ name: input.name, kind: input.kind, url: input.url, content: input.content, objectKey, simplifiedTraining: input.simplifiedTraining ?? false }),
       });
     }, async () => {
       await pause(500); const source: KnowledgeSource = { id: id('ks'), agentId, name: input.name, kind: input.kind, url: input.url, content: input.content, status: 'ready', sizeLabel: input.kind === 'url' || input.kind === 'sitemap' ? '1 page' : input.kind === 'text' ? `${input.content?.split(/\s+/).length ?? 0} words` : input.file ? `${(input.file.size / 1_048_576).toFixed(1)} MB` : 'Uploaded', chunks: Math.max(1, Math.round((input.content?.length ?? input.file?.size ?? 700) / 600)), updatedAt: new Date().toISOString() };

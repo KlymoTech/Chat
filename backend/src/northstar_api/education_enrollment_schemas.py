@@ -13,7 +13,7 @@ class EnrollmentCreate(APIModel):
     student_id: UUID
     course_id: UUID
     batch_id: UUID
-    agent_id: UUID
+    agent_id: UUID | None = None
     curriculum_id: UUID | None = None
     all_papers: bool = True
     paper_ids: list[UUID] = Field(default_factory=list)

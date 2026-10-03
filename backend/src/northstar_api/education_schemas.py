@@ -48,6 +48,9 @@ class CourseCreate(APIModel):
     jurisdiction: str = Field(default="", max_length=80)
     aliases: list[str] = Field(default_factory=list, max_length=30)
     description: str = Field(default="", max_length=2000)
+    simplified_workflow: bool = False
+    assigned_agent_id: UUID | None = None
+    allowed_channel_connection_ids: list[UUID] = Field(default_factory=list, max_length=50)
 
     @field_validator("code")
     @classmethod
@@ -83,6 +86,13 @@ class CoursePatch(APIModel):
     aliases: list[str] | None = Field(default=None, max_length=30)
     description: str | None = Field(default=None, max_length=2000)
     status: CourseStatus | None = None
+    simplified_workflow: bool | None = None
+    assigned_agent_id: UUID | None = None
+    allowed_channel_connection_ids: list[UUID] | None = Field(default=None, max_length=50)
+    # Reassignment changes the tutor used by future student questions.  It is
+    # intentionally explicit rather than an accidental side effect of editing
+    # a course name or description.
+    confirm_agent_reassignment: bool = False
 
     @field_validator("code")
     @classmethod
@@ -121,5 +131,8 @@ class CourseOut(APIModel):
     aliases: list[str]
     description: str
     status: CourseStatus
+    simplified_workflow: bool
+    assigned_agent_id: UUID | None
+    allowed_channel_connection_ids: list[UUID]
     created_at: datetime
     updated_at: datetime

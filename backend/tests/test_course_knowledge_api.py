@@ -249,6 +249,43 @@ async def test_teacher_approved_faq_requires_release_and_stays_course_scoped(cli
         assert await match_published_faq(session, boundary, fresh, faq["question"], "English") is None
 
 
+async def test_bulk_enrollment_access_sync_snapshots_papers_and_preserves_manual_access(client, course_setup):
+    """Bulk access is staff-triggered, snapshot-only, and never overwrites manual grants."""
+    from northstar_api.course_knowledge_models import CourseEnrollmentAccess
+
+    s = course_setup
+    student = await _create_student(client, s["headers"], "SYNC-" + uuid4().hex[:8])
+    enrollment = await _create_enrollment(
+        client, s["headers"], student_id=student["id"], course_id=s["course"]["id"],
+        batch_id=s["batch"]["id"], agent_id=s["agent"]["id"],
+    )
+    preview = await call(client, s["headers"], "POST", s["prefix"] + "/enrollment-access/sync-preview", {
+        "courseId": s["course"]["id"], "batchId": s["batch"]["id"],
+    })
+    item = next(value for value in preview["items"] if value["enrollmentId"] == enrollment["id"])
+    assert item["disposition"] == "will_create"
+    assert set(item["proposedPaperIds"]) == {paper["id"] for paper in s["papers"]}
+    applied = await call(client, s["headers"], "POST", s["prefix"] + "/enrollment-access/sync-apply", {
+        "courseId": s["course"]["id"], "batchId": s["batch"]["id"], "enrollmentIds": [enrollment["id"]],
+    })
+    assert applied["created"] == 1 and applied["repaired"] == 0
+    async with SessionFactory() as session:
+        access = await session.get(CourseEnrollmentAccess, UUID(enrollment["id"]))
+        assert access is not None and access.access_origin == "enrollment_sync"
+        assert set(access.paper_ids) == {paper["id"] for paper in s["papers"]}
+    later_paper = await call(client, s["headers"], "POST", "/education/knowledge/papers", {
+        "curriculumId": s["curriculum"]["id"], "code": "P3", "name": "Paper P3",
+    }, 201)
+    later_preview = await call(client, s["headers"], "POST", s["prefix"] + "/enrollment-access/sync-preview", {
+        "courseId": s["course"]["id"], "batchId": s["batch"]["id"],
+    })
+    later_item = next(value for value in later_preview["items"] if value["enrollmentId"] == enrollment["id"])
+    assert later_item["disposition"] == "will_repair"
+    assert later_paper["id"] in later_item["proposedPaperIds"]
+    manual_item = next(value for value in later_preview["items"] if value["enrollmentId"] == s["enrollment"]["id"])
+    assert manual_item["disposition"] == "manual_preserved"
+
+
 async def test_hi_always_reopens_the_verified_course_menu(client, course_setup):
     from northstar_api.education_enrollments import EducationEnrollment
     from northstar_api.education_student_identities import EducationStudentIdentity

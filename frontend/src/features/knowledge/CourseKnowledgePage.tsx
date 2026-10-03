@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth, useWorkspace } from '@/components/providers';
 import { api } from '@/lib/api';
 import { botWorkflowApi, type BotWorkflow } from '@/lib/bot-workflow-api';
-import { knowledgeBlob, knowledgePath, knowledgeRequest, saveKnowledgeBlob, stageCourseFile, type AcademicReview, type KnowledgeCatalog, type KnowledgeRecord, type KnowledgeStatus, type StudentPreview, type TutorContext, type TutorProgress, type VersionDetail, type WhatsappTurn } from './api';
+import { knowledgeBlob, knowledgePath, knowledgeRequest, saveKnowledgeBlob, stageCourseFile, type AcademicReview, type EnrollmentAccessSyncApplyResult, type EnrollmentAccessSyncPreview, type KnowledgeCatalog, type KnowledgeRecord, type KnowledgeStatus, type StudentPreview, type TutorContext, type TutorProgress, type VersionDetail, type WhatsappTurn } from './api';
 import './CourseKnowledgePage.css';
 
 const emptyCatalog: KnowledgeCatalog = { courses: [], batches: [], curricula: [], papers: [], batchCurricula: [] };
@@ -61,7 +61,8 @@ function KnowledgeWorkspace() {
   const [reason, setReason] = useState('');
   const [mismatch, setMismatch] = useState(false);
   const [enrollment, setEnrollment] = useState('');
-  const [allowedPapers, setAllowedPapers] = useState<string[]>([]);
+  const [syncPreview, setSyncPreview] = useState<EnrollmentAccessSyncPreview | null>(null);
+  const [syncSelected, setSyncSelected] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [preview, setPreview] = useState<StudentPreview | null>(null);
   const [error, setError] = useState('');
@@ -101,10 +102,10 @@ function KnowledgeWorkspace() {
       setStatus(nextStatus); setProgress(nextProgress); setContexts(nextContexts); setReviews(nextReviews);
     }
   }
-  async function action(work: () => Promise<unknown>, message: string) {
+  async function action<T>(work: () => Promise<T>, message: string): Promise<T | undefined> {
     if (busy) return;
     setBusy(true); setError(''); setNotice('');
-    try { await work(); await load(); setNotice(message); }
+    try { const result = await work(); await load(); setNotice(message); return result; }
     catch (e) { setError(e instanceof Error ? e.message : 'The request failed'); }
     finally {
       setBusy(false);
@@ -173,10 +174,10 @@ function KnowledgeWorkspace() {
     setMaterialType(scope.materialType ?? 'notes');
     document.getElementById('course-block-review')?.scrollIntoView({ behavior: 'smooth' });
   }
-  function selectCourse(value: string) { setCourse(value); setPaper(''); setBatch(''); setSelectedAssignments([]); setSelectedArtifacts([]); setSelectedFaqs([]); setPreview(null); setArtifactReview(null); setTestConversation(''); }
+  function selectCourse(value: string) { setCourse(value); setPaper(''); setBatch(''); setSyncPreview(null); setSyncSelected([]); setSelectedAssignments([]); setSelectedArtifacts([]); setSelectedFaqs([]); setPreview(null); setArtifactReview(null); setTestConversation(''); }
   function selectAgent(value: string) {
     setAgent(value); setStatus(emptyStatus); setProgress([]); setContexts([]); setReviews([]); setReviewNotes({});
-    setDetail(null); setBlocks([]); setEditing(null); setPreview(null); setEnrollment(''); setSelectedAssignments([]); setSelectedArtifacts([]); setSelectedFaqs([]); setTestConversation('');
+    setDetail(null); setBlocks([]); setEditing(null); setPreview(null); setEnrollment(''); setSyncPreview(null); setSyncSelected([]); setSelectedAssignments([]); setSelectedArtifacts([]); setSelectedFaqs([]); setTestConversation('');
   }
   async function upload(event: FormEvent) {
     event.preventDefault();
@@ -217,7 +218,30 @@ function KnowledgeWorkspace() {
     if (!window.confirm(`Publish this exact release for ${courseName}? Each included assignment retains its own paper and batch restrictions.`)) return;
     await action(() => knowledgeRequest(knowledgePath(agent, `/releases/${release.id}/publish`), 'POST', { expectedEpoch: head?.epoch ?? 0 }), 'Knowledge release activated.');
   }
-  function selectEnrollment(id: string) { setEnrollment(id); setPreview(null); setAllowedPapers(status.access.find(a => a.enrollmentId === id)?.paperIds ?? []); }
+  function selectEnrollment(id: string) { setEnrollment(id); setPreview(null); }
+  async function previewEnrollmentAccessSync() {
+    await action(async () => {
+      if (!agent || !course) throw new Error('Choose an Education Agent and Course first.');
+      const value = await knowledgeRequest<EnrollmentAccessSyncPreview>(knowledgePath(agent, '/enrollment-access/sync-preview'), 'POST', { courseId: course, batchId: batch || null });
+      setSyncPreview(value);
+      setSyncSelected(value.items.filter(item => item.disposition === 'will_create' || item.disposition === 'will_repair').map(item => item.enrollmentId));
+    }, 'Review the proposed paper snapshots, then apply the selected enrollment grants.');
+  }
+  async function applyEnrollmentAccessSync() {
+    if (!agent || !course || !syncSelected.length) return;
+    const result = await action(async () => {
+      const value = await knowledgeRequest<EnrollmentAccessSyncApplyResult>(knowledgePath(agent, '/enrollment-access/sync-apply'), 'POST', { courseId: course, batchId: batch || null, enrollmentIds: syncSelected });
+      setSyncPreview(null); setSyncSelected([]);
+      return value;
+    }, 'Enrollment access sync completed without document reprocessing.');
+    if (result) setNotice(`Enrollment access synced: ${result.created} created, ${result.repaired} repaired, ${result.skipped} skipped. Future papers require another preview and apply.`);
+  }
+  async function revokeEnrollmentAccessSync() {
+    if (!agent || !course || !syncSelected.length) return;
+    if (!window.confirm(`Revoke Course Knowledge access for ${syncSelected.length} selected enrollment${syncSelected.length === 1 ? '' : 's'}? This is an explicit revoke.`)) return;
+    const result = await action(() => knowledgeRequest<{ revoked: number; skipped: number }>(knowledgePath(agent, '/enrollment-access/sync-revoke'), 'POST', { courseId: course, batchId: batch || null, enrollmentIds: syncSelected }), 'Selected Course Knowledge access was revoked.');
+    if (result) { setSyncPreview(null); setSyncSelected([]); setNotice(`Course Knowledge access revoked for ${result.revoked}; ${result.skipped} skipped.`); }
+  }
   function enrollmentLabel(id: string | null) {
     if (!id) return 'No course selected';
     const row = status.enrollments.find(item => item.id === id);
@@ -300,7 +324,7 @@ function KnowledgeWorkspace() {
       <label>Education Agent<select value={agent} onChange={e => selectAgent(e.target.value)}><option value="">Select agent</option>{agents.map(a => <option key={a.id} value={a.id}>{name(a)}</option>)}</select></label>
       <label>Course<select value={course} onChange={e => selectCourse(e.target.value)}><option value="">Select course</option>{catalog.courses.map(c => <option key={c.id} value={c.id}>{name(c)}</option>)}</select></label>
       <label>Paper<select value={paper} onChange={e => { setPaper(e.target.value); setPreview(null); }}><option value="">Select paper mode</option><option value="overview">Course overview only</option><option value="mixed">Mixed papers (upload only)</option>{papers.map(p => <option key={p.id} value={p.id}>{name(p)}</option>)}</select></label>
-      <label>Audience<select value={batch} onChange={e => setBatch(e.target.value)}><option value="">All matching batches</option>{batches.map(b => <option key={b.id} value={b.id}>{name(b)}</option>)}</select></label>
+      <label>Audience<select value={batch} onChange={e => { setBatch(e.target.value); setSyncPreview(null); setSyncSelected([]); }}><option value="">All matching batches</option>{batches.map(b => <option key={b.id} value={b.id}>{name(b)}</option>)}</select></label>
       <label>Material type<select value={materialType} onChange={e => setMaterialType(e.target.value)}>{['notes', 'textbook', 'practice', 'worked_examples'].map(v => <option key={v}>{v}</option>)}</select></label>
       <label>Language<input value={language} onChange={e => setLanguage(e.target.value)} maxLength={80} /></label>
       <p className="ck-wide">Audience: <strong>{audience}</strong>. Only students with a valid matching enrollment can receive it.</p>
@@ -308,10 +332,8 @@ function KnowledgeWorkspace() {
     <section className="ck-panel" id="course-setup"><h3>Student readiness for {courseName || 'the selected course'}</h3><p>Training complete is only the first step. WhatsApp uses the active Course Knowledge release, not the older source-mapping badge.</p><div className="ck-setup-list">{setupSteps.map(step => <div key={step.label} className="ck-setup-step"><span aria-hidden="true">{step.done ? '✓' : '○'}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div></div>)}</div><p>Already-trained sources can be prepared as immutable snapshots below. Extraction does not run again.</p></section>
     <details className="ck-panel"><summary>Configure papers, batches, and enrollment access</summary><fieldset disabled={!canManage || busy}>
       <div className="ck-grid"><label>Paper code<input value={paperCode} onChange={e => setPaperCode(e.target.value)} /></label><label>Paper name<input value={paperName} onChange={e => setPaperName(e.target.value)} /></label><button onClick={() => void action(() => knowledgeRequest('/education/knowledge/papers', 'POST', { curriculumId: curriculum, code: paperCode, name: paperName }), 'Paper created.')}>Create paper</button><button disabled={!batch || !curriculum} onClick={() => void action(() => knowledgeRequest('/education/knowledge/batch-curriculum', 'PUT', { batchId: batch, curriculumId: curriculum }), 'Batch curriculum bound.')}>Bind selected batch to curriculum</button></div>
-      <label>Enrollment<select value={enrollment} onChange={e => selectEnrollment(e.target.value)}><option value="">Select enrollment</option>{status.enrollments.filter(e => e.courseId === course).map(e => <option key={e.id} value={e.id}>{e.studentId} / {name(batches.find(b => b.id === e.batchId))} / {e.status}</option>)}</select></label>
-      <div className="ck-checks">{papers.map(p => <label key={p.id}><input type="checkbox" checked={allowedPapers.includes(p.id)} onChange={() => setAllowedPapers(toggle(allowedPapers, p.id))} />{name(p)}</label>)}</div>
-      <button disabled={!enrollment} onClick={() => void action(() => knowledgeRequest(knowledgePath(agent, `/enrollments/${enrollment}/access`), 'PUT', { curriculumId: curriculum, paperIds: allowedPapers, selectedPaperId: null, expectedRevision: status.access.find(a => a.enrollmentId === enrollment)?.revision ?? 0, active: true }), 'Enrollment access saved without document reprocessing.')}>Save authorized papers</button>
-      <button disabled={!enrollment} onClick={() => void action(() => knowledgeRequest(knowledgePath(agent, `/enrollments/${enrollment}/access`), 'PUT', { curriculumId: curriculum, paperIds: allowedPapers, selectedPaperId: null, expectedRevision: status.access.find(a => a.enrollmentId === enrollment)?.revision ?? 0, active: false }), 'Course knowledge access revoked.')}>Revoke knowledge access</button>
+      <div className="ck-sync-access"><div><strong>Enrollment access</strong><p>Preview active enrollments and snapshot the papers available today. This never removes access; papers created later require another sync.</p></div><button type="button" disabled={!agent || !course} onClick={() => void previewEnrollmentAccessSync()}>Preview eligible enrollments</button></div>
+      {syncPreview ? <div className="ck-sync-preview"><p><strong>Preview:</strong> {syncPreview.counts.will_create ?? 0} to create, {syncPreview.counts.will_repair ?? 0} to repair, {syncPreview.counts.manual_preserved ?? 0} manual records preserved, {syncPreview.counts.ineligible ?? 0} ineligible.</p><div className="ck-sync-preview__rows">{syncPreview.items.map(item => { const selectable = item.disposition !== 'ineligible'; return <label key={item.enrollmentId} className={`ck-sync-preview__row ck-sync-preview__row--${item.disposition}`}><input type="checkbox" disabled={!selectable} checked={syncSelected.includes(item.enrollmentId)} onChange={() => setSyncSelected(current => toggle(current, item.enrollmentId))} /><span><strong>{item.studentId?.slice(0, 8) ?? 'Student'} · {name(batches.find(value => value.id === item.batchId)) || 'Batch'}</strong><small>{item.disposition.replaceAll('_', ' ')} — {item.reason}</small><small>Snapshot papers: {(item.proposedPaperIds ?? []).map(id => name(papers.find(value => value.id === id)) || id.slice(0, 8)).join(', ') || 'None'}</small></span></label>; })}</div><div className="ck-actions"><button type="button" disabled={!syncSelected.length} onClick={() => void applyEnrollmentAccessSync()}>Apply access to {syncSelected.length} enrollment{syncSelected.length === 1 ? '' : 's'}</button><button type="button" disabled={!syncSelected.length} onClick={() => void revokeEnrollmentAccessSync()}>Revoke knowledge access</button></div></div> : null}
     </fieldset></details>
     <section className="ck-panel"><h3>1. Upload into this course</h3><form onSubmit={event => void upload(event)}><fieldset disabled={!canManage || busy || !agent}>
       <label>Source title<input required value={title} onChange={e => setTitle(e.target.value)} maxLength={180} /></label>
@@ -324,7 +346,7 @@ function KnowledgeWorkspace() {
     <section className="ck-panel" id="course-block-review"><h3>2. Review and map source blocks</h3><label>Source version<select value={detail?.id ?? ''} onChange={e => { if (e.target.value) void action(() => openVersion(e.target.value), 'Source blocks loaded.'); }}><option value="">Choose version</option>{status.versions.map(v => <option key={v.id} value={v.id}>{name(v)} / v{v.sourceRevision}{v.withdrawn ? ' (withdrawn)' : ''}</option>)}</select></label>
       {detail && <><p>{detail.sourceUnitNotice}</p><div className="ck-actions"><button onClick={() => void action(() => download(knowledgePath(agent, `/versions/${detail.id}/report`), 'course-knowledge-review.zip'), 'Extraction report downloaded.')}>Download text, structure, mapping, and validation</button><button disabled={!canManage || busy || !reason.trim()} onClick={() => void action(() => knowledgeRequest(knowledgePath(agent, `/versions/${detail.id}/withdraw`), 'POST', { reason }), 'Source and dependent material withdrawn.')}>Withdraw this source version</button></div>
       <div className="ck-review"><div>{detail.blocks.map(b => <article className="ck-block" key={b.id}><label><input type="checkbox" checked={blocks.includes(b.id)} onChange={() => setBlocks(toggle(blocks, b.id))} />{b.id} / {b.type} / {b.page_number ? `page ${b.page_number}` : `source unit ${b.unit}`}</label><pre>{b.text}</pre>{b.structure ? <details><summary>Source structure</summary><pre>{JSON.stringify(b.structure, null, 2)}</pre></details> : null}{b.related_block_ids.length > 0 && <small>Include linked blocks: {b.related_block_ids.join(', ')}</small>}<button onClick={() => void action(async () => { const image = await knowledgeBlob(`/knowledge/${detail.sourceId}/extraction/pages/${b.unit}`); setOriginalImage(URL.createObjectURL(image)); }, 'Original source unit loaded for staff review.')}>View original source unit</button></article>)}</div><div>{originalImage ? <img src={originalImage} alt="Original source unit for comparison with extracted blocks" /> : <p>Select an original source unit to compare it beside the extraction. Text-only sources have no page image.</p>}</div></div>
-      <button disabled={!canManage || busy || !blocks.length || paper === 'mixed' || !paper || source?.withdrawn} onClick={() => void saveMapping()}>{editing ? 'Save new mapping revision' : 'Save selected blocks as assignment'}</button></>}
+      <div className="ck-actions"><button type="button" disabled={!canManage || busy || detail.blocks.length === 0 || blocks.length === detail.blocks.length} onClick={() => setBlocks(detail.blocks.map(block => block.id))}>Select all</button><button disabled={!canManage || busy || !blocks.length || paper === 'mixed' || !paper || source?.withdrawn} onClick={() => void saveMapping()}>{editing ? 'Save new mapping revision' : 'Save selected blocks as assignment'}</button></div></>}
       <label>Review / withdrawal reason<textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} /></label><label><input type="checkbox" checked={mismatch} onChange={e => setMismatch(e.target.checked)} />I reviewed any possible course mismatch and confirm the explicit destination.</label>
       {scopeAssignments.map(a => <article className="ck-block" key={a.id}><label><input type="checkbox" checked={selectedAssignments.includes(a.id)} onChange={() => setSelectedAssignments(toggle(selectedAssignments, a.id))} />{a.id.slice(0, 8)} / revision {a.revision} / {a.status} / index {a.indexStatus}</label><p>{a.overview ? 'Course overview' : name(papers.find(p => p.id === a.paperId))} / {a.batchId ? name(batches.find(b => b.id === a.batchId)) : 'All matching batches'} / {a.blockIds?.length} blocks</p>{a.indexError && <p role="alert">{a.indexError}</p>}{a.validation?.warnings?.map((w, i) => <p key={i} className="ck-error">{w.code}: {w.evidence}</p>)}<div className="ck-actions">
         <button disabled={!canManage || busy || a.status === 'withdrawn'} onClick={() => void action(async () => { const v = await knowledgeRequest<VersionDetail>(knowledgePath(agent, `/versions/${a.sourceVersionId}`)); setDetail(v); setBlocks(a.blockIds ?? []); setEditing(a); setPaper(a.overview ? 'overview' : a.paperId ?? ''); setBatch(a.batchId ?? ''); }, 'Mapping loaded for editing.')}>Edit mapping</button>

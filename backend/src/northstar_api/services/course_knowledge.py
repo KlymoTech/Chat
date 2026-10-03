@@ -575,6 +575,23 @@ async def resolve_context(session: AsyncSession, boundary: Boundary, enrollment_
     for record in (batch, enrollment):
         if (record.starts_on is not None and today < record.starts_on) or (record.ends_on is not None and today > record.ends_on):
             raise KnowledgePolicyError("The selected enrollment or batch is outside its access dates")
+    if course.simplified_workflow:
+        if course.assigned_agent_id != boundary.agent_id:
+            raise KnowledgePolicyError("The simplified Course is not assigned to this Education Agent")
+        from northstar_api.models import KnowledgeSource, KnowledgeStatus
+        ready_source = await session.scalar(select(KnowledgeSource.id).where(
+            KnowledgeSource.tenant_id == boundary.tenant_id,
+            KnowledgeSource.workspace_id == boundary.workspace_id,
+            KnowledgeSource.agent_id == boundary.agent_id,
+            KnowledgeSource.status == KnowledgeStatus.READY,
+        ).limit(1))
+        if ready_source is None:
+            raise KnowledgePolicyError("The assigned Education Agent has no ready training material")
+        # The caller detects this sentinel context and uses the existing
+        # approved-agent retrieval path.  Legacy Course Knowledge releases are
+        # deliberately not widened or modified for simplified Courses.
+        learner = LearnerScope(str(boundary.tenant_id), str(boundary.workspace_id), str(boundary.agent_id), str(enrollment.student_id), str(enrollment.id), str(enrollment.course_id), "simplified", str(enrollment.batch_id), frozenset(), None, enrollment.authorization_revision)
+        return KnowledgeContext(learner, None, 0, fingerprint({"simplified": True, "enrollment": str(enrollment.id), "revision": enrollment.authorization_revision}), course.name, "Simplified course", {})
     access = await session.scalar(select(CourseEnrollmentAccess).where(*boundary.filters(CourseEnrollmentAccess), CourseEnrollmentAccess.enrollment_id == enrollment_id, CourseEnrollmentAccess.active.is_(True)).execution_options(populate_existing=True))
     if access is None:
         raise KnowledgePolicyError("The institute has not configured curriculum and paper access for this enrollment")
@@ -746,7 +763,6 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
     import re
 
     from northstar_api.config import get_settings
-    from northstar_api.modules.knowledge.retrieval import _rerank
 
     if context.release_id is None and not include_unpublished:
         assessment = CourseRetrievalAssessment([], [], "no_published_release")

@@ -12,6 +12,9 @@ export interface EducationCourse {
   name: string;
   description: string;
   status: CourseStatus;
+  simplifiedWorkflow?: boolean;
+  assignedAgentId?: string | null;
+  allowedChannelConnectionIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -36,6 +39,9 @@ export interface CourseCreateInput {
   code: string;
   name: string;
   description?: string;
+  simplifiedWorkflow?: boolean;
+  assignedAgentId?: string;
+  allowedChannelConnectionIds?: string[];
 }
 
 export interface CoursePatchInput {
@@ -43,6 +49,10 @@ export interface CoursePatchInput {
   name?: string;
   description?: string;
   status?: CourseStatus;
+  simplifiedWorkflow?: boolean;
+  assignedAgentId?: string | null;
+  allowedChannelConnectionIds?: string[];
+  confirmAgentReassignment?: boolean;
 }
 
 export interface CourseFilters {
@@ -189,6 +199,9 @@ function localCreateCourse(input: CourseCreateInput): EducationCourse {
     name: input.name.trim(),
     description: input.description?.trim() ?? '',
     status: 'active',
+    simplifiedWorkflow: input.simplifiedWorkflow ?? false,
+    assignedAgentId: input.assignedAgentId ?? null,
+    allowedChannelConnectionIds: input.allowedChannelConnectionIds ?? [],
     createdAt: now,
     updatedAt: now,
   };

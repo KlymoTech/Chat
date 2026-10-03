@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, set_tenant_context
+from northstar_api.education import EducationCourse
 from northstar_api.education_conversation_context import EducationConversationContext
 from northstar_api.lead_crm.channel_models import ChannelConnection, ChannelOutboundDelivery
 from northstar_api.lead_crm.channel_scope import WorkspaceChannelConnection
@@ -28,7 +29,6 @@ from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.logging import configure_logging
 from northstar_api.models import (
     Agent,
-    AgentStatus,
     Channel,
     Conversation,
     ConversationState,
@@ -45,6 +45,7 @@ from northstar_api.services.education_runtime_authorization import (
     EducationAccessDecision,
     EducationAccessReason,
     authorize_education_access,
+    authorize_shared_simplified_access,
     education_course_menu,
     identity_candidate_for_event,
 )
@@ -169,6 +170,24 @@ async def _get_or_create_education_conversation(
     ):
         raise ValueError("authorized Education decision is missing conversation scope")
 
+    simplified_course = await session.scalar(
+        select(EducationCourse.simplified_workflow).where(
+            EducationCourse.id == decision.course_id,
+            EducationCourse.tenant_id == event.tenant_id,
+            EducationCourse.workspace_id == agent.workspace_id,
+        )
+    )
+
+    async def refresh_simplified_revision(conversation: Conversation) -> Conversation:
+        # Simplified Courses use the Agent's ready training instead of a
+        # legacy Course Knowledge release. The ORM default revision is 1, so
+        # a new or resumed channel conversation must be moved to the Agent's
+        # currently published training revision before retrieval.
+        if simplified_course and conversation.knowledge_revision != agent.published_knowledge_revision:
+            conversation.knowledge_revision = agent.published_knowledge_revision
+            await session.flush()
+        return conversation
+
     visitor_id = _visitor_key(event)
     conversation = await session.scalar(
         select(Conversation)
@@ -195,7 +214,7 @@ async def _get_or_create_education_conversation(
         .with_for_update()
     )
     if conversation:
-        return conversation
+        return await refresh_simplified_revision(conversation)
 
     # A conversation may have begun before the learner's Education access was
     # configured (for example while their Telegram ID was being linked).  Keep
@@ -236,7 +255,7 @@ async def _get_or_create_education_conversation(
             )
         )
         await session.flush()
-        return unscoped_conversation
+        return await refresh_simplified_revision(unscoped_conversation)
 
     await require_capacity(session, tenant_id=event.tenant_id, resource="conversations")
     conversation = Conversation(
@@ -248,6 +267,7 @@ async def _get_or_create_education_conversation(
         visitor_email=event.sender.email,
         channel=_conversation_channel(event.provider),
         state=ConversationState.OPEN,
+        knowledge_revision=agent.published_knowledge_revision,
     )
     session.add(conversation)
     await session.flush()
@@ -352,6 +372,7 @@ async def _process_education_message(
     connection: ChannelConnection,
     canonical: CanonicalInboundEvent,
     agent: Agent,
+    allow_shared_connection: bool = False,
 ) -> None:
     channel_scope = await session.scalar(
         select(WorkspaceChannelConnection).where(
@@ -362,7 +383,7 @@ async def _process_education_message(
     if (
         channel_scope is None
         or channel_scope.workspace_id != agent.workspace_id
-        or (channel_scope.agent_id is not None and channel_scope.agent_id != agent.id)
+            or (channel_scope.agent_id is not None and channel_scope.agent_id != agent.id and not allow_shared_connection)
     ):
         decision = EducationAccessDecision(
             authorized=False,
@@ -606,6 +627,37 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
         agent_id=agent.id,
     )
     try:
+        # A reusable connection remains configured with its existing gateway
+        # Agent.  Simplified Courses opt in by listing this connection; the
+        # resolver below safely selects the enrolled Course's target Agent.
+        identity, _ = identity_candidate_for_event(
+            canonical, allow_unsigned_widget=bool(connection.configuration_json.get("allowUnsigned", False))
+        )
+        if identity is not None and purpose is AgentPurpose.EDUCATION:
+            shared = await authorize_shared_simplified_access(
+                session, tenant_id=event.tenant_id, workspace_id=agent.workspace_id,
+                gateway_agent=agent, connection_id=connection.id, identity=identity,
+                message=canonical.message.text if canonical.message else None,
+            )
+            if shared is not None and shared.target_agent is not None:
+                await _process_education_message(
+                    session, raw=raw, connection=connection, canonical=canonical,
+                    agent=shared.target_agent, allow_shared_connection=True,
+                )
+                return
+            if shared is not None and shared.decision.reason is EducationAccessReason.ENROLLMENT_AMBIGUOUS:
+                conversation = await _get_or_create_conversation(session, event=canonical, agent=agent)
+                notice = await education_course_menu(
+                    session, tenant_id=event.tenant_id, workspace_id=agent.workspace_id,
+                    agent_id=agent.id, student_id=shared.decision.student_id,
+                )
+                if canonical.provider is ChannelProvider.TELEGRAM:
+                    await _queue_telegram_notice(session, connection=connection, event=canonical, conversation=conversation, notice=notice)
+                else:
+                    await _persist_message(session, event=canonical, conversation=conversation)
+                raw.processing_status, raw.processed_at, raw.attempt_count = "processed", datetime.now(UTC), raw.attempt_count + 1
+                await session.commit()
+                return
         if purpose is AgentPurpose.EDUCATION:
             await _process_education_message(
                 session,

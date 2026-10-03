@@ -8,11 +8,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_schemas import CourseCreate, CourseOut, CoursePatch
+from northstar_api.models import Agent, AgentStatus
 from northstar_api.security import Principal
 from northstar_api.services.education_enrollment import has_non_terminal_enrollment
 from northstar_api.services.outbox import enqueue_event
@@ -95,6 +97,42 @@ def _course_out(course: EducationCourse) -> CourseOut:
     return CourseOut.model_validate(course)
 
 
+async def _validate_simplified_agent(
+    session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID, agent_id: UUID, excluding_course_id: UUID | None = None
+) -> None:
+    agent = await session.scalar(select(Agent).where(
+        Agent.id == agent_id, Agent.tenant_id == tenant_id, Agent.workspace_id == workspace_id,
+        Agent.deleted_at.is_(None), Agent.status.in_([AgentStatus.DRAFT, AgentStatus.ACTIVE]),
+    ))
+    if agent is None:
+        raise HTTPException(status_code=422, detail="Assigned Agent must be an active or draft workspace Agent")
+    if await get_agent_purpose(session, tenant_id=tenant_id, workspace_id=workspace_id, agent_id=agent.id) is not AgentPurpose.EDUCATION:
+        raise HTTPException(status_code=422, detail="Assigned Agent must have Education purpose")
+    conditions = [
+        EducationCourse.tenant_id == tenant_id,
+        EducationCourse.workspace_id == workspace_id,
+        EducationCourse.simplified_workflow.is_(True),
+        EducationCourse.assigned_agent_id == agent_id,
+        EducationCourse.status == CourseStatus.ACTIVE.value,
+    ]
+    if excluding_course_id is not None:
+        conditions.append(EducationCourse.id != excluding_course_id)
+    if await session.scalar(select(EducationCourse.id).where(*conditions).limit(1)) is not None:
+        raise HTTPException(status_code=409, detail="An active simplified Course already uses this Education Agent")
+
+
+async def _validate_channel_connections(session: AsyncSession, *, tenant_id: UUID, ids: list[UUID]) -> None:
+    if not ids:
+        return
+    from northstar_api.lead_crm.channel_models import ChannelConnection
+    found = set(await session.scalars(select(ChannelConnection.id).where(
+        ChannelConnection.tenant_id == tenant_id, ChannelConnection.id.in_(ids),
+        ChannelConnection.status != "disabled",
+    )))
+    if found != set(ids):
+        raise HTTPException(status_code=422, detail="Every allowed channel connection must be active in this tenant")
+
+
 @router.get("", response_model=list[CourseOut])
 async def list_courses(
     principal: EducationViewPrincipal,
@@ -135,6 +173,11 @@ async def create_course(
     session: DB,
 ) -> CourseOut:
     workspace_id = _workspace_id(principal)
+    if payload.simplified_workflow:
+        if payload.assigned_agent_id is None:
+            raise HTTPException(status_code=422, detail="A simplified Course requires an assigned Education Agent")
+        await _validate_simplified_agent(session, tenant_id=principal.tenant_id, workspace_id=workspace_id, agent_id=payload.assigned_agent_id)
+        await _validate_channel_connections(session, tenant_id=principal.tenant_id, ids=payload.allowed_channel_connection_ids)
     course = EducationCourse(
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
@@ -144,6 +187,9 @@ async def create_course(
         jurisdiction=payload.jurisdiction,
         aliases=payload.aliases,
         description=payload.description,
+        simplified_workflow=payload.simplified_workflow,
+        assigned_agent_id=payload.assigned_agent_id,
+        allowed_channel_connection_ids=[str(item) for item in payload.allowed_channel_connection_ids],
         status=CourseStatus.ACTIVE.value,
     )
     session.add(course)
@@ -203,6 +249,17 @@ async def update_course(
         workspace_id=workspace_id,
         course_id=course_id,
     )
+    previous_agent_id = course.assigned_agent_id
+    next_simplified = payload.simplified_workflow if payload.simplified_workflow is not None else course.simplified_workflow
+    next_agent_id = payload.assigned_agent_id if "assigned_agent_id" in payload.model_fields_set else course.assigned_agent_id
+    if next_simplified:
+        if next_agent_id is None:
+            raise HTTPException(status_code=422, detail="A simplified Course requires an assigned Education Agent")
+        if course.simplified_workflow and course.assigned_agent_id and next_agent_id != course.assigned_agent_id and not payload.confirm_agent_reassignment:
+            raise HTTPException(status_code=409, detail="Confirm Education Agent reassignment before changing the simplified Course tutor")
+        await _validate_simplified_agent(session, tenant_id=principal.tenant_id, workspace_id=workspace_id, agent_id=next_agent_id, excluding_course_id=course.id)
+    if payload.allowed_channel_connection_ids is not None:
+        await _validate_channel_connections(session, tenant_id=principal.tenant_id, ids=payload.allowed_channel_connection_ids)
     if payload.status == CourseStatus.ARCHIVED and course.status != CourseStatus.ARCHIVED.value:
         await _ensure_course_has_no_live_enrollments(
             session,
@@ -219,11 +276,15 @@ async def update_course(
 
     changed_fields: list[str] = []
     for field_name in payload.model_fields_set:
+        if field_name == "confirm_agent_reassignment":
+            continue
         value = getattr(payload, field_name)
         if value is None:
             continue
         if field_name == "status":
             value = value.value
+        elif field_name == "allowed_channel_connection_ids":
+            value = [str(item) for item in value]
         if getattr(course, field_name) == value:
             continue
         setattr(course, field_name, value)
@@ -245,6 +306,12 @@ async def update_course(
             "status": course.status,
         },
     )
+    if "assigned_agent_id" in changed_fields:
+        enqueue_event(
+            session, tenant_id=principal.tenant_id, aggregate_type="education_course", aggregate_id=course.id,
+            event_type="education.course.agent_reassigned.v1",
+            payload={"courseId": str(course.id), "workspaceId": str(workspace_id), "oldAgentId": str(previous_agent_id) if previous_agent_id else None, "newAgentId": str(next_agent_id)},
+        )
     try:
         await session.commit()
     except IntegrityError:

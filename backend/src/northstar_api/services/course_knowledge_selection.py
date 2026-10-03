@@ -175,6 +175,20 @@ async def resolve_study_selection(
         state.enrollment_id = choices[0].id
         changed = True
     enrollment = valid_by_id[str(state.enrollment_id)]
+    # Simplified Courses have one course-level tutor and no paper policy.  The
+    # enrollment itself is the access grant; do not fall through into the
+    # legacy Course Knowledge paper menu.
+    if course_by_id[enrollment.course_id].simplified_workflow:
+        state.menu_ids = []
+        state.menu_open = False
+        state.menu_id = None
+        state.interaction_state = "ready_for_question"
+        if selected is not None or changed:
+            return StudyChoice(
+                enrollment,
+                f"Selected: {course_by_id[enrollment.course_id].name}. Ask your question.",
+            )
+        return StudyChoice(enrollment)
     access = await session.scalar(
         select(CourseEnrollmentAccess)
         .where(

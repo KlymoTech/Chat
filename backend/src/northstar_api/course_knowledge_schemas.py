@@ -71,6 +71,21 @@ class EnrollmentAccess(Contract):
         return self
 
 
+class EnrollmentAccessSyncPreview(Contract):
+    course_id: UUID
+    batch_id: UUID | None = None
+
+
+class EnrollmentAccessSyncApply(EnrollmentAccessSyncPreview):
+    enrollment_ids: list[UUID] = Field(min_length=1, max_length=2000)
+
+
+class EnrollmentAccessSyncRevoke(EnrollmentAccessSyncPreview):
+    """An explicit, staff-selected revoke from the enrollment-access preview."""
+
+    enrollment_ids: list[UUID] = Field(min_length=1, max_length=2000)
+
+
 class Destination(Contract):
     course_id: UUID
     curriculum_id: UUID

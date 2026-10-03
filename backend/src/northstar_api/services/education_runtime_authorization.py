@@ -83,6 +83,17 @@ class EducationAccessDecision:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class SharedEducationRoute:
+    """Result for a reusable channel serving simplified Courses.
+
+    The gateway Agent owns only the short-lived menu state.  The returned
+    target Agent owns the actual conversation and retrieval boundary.
+    """
+    decision: EducationAccessDecision
+    target_agent: Agent | None
+
+
 def identity_candidate_for_event(
     event: CanonicalInboundEvent,
     *,
@@ -422,6 +433,78 @@ async def authorize_education_access(
     )
 
 
+async def authorize_shared_simplified_access(
+    session: AsyncSession, *, tenant_id: UUID, workspace_id: UUID, gateway_agent: Agent,
+    connection_id: UUID, identity: EducationIdentityCandidate, message: str | None = None,
+) -> SharedEducationRoute | None:
+    """Resolve an opt-in reusable-channel course selection without touching legacy routes."""
+    try:
+        student_identity = await find_workspace_student_identity(
+            session, tenant_id=tenant_id, workspace_id=workspace_id,
+            identity_type=identity.identity_type, identifier=identity.identifier, verified_only=True,
+        )
+    except ValueError:
+        return None
+    if student_identity is None:
+        return None
+    courses = (await session.scalars(select(EducationCourse).where(
+        EducationCourse.tenant_id == tenant_id, EducationCourse.workspace_id == workspace_id,
+        EducationCourse.simplified_workflow.is_(True), EducationCourse.status == CourseStatus.ACTIVE.value,
+        EducationCourse.assigned_agent_id.is_not(None),
+    ))).all()
+    course_by_id = {course.id: course for course in courses if str(connection_id) in (course.allowed_channel_connection_ids or [])}
+    if not course_by_id:
+        return None
+    enrollments = (await session.scalars(select(EducationEnrollment).where(
+        EducationEnrollment.tenant_id == tenant_id, EducationEnrollment.workspace_id == workspace_id,
+        EducationEnrollment.student_id == student_identity.student_id,
+        EducationEnrollment.course_id.in_(course_by_id), EducationEnrollment.status == EnrollmentStatus.ACTIVE.value,
+    ))).all()
+    today = await workspace_today(session, tenant_id=tenant_id, workspace_id=workspace_id)
+    valid = [row for row in enrollments if await _active_enrollment_denial_reason(session, tenant_id=tenant_id, workspace_id=workspace_id, enrollment=row, as_of=today) is None]
+    if not valid:
+        return None
+    context = await session.scalar(select(EducationTutorContext).where(
+        EducationTutorContext.tenant_id == tenant_id, EducationTutorContext.workspace_id == workspace_id,
+        EducationTutorContext.agent_id == gateway_agent.id, EducationTutorContext.student_id == student_identity.student_id,
+    ))
+    if context is None:
+        context = EducationTutorContext(tenant_id=tenant_id, workspace_id=workspace_id, agent_id=gateway_agent.id, student_id=student_identity.student_id)
+        session.add(context)
+        await session.flush()
+    normalized = " ".join((message or "").casefold().split())
+    selected: EducationEnrollment | None = None
+    if normalized.isdigit() and context.pending_enrollment_ids:
+        index = int(normalized) - 1
+        if 0 <= index < len(context.pending_enrollment_ids):
+            selected = next((row for row in valid if str(row.id) == context.pending_enrollment_ids[index]), None)
+    if normalized in {"courses", "switch course", "switch courses", "hi", "hello", "hey"}:
+        selected = None
+        context.active_enrollment_id = None
+    if selected is None and context.active_enrollment_id is not None and normalized not in {"courses", "switch course", "switch courses"}:
+        selected = next((row for row in valid if row.id == context.active_enrollment_id), None)
+    if selected is None and len(valid) == 1:
+        selected = valid[0]
+    if selected is None:
+        context.pending_enrollment_ids = [str(row.id) for row in valid]
+        context.interaction_state = "awaiting_course_selection"
+        context.pending_question = message if normalized not in {"courses", "switch course", "switch courses", "hi", "hello", "hey"} else None
+        await session.flush()
+        return SharedEducationRoute(_decision(authorized=False, reason=EducationAccessReason.ENROLLMENT_AMBIGUOUS, agent=gateway_agent, identity_id=student_identity.id, student_id=student_identity.student_id), None)
+    target = await session.scalar(select(Agent).where(
+        Agent.id == course_by_id[selected.course_id].assigned_agent_id, Agent.tenant_id == tenant_id,
+        Agent.workspace_id == workspace_id, Agent.status == AgentStatus.ACTIVE, Agent.deleted_at.is_(None),
+    ))
+    if target is None:
+        return SharedEducationRoute(_decision(authorized=False, reason=EducationAccessReason.AGENT_INACTIVE, agent=gateway_agent, identity_id=student_identity.id, student_id=student_identity.student_id, enrollment=selected), None)
+    context.active_enrollment_id = selected.id
+    context.pending_enrollment_ids = []
+    context.interaction_state = "ready_for_question"
+    context.selected_at = datetime.now(UTC)
+    await session.flush()
+    return SharedEducationRoute(_decision(authorized=True, reason=EducationAccessReason.AUTHORIZED, agent=target, identity_id=student_identity.id, student_id=student_identity.student_id, enrollment=selected), target)
+
+
 async def education_course_menu(
     session: AsyncSession,
     *,
@@ -450,7 +533,6 @@ async def education_course_menu(
                 EducationEnrollment.id.in_(enrollment_ids),
                 EducationEnrollment.tenant_id == tenant_id,
                 EducationEnrollment.workspace_id == workspace_id,
-                EducationEnrollment.agent_id == agent_id,
                 EducationEnrollment.student_id == student_id,
             )
         )

@@ -112,6 +112,8 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
   const courseById = useMemo(() => new Map(courses.map((course) => [course.id, course])), [courses]);
   const batchById = useMemo(() => new Map(batches.map((batch) => [batch.id, batch])), [batches]);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
+  const selectedCourse = courseById.get(form.courseId);
+  const selectedCourseIsSimplified = Boolean(selectedCourse?.simplifiedWorkflow);
 
   const load = async () => {
     if (!student) return;
@@ -178,7 +180,8 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
   };
 
   const setCourse = (courseId: string) => {
-    setForm((current) => ({ ...current, courseId, batchId: '', startsOn: '', endsOn: '' }));
+    const course = courses.find((item) => item.id === courseId);
+    setForm((current) => ({ ...current, courseId, batchId: '', startsOn: '', endsOn: '', agentId: course?.simplifiedWorkflow ? (course.assignedAgentId ?? '') : current.agentId }));
   };
 
   const setBatch = (batchId: string) => {
@@ -208,8 +211,8 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
   const submitEnrollment = async (event: FormEvent) => {
     event.preventDefault();
     if (!student || student.status !== 'active') return;
-    if (!form.courseId || !form.batchId || !form.agentId) {
-      setFormError('Select a Course, Batch, and Education Agent.');
+    if (!form.courseId || !form.batchId || (!selectedCourseIsSimplified && !form.agentId)) {
+      setFormError(selectedCourseIsSimplified ? 'Select a Course and Batch.' : 'Select a Course, Batch, and Education Agent.');
       return;
     }
     if (form.startsOn && form.endsOn && form.endsOn < form.startsOn) {
@@ -223,7 +226,7 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
         const patch: EnrollmentPatchInput = {
           courseId: form.courseId,
           batchId: form.batchId,
-          agentId: form.agentId,
+          agentId: selectedCourseIsSimplified ? undefined : form.agentId,
           startsOn: form.startsOn || null,
           endsOn: form.endsOn || null,
         };
@@ -234,7 +237,7 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
           studentId: student.id,
           courseId: form.courseId,
           batchId: form.batchId,
-          agentId: form.agentId,
+          agentId: selectedCourseIsSimplified ? undefined : form.agentId,
           startsOn: form.startsOn || null,
           endsOn: form.endsOn || null,
           status: form.status,
@@ -289,7 +292,7 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
     open={open}
     onClose={close}
     title={student ? `${student.name} · Enrollments` : 'Student enrollments'}
-    description={`Assign Course, Batch, Education Agent, validity, and access status. Student WhatsApp: ${student?.whatsappNumber || 'not added - edit the student profile'}${student?.whatsappNumber ? student.whatsappVerified ? ' (verified)' : ' (verification needed)' : ''}.`}
+    description={`Assign Course, Batch, validity, and access status. Simplified Courses inherit their Education Agent automatically. Student WhatsApp: ${student?.whatsappNumber || 'not added - edit the student profile'}${student?.whatsappNumber ? student.whatsappVerified ? ' (verified)' : ' (verification needed)' : ''}.`}
     size="lg"
     closeDisabled={saving || Boolean(actingId)}
     footer={<Button variant="secondary" onClick={close} disabled={saving || Boolean(actingId)}>Close</Button>}
@@ -326,12 +329,12 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
               {selectableBatches.map((batch) => <option value={batch.id} key={batch.id}>{batch.code} · {batch.name}</option>)}
             </select>
           </Field>
-          <Field label="Education Agent" htmlFor="enrollment-agent" hint="Only Agents with Education purpose are eligible.">
+          {selectedCourseIsSimplified ? <div className="enrollment-prerequisite-note"><ShieldCheck /><p>This simplified Course uses <strong>{agentById.get(selectedCourse?.assignedAgentId ?? '')?.name ?? 'its assigned Education Agent'}</strong>. Papers and manual access are not required.</p></div> : <Field label="Education Agent" htmlFor="enrollment-agent" hint="Only Agents with Education purpose are eligible.">
             <select id="enrollment-agent" value={form.agentId} onChange={(event) => setForm((current) => ({ ...current, agentId: event.target.value }))}>
               <option value="">Select Education Agent</option>
               {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name} · {agent.status}{agent.whatsappNumber ? ` - WhatsApp ${agent.whatsappNumber}` : ''}</option>)}
             </select>
-          </Field>
+          </Field>}
           {!editing ? <Field label="Initial status" htmlFor="enrollment-status">
             <select id="enrollment-status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as 'pending' | 'active' }))}>
               <option value="pending">Pending</option>

@@ -53,6 +53,9 @@ from northstar_api.course_knowledge_schemas import (
     BatchCurriculum,
     CurriculumCreate,
     EnrollmentAccess,
+    EnrollmentAccessSyncApply,
+    EnrollmentAccessSyncPreview,
+    EnrollmentAccessSyncRevoke,
     FaqApproval,
     FaqSave,
     IndexRequest,
@@ -77,6 +80,7 @@ from northstar_api.education_conversation_context import (
 )
 from northstar_api.education_enrollments import EducationEnrollment
 from northstar_api.education_knowledge_scope import EducationKnowledgeScope
+from northstar_api.education_papers import EducationPaper
 from northstar_api.education_students import EducationStudent
 from northstar_api.models import (
     Agent,
@@ -301,6 +305,8 @@ async def grant_access(agent_id: UUID, enrollment_id: UUID, payload: EnrollmentA
     row.paper_ids = [str(p) for p in payload.paper_ids]
     row.selected_paper_id = payload.selected_paper_id
     row.active = payload.active
+    # Using the existing individual control is an explicit staff decision.
+    row.access_origin = "manual"
     row.revision += 1
     if not payload.active:
         states = (await session.scalars(select(CourseStudySelection).where(*boundary.filters(CourseStudySelection), CourseStudySelection.enrollment_id == enrollment_id))).all()
@@ -311,6 +317,188 @@ async def grant_access(agent_id: UUID, enrollment_id: UUID, payload: EnrollmentA
     audit(session, boundary, principal, "access.updated", enrollment_id, {"revision": row.revision})
     await session.commit()
     return record_out(row)
+
+
+async def _sync_access_preview_row(
+    session: AsyncSession, *, boundary: Boundary, enrollment: EducationEnrollment,
+) -> dict[str, Any]:
+    """Produce one staff-reviewable, snapshot-only bulk-sync decision.
+
+    This helper is shared by Preview and Apply so Apply always revalidates the
+    live state rather than trusting a browser preview.
+    """
+    base = {"enrollmentId": str(enrollment.id), "studentId": str(enrollment.student_id),
+            "batchId": str(enrollment.batch_id), "enrollmentStatus": enrollment.status}
+    access = await session.scalar(select(CourseEnrollmentAccess).where(
+        *boundary.filters(CourseEnrollmentAccess),
+        CourseEnrollmentAccess.enrollment_id == enrollment.id,
+    ))
+    if access and access.access_origin != "enrollment_sync":
+        return {**base, "disposition": "manual_preserved", "reason": "Existing manual Course Knowledge access is never overwritten.",
+                "existingPaperIds": access.paper_ids, "proposedPaperIds": []}
+    if enrollment.status != "active":
+        return {**base, "disposition": "ineligible", "reason": "Enrollment is not active.", "proposedPaperIds": []}
+    student = await session.scalar(select(EducationStudent).where(
+        EducationStudent.id == enrollment.student_id, EducationStudent.tenant_id == boundary.tenant_id,
+        EducationStudent.workspace_id == boundary.workspace_id,
+    ))
+    batch = await session.scalar(select(EducationBatch).where(
+        EducationBatch.id == enrollment.batch_id, EducationBatch.tenant_id == boundary.tenant_id,
+        EducationBatch.workspace_id == boundary.workspace_id, EducationBatch.course_id == enrollment.course_id,
+    ))
+    if student is None or student.status != "active":
+        return {**base, "disposition": "ineligible", "reason": "Student is not active.", "proposedPaperIds": []}
+    if batch is None or batch.status != "active":
+        return {**base, "disposition": "ineligible", "reason": "Batch is not active.", "proposedPaperIds": []}
+    link = await session.scalar(select(CourseBatchCurriculum).where(
+        CourseBatchCurriculum.tenant_id == boundary.tenant_id,
+        CourseBatchCurriculum.workspace_id == boundary.workspace_id,
+        CourseBatchCurriculum.batch_id == enrollment.batch_id,
+    ))
+    if link is None:
+        return {**base, "disposition": "ineligible", "reason": "The batch has no Course Knowledge curriculum.", "proposedPaperIds": []}
+    curriculum = await session.scalar(select(CourseCurriculum).where(
+        CourseCurriculum.id == link.curriculum_id, CourseCurriculum.tenant_id == boundary.tenant_id,
+        CourseCurriculum.workspace_id == boundary.workspace_id, CourseCurriculum.course_id == enrollment.course_id,
+        CourseCurriculum.active.is_(True),
+    ))
+    if curriculum is None:
+        return {**base, "disposition": "ineligible", "reason": "The matching Course Knowledge curriculum is inactive.", "proposedPaperIds": []}
+    if access and access.curriculum_id != curriculum.id:
+        return {**base, "disposition": "ineligible", "reason": "Existing synchronized access uses a different curriculum; review it manually.", "proposedPaperIds": []}
+    current_papers = (await session.scalars(select(CoursePaper).where(
+        CoursePaper.tenant_id == boundary.tenant_id, CoursePaper.workspace_id == boundary.workspace_id,
+        CoursePaper.curriculum_id == curriculum.id, CoursePaper.active.is_(True),
+    ).order_by(CoursePaper.code, CoursePaper.id))).all()
+    if enrollment.all_papers:
+        paper_ids = [str(paper.id) for paper in current_papers]
+    else:
+        enrollment_papers = (await session.scalars(select(EducationPaper).where(
+            EducationPaper.tenant_id == boundary.tenant_id, EducationPaper.workspace_id == boundary.workspace_id,
+            EducationPaper.id.in_([UUID(value) for value in enrollment.paper_ids]),
+            EducationPaper.course_id == enrollment.course_id, EducationPaper.status == "active",
+        ))).all()
+        by_code = {paper.code.casefold(): str(paper.id) for paper in current_papers}
+        paper_ids = [by_code[item.code.casefold()] for item in enrollment_papers if item.code.casefold() in by_code]
+        if len(paper_ids) != len(enrollment_papers):
+            return {**base, "disposition": "ineligible", "reason": "An explicitly granted enrollment paper has no matching Course Knowledge paper.", "proposedPaperIds": []}
+    if not paper_ids:
+        return {**base, "disposition": "ineligible", "reason": "There are no active Course Knowledge papers to snapshot.", "proposedPaperIds": []}
+    existing = list(access.paper_ids) if access else []
+    proposed = list(dict.fromkeys([*existing, *paper_ids]))
+    disposition = "will_create" if access is None else ("will_repair" if (not access.active or proposed != existing) else "already_synced")
+    return {**base, "disposition": disposition, "reason": "Current active papers will be snapshotted; future papers require another sync.",
+            "curriculumId": str(curriculum.id), "existingPaperIds": existing, "proposedPaperIds": proposed,
+            "expectedRevision": access.revision if access else 0}
+
+
+@router.post(PREFIX + "/enrollment-access/sync-preview")
+async def preview_enrollment_access_sync(agent_id: UUID, payload: EnrollmentAccessSyncPreview, principal: Manage, session: DB) -> dict[str, Any]:
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    statement = select(EducationEnrollment).where(
+        *boundary.filters(EducationEnrollment), EducationEnrollment.course_id == payload.course_id,
+    )
+    if payload.batch_id is not None:
+        statement = statement.where(EducationEnrollment.batch_id == payload.batch_id)
+    rows = (await session.scalars(statement.order_by(EducationEnrollment.created_at, EducationEnrollment.id))).all()
+    items = [await _sync_access_preview_row(session, boundary=boundary, enrollment=row) for row in rows]
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["disposition"]] = counts.get(item["disposition"], 0) + 1
+    return {"courseId": str(payload.course_id), "batchId": str(payload.batch_id) if payload.batch_id else None,
+            "items": items, "counts": counts}
+
+
+@router.post(PREFIX + "/enrollment-access/sync-apply")
+async def apply_enrollment_access_sync(agent_id: UUID, payload: EnrollmentAccessSyncApply, principal: Manage, session: DB) -> dict[str, Any]:
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    selected = set(payload.enrollment_ids)
+    statement = select(EducationEnrollment).where(
+        *boundary.filters(EducationEnrollment), EducationEnrollment.course_id == payload.course_id,
+        EducationEnrollment.id.in_(selected),
+    ).with_for_update()
+    if payload.batch_id is not None:
+        statement = statement.where(EducationEnrollment.batch_id == payload.batch_id)
+    enrollments = (await session.scalars(statement)).all()
+    found = {row.id for row in enrollments}
+    results: list[dict[str, Any]] = []
+    created = repaired = skipped = 0
+    for enrollment in enrollments:
+        item = await _sync_access_preview_row(session, boundary=boundary, enrollment=enrollment)
+        if item["disposition"] not in {"will_create", "will_repair"}:
+            skipped += 1
+            results.append(item)
+            continue
+        access = await session.scalar(select(CourseEnrollmentAccess).where(
+            *boundary.filters(CourseEnrollmentAccess), CourseEnrollmentAccess.enrollment_id == enrollment.id,
+        ).with_for_update())
+        proposed = item["proposedPaperIds"]
+        if access is None:
+            access = CourseEnrollmentAccess(**boundary.values(), enrollment_id=enrollment.id,
+                curriculum_id=UUID(item["curriculumId"]), paper_ids=proposed, selected_paper_id=None,
+                revision=1, active=True, access_origin="enrollment_sync")
+            session.add(access)
+            created += 1
+        else:
+            access.paper_ids = proposed
+            access.active = True
+            access.revision += 1
+            repaired += 1
+        audit(session, boundary, principal, "access.synced", enrollment.id,
+              {"enrollmentId": str(enrollment.id), "paperIds": proposed, "action": item["disposition"]})
+        results.append(item)
+    for missing in selected - found:
+        skipped += 1
+        results.append({"enrollmentId": str(missing), "disposition": "ineligible", "reason": "Enrollment is outside the selected sync scope."})
+    audit(session, boundary, principal, "access.sync_applied", payload.course_id,
+          {"courseId": str(payload.course_id), "batchId": str(payload.batch_id) if payload.batch_id else None,
+           "created": created, "repaired": repaired, "skipped": skipped})
+    await session.commit()
+    return {"created": created, "repaired": repaired, "skipped": skipped, "items": results}
+
+
+@router.post(PREFIX + "/enrollment-access/sync-revoke")
+async def revoke_enrollment_access_sync(agent_id: UUID, payload: EnrollmentAccessSyncRevoke, principal: Manage, session: DB) -> dict[str, Any]:
+    """Explicitly revoke only preview-selected access records; never revoke during sync."""
+    boundary = await boundary_for(session, principal, agent_id, manage=True)
+    selected = set(payload.enrollment_ids)
+    statement = select(EducationEnrollment).where(
+        *boundary.filters(EducationEnrollment), EducationEnrollment.course_id == payload.course_id,
+        EducationEnrollment.id.in_(selected),
+    ).with_for_update()
+    if payload.batch_id is not None:
+        statement = statement.where(EducationEnrollment.batch_id == payload.batch_id)
+    enrollments = (await session.scalars(statement)).all()
+    revoked = skipped = 0
+    results: list[dict[str, Any]] = []
+    for enrollment in enrollments:
+        access = await session.scalar(select(CourseEnrollmentAccess).where(
+            *boundary.filters(CourseEnrollmentAccess), CourseEnrollmentAccess.enrollment_id == enrollment.id,
+        ).with_for_update())
+        if access is None or not access.active:
+            skipped += 1
+            results.append({"enrollmentId": str(enrollment.id), "disposition": "ineligible", "reason": "There is no active Course Knowledge access to revoke."})
+            continue
+        access.active = False
+        access.revision += 1
+        states = (await session.scalars(select(CourseStudySelection).where(
+            *boundary.filters(CourseStudySelection), CourseStudySelection.enrollment_id == enrollment.id,
+        ))).all()
+        for state in states:
+            state.enrollment_id = None
+            state.menu_ids = []
+            state.menu_open = False
+        revoked += 1
+        audit(session, boundary, principal, "access.revoked", enrollment.id, {"enrollmentId": str(enrollment.id), "source": "enrollment_access_preview"})
+        results.append({"enrollmentId": str(enrollment.id), "disposition": "revoked", "reason": "Course Knowledge access was explicitly revoked."})
+    for missing in selected - {row.id for row in enrollments}:
+        skipped += 1
+        results.append({"enrollmentId": str(missing), "disposition": "ineligible", "reason": "Enrollment is outside the selected scope."})
+    audit(session, boundary, principal, "access.sync_revoke_applied", payload.course_id,
+          {"courseId": str(payload.course_id), "batchId": str(payload.batch_id) if payload.batch_id else None,
+           "revoked": revoked, "skipped": skipped})
+    await session.commit()
+    return {"revoked": revoked, "skipped": skipped, "items": results}
 
 
 @router.get(PREFIX + "/status")

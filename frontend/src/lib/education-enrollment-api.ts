@@ -25,7 +25,7 @@ export interface EnrollmentCreateInput {
   studentId: string;
   courseId: string;
   batchId: string;
-  agentId: string;
+  agentId?: string;
   startsOn?: string | null;
   endsOn?: string | null;
   status?: EnrollmentStatus;
@@ -205,13 +205,18 @@ function localCreate(input: EnrollmentCreateInput): EducationEnrollment {
   const startsOn = input.startsOn ?? null;
   const endsOn = input.endsOn ?? null;
   validateDateRange(startsOn, endsOn);
-  localReferences(input.studentId, input.courseId, input.batchId, input.agentId, true);
+  const course = readStorage<EducationCourse[]>(COURSES_KEY, []).find(
+    (item) => item.id === input.courseId && item.workspaceId === currentWorkspaceId,
+  );
+  const agentId = input.agentId ?? (course?.simplifiedWorkflow ? course.assignedAgentId ?? undefined : undefined);
+  if (!agentId) throw new EducationEnrollmentApiError('Select an Education Agent for this enrollment', 422);
+  localReferences(input.studentId, input.courseId, input.batchId, agentId, true);
   if (enrollments.some((item) => (
     item.workspaceId === currentWorkspaceId
     && item.studentId === input.studentId
     && item.courseId === input.courseId
     && item.batchId === input.batchId
-    && item.agentId === input.agentId
+    && item.agentId === agentId
   ))) {
     throw new EducationEnrollmentApiError(
       'This Student already has an Enrollment for the selected Course, Batch, and Agent',
@@ -226,7 +231,7 @@ function localCreate(input: EnrollmentCreateInput): EducationEnrollment {
     studentId: input.studentId,
     courseId: input.courseId,
     batchId: input.batchId,
-    agentId: input.agentId,
+    agentId,
     startsOn,
     endsOn,
     status,

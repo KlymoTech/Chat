@@ -104,6 +104,30 @@ export interface StudentPreview {
   notice: string;
   context: unknown;
 }
+export interface EnrollmentAccessSyncItem {
+  enrollmentId: string;
+  studentId?: string;
+  batchId?: string;
+  enrollmentStatus?: string;
+  disposition: 'will_create' | 'will_repair' | 'already_synced' | 'manual_preserved' | 'ineligible';
+  reason: string;
+  curriculumId?: string;
+  existingPaperIds?: string[];
+  proposedPaperIds?: string[];
+  expectedRevision?: number;
+}
+export interface EnrollmentAccessSyncPreview {
+  courseId: string;
+  batchId: string | null;
+  items: EnrollmentAccessSyncItem[];
+  counts: Record<string, number>;
+}
+export interface EnrollmentAccessSyncApplyResult {
+  created: number;
+  repaired: number;
+  skipped: number;
+  items: EnrollmentAccessSyncItem[];
+}
 
 export interface TutorProgress {
   id: string;
