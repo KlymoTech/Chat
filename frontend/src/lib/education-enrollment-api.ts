@@ -40,6 +40,23 @@ export interface EnrollmentPatchInput {
   status?: EnrollmentStatus;
 }
 
+export interface BulkEnrollmentAssignmentInput {
+  courseId: string;
+  batchId: string;
+  curriculumId?: string | null;
+  allPapers?: boolean;
+  paperIds?: string[];
+  startsOn?: string | null;
+  endsOn?: string | null;
+}
+
+export interface BulkEnrollmentCreateInput {
+  studentId: string;
+  agentId: string;
+  assignments: BulkEnrollmentAssignmentInput[];
+  status?: 'pending' | 'active';
+}
+
 export interface EnrollmentFilters {
   status?: EnrollmentStatus;
   studentId?: string;
@@ -208,7 +225,10 @@ function localCreate(input: EnrollmentCreateInput): EducationEnrollment {
   const course = readStorage<EducationCourse[]>(COURSES_KEY, []).find(
     (item) => item.id === input.courseId && item.workspaceId === currentWorkspaceId,
   );
-  const agentId = input.agentId ?? (course?.simplifiedWorkflow ? course.assignedAgentId ?? undefined : undefined);
+  if (course?.simplifiedWorkflow && input.agentId && input.agentId !== course.assignedAgentId) {
+    throw new EducationEnrollmentApiError('Simplified Course enrollments inherit the Course Agent', 422);
+  }
+  const agentId = course?.simplifiedWorkflow ? course.assignedAgentId ?? undefined : input.agentId;
   if (!agentId) throw new EducationEnrollmentApiError('Select an Education Agent for this enrollment', 422);
   localReferences(input.studentId, input.courseId, input.batchId, agentId, true);
   if (enrollments.some((item) => (
@@ -241,6 +261,49 @@ function localCreate(input: EnrollmentCreateInput): EducationEnrollment {
   enrollments.push(enrollment);
   persistEnrollments(enrollments);
   return enrollment;
+}
+
+function localBulkCreate(input: BulkEnrollmentCreateInput): EducationEnrollment[] {
+  if (!input.assignments.length) {
+    throw new EducationEnrollmentApiError('Select at least one Course and Batch.', 422);
+  }
+  const currentWorkspaceId = workspaceId();
+  const enrollments = storedEnrollments();
+  const keys = new Set<string>();
+  const courses = readStorage<EducationCourse[]>(COURSES_KEY, []);
+  const now = new Date().toISOString();
+  const status = input.status ?? 'pending';
+  const created: EducationEnrollment[] = [];
+
+  // Validate every assignment before persisting any of them, matching the
+  // transactional server endpoint used outside demo mode.
+  for (const assignment of input.assignments) {
+    const key = `${assignment.courseId}:${assignment.batchId}`;
+    if (keys.has(key)) throw new EducationEnrollmentApiError('Course and Batch selections must be unique.', 422);
+    keys.add(key);
+    const course = courses.find((item) => item.id === assignment.courseId && item.workspaceId === currentWorkspaceId);
+    if (!course) throw new EducationEnrollmentApiError('Course not found', 404);
+    const agentId = course.simplifiedWorkflow ? course.assignedAgentId : input.agentId;
+    if (!agentId) throw new EducationEnrollmentApiError('Simplified Course needs an assigned Education Agent before enrollment', 409);
+    if (course.simplifiedWorkflow && agentId !== input.agentId) {
+      throw new EducationEnrollmentApiError('Every simplified Course in a bulk assignment must use the selected Education Agent', 422);
+    }
+    const startsOn = assignment.startsOn ?? null;
+    const endsOn = assignment.endsOn ?? null;
+    validateDateRange(startsOn, endsOn);
+    localReferences(input.studentId, assignment.courseId, assignment.batchId, agentId, true);
+    if (enrollments.some((item) => item.workspaceId === currentWorkspaceId && item.studentId === input.studentId && item.courseId === assignment.courseId && item.batchId === assignment.batchId && item.agentId === agentId)) {
+      throw new EducationEnrollmentApiError('One or more selected Course/Batch assignments already exist for this Student and Education Agent', 409);
+    }
+    created.push({
+      id: `enrollment-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
+      tenantId: 'tenant-demo', workspaceId: currentWorkspaceId, studentId: input.studentId,
+      courseId: assignment.courseId, batchId: assignment.batchId, agentId,
+      startsOn, endsOn, status, createdAt: now, updatedAt: now,
+    });
+  }
+  persistEnrollments([...enrollments, ...created]);
+  return created;
 }
 
 function localUpdate(enrollmentId: string, patch: EnrollmentPatchInput): EducationEnrollment {
@@ -335,6 +398,12 @@ export const educationEnrollmentApi = {
     return withFallback(
       () => remote<EducationEnrollment>('/education/enrollments', 'POST', input),
       async () => localCreate(input),
+    );
+  },
+  bulkCreate(input: BulkEnrollmentCreateInput): Promise<EducationEnrollment[]> {
+    return withFallback(
+      () => remote<EducationEnrollment[]>('/education/enrollments/bulk', 'POST', input),
+      async () => localBulkCreate(input),
     );
   },
   update(enrollmentId: string, patch: EnrollmentPatchInput): Promise<EducationEnrollment> {

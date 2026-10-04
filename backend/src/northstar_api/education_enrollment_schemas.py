@@ -28,6 +28,36 @@ class EnrollmentCreate(APIModel):
         return self
 
 
+class EnrollmentBulkAssignment(APIModel):
+    course_id: UUID
+    batch_id: UUID
+    curriculum_id: UUID | None = None
+    all_papers: bool = True
+    paper_ids: list[UUID] = Field(default_factory=list)
+    starts_on: date | None = None
+    ends_on: date | None = None
+
+    @model_validator(mode="after")
+    def valid_date_range(self) -> EnrollmentBulkAssignment:
+        if self.starts_on and self.ends_on and self.ends_on < self.starts_on:
+            raise ValueError("enrollment end date cannot be before start date")
+        return self
+
+
+class EnrollmentBulkCreate(APIModel):
+    student_id: UUID
+    agent_id: UUID
+    assignments: list[EnrollmentBulkAssignment] = Field(min_length=1, max_length=100)
+    status: EnrollmentStatus = EnrollmentStatus.PENDING
+
+    @model_validator(mode="after")
+    def unique_assignments(self) -> EnrollmentBulkCreate:
+        keys = [(item.course_id, item.batch_id) for item in self.assignments]
+        if len(keys) != len(set(keys)):
+            raise ValueError("bulk enrollment assignments must be unique by Course and Batch")
+        return self
+
+
 class EnrollmentPatch(APIModel):
     course_id: UUID | None = None
     batch_id: UUID | None = None
