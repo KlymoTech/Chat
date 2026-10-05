@@ -101,6 +101,39 @@ def webhook_url(connection: ChannelConnection) -> str:
     return f"{public_base()}{get_settings().app_api_prefix}/webhooks/channels/{connection.tenant_id}/telegram/{connection.public_id}"
 
 
+async def refresh_normal_bot_webhook(
+    connection: ChannelConnection,
+    *,
+    credentials: dict[str, object],
+) -> str:
+    """Move an existing BotFather connection to the active public origin.
+
+    ngrok development origins change between sessions.  Re-registering during
+    an explicit staff health check prevents an otherwise valid Telegram bot
+    from remaining tied to the old tunnel.
+    """
+    token = str(credentials.get("bot_token") or "").strip()
+    secret = str(credentials.get("webhook_secret") or "").strip()
+    if not token or not secret:
+        raise TelegramAPIError("Telegram credentials are not available", requires_reconnect=True)
+    expected = webhook_url(connection)
+    await telegram_client.set_webhook(
+        token,
+        url=expected,
+        secret_token=secret,
+        allowed_updates=["message", "edited_message"],
+    )
+    info = await telegram_client.get_webhook_info(token)
+    if str(info.get("url") or "") != expected or info.get("last_error_message"):
+        raise TelegramAPIError("Telegram did not verify the refreshed webhook", retryable=True)
+    configuration = dict(connection.configuration_json or {})
+    telegram = dict(configuration.get("telegram") or {})
+    telegram["webhookUrl"] = expected
+    configuration["telegram"] = telegram
+    connection.configuration_json = configuration
+    return expected
+
+
 def expired(value: TelegramProvisioning) -> bool:
     return value.expires_at.replace(tzinfo=UTC) <= datetime.now(UTC)
 

@@ -34,4 +34,6 @@
   .education-knowledge-setup { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 520px) { .education-knowledge-setup { grid-template-columns: 1fr; } }
+.education-knowledge-scope-card.is-simplified .education-knowledge-setup,
+.education-knowledge-scope-card.is-simplified .education-knowledge-scope-card__notice { display: none; }
 .education-knowledge-scope-row__pending { padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }

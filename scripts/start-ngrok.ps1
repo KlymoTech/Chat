@@ -125,6 +125,10 @@ try {
         $publicUrl = ([uri]$tunnel.public_url).GetLeftPart([UriPartial]::Authority)
         if ($publicUrl -notmatch '^https://') { throw 'ngrok must provide an HTTPS endpoint.' }
         $values = [ordered]@{
+            # Telegram webhooks use their own public-base setting. Keep it in
+            # lock-step with the freshly created tunnel; otherwise existing
+            # Telegram connections keep registering an obsolete ngrok URL.
+            TELEGRAM_PUBLIC_BASE_URL = $publicUrl
             CRM_OAUTH_PUBLIC_BASE_URL = $publicUrl
             CRM_OAUTH_FRONTEND_ORIGIN = $publicUrl
             APP_CORS_ORIGINS = '["' + $publicUrl + '","http://localhost:3100","http://127.0.0.1:3100"]'

@@ -239,8 +239,10 @@ class CourseIndexEntry(Record, AgentBoundary, Base):
     content_hash: Mapped[str] = mapped_column(String(64))
     block_ids: Mapped[list[str]] = mapped_column(JSON_DOCUMENT)
     source_references: Mapped[list[dict[str, Any]]] = mapped_column(JSON_DOCUMENT)
-    embedding: Mapped[list[float]] = mapped_column(VECTOR)
-    embedding_model: Mapped[str] = mapped_column(String(240))
+    # Course RAG is lexical-only. These nullable fields remain solely so older
+    # indexed records can coexist while new entries do not create vectors.
+    embedding: Mapped[list[float] | None] = mapped_column(VECTOR, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(240), nullable=True)
 
 
 class CourseKnowledgeRelease(Record, AgentBoundary, Base):

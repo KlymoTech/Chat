@@ -20,7 +20,6 @@ from test_education_runtime_authorization import (
     _workspace_headers,
 )
 
-from northstar_api.config import get_settings
 from northstar_api.database import SessionFactory
 from northstar_api.models import Agent, AgentStatus, IngestionJob, KnowledgeSource
 from northstar_api.services.llm import nvidia_adapter
@@ -38,17 +37,9 @@ async def call(client, headers, method, path, body=None, expected=200):
 
 @pytest.fixture
 async def course_setup(client, auth_headers, monkeypatch):
-    async def documents(texts):
-        return [[1.0] + [0.0] * (get_settings().embedding_dimension - 1) for _ in texts]
-
-    async def query(text):
-        return (await documents([text]))[0]
-
     async def generated(**kwargs):
         return SimpleNamespace(content="Paper A approved lesson. [S1]")
 
-    monkeypatch.setattr(nvidia_adapter, "embed_documents", documents)
-    monkeypatch.setattr(nvidia_adapter, "embed_query", query)
     monkeypatch.setattr(nvidia_adapter, "generate_grounded", generated)
     _, headers = await _workspace_headers(client, auth_headers)
     suffix = uuid4().hex[:10]

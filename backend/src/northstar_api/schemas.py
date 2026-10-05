@@ -263,7 +263,10 @@ class AgentOut(APIModel):
 
 class EducationKnowledgeDestination(APIModel):
     course_id: UUID
-    curriculum_id: UUID
+    # Simplified Courses have no paper/curriculum setup.  The course-scoped
+    # training upload supplies only its Course and the server derives the
+    # legacy curriculum where one is needed for compatibility.
+    curriculum_id: UUID | None = None
     paper_id: UUID | None = None
     batch_id: UUID | None = None
     material_type: str = Field(default="notes", min_length=1, max_length=40)

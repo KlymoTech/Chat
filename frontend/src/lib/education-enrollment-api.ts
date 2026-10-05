@@ -12,8 +12,12 @@ export interface EducationEnrollment {
   workspaceId: string;
   studentId: string;
   courseId: string;
+  curriculumId?: string | null;
   batchId: string;
   agentId: string;
+  allPapers?: boolean;
+  paperIds?: string[];
+  authorizationRevision?: number;
   startsOn: string | null;
   endsOn: string | null;
   status: EnrollmentStatus;
@@ -26,6 +30,9 @@ export interface EnrollmentCreateInput {
   courseId: string;
   batchId: string;
   agentId?: string;
+  curriculumId?: string | null;
+  allPapers?: boolean;
+  paperIds?: string[];
   startsOn?: string | null;
   endsOn?: string | null;
   status?: EnrollmentStatus;
@@ -35,6 +42,9 @@ export interface EnrollmentPatchInput {
   courseId?: string;
   batchId?: string;
   agentId?: string;
+  curriculumId?: string | null;
+  allPapers?: boolean;
+  paperIds?: string[];
   startsOn?: string | null;
   endsOn?: string | null;
   status?: EnrollmentStatus;
@@ -100,7 +110,13 @@ function workspaceId(): string {
 }
 
 function storedEnrollments(): EducationEnrollment[] {
-  return readStorage<EducationEnrollment[]>(ENROLLMENTS_KEY, []);
+  return readStorage<Partial<EducationEnrollment>[]>(ENROLLMENTS_KEY, []).map((item) => ({
+    ...item,
+    curriculumId: item.curriculumId ?? null,
+    allPapers: item.allPapers ?? true,
+    paperIds: item.paperIds ?? [],
+    authorizationRevision: item.authorizationRevision ?? 1,
+  } as EducationEnrollment));
 }
 
 function persistEnrollments(enrollments: EducationEnrollment[]): void {
@@ -250,8 +266,12 @@ function localCreate(input: EnrollmentCreateInput): EducationEnrollment {
     workspaceId: currentWorkspaceId,
     studentId: input.studentId,
     courseId: input.courseId,
+    curriculumId: input.curriculumId ?? null,
     batchId: input.batchId,
     agentId,
+    allPapers: input.allPapers ?? true,
+    paperIds: input.paperIds ?? [],
+    authorizationRevision: 1,
     startsOn,
     endsOn,
     status,
@@ -298,7 +318,9 @@ function localBulkCreate(input: BulkEnrollmentCreateInput): EducationEnrollment[
     created.push({
       id: `enrollment-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
       tenantId: 'tenant-demo', workspaceId: currentWorkspaceId, studentId: input.studentId,
-      courseId: assignment.courseId, batchId: assignment.batchId, agentId,
+      courseId: assignment.courseId, curriculumId: assignment.curriculumId ?? null,
+      batchId: assignment.batchId, agentId, allPapers: assignment.allPapers ?? true,
+      paperIds: assignment.paperIds ?? [], authorizationRevision: 1,
       startsOn, endsOn, status, createdAt: now, updatedAt: now,
     });
   }
@@ -335,6 +357,9 @@ function localUpdate(enrollmentId: string, patch: EnrollmentPatchInput): Educati
   const courseId = patch.courseId ?? current.courseId;
   const batchId = patch.batchId ?? current.batchId;
   const agentId = patch.agentId ?? current.agentId;
+  const curriculumId = patch.curriculumId === undefined ? current.curriculumId : patch.curriculumId;
+  const allPapers = patch.allPapers ?? current.allPapers;
+  const paperIds = patch.paperIds ?? current.paperIds;
   const startsOn = patch.startsOn === undefined ? current.startsOn : patch.startsOn;
   const endsOn = patch.endsOn === undefined ? current.endsOn : patch.endsOn;
   validateDateRange(startsOn, endsOn);
@@ -358,11 +383,15 @@ function localUpdate(enrollmentId: string, patch: EnrollmentPatchInput): Educati
     ...current,
     ...patch,
     courseId,
+    curriculumId,
     batchId,
     agentId,
+    allPapers,
+    paperIds,
     startsOn,
     endsOn,
     status: nextStatus,
+    authorizationRevision: (current.authorizationRevision ?? 1) + 1,
     updatedAt: new Date().toISOString(),
   };
   enrollments[index] = updated;
