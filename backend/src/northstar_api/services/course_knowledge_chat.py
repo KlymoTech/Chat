@@ -36,6 +36,12 @@ from northstar_api.services.web_fallback import related_web_evidence, selected_w
 from northstar_api.services.whatsapp_messages import format_whatsapp_reply
 
 
+UNVERIFIED_COURSE_KNOWLEDGE_REPLY = (
+    "I don’t have enough verified information to answer that. "
+    "Please check your course selection or contact your teacher."
+)
+
+
 async def course_history(
     session: AsyncSession, reservation: ReservedChat, boundary: Boundary, context: KnowledgeContext
 ) -> str:
@@ -382,13 +388,13 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                                 if urls:
                                     answer += "\n\nSources: " + " ".join(urls)
                             else:
-                                answer = "No reliable answer was found in the permitted sources."
+                                answer = UNVERIFIED_COURSE_KNOWLEDGE_REPLY
                                 answer_path = "unavailable"
                     else:
                         # Missing approved course evidence must never become a
                         # guessed answer. Keep the active-course boundary for
                         # the learner's next question.
-                        answer = "I don’t have enough verified information to answer that. Please check your course selection or contact your teacher."
+                        answer = UNVERIFIED_COURSE_KNOWLEDGE_REPLY
                         answer_path = "unavailable"
                     if answer_path == "retry":
                         label = ""
@@ -405,9 +411,9 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                             action="education_review_notice", default="This question has been sent for teacher review.",
                             values={"course": context.course_name})
                         answer = f"{label} {review_notice}\n\n{answer}"
-            if channel is Channel.WHATSAPP and not workflow_reply:
+            if channel is Channel.WHATSAPP and not workflow_reply and answer_path != "unavailable":
                 answer = format_whatsapp_reply(agent, answer)
-            if daily_welcome:
+            if daily_welcome and answer_path != "unavailable":
                 answer = f"{daily_welcome}\n\n📚 *Active course: {context.course_name}*\n\n{answer}"
             # A blocked phrase can enter through an approved FAQ, workflow
             # message, retrieved source, or generated web answer too.
@@ -427,6 +433,22 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                 )
             )
             if fallback_reason:
+                # Simplified courses deliberately use the non-UUID sentinel
+                # "simplified" because they have no legacy curriculum/paper.
+                # The academic-review audit supports null legacy IDs; do not
+                # let that sentinel roll back an otherwise safe fallback reply.
+                try:
+                    review_curriculum_id = UUID(context.learner.curriculum_id)
+                except (TypeError, ValueError):
+                    review_curriculum_id = None
+                try:
+                    review_paper_id = (
+                        UUID(context.learner.selected_paper_id)
+                        if context.learner.selected_paper_id
+                        else None
+                    )
+                except (TypeError, ValueError):
+                    review_paper_id = None
                 session.add(
                     CourseAcademicReview(
                         **boundary.values(),
@@ -434,10 +456,8 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                         enrollment_id=stored.enrollment_id,
                         student_id=UUID(context.learner.student_id),
                         course_id=UUID(context.learner.course_id),
-                        curriculum_id=UUID(context.learner.curriculum_id),
-                        paper_id=UUID(context.learner.selected_paper_id)
-                        if context.learner.selected_paper_id
-                        else None,
+                        curriculum_id=review_curriculum_id,
+                        paper_id=review_paper_id,
                         batch_id=UUID(context.learner.batch_id),
                         question=message,
                         answer=answer,

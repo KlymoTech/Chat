@@ -243,6 +243,14 @@ function localUpdateCourse(courseId: string, patch: CoursePatchInput): Education
   return updated;
 }
 
+function localPermanentDeleteCourse(courseId: string): void {
+  const workspaceId = currentWorkspaceId();
+  const exists = localCourses().some((course) => course.id === courseId && course.workspaceId === workspaceId);
+  if (!exists) throw new EducationApiError('Course not found', 404);
+  persistCourses(localCourses().filter((course) => course.id !== courseId || course.workspaceId !== workspaceId));
+  persistBatches(localBatches().filter((batch) => batch.courseId !== courseId || batch.workspaceId !== workspaceId));
+}
+
 function validateBatchDates(startsOn: string | null, endsOn: string | null): void {
   if (startsOn && endsOn && endsOn < startsOn) {
     throw new EducationApiError('Batch end date cannot be before start date', 422);
@@ -373,6 +381,12 @@ export const educationApi = {
       return withFallback(
         () => remote<void>(`/education/courses/${courseId}`, 'DELETE'),
         async () => { localUpdateCourse(courseId, { status: 'archived' }); },
+      );
+    },
+    permanentlyDelete(courseId: string): Promise<void> {
+      return withFallback(
+        () => remote<void>(`/education/courses/${courseId}/permanent`, 'DELETE'),
+        async () => { localPermanentDeleteCourse(courseId); },
       );
     },
   },

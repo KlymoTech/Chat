@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   create: vi.fn<(input: CourseCreateInput) => Promise<EducationCourse>>(),
   update: vi.fn<(courseId: string, patch: CoursePatchInput) => Promise<EducationCourse>>(),
   archive: vi.fn<(courseId: string) => Promise<void>>(),
+  permanentlyDelete: vi.fn<(courseId: string) => Promise<void>>(),
 }));
 
 vi.mock('@/lib/education-api', () => ({
@@ -69,6 +70,9 @@ describe('CoursesPage', () => {
       if (index < 0) throw new Error('Course not found');
       records[index] = { ...records[index]!, status: 'archived', updatedAt: new Date().toISOString() };
     });
+    apiMocks.permanentlyDelete.mockImplementation(async (courseId) => {
+      records = records.filter((course) => course.id !== courseId);
+    });
   });
 
   afterEach(() => {
@@ -88,11 +92,11 @@ describe('CoursesPage', () => {
     await user.type(within(createDialog).getByLabelText('Description'), 'CPA foundation curriculum');
     await user.click(within(createDialog).getByRole('button', { name: 'Create course' }));
 
-    await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith({
+    await waitFor(() => expect(apiMocks.create).toHaveBeenCalledWith(expect.objectContaining({
       code: 'CPA-CORE',
       name: 'CPA Core',
       description: 'CPA foundation curriculum',
-    }));
+    })));
     expect(await screen.findByText('CPA Core')).toBeInTheDocument();
 
     const editButtons = screen.getAllByRole('button', { name: 'Edit' });
@@ -103,11 +107,11 @@ describe('CoursesPage', () => {
     await user.type(nameInput, 'CPA Core Program');
     await user.click(within(editDialog).getByRole('button', { name: 'Save changes' }));
 
-    await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith('course-2', {
+    await waitFor(() => expect(apiMocks.update).toHaveBeenCalledWith('course-2', expect.objectContaining({
       code: 'CPA-CORE',
       name: 'CPA Core Program',
       description: 'CPA foundation curriculum',
-    }));
+    })));
     expect(await screen.findByText('CPA Core Program')).toBeInTheDocument();
   });
 
@@ -138,5 +142,19 @@ describe('CoursesPage', () => {
     await user.clear(screen.getByLabelText('Search courses'));
     await user.type(screen.getByLabelText('Search courses'), 'ACCA');
     expect(screen.queryByText('CMA Part 1')).not.toBeInTheDocument();
+  });
+
+  it('permanently deletes a course only after confirmation', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ToastProvider><CoursesPage /></ToastProvider></MemoryRouter>);
+
+    expect(await screen.findByText('CMA Part 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete course permanently?' });
+    expect(within(dialog).getByText(/student enrollments/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Delete permanently' }));
+
+    await waitFor(() => expect(apiMocks.permanentlyDelete).toHaveBeenCalledWith('course-1'));
+    await waitFor(() => expect(screen.queryByText('CMA Part 1')).not.toBeInTheDocument());
   });
 });
