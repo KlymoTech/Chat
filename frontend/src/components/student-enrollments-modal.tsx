@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Clock3,
   GraduationCap,
+  Layers3,
   PauseCircle,
   Pencil,
   Plus,
@@ -17,6 +18,7 @@ import { educationApi, type EducationBatch, type EducationCourse } from '@/lib/e
 import {
   educationEnrollmentApi,
   type EducationEnrollment,
+  type BulkEnrollmentAssignmentInput,
   type EnrollmentCreateInput,
   type EnrollmentPatchInput,
   type EnrollmentStatus,
@@ -39,6 +41,13 @@ interface EnrollmentFormState {
   startsOn: string;
   endsOn: string;
   status: 'pending' | 'active';
+}
+
+interface BulkAssignmentState {
+  courseId: string;
+  batchId: string;
+  startsOn: string;
+  endsOn: string;
 }
 
 const emptyForm: EnrollmentFormState = {
@@ -86,10 +95,17 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
   const [saving, setSaving] = useState(false);
   const [actingId, setActingId] = useState<string>();
   const [editing, setEditing] = useState<EducationEnrollment | null>(null);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkAgentId, setBulkAgentId] = useState(defaultAgentId ?? '');
+  const [bulkStatus, setBulkStatus] = useState<'pending' | 'active'>('pending');
+  const [bulkAssignments, setBulkAssignments] = useState<BulkAssignmentState[]>([]);
   useEffect(() => {
     if (open) {
       setForm({ ...emptyForm, agentId: defaultAgentId ?? '' });
       setEditing(null);
+      setBulkMode(false);
+      setBulkAgentId(defaultAgentId ?? '');
+      setBulkAssignments([]);
     }
   }, [open, student?.id, defaultAgentId]);
 
@@ -168,6 +184,9 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
     setEditing(null);
     setForm({ ...emptyForm, agentId: defaultAgentId ?? '' });
     setFormError('');
+    setBulkMode(false);
+    setBulkAgentId(defaultAgentId ?? '');
+    setBulkAssignments([]);
   };
 
   const close = () => {
@@ -254,6 +273,51 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
     }
   };
 
+  const toggleBulkCourse = (course: EducationCourse) => {
+    setBulkAssignments((current) => current.some((assignment) => assignment.courseId === course.id)
+      ? current.filter((assignment) => assignment.courseId !== course.id)
+      : [...current, { courseId: course.id, batchId: '', startsOn: '', endsOn: '' }]);
+  };
+
+  const updateBulkAssignment = (courseId: string, patch: Partial<BulkAssignmentState>) => {
+    setBulkAssignments((current) => current.map((assignment) => (
+      assignment.courseId === courseId ? { ...assignment, ...patch } : assignment
+    )));
+  };
+
+  const submitBulkEnrollments = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!student || student.status !== 'active') return;
+    if (!bulkAgentId || !bulkAssignments.length || bulkAssignments.some((assignment) => !assignment.batchId)) {
+      setFormError('Select an Education Agent, at least one Course, and one Batch for every selected Course.');
+      return;
+    }
+    if (bulkAssignments.some((assignment) => assignment.startsOn && assignment.endsOn && assignment.endsOn < assignment.startsOn)) {
+      setFormError('Enrollment end date cannot be before start date.');
+      return;
+    }
+    setSaving(true);
+    setFormError('');
+    try {
+      const assignments: BulkEnrollmentAssignmentInput[] = bulkAssignments.map((assignment) => ({
+        courseId: assignment.courseId,
+        batchId: assignment.batchId,
+        startsOn: assignment.startsOn || null,
+        endsOn: assignment.endsOn || null,
+      }));
+      const created = await educationEnrollmentApi.bulkCreate({
+        studentId: student.id, agentId: bulkAgentId, assignments, status: bulkStatus,
+      });
+      pushToast(`${created.length} enrollment${created.length === 1 ? '' : 's'} created`);
+      resetForm();
+      await load();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Enrollments could not be created.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const updateStatus = async (enrollment: EducationEnrollment, status: EnrollmentStatus, message: string) => {
     if (!student || student.status !== 'active') {
       pushToast('Reactivate the Student before changing enrollment access.', 'error');
@@ -303,20 +367,47 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
         <Badge tone={student.status === 'active' ? 'success' : 'neutral'}>{student.status}</Badge>
       </div>
 
-      {student.status === 'active' ? <form className="enrollment-editor" onSubmit={(event) => void submitEnrollment(event)} noValidate>
+      {student.status === 'active' ? <form className="enrollment-editor" onSubmit={(event) => void (bulkMode ? submitBulkEnrollments(event) : submitEnrollment(event))} noValidate>
         <div className="enrollment-editor__heading">
           <div>
-            <h3>{editing ? 'Edit enrollment assignment' : 'Add enrollment'}</h3>
-            <p>{editing ? 'Assignment changes are available while an Enrollment is pending or suspended.' : 'Create access as pending for review or active when already approved.'}</p>
+            <h3>{bulkMode ? 'Assign multiple courses' : editing ? 'Edit enrollment assignment' : 'Add enrollment'}</h3>
+            <p>{bulkMode ? 'Create selected Course and Batch enrollments together. Simplified Courses must use their assigned Education Agent.' : editing ? 'Assignment changes are available while an Enrollment is pending or suspended.' : 'Create access as pending for review or active when already approved.'}</p>
           </div>
           <div className="enrollment-editor__heading-actions">
+            {!editing ? <Button type="button" variant="secondary" size="sm" icon={Layers3} onClick={() => { setBulkMode((current) => !current); setFormError(''); }} disabled={saving}>{bulkMode ? 'Single enrollment' : 'Assign multiple courses'}</Button> : null}
             {editing ? <Button type="button" variant="ghost" size="sm" onClick={resetForm} disabled={saving}>Cancel edit</Button> : null}
             <Button type="submit" size="sm" icon={editing ? Pencil : Plus} disabled={saving}>
-              {saving ? 'Saving…' : editing ? 'Save enrollment' : 'Add enrollment'}
+              {saving ? 'Saving…' : bulkMode ? 'Create enrollments' : editing ? 'Save enrollment' : 'Add enrollment'}
             </Button>
           </div>
         </div>
-        <div className="enrollment-editor__grid">
+        {bulkMode ? <div className="enrollment-bulk">
+          <Field label="Education Agent" htmlFor="bulk-enrollment-agent" hint="All selected simplified Courses must be assigned to this Agent.">
+            <select id="bulk-enrollment-agent" value={bulkAgentId} onChange={(event) => { setBulkAgentId(event.target.value); setBulkAssignments([]); }}>
+              <option value="">Select Education Agent</option>
+              {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Initial status" htmlFor="bulk-enrollment-status">
+            <select id="bulk-enrollment-status" value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as 'pending' | 'active')}><option value="pending">Pending</option><option value="active">Active</option></select>
+          </Field>
+          <div className="enrollment-bulk__courses">
+            {activeCourses.map((course) => {
+              const selected = bulkAssignments.find((assignment) => assignment.courseId === course.id);
+              const incompatible = course.simplifiedWorkflow && Boolean(bulkAgentId) && course.assignedAgentId !== bulkAgentId;
+              const courseBatches = batches.filter((batch) => batch.status === 'active' && batch.courseId === course.id);
+              return <div className="enrollment-bulk__course" key={course.id}>
+                <label><input type="checkbox" checked={Boolean(selected)} disabled={!bulkAgentId || incompatible} onChange={() => toggleBulkCourse(course)} /> <strong>{course.code} Â· {course.name}</strong>{course.simplifiedWorkflow ? ' (simplified)' : ''}</label>
+                {incompatible ? <small>This Course is assigned to a different Education Agent.</small> : null}
+                {selected ? <div className="enrollment-bulk__details">
+                  <Field label="Batch" htmlFor={`bulk-batch-${course.id}`}><select id={`bulk-batch-${course.id}`} value={selected.batchId} onChange={(event) => { const batch = courseBatches.find((item) => item.id === event.target.value); updateBulkAssignment(course.id, { batchId: event.target.value, startsOn: batch?.startsOn ?? selected.startsOn, endsOn: batch?.endsOn ?? selected.endsOn }); }}><option value="">Select Batch</option>{courseBatches.map((batch) => <option key={batch.id} value={batch.id}>{batch.code} Â· {batch.name}</option>)}</select></Field>
+                  <Field label="Access starts" htmlFor={`bulk-start-${course.id}`}><input id={`bulk-start-${course.id}`} type="date" value={selected.startsOn} onChange={(event) => updateBulkAssignment(course.id, { startsOn: event.target.value })} /></Field>
+                  <Field label="Access ends" htmlFor={`bulk-end-${course.id}`}><input id={`bulk-end-${course.id}`} type="date" value={selected.endsOn} onChange={(event) => updateBulkAssignment(course.id, { endsOn: event.target.value })} /></Field>
+                </div> : null}
+              </div>;
+            })}
+          </div>
+        </div> : <div className="enrollment-editor__grid">
           <Field label="Course" htmlFor="enrollment-course">
             <select id="enrollment-course" value={form.courseId} onChange={(event) => setCourse(event.target.value)}>
               <option value="">Select Course</option>
@@ -347,7 +438,7 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
           <Field label="Access ends" htmlFor="enrollment-end" hint="Optional. Must be on/after the start date.">
             <input id="enrollment-end" type="date" value={form.endsOn} onChange={(event) => setForm((current) => ({ ...current, endsOn: event.target.value }))} />
           </Field>
-        </div>
+        </div>}
         {!activeCourses.length || !educationAgents.length ? <div className="enrollment-prerequisite-note">
           <ShieldCheck />
           <p>{!activeCourses.length ? 'Create an active Course and Batch before enrolling Students. ' : ''}{!educationAgents.length ? 'Create an Agent with Education purpose before assigning enrollment access.' : ''}</p>
