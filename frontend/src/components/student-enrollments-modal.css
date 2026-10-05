@@ -63,42 +63,6 @@
   gap: 14px;
 }
 
-.enrollment-bulk {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(160px, .6fr);
-  gap: 14px;
-}
-
-.enrollment-bulk__courses {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 10px;
-}
-
-.enrollment-bulk__course {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border-color, #e4e7ec);
-  border-radius: 10px;
-}
-
-.enrollment-bulk__course > label {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.enrollment-bulk__course small {
-  color: var(--text-muted, #667085);
-}
-
-.enrollment-bulk__details {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
 .enrollment-prerequisite-note,
 .enrollment-readonly-note,
 .enrollment-empty,
@@ -215,10 +179,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .enrollment-bulk__details {
-    grid-template-columns: 1fr;
-  }
-
   .enrollment-row {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -239,8 +199,6 @@
   }
 
   .enrollment-editor__grid,
-  .enrollment-bulk,
-  .enrollment-bulk__details,
   .enrollment-row__meta {
     grid-template-columns: 1fr;
   }

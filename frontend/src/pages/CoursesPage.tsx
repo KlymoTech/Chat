@@ -280,7 +280,7 @@ export function CoursesPage() {
             placeholder="Course catalog description"
           />
         </Field>
-        <label className="course-simplified-toggle"><input type="checkbox" checked={form.simplifiedWorkflow} onChange={(event) => setForm((current) => ({ ...current, simplifiedWorkflow: event.target.checked, assignedAgentId: event.target.checked ? current.assignedAgentId : '' }))} /> Simplified workflow — assign an Education Agent; no papers</label>
+        <label className="course-simplified-toggle"><input type="checkbox" checked={form.simplifiedWorkflow} onChange={(event) => setForm((current) => ({ ...current, simplifiedWorkflow: event.target.checked, assignedAgentId: event.target.checked ? current.assignedAgentId : '' }))} /> Simplified workflow — assign one Education Agent; no papers</label>
         {form.simplifiedWorkflow ? <>
           <Field label="Assigned Education Agent" htmlFor="course-assigned-agent" hint="Students inherit this Agent through the Course.">
             <select id="course-assigned-agent" value={form.assignedAgentId} onChange={(event) => setForm((current) => ({ ...current, assignedAgentId: event.target.value }))}>

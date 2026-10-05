@@ -14,18 +14,12 @@ from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
-from northstar_api.education_enrollment_schemas import (
-    EnrollmentBulkCreate,
-    EnrollmentCreate,
-    EnrollmentOut,
-    EnrollmentPatch,
-)
+from northstar_api.education_enrollment_schemas import EnrollmentCreate, EnrollmentOut, EnrollmentPatch
 from northstar_api.education_enrollments import EducationEnrollment, EnrollmentStatus
 from northstar_api.education_papers import EducationPaper, PaperStatus
 from northstar_api.education_students import EducationStudent, StudentStatus
 from northstar_api.models import Agent
 from northstar_api.security import Principal
-from northstar_api.services.education_enrollment_runtime import invalidate_enrollment_runtime_state
 from northstar_api.services.outbox import enqueue_event
 
 router = APIRouter(prefix="/education/enrollments", tags=["education"])
@@ -387,95 +381,6 @@ async def create_enrollment(
     return _enrollment_out(enrollment)
 
 
-@router.post("/bulk", response_model=list[EnrollmentOut], status_code=201)
-async def create_bulk_enrollments(
-    payload: EnrollmentBulkCreate,
-    principal: EducationManagePrincipal,
-    session: DB,
-) -> list[EnrollmentOut]:
-    """Atomically enroll one student in several Course/Batch assignments."""
-    workspace_id = _workspace_id(principal)
-    created: list[EducationEnrollment] = []
-    for assignment in payload.assignments:
-        course = await session.scalar(
-            select(EducationCourse).where(
-                EducationCourse.id == assignment.course_id,
-                EducationCourse.tenant_id == principal.tenant_id,
-                EducationCourse.workspace_id == workspace_id,
-            )
-        )
-        if course is None:
-            raise HTTPException(status_code=404, detail="Course not found")
-        agent_id = payload.agent_id
-        if course.simplified_workflow:
-            if course.assigned_agent_id is None:
-                raise HTTPException(status_code=409, detail="Simplified Course needs an assigned Education Agent before enrollment")
-            if course.assigned_agent_id != payload.agent_id:
-                raise HTTPException(status_code=422, detail="Every simplified Course in a bulk assignment must use the selected Education Agent")
-            agent_id = course.assigned_agent_id
-        _, _, batch, _ = await _validate_assignment(
-            session,
-            tenant_id=principal.tenant_id,
-            workspace_id=workspace_id,
-            student_id=payload.student_id,
-            course_id=assignment.course_id,
-            batch_id=assignment.batch_id,
-            agent_id=agent_id,
-            require_active_domain=True,
-        )
-        curriculum_id = None if course.simplified_workflow else await _validate_paper_access(
-            session,
-            tenant_id=principal.tenant_id,
-            workspace_id=workspace_id,
-            course_id=assignment.course_id,
-            batch=batch,
-            curriculum_id=assignment.curriculum_id,
-            all_papers=assignment.all_papers,
-            paper_ids=assignment.paper_ids,
-        )
-        created.append(EducationEnrollment(
-            tenant_id=principal.tenant_id,
-            workspace_id=workspace_id,
-            student_id=payload.student_id,
-            course_id=assignment.course_id,
-            curriculum_id=curriculum_id,
-            batch_id=assignment.batch_id,
-            agent_id=agent_id,
-            all_papers=True if course.simplified_workflow else assignment.all_papers,
-            paper_ids=[] if course.simplified_workflow else [str(item) for item in assignment.paper_ids],
-            starts_on=assignment.starts_on,
-            ends_on=assignment.ends_on,
-            status=payload.status.value,
-        ))
-    session.add_all(created)
-    try:
-        await session.flush()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="One or more selected Course/Batch assignments already exist for this Student and Education Agent",
-        ) from None
-    for enrollment in created:
-        enqueue_event(
-            session,
-            tenant_id=principal.tenant_id,
-            aggregate_type="education_enrollment",
-            aggregate_id=enrollment.id,
-            event_type="education.enrollment.created.v1",
-            payload={
-                "enrollmentId": str(enrollment.id), "workspaceId": str(workspace_id),
-                "studentId": str(enrollment.student_id), "courseId": str(enrollment.course_id),
-                "batchId": str(enrollment.batch_id), "agentId": str(enrollment.agent_id),
-                "status": enrollment.status, "bulk": True,
-            },
-        )
-    await session.commit()
-    for enrollment in created:
-        await session.refresh(enrollment)
-    return [_enrollment_out(enrollment) for enrollment in created]
-
-
 @router.get("/{enrollment_id}", response_model=EnrollmentOut)
 async def get_enrollment(
     enrollment_id: UUID,
@@ -620,13 +525,6 @@ async def update_enrollment(
         return _enrollment_out(enrollment)
 
     enrollment.authorization_revision += 1
-    await invalidate_enrollment_runtime_state(
-        session,
-        tenant_id=principal.tenant_id,
-        workspace_id=workspace_id,
-        student_id=enrollment.student_id,
-        enrollment_id=enrollment.id,
-    )
 
     status_changed = enrollment.status != current_status.value
     event_type = (
@@ -686,14 +584,6 @@ async def revoke_enrollment(
         raise HTTPException(status_code=409, detail="Graduated Enrollment history cannot be revoked")
     if current_status is not EnrollmentStatus.REVOKED:
         enrollment.status = EnrollmentStatus.REVOKED.value
-        enrollment.authorization_revision += 1
-        await invalidate_enrollment_runtime_state(
-            session,
-            tenant_id=principal.tenant_id,
-            workspace_id=workspace_id,
-            student_id=enrollment.student_id,
-            enrollment_id=enrollment.id,
-        )
         enqueue_event(
             session,
             tenant_id=principal.tenant_id,
