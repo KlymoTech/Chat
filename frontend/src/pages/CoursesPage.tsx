@@ -1,4 +1,4 @@
-import { Archive, BookOpen, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Archive, BookOpen, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useToast } from '@/components/providers';
@@ -42,6 +42,8 @@ export function CoursesPage() {
   const [saving, setSaving] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<EducationCourse | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EducationCourse | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [reactivating, setReactivating] = useState<string>();
 
   const records = useMemo(() => {
@@ -149,6 +151,22 @@ export function CoursesPage() {
     }
   };
 
+  const permanentlyDeleteCourse = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await educationApi.courses.permanentlyDelete(deleteTarget.id);
+      pushToast(`${deleteTarget.name} deleted permanently`);
+      setDeleteTarget(null);
+      if (editing?.id === deleteTarget.id) closeEditor();
+      courses.reload();
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Course could not be deleted', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (courses.loading && !courses.data) return <PageLoader />;
   if (courses.error) {
     return <div className="page courses-page"><Card><EmptyState
@@ -215,6 +233,7 @@ export function CoursesPage() {
           <td><time dateTime={course.updatedAt}>{relativeTime(course.updatedAt)}</time></td>
           <td><div className="course-actions">
             <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEdit(course)}>Edit</Button>
+            <Button variant="danger" size="sm" icon={Trash2} onClick={() => setDeleteTarget(course)}>Delete</Button>
             {course.status === 'active'
               ? <Button variant="ghost" size="sm" icon={Archive} onClick={() => setArchiveTarget(course)}>Archive</Button>
               : <Button
@@ -280,7 +299,7 @@ export function CoursesPage() {
             placeholder="Course catalog description"
           />
         </Field>
-        <label className="course-simplified-toggle"><input type="checkbox" checked={form.simplifiedWorkflow} onChange={(event) => setForm((current) => ({ ...current, simplifiedWorkflow: event.target.checked, assignedAgentId: event.target.checked ? current.assignedAgentId : '' }))} /> Simplified workflow — assign an Education Agent; no papers</label>
+        <label className="course-simplified-toggle"><input type="checkbox" checked={form.simplifiedWorkflow} onChange={(event) => setForm((current) => ({ ...current, simplifiedWorkflow: event.target.checked, assignedAgentId: event.target.checked ? current.assignedAgentId : '' }))} /> Choose your Agent and bot</label>
         {form.simplifiedWorkflow ? <>
           <Field label="Assigned Education Agent" htmlFor="course-assigned-agent" hint="Students inherit this Agent through the Course.">
             <select id="course-assigned-agent" value={form.assignedAgentId} onChange={(event) => setForm((current) => ({ ...current, assignedAgentId: event.target.value }))}>
@@ -288,13 +307,13 @@ export function CoursesPage() {
               {(agents.data ?? []).filter((agent) => agent.purpose === 'education' && ['active', 'draft'].includes(agent.status)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.status === 'draft' ? ' (draft — activate after enrollment)' : ''}</option>)}
             </select>
           </Field>
-          <Field label="Allowed shared Telegram / WhatsApp connections" htmlFor="course-channel-connections" hint="Select every connection that enrolled students may use for this Course.">
-            <div id="course-channel-connections" className="course-channel-options" role="group" aria-label="Allowed shared Telegram and WhatsApp connections">
+          <Field label="Allowed shared bot connections" htmlFor="course-channel-connections" hint="Select every connection that enrolled students may use for this Course.">
+            <div id="course-channel-connections" className="course-channel-options" role="group" aria-label="Allowed shared bot connections">
               {(connections.data ?? []).filter((connection: ChannelConnectionView) => ['telegram', 'whatsapp'].includes(connection.provider) && connection.status !== 'disabled').map((connection: ChannelConnectionView) => {
                 const selected = form.allowedChannelConnectionIds.includes(connection.id);
                 return <label key={connection.id} className="course-channel-option"><input type="checkbox" checked={selected} onChange={() => setForm((current) => ({ ...current, allowedChannelConnectionIds: selected ? current.allowedChannelConnectionIds.filter((id) => id !== connection.id) : [...current.allowedChannelConnectionIds, connection.id] }))} /> {connection.name} ({connection.provider})</label>;
               })}
-              {!connections.loading && !(connections.data ?? []).some((connection: ChannelConnectionView) => ['telegram', 'whatsapp'].includes(connection.provider) && connection.status !== 'disabled') ? <p className="course-channel-options__empty">No active Telegram or WhatsApp connections are available.</p> : null}
+              {!connections.loading && !(connections.data ?? []).some((connection: ChannelConnectionView) => ['telegram', 'whatsapp'].includes(connection.provider) && connection.status !== 'disabled') ? <p className="course-channel-options__empty">No active bot connections are available.</p> : null}
             </div>
           </Field>
         </> : null}
@@ -315,6 +334,22 @@ export function CoursesPage() {
       </>}
     >
       <p className="course-archive-copy">{archiveTarget ? <><strong>{archiveTarget.code}</strong> · {archiveTarget.name}</> : null}</p>
+    </Modal>
+
+    <Modal
+      open={Boolean(deleteTarget)}
+      onClose={() => { if (!deleting) setDeleteTarget(null); }}
+      title="Delete course permanently?"
+      description="This cannot be undone. The course, its batches, student enrollments, and course-specific access records will be removed."
+      size="sm"
+      closeDisabled={deleting}
+      footer={<>
+        <Button variant="secondary" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancel</Button>
+        <Button variant="danger" disabled={deleting} onClick={() => void permanentlyDeleteCourse()}>{deleting ? 'Deleting…' : 'Delete permanently'}</Button>
+      </>}
+    >
+      <p className="course-archive-copy">{deleteTarget ? <><strong>{deleteTarget.code}</strong> · {deleteTarget.name}</> : null}</p>
+      <p className="course-archive-copy">Students, Agents, shared training documents, and other courses will not be deleted.</p>
     </Modal>
   </div>;
 }

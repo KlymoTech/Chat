@@ -173,6 +173,34 @@ describe('Course mapping waits for completed training', () => {
   });
 });
 
+describe('Automatic Course document assignments', () => {
+  beforeEach(() => {
+    mocks.courses.mockResolvedValue([{ ...courses[0]!, simplifiedWorkflow: true, assignedAgentId: 'agent-education' }]);
+    mocks.batches.mockResolvedValue(batches);
+    mocks.sourceScopes.mockResolvedValue([{
+      id: 'automatic-scope', sourceId: source.id, factId: null, agentId: source.agentId,
+      workspaceId: 'workspace-1', courseId: 'course-cpa', paperId: null, batchId: null,
+      materialType: 'notes', requiresRelease: false, approvalStatus: 'published', createdAt: '', updatedAt: '',
+    }]);
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it('does not expose manual mapping controls and uses the Course-ready label', async () => {
+    render(
+      <ToastProvider>
+        <EducationKnowledgeScopeManager
+          agentId="agent-education"
+          sources={[source, { ...source, id: 'source-review', name: 'draft.pdf', status: 'needs_review' }]}
+        />
+      </ToastProvider>,
+    );
+
+    expect((await screen.findAllByText('Ready for this Course')).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Map after training/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage mappings' })).not.toBeInTheDocument();
+  });
+});
+
 describe('Course mappings without a curriculum step', () => {
   beforeEach(() => {
     mocks.courses.mockResolvedValue(courses);

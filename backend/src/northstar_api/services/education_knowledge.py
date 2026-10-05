@@ -216,6 +216,26 @@ async def replace_source_scopes(
     source_id: UUID,
     pairs: Sequence[EducationKnowledgeScopeRef],
 ) -> list[EducationKnowledgeScopeOut]:
+    existing_simplified_scope = await session.scalar(
+        select(EducationKnowledgeScope.id)
+        .join(EducationCourse, EducationCourse.id == EducationKnowledgeScope.course_id)
+        .where(
+            EducationKnowledgeScope.tenant_id == tenant_id,
+            EducationKnowledgeScope.workspace_id == workspace_id,
+            EducationKnowledgeScope.agent_id == agent_id,
+            EducationKnowledgeScope.source_id == source_id,
+            EducationCourse.simplified_workflow.is_(True),
+        )
+        .limit(1)
+    )
+    if existing_simplified_scope is not None:
+        # Simplified documents are assigned once at upload. This also blocks
+        # an empty replacement request, which would otherwise clear the
+        # automatic Course boundary without a visible manual-mapping action.
+        raise HTTPException(
+            status_code=409,
+            detail="Course documents are assigned during upload and cannot be manually remapped",
+        )
     normalized = await validate_scope_pairs(
         session,
         tenant_id=tenant_id,
@@ -236,7 +256,7 @@ async def replace_source_scopes(
         # diverge from the Course-isolated retrieval boundary.
         raise HTTPException(
             status_code=409,
-            detail="Simplified Course documents are assigned during upload and cannot be manually remapped",
+            detail="Course documents are assigned during upload and cannot be manually remapped",
         )
     await session.execute(
         delete(EducationKnowledgeScope).where(

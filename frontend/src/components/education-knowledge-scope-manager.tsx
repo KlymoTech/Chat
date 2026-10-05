@@ -75,7 +75,7 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
     } finally { setPublishingId(''); }
   };
   const scopeAction = (scope: EducationKnowledgeScope) => {
-    if (!scope.requiresRelease && scope.approvalStatus === 'published') return <span className="education-knowledge-scope-row__ready"><Check /> Ready for this simplified Course</span>;
+    if (!scope.requiresRelease && scope.approvalStatus === 'published') return <span className="education-knowledge-scope-row__ready"><Check /> Ready for this Course</span>;
     if (scope.approvalStatus === 'published') return <span className="education-knowledge-scope-row__ready"><Check /> Legacy mapping published · finish tutor release</span>;
     if (scope.approvalStatus === 'withdrawn') return <span className="education-knowledge-scope-row__pending">Withdrawn</span>;
     const label = scope.approvalStatus === 'approved' ? 'Publish to students' : 'Review & publish';
@@ -96,8 +96,8 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
         const bindings = scopes.data?.[source.id] ?? [];
         // Only trained material can be mapped to courses; mapping earlier would point students at nothing.
         const trained = source.status === 'ready';
-        return <div className="education-knowledge-scope-row" key={source.id}><div className="education-knowledge-scope-row__source"><strong>{source.name}</strong><small>{source.kind} · {source.chunks} chunks{trained ? ' · training complete' : ''}</small></div><div className="education-knowledge-scope-row__bindings">{bindings.length ? bindings.map((scope) => <div className="education-knowledge-scope-row__binding" key={scope.id}><Badge tone={scope.approvalStatus === 'published' ? 'success' : scope.approvalStatus === 'withdrawn' ? 'danger' : 'purple'}>{scopeLabel(scope)} · {scope.approvalStatus ?? 'draft'}</Badge>{scopeAction(scope)}</div>) : <Badge tone="warning">Unassigned · blocked</Badge>}</div>{trained && !hasSimplifiedCourse ? <Button variant="secondary" size="sm" onClick={() => openScope(source)}>Manage mappings</Button>
-          : <span className="education-knowledge-scope-row__pending" title="Courses can only use material whose training is complete">{source.status === 'needs_review' ? 'Map after training: finish the extraction review' : source.status === 'failed' ? 'Training failed: retrain before mapping' : 'Map after training completes'}</span>}</div>;
+        return <div className="education-knowledge-scope-row" key={source.id}><div className="education-knowledge-scope-row__source"><strong>{source.name}</strong><small>{source.kind} · {source.chunks} chunks{trained ? ' · training complete' : ''}</small></div><div className="education-knowledge-scope-row__bindings">{bindings.length ? bindings.map((scope) => <div className="education-knowledge-scope-row__binding" key={scope.id}><Badge tone={scope.approvalStatus === 'published' ? 'success' : scope.approvalStatus === 'withdrawn' ? 'danger' : 'purple'}>{scopeLabel(scope)} · {scope.approvalStatus ?? 'draft'}</Badge>{scopeAction(scope)}</div>) : <Badge tone="warning">Unassigned · blocked</Badge>}</div>{!hasSimplifiedCourse ? trained ? <Button variant="secondary" size="sm" onClick={() => openScope(source)}>Manage mappings</Button>
+          : <span className="education-knowledge-scope-row__pending" title="Courses can only use material whose training is complete">{source.status === 'needs_review' ? 'Map after training: finish the extraction review' : source.status === 'failed' ? 'Training failed: retrain before mapping' : 'Map after training completes'}</span> : null}</div>;
       })}</div> : <EmptyState icon={BookOpen} title="No knowledge to map" description="Add a source with its intended Education destination before publishing." />}
     </Card>
 

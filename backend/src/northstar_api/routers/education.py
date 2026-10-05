@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -355,4 +355,159 @@ async def archive_course(
             },
         )
         await session.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/{course_id}/permanent", status_code=204)
+async def permanently_delete_course(
+    course_id: UUID,
+    principal: EducationManagePrincipal,
+    session: DB,
+) -> Response:
+    """Permanently remove a Course and its course-owned access records."""
+    workspace_id = _workspace_id(principal)
+    course = await _scoped_course(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        course_id=course_id,
+    )
+
+    # These tables use restrictive foreign keys so regular enrollment changes
+    # never erase history. A confirmed Course deletion removes this Course's
+    # dependent authorization data first, while retaining shared resources.
+    from northstar_api.course_knowledge_models import (
+        CourseAcademicReview,
+        CourseBatchCurriculum,
+        CourseFaqEntry,
+        CourseKnowledgeRelease,
+        CourseMaterialAssignment,
+        CourseReleaseHead,
+        CourseWhatsappTurn,
+    )
+    from northstar_api.education_conversation_context import EducationConversationContext
+    from northstar_api.education_enrollment_events import EducationEnrollmentEvent
+    from northstar_api.education_enrollments import EducationEnrollment
+    from northstar_api.education_knowledge_lifecycle import EducationKnowledgeRelease
+    from northstar_api.education_knowledge_scope import EducationKnowledgeScope
+    from northstar_api.education_student_activity import EducationStudentActivityEvent
+    from northstar_api.education_tutor import EducationAcademicReview
+
+    enrollment_ids = select(EducationEnrollment.id).where(
+        EducationEnrollment.tenant_id == principal.tenant_id,
+        EducationEnrollment.workspace_id == workspace_id,
+        EducationEnrollment.course_id == course.id,
+    )
+    batch_ids = select(EducationBatch.id).where(
+        EducationBatch.tenant_id == principal.tenant_id,
+        EducationBatch.workspace_id == workspace_id,
+        EducationBatch.course_id == course.id,
+    )
+
+    try:
+        await session.execute(delete(EducationConversationContext).where(
+            EducationConversationContext.tenant_id == principal.tenant_id,
+            EducationConversationContext.workspace_id == workspace_id,
+            EducationConversationContext.course_id == course.id,
+        ))
+        await session.execute(delete(EducationStudentActivityEvent).where(
+            EducationStudentActivityEvent.tenant_id == principal.tenant_id,
+            EducationStudentActivityEvent.workspace_id == workspace_id,
+            EducationStudentActivityEvent.course_id == course.id,
+        ))
+        await session.execute(delete(EducationEnrollmentEvent).where(
+            EducationEnrollmentEvent.tenant_id == principal.tenant_id,
+            EducationEnrollmentEvent.workspace_id == workspace_id,
+            EducationEnrollmentEvent.enrollment_id.in_(enrollment_ids),
+        ))
+
+        await session.execute(delete(CourseWhatsappTurn).where(
+            CourseWhatsappTurn.tenant_id == principal.tenant_id,
+            CourseWhatsappTurn.workspace_id == workspace_id,
+            CourseWhatsappTurn.course_id == course.id,
+        ))
+        await session.execute(delete(CourseFaqEntry).where(
+            CourseFaqEntry.tenant_id == principal.tenant_id,
+            CourseFaqEntry.workspace_id == workspace_id,
+            CourseFaqEntry.course_id == course.id,
+        ))
+        await session.execute(delete(CourseAcademicReview).where(
+            CourseAcademicReview.tenant_id == principal.tenant_id,
+            CourseAcademicReview.workspace_id == workspace_id,
+            CourseAcademicReview.course_id == course.id,
+        ))
+        await session.execute(delete(CourseReleaseHead).where(
+            CourseReleaseHead.tenant_id == principal.tenant_id,
+            CourseReleaseHead.workspace_id == workspace_id,
+            CourseReleaseHead.course_id == course.id,
+        ))
+        await session.execute(delete(CourseKnowledgeRelease).where(
+            CourseKnowledgeRelease.tenant_id == principal.tenant_id,
+            CourseKnowledgeRelease.workspace_id == workspace_id,
+            CourseKnowledgeRelease.course_id == course.id,
+        ))
+        await session.execute(delete(CourseMaterialAssignment).where(
+            CourseMaterialAssignment.tenant_id == principal.tenant_id,
+            CourseMaterialAssignment.workspace_id == workspace_id,
+            CourseMaterialAssignment.course_id == course.id,
+        ))
+        await session.execute(delete(CourseBatchCurriculum).where(
+            CourseBatchCurriculum.tenant_id == principal.tenant_id,
+            CourseBatchCurriculum.workspace_id == workspace_id,
+            CourseBatchCurriculum.batch_id.in_(batch_ids),
+        ))
+        await session.execute(delete(EducationAcademicReview).where(
+            EducationAcademicReview.tenant_id == principal.tenant_id,
+            EducationAcademicReview.workspace_id == workspace_id,
+            EducationAcademicReview.course_id == course.id,
+        ))
+        await session.execute(delete(EducationKnowledgeRelease).where(
+            EducationKnowledgeRelease.tenant_id == principal.tenant_id,
+            EducationKnowledgeRelease.workspace_id == workspace_id,
+            EducationKnowledgeRelease.course_id == course.id,
+        ))
+        await session.execute(delete(EducationKnowledgeScope).where(
+            EducationKnowledgeScope.tenant_id == principal.tenant_id,
+            EducationKnowledgeScope.workspace_id == workspace_id,
+            EducationKnowledgeScope.course_id == course.id,
+        ))
+
+        enrollment_delete = await session.execute(delete(EducationEnrollment).where(
+            EducationEnrollment.tenant_id == principal.tenant_id,
+            EducationEnrollment.workspace_id == workspace_id,
+            EducationEnrollment.course_id == course.id,
+        ))
+        batch_delete = await session.execute(delete(EducationBatch).where(
+            EducationBatch.tenant_id == principal.tenant_id,
+            EducationBatch.workspace_id == workspace_id,
+            EducationBatch.course_id == course.id,
+        ))
+
+        course_code, course_name = course.code, course.name
+        await session.delete(course)
+        enqueue_event(
+            session,
+            tenant_id=principal.tenant_id,
+            aggregate_type="education_course",
+            aggregate_id=course_id,
+            event_type="education.course.deleted.v1",
+            payload={
+                "courseId": str(course_id),
+                "workspaceId": str(workspace_id),
+                "code": course_code,
+                "name": course_name,
+                "deletedEnrollmentCount": enrollment_delete.rowcount or 0,
+                "deletedBatchCount": batch_delete.rowcount or 0,
+            },
+        )
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Course could not be deleted because protected related records remain",
+        ) from None
+    except Exception:
+        await session.rollback()
+        raise
     return Response(status_code=204)
