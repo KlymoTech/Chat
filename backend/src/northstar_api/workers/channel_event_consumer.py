@@ -645,6 +645,23 @@ async def _process_event(session: AsyncSession, event: EventEnvelope) -> None:
                 gateway_agent=agent, connection_id=connection.id, identity=identity,
                 message=canonical.message.text if canonical.message else None,
             )
+            if shared is not None and shared.notice:
+                # Greetings and course selections have already persisted their
+                # state in the resolver.  Do not pass those control turns to
+                # the tutor or retrieval pipeline.
+                conversation = await _get_or_create_conversation(
+                    session, event=canonical, agent=shared.target_agent or agent
+                )
+                if canonical.provider is ChannelProvider.TELEGRAM:
+                    await _queue_telegram_notice(
+                        session, connection=connection, event=canonical,
+                        conversation=conversation, notice=shared.notice,
+                    )
+                else:
+                    await _persist_message(session, event=canonical, conversation=conversation)
+                raw.processing_status, raw.processed_at, raw.attempt_count = "processed", datetime.now(UTC), raw.attempt_count + 1
+                await session.commit()
+                return
             if shared is not None and shared.target_agent is not None:
                 await _process_education_message(
                     session, raw=raw, connection=connection, canonical=canonical,
