@@ -385,10 +385,10 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                                 answer = "No reliable answer was found in the permitted sources."
                                 answer_path = "unavailable"
                     else:
-                        answer = await education_workflow_message(session, **boundary.values(),
-                            action="education_missing_material",
-                            default="Your institute has not published sufficient authorized material for this question. Please ask your teacher.",
-                            values={"course": context.course_name})
+                        # Missing approved course evidence must never become a
+                        # guessed answer. Keep the active-course boundary for
+                        # the learner's next question.
+                        answer = "I don’t have enough verified information to answer that. Please check your course selection or contact your teacher."
                         answer_path = "unavailable"
                     if answer_path == "retry":
                         label = ""
@@ -399,14 +399,12 @@ class CourseKnowledgeChatCoordinator(ChatCoordinator):
                             default=f"{context.course_name}: external web information, not verified against your published course material.",
                             values={"course": context.course_name})
                     else:
-                        label = f"{context.course_name}: no approved course answer was found."
-                    if answer_path != "retry":
+                        label = ""
+                    if answer_path not in {"retry", "unavailable"}:
                         review_notice = await education_workflow_message(session, **boundary.values(),
                             action="education_review_notice", default="This question has been sent for teacher review.",
                             values={"course": context.course_name})
                         answer = f"{label} {review_notice}\n\n{answer}"
-                    if channel is Channel.TELEGRAM and answer_path == "unavailable":
-                        answer += "\n\nSend switch course anytime to see this menu again."
             if channel is Channel.WHATSAPP and not workflow_reply:
                 answer = format_whatsapp_reply(agent, answer)
             if daily_welcome:

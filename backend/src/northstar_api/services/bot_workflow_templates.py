@@ -103,7 +103,7 @@ def enrolled_student_tutor() -> BotWorkflowSave:
                 trigger_type="command",
                 trigger_value="switch course",
                 message_format="text",
-                message="*Switch your course*\n\n{{courses}}\n\nReply with the number for the course you want to study.",
+                message="{{courses}}\n\nReply with a number or course name.",
                 config={
                     "systemAction": "education_course_menu",
                     "dynamicSource": "verified_active_enrollments",
@@ -145,7 +145,7 @@ def enrolled_student_tutor() -> BotWorkflowSave:
                 message_format="text", message="Your course access is not active for this WhatsApp number. Please contact your institute to verify your number and enrollment.",
                 config={"systemAction": "education_access_denied"}, position_x=915, position_y=390),
             _step(id="edu_missing_material", name="No approved course answer", trigger_type="event", trigger_value="",
-                message_format="text", message="Your institute has not published sufficient authorized material for this question. Please ask your teacher.",
+                message_format="text", message="I don’t have enough verified information to answer that. Please check your course selection or contact your teacher.",
                 config={"systemAction": "education_missing_material"}, position_x=36, position_y=560),
             _step(id="edu_web_label", name="External web answer label", trigger_type="event", trigger_value="",
                 message_format="text", message="{{course}}: external web information, not verified against your published course material.",

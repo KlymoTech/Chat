@@ -13,6 +13,7 @@ from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.education import CourseStatus, EducationCourse
 from northstar_api.education_batches import BatchStatus, EducationBatch
 from northstar_api.education_enrollments import EducationEnrollment, EnrollmentStatus
+from northstar_api.education_students import EducationStudent
 from northstar_api.education_student_identities import StudentIdentityType
 from northstar_api.education_tutor import EducationTutorContext
 from northstar_api.lead_crm.channels import CanonicalInboundEvent
@@ -92,6 +93,15 @@ class SharedEducationRoute:
     """
     decision: EducationAccessDecision
     target_agent: Agent | None
+    # Control turns never enter the tutoring/retrieval path.
+    notice: str | None = None
+
+
+_CHAT_START_MESSAGES = {"/start", "start"}
+_GREETING_MESSAGES = {
+    "hi", "hello", "hey", "hiya", "good morning", "good afternoon", "good evening",
+}
+_COURSE_MENU_MESSAGES = {"courses", "switch course", "switch courses"}
 
 
 def identity_candidate_for_event(
@@ -473,11 +483,64 @@ async def authorize_shared_simplified_access(
         session.add(context)
         await session.flush()
     normalized = " ".join((message or "").casefold().split())
+    student = await session.get(EducationStudent, student_identity.student_id)
+
+    async def target_for(enrollment: EducationEnrollment) -> Agent | None:
+        return await session.scalar(select(Agent).where(
+            Agent.id == course_by_id[enrollment.course_id].assigned_agent_id,
+            Agent.tenant_id == tenant_id, Agent.workspace_id == workspace_id,
+            Agent.status == AgentStatus.ACTIVE, Agent.deleted_at.is_(None),
+        ))
+
+    # A first /start is only a welcome control turn, never a retrieval query.
+    if normalized in _CHAT_START_MESSAGES:
+        target = await target_for(valid[0])
+        if target is not None:
+            return SharedEducationRoute(
+                _decision(authorized=True, reason=EducationAccessReason.AUTHORIZED,
+                          agent=target, identity_id=student_identity.id,
+                          student_id=student_identity.student_id, enrollment=valid[0]),
+                target,
+                f"Welcome, {student.name if student else 'there'}! I am your learning assistant. How may I help you?",
+            )
+
+    # Greetings do not clear an existing course choice.  One-course students
+    # can continue immediately; multi-course students are shown how to reopen
+    # the explicit course menu.
+    if normalized in _GREETING_MESSAGES:
+        if len(valid) == 1:
+            selected = valid[0]
+            target = await target_for(selected)
+            if target is not None:
+                context.active_enrollment_id = selected.id
+                context.pending_enrollment_ids = []
+                context.interaction_state = "ready_for_question"
+                context.selected_at = datetime.now(UTC)
+                await session.flush()
+                return SharedEducationRoute(
+                    _decision(authorized=True, reason=EducationAccessReason.AUTHORIZED,
+                              agent=target, identity_id=student_identity.id,
+                              student_id=student_identity.student_id, enrollment=selected),
+                    target,
+                    "Welcome back!",
+                )
+        target = await target_for(valid[0])
+        if target is not None:
+            return SharedEducationRoute(
+                _decision(authorized=True, reason=EducationAccessReason.AUTHORIZED,
+                          agent=target, identity_id=student_identity.id,
+                          student_id=student_identity.student_id, enrollment=valid[0]),
+                target,
+                "Welcome back! To access your course, type switch course.",
+            )
+
     selected: EducationEnrollment | None = None
+    selected_from_menu = False
     if normalized.isdigit() and context.pending_enrollment_ids:
         index = int(normalized) - 1
         if 0 <= index < len(context.pending_enrollment_ids):
             selected = next((row for row in valid if str(row.id) == context.pending_enrollment_ids[index]), None)
+            selected_from_menu = selected is not None
     if selected is None and context.pending_enrollment_ids and normalized:
         # The menu explicitly permits a course name, so resolve an exact
         # normalized course name/code as well as its displayed number.
@@ -488,10 +551,11 @@ async def authorize_shared_simplified_access(
         ]
         if len(named) == 1:
             selected = named[0]
-    if normalized in {"courses", "switch course", "switch courses", "hi", "hello", "hey"}:
+            selected_from_menu = True
+    if normalized in _COURSE_MENU_MESSAGES:
         selected = None
         context.active_enrollment_id = None
-    if selected is None and context.active_enrollment_id is not None and normalized not in {"courses", "switch course", "switch courses"}:
+    if selected is None and context.active_enrollment_id is not None and normalized not in _COURSE_MENU_MESSAGES:
         selected = next((row for row in valid if row.id == context.active_enrollment_id), None)
     if selected is None and len(valid) == 1:
         selected = valid[0]
@@ -501,10 +565,7 @@ async def authorize_shared_simplified_access(
         context.pending_question = message if normalized not in {"courses", "switch course", "switch courses", "hi", "hello", "hey"} else None
         await session.flush()
         return SharedEducationRoute(_decision(authorized=False, reason=EducationAccessReason.ENROLLMENT_AMBIGUOUS, agent=gateway_agent, identity_id=student_identity.id, student_id=student_identity.student_id), None)
-    target = await session.scalar(select(Agent).where(
-        Agent.id == course_by_id[selected.course_id].assigned_agent_id, Agent.tenant_id == tenant_id,
-        Agent.workspace_id == workspace_id, Agent.status == AgentStatus.ACTIVE, Agent.deleted_at.is_(None),
-    ))
+    target = await target_for(selected)
     if target is None:
         return SharedEducationRoute(_decision(authorized=False, reason=EducationAccessReason.AGENT_INACTIVE, agent=gateway_agent, identity_id=student_identity.id, student_id=student_identity.student_id, enrollment=selected), None)
     context.active_enrollment_id = selected.id
@@ -512,7 +573,13 @@ async def authorize_shared_simplified_access(
     context.interaction_state = "ready_for_question"
     context.selected_at = datetime.now(UTC)
     await session.flush()
-    return SharedEducationRoute(_decision(authorized=True, reason=EducationAccessReason.AUTHORIZED, agent=target, identity_id=student_identity.id, student_id=student_identity.student_id, enrollment=selected), target)
+    return SharedEducationRoute(
+        _decision(authorized=True, reason=EducationAccessReason.AUTHORIZED, agent=target,
+                  identity_id=student_identity.id, student_id=student_identity.student_id,
+                  enrollment=selected),
+        target,
+        "Your course is selected. You can ask questions now." if selected_from_menu else None,
+    )
 
 
 async def education_course_menu(
