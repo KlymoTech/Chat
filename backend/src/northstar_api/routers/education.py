@@ -108,17 +108,8 @@ async def _validate_simplified_agent(
         raise HTTPException(status_code=422, detail="Assigned Agent must be an active or draft workspace Agent")
     if await get_agent_purpose(session, tenant_id=tenant_id, workspace_id=workspace_id, agent_id=agent.id) is not AgentPurpose.EDUCATION:
         raise HTTPException(status_code=422, detail="Assigned Agent must have Education purpose")
-    conditions = [
-        EducationCourse.tenant_id == tenant_id,
-        EducationCourse.workspace_id == workspace_id,
-        EducationCourse.simplified_workflow.is_(True),
-        EducationCourse.assigned_agent_id == agent_id,
-        EducationCourse.status == CourseStatus.ACTIVE.value,
-    ]
-    if excluding_course_id is not None:
-        conditions.append(EducationCourse.id != excluding_course_id)
-    if await session.scalar(select(EducationCourse.id).where(*conditions).limit(1)) is not None:
-        raise HTTPException(status_code=409, detail="An active simplified Course already uses this Education Agent")
+    # A domain Education Agent may serve several simplified Courses. Runtime
+    # retrieval stays constrained by the student's selected enrollment/course.
 
 
 async def _validate_channel_connections(session: AsyncSession, *, tenant_id: UUID, ids: list[UUID]) -> None:

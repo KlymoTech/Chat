@@ -478,6 +478,16 @@ async def authorize_shared_simplified_access(
         index = int(normalized) - 1
         if 0 <= index < len(context.pending_enrollment_ids):
             selected = next((row for row in valid if str(row.id) == context.pending_enrollment_ids[index]), None)
+    if selected is None and context.pending_enrollment_ids and normalized:
+        # The menu explicitly permits a course name, so resolve an exact
+        # normalized course name/code as well as its displayed number.
+        named = [
+            row for row in valid
+            if " ".join(course_by_id[row.course_id].name.casefold().split()) == normalized
+            or " ".join(course_by_id[row.course_id].code.casefold().split()) == normalized
+        ]
+        if len(named) == 1:
+            selected = named[0]
     if normalized in {"courses", "switch course", "switch courses", "hi", "hello", "hey"}:
         selected = None
         context.active_enrollment_id = None

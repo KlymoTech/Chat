@@ -222,6 +222,22 @@ async def replace_source_scopes(
         workspace_id=workspace_id,
         pairs=pairs,
     )
+    simplified_course = await session.scalar(
+        select(EducationCourse.id).where(
+            EducationCourse.id.in_([pair.course_id for pair in normalized]),
+            EducationCourse.tenant_id == tenant_id,
+            EducationCourse.workspace_id == workspace_id,
+            EducationCourse.simplified_workflow.is_(True),
+        ).limit(1)
+    ) if normalized else None
+    if simplified_course is not None:
+        # Simplified documents are assigned once at upload.  Do not expose a
+        # second mutable mapping path that could make the visible assignment
+        # diverge from the Course-isolated retrieval boundary.
+        raise HTTPException(
+            status_code=409,
+            detail="Simplified Course documents are assigned during upload and cannot be manually remapped",
+        )
     await session.execute(
         delete(EducationKnowledgeScope).where(
             EducationKnowledgeScope.tenant_id == tenant_id,

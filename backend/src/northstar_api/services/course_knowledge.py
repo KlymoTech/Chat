@@ -43,7 +43,6 @@ from northstar_api.services.course_knowledge_policy import (
     scoped_chunks,
     selected_blocks,
     text_record,
-    validate_vectors,
 )
 
 
@@ -313,50 +312,30 @@ async def approve_assignment(session: AsyncSession, boundary: Boundary, assignme
 
 
 async def prepare_assignment_index(session: AsyncSession, boundary: Boundary, assignment_id: UUID, expected_revision: int) -> CourseMaterialAssignment:
+    """Prepare an approved, scoped lexical index without embeddings."""
     from northstar_api.config import get_settings
-    from northstar_api.services.llm import nvidia_adapter
 
     assignment = await scoped_row(session, CourseMaterialAssignment, assignment_id, boundary, lock=True)
     source = await scoped_row(session, CourseSourceVersion, assignment.source_version_id, boundary)
     if assignment.revision != expected_revision or assignment.status != "approved" or source.withdrawn or assignment.approval_fingerprint != assignment_digest(assignment, source):
         raise KnowledgePolicyError("Indexing requires the exact approved, non-withdrawn mapping revision")
     chunks = scoped_chunks(canonical_blocks(source.record), assignment.block_ids)
-    existing = (await session.scalars(select(CourseIndexEntry).where(*boundary.filters(CourseIndexEntry), CourseIndexEntry.assignment_id == assignment.id, CourseIndexEntry.assignment_revision == assignment.revision).order_by(CourseIndexEntry.ordinal))).all()
     settings = get_settings()
     if len(chunks) > settings.knowledge_max_chunks:
         raise KnowledgePolicyError("This assignment exceeds the configured knowledge chunk limit")
+    existing = (await session.scalars(select(CourseIndexEntry).where(*boundary.filters(CourseIndexEntry), CourseIndexEntry.assignment_id == assignment.id, CourseIndexEntry.assignment_revision == assignment.revision).order_by(CourseIndexEntry.ordinal))).all()
     if existing:
         verify_index(assignment, chunks, existing)
-        if any(e.embedding_model != settings.nvidia_embedding_model for e in existing):
-            raise KnowledgePolicyError("Embedding configuration changed; save and approve a new mapping revision before rebuilding")
         assignment.index_status = "ready"
         assignment.index_error = None
         return assignment
-    approval = assignment.approval_fingerprint
     assignment.index_status = "preparing"
-    # Do not hold a mapping lock while calling the provider: withdrawals must not
-    # wait for embedding I/O. Recheck the exact revision under lock afterwards.
-    await session.commit()
-    vectors: list[list[float]] = []
-    for start in range(0, len(chunks), 32):
-        vectors.extend(await nvidia_adapter.embed_documents([c["content"] for c in chunks[start:start + 32]]))
-    validate_vectors(vectors, len(chunks), settings.embedding_dimension)
-    assignment = await scoped_row(session, CourseMaterialAssignment, assignment_id, boundary, lock=True)
-    source = await scoped_row(session, CourseSourceVersion, assignment.source_version_id, boundary)
-    if assignment.revision != expected_revision or assignment.status != "approved" or source.withdrawn or assignment.approval_fingerprint != approval or fingerprint(source.record) != source.record_hash:
-        raise KnowledgePolicyError("The approved source or audience changed while preparing the index")
-    existing = (await session.scalars(select(CourseIndexEntry).where(*boundary.filters(CourseIndexEntry), CourseIndexEntry.assignment_id == assignment.id, CourseIndexEntry.assignment_revision == expected_revision).order_by(CourseIndexEntry.ordinal))).all()
-    if existing:
-        verify_index(assignment, chunks, existing)
-        assignment.index_status = "ready"
-        assignment.index_error = None
-        return assignment
-    for ordinal, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
+    for ordinal, chunk in enumerate(chunks):
         session.add(CourseIndexEntry(
             **boundary.values(), assignment_id=assignment.id, assignment_revision=assignment.revision,
             approval_fingerprint=assignment.approval_fingerprint, ordinal=ordinal, content=chunk["content"],
             content_hash=chunk["content_hash"], block_ids=chunk["block_ids"], source_references=chunk["references"],
-            embedding=vector, embedding_model=settings.nvidia_embedding_model,
+            embedding=None, embedding_model=None,
         ))
     assignment.index_status = "ready"
     assignment.index_error = None
@@ -365,6 +344,7 @@ async def prepare_assignment_index(session: AsyncSession, boundary: Boundary, as
 
 
 def verify_index(assignment: CourseMaterialAssignment, chunks: list[dict[str, Any]], entries: list[CourseIndexEntry]) -> str:
+    """Verify lexical index content and provenance only."""
     if len(chunks) != len(entries) or not entries:
         raise KnowledgePolicyError("The candidate index does not contain every expected scoped retrieval unit")
     for ordinal, (chunk, entry) in enumerate(zip(chunks, entries, strict=True)):
@@ -373,11 +353,7 @@ def verify_index(assignment: CourseMaterialAssignment, chunks: list[dict[str, An
             or entry.content != chunk["content"] or entry.content_hash != fingerprint(entry.content)
             or entry.block_ids != chunk["block_ids"] or entry.source_references != chunk["references"]):
             raise KnowledgePolicyError("The candidate index has changed content, permissions, or source references")
-    from northstar_api.config import get_settings
-    validate_vectors([list(e.embedding) for e in entries], len(chunks), get_settings().embedding_dimension)
-    if any(e.embedding_model != get_settings().nvidia_embedding_model for e in entries):
-        raise KnowledgePolicyError("Candidate embeddings use a different model configuration")
-    return fingerprint([{"id": str(e.id), "hash": e.content_hash, "blocks": e.block_ids, "revision": e.assignment_revision, "model": e.embedding_model} for e in entries])
+    return fingerprint([{"id": str(e.id), "hash": e.content_hash, "blocks": e.block_ids, "revision": e.assignment_revision} for e in entries])
 
 
 async def release_head(session: AsyncSession, boundary: Boundary, course_id: UUID, curriculum_id: UUID, *, create: bool = False, lock: bool = False) -> CourseReleaseHead | None:
@@ -578,20 +554,42 @@ async def resolve_context(session: AsyncSession, boundary: Boundary, enrollment_
     if course.simplified_workflow:
         if course.assigned_agent_id != boundary.agent_id:
             raise KnowledgePolicyError("The simplified Course is not assigned to this Education Agent")
+        # Simplified Courses intentionally do not inherit every document from
+        # their Agent.  A ready source must be explicitly published to this
+        # Course.  This is the authorization boundary which prevents two
+        # Courses sharing an Agent from seeing one another's documents.
+        from northstar_api.education_knowledge_scope import EducationKnowledgeScope
         from northstar_api.models import KnowledgeSource, KnowledgeStatus
-        ready_source = await session.scalar(select(KnowledgeSource.id).where(
-            KnowledgeSource.tenant_id == boundary.tenant_id,
-            KnowledgeSource.workspace_id == boundary.workspace_id,
-            KnowledgeSource.agent_id == boundary.agent_id,
-            KnowledgeSource.status == KnowledgeStatus.READY,
-        ).limit(1))
-        if ready_source is None:
-            raise KnowledgePolicyError("The assigned Education Agent has no ready training material")
-        # The caller detects this sentinel context and uses the existing
-        # approved-agent retrieval path.  Legacy Course Knowledge releases are
-        # deliberately not widened or modified for simplified Courses.
+        scoped_sources = (await session.execute(
+            select(
+                EducationKnowledgeScope.id,
+                EducationKnowledgeScope.assignment_revision,
+                EducationKnowledgeScope.mapping_revision,
+                KnowledgeSource.id,
+                KnowledgeSource.revision,
+            )
+            .join(KnowledgeSource, KnowledgeSource.id == EducationKnowledgeScope.source_id)
+            .where(
+                EducationKnowledgeScope.tenant_id == boundary.tenant_id,
+                EducationKnowledgeScope.workspace_id == boundary.workspace_id,
+                EducationKnowledgeScope.agent_id == boundary.agent_id,
+                EducationKnowledgeScope.course_id == course.id,
+                EducationKnowledgeScope.approval_status == "published",
+                EducationKnowledgeScope.withdrawn_at.is_(None),
+                EducationKnowledgeScope.requires_release.is_(False),
+                KnowledgeSource.status == KnowledgeStatus.READY,
+            )
+            .order_by(EducationKnowledgeScope.id)
+        )).all()
+        if not scoped_sources:
+            raise KnowledgePolicyError("This Course has no ready document assigned to it")
         learner = LearnerScope(str(boundary.tenant_id), str(boundary.workspace_id), str(boundary.agent_id), str(enrollment.student_id), str(enrollment.id), str(enrollment.course_id), "simplified", str(enrollment.batch_id), frozenset(), None, enrollment.authorization_revision)
-        return KnowledgeContext(learner, None, 0, fingerprint({"simplified": True, "enrollment": str(enrollment.id), "revision": enrollment.authorization_revision}), course.name, "Simplified course", {})
+        return KnowledgeContext(learner, None, 0, fingerprint({
+            "simplified": True,
+            "enrollment": str(enrollment.id),
+            "revision": enrollment.authorization_revision,
+            "course_sources": [[str(value) for value in row] for row in scoped_sources],
+        }), course.name, "Simplified course", {})
     access = await session.scalar(select(CourseEnrollmentAccess).where(*boundary.filters(CourseEnrollmentAccess), CourseEnrollmentAccess.enrollment_id == enrollment_id, CourseEnrollmentAccess.active.is_(True)).execution_options(populate_existing=True))
     if access is None:
         raise KnowledgePolicyError("The institute has not configured curriculum and paper access for this enrollment")
@@ -764,6 +762,31 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
 
     from northstar_api.config import get_settings
 
+    if context.learner.curriculum_id == "simplified":
+        # The normal vectorless retrieval service already applies the
+        # source-scope EXISTS filter before lexical ranking.  Passing the
+        # selected enrollment's Course here makes "switch course" an actual
+        # data boundary, not merely a menu preference.
+        from northstar_api.modules.knowledge.retrieval import EducationRetrievalScope, RetrievalService
+        scoped = EducationRetrievalScope(
+            workspace_id=boundary.workspace_id,
+            student_id=UUID(context.learner.student_id),
+            enrollment_id=UUID(context.learner.enrollment_id),
+            course_id=UUID(context.learner.course_id),
+            batch_id=UUID(context.learner.batch_id),
+        )
+        evidence = await RetrievalService(model=model).retrieve(
+            session,
+            tenant_id=boundary.tenant_id,
+            agent_id=boundary.agent_id,
+            revision=10**9,
+            query=query,
+            education_scope=scoped,
+            rerank_candidates=candidate_limit,
+            final_context_chunks=result_limit,
+        )
+        assessment = assess_course_evidence(evidence, query, result_limit)
+        return assessment if return_assessment else assessment.evidence
     if context.release_id is None and not include_unpublished:
         assessment = CourseRetrievalAssessment([], [], "no_published_release")
         return assessment if return_assessment else []
@@ -898,6 +921,30 @@ async def revalidate_evidence(session: AsyncSession, boundary: Boundary, context
     fresh = await resolve_context(session, boundary, UUID(context.learner.enrollment_id), expected_student_id=UUID(context.learner.student_id), expected_course_id=UUID(context.learner.course_id), expected_batch_id=UUID(context.learner.batch_id), paper_override=UUID(context.learner.selected_paper_id) if context.learner.selected_paper_id else None, use_paper_override=use_paper_override)
     if fresh.context_fingerprint != context.context_fingerprint:
         raise KnowledgePolicyError("Course knowledge or access changed while answering; retry the question")
+    if fresh.learner.curriculum_id == "simplified":
+        from northstar_api.education_knowledge_scope import EducationKnowledgeScope
+        from northstar_api.models import KnowledgeSource, KnowledgeStatus
+        for item in evidence:
+            if not item.source_id:
+                raise KnowledgePolicyError("Simplified Course evidence must have a document source")
+            allowed = await session.scalar(
+                select(EducationKnowledgeScope.id)
+                .join(KnowledgeSource, KnowledgeSource.id == EducationKnowledgeScope.source_id)
+                .where(
+                    EducationKnowledgeScope.tenant_id == boundary.tenant_id,
+                    EducationKnowledgeScope.workspace_id == boundary.workspace_id,
+                    EducationKnowledgeScope.agent_id == boundary.agent_id,
+                    EducationKnowledgeScope.course_id == UUID(fresh.learner.course_id),
+                    EducationKnowledgeScope.source_id == UUID(item.source_id),
+                    EducationKnowledgeScope.approval_status == "published",
+                    EducationKnowledgeScope.withdrawn_at.is_(None),
+                    EducationKnowledgeScope.requires_release.is_(False),
+                    KnowledgeSource.status == KnowledgeStatus.READY,
+                )
+            )
+            if allowed is None:
+                raise KnowledgePolicyError("A cited document is no longer assigned to the selected Course")
+        return
     statement = authorized_entries(boundary, fresh, include_unpublished=include_unpublished)
     for item in evidence:
         if item.kind == "course_chunk":

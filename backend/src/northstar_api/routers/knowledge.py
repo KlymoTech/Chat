@@ -9,6 +9,7 @@ import structlog
 from fastapi import HTTPException, Response
 from pydantic import Field
 from sqlalchemy import select
+from datetime import UTC, datetime
 
 from northstar_api.config import get_settings
 from northstar_api.education_knowledge_lifecycle import (
@@ -139,6 +140,11 @@ async def add_knowledge(
         raise HTTPException(status_code=422, detail="Uploaded files must pass source extraction and review")
     if payload.object_key and payload.kind != KnowledgeKind.FILE:
         raise HTTPException(status_code=422, detail="Only file sources can reference an uploaded object")
+    if payload.simplified_training and payload.education_destination is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose the simplified Course this training document belongs to",
+        )
     if payload.education_destination is not None and payload.unassigned_inbox:
         raise HTTPException(status_code=422, detail="Choose an Education destination or the unassigned inbox")
     if payload.education_destination is not None:
@@ -206,6 +212,20 @@ async def add_knowledge(
             ],
         )
         selected = normalized[0]
+        from northstar_api.education import EducationCourse
+        course = await session.scalar(
+            select(EducationCourse).where(
+                EducationCourse.id == selected.course_id,
+                EducationCourse.tenant_id == principal.tenant_id,
+                EducationCourse.workspace_id == principal.workspace_id,
+            )
+        )
+        if course is None:
+            raise HTTPException(status_code=422, detail="Education destination Course no longer exists")
+        if course.simplified_workflow and course.assigned_agent_id != agent.id:
+            raise HTTPException(status_code=422, detail="A simplified Course can only receive training from its assigned Education Agent")
+        direct_simplified_course = bool(course.simplified_workflow and course.assigned_agent_id == agent.id)
+        now = datetime.now(UTC)
         session.add(
             EducationKnowledgeScope(
                 tenant_id=principal.tenant_id,
@@ -218,8 +238,10 @@ async def add_knowledge(
                 paper_id=selected.paper_id,
                 batch_id=selected.batch_id,
                 material_type=selected.material_type,
-                approval_status="draft",
-                requires_release=True,
+                approval_status="published" if direct_simplified_course else "draft",
+                approved_at=now if direct_simplified_course else None,
+                published_at=now if direct_simplified_course else None,
+                requires_release=not direct_simplified_course,
             )
         )
     job = IngestionJob(

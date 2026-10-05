@@ -26,6 +26,7 @@ from northstar_api.models import Agent
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.telegram import TelegramAPIError, telegram_client
+from northstar_api.services.telegram_provisioning import refresh_normal_bot_webhook
 
 router = APIRouter(tags=["channels"])
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -329,6 +330,18 @@ async def test_channel_connection(
         raise HTTPException(status_code=404, detail="Channel connection not found in this workspace")
     value, _ = scoped
     credentials = _credentials(value)
+    if value.provider == ChannelProvider.TELEGRAM.value:
+        try:
+            await refresh_normal_bot_webhook(value, credentials=credentials)
+        except TelegramAPIError as exc:
+            value.status = "unhealthy"
+            value.last_error = "Telegram webhook refresh failed"
+            value.last_health_at = datetime.now(UTC)
+            await session.commit()
+            raise HTTPException(
+                status_code=502,
+                detail="Telegram could not refresh its webhook. Confirm the public HTTPS tunnel is online and try again.",
+            ) from exc
     connector = channel_registry.get(ChannelProvider(value.provider))
     result = await connector.health_check(_context(value, credentials))
     checked_at = datetime.now(UTC)

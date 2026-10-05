@@ -30,6 +30,7 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
   const [saving, setSaving] = useState(false);
   const [publishingId, setPublishingId] = useState('');
   const [error, setError] = useState('');
+  const hasSimplifiedCourse = (courses.data ?? []).some((course) => course.simplifiedWorkflow && course.assignedAgentId === agentId);
 
   // Curriculum is not chosen here: the server takes it from the Paper, the Batch, or the Course.
   const availablePapers = useMemo(() => (papers.data ?? []).filter((item) => item.courseId === courseId && item.status === 'active'), [papers.data, courseId]);
@@ -50,7 +51,7 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
     setSaving(true); setError('');
     try {
       await educationKnowledgeApi.setSourceScopes(editingSource.id, agentId, draft.map(({ key: _key, ...scope }) => scope));
-      scopes.reload(); pushToast(draft.length ? 'Draft course mappings saved for review' : 'Source is unavailable to Education students');
+      scopes.reload(); pushToast(draft.length ? 'Course document assignments saved' : 'Source is unavailable to Education students');
       setEditingSource(null); setDraft([]); resetPicker();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save Education knowledge scope.'); }
     finally { setSaving(false); }
@@ -74,6 +75,7 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
     } finally { setPublishingId(''); }
   };
   const scopeAction = (scope: EducationKnowledgeScope) => {
+    if (!scope.requiresRelease && scope.approvalStatus === 'published') return <span className="education-knowledge-scope-row__ready"><Check /> Ready for this simplified Course</span>;
     if (scope.approvalStatus === 'published') return <span className="education-knowledge-scope-row__ready"><Check /> Legacy mapping published · finish tutor release</span>;
     if (scope.approvalStatus === 'withdrawn') return <span className="education-knowledge-scope-row__pending">Withdrawn</span>;
     const label = scope.approvalStatus === 'approved' ? 'Publish to students' : 'Review & publish';
@@ -81,8 +83,8 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
   };
 
   return <>
-    <Card className="education-knowledge-scope-card">
-      <div className="education-knowledge-scope-card__heading"><span><ShieldCheck /></span><div><h3>Existing source mappings</h3><p>These mappings are not the WhatsApp tutor release. Complete course setup and publish the exact release in Course Knowledge.</p></div></div>
+    <Card className={`education-knowledge-scope-card${hasSimplifiedCourse ? ' is-simplified' : ''}`}>
+      <div className="education-knowledge-scope-card__heading"><span><ShieldCheck /></span><div><h3>{hasSimplifiedCourse ? 'Course document assignments' : 'Existing source mappings'}</h3><p>{hasSimplifiedCourse ? 'Each document is assigned during upload and is retrieved only for its displayed Course.' : 'These mappings are not the WhatsApp tutor release. Complete course setup and publish the exact release in Course Knowledge.'}</p></div></div>
       <div className="education-knowledge-setup" aria-label="Education knowledge setup steps">
         <div><span><Check /></span><strong>1. Train</strong><small>Upload a source and wait for Training complete.</small></div>
         <div><span><ArrowRight /></span><strong>2. Map</strong><small>Choose its course, paper, and batch.</small></div>
@@ -94,7 +96,7 @@ export function EducationKnowledgeScopeManager({ agentId, sources }: Props) {
         const bindings = scopes.data?.[source.id] ?? [];
         // Only trained material can be mapped to courses; mapping earlier would point students at nothing.
         const trained = source.status === 'ready';
-        return <div className="education-knowledge-scope-row" key={source.id}><div className="education-knowledge-scope-row__source"><strong>{source.name}</strong><small>{source.kind} · {source.chunks} chunks{trained ? ' · training complete' : ''}</small></div><div className="education-knowledge-scope-row__bindings">{bindings.length ? bindings.map((scope) => <div className="education-knowledge-scope-row__binding" key={scope.id}><Badge tone={scope.approvalStatus === 'published' ? 'success' : scope.approvalStatus === 'withdrawn' ? 'danger' : 'purple'}>{scopeLabel(scope)} · {scope.approvalStatus ?? 'draft'}</Badge>{scopeAction(scope)}</div>) : <Badge tone="warning">Unassigned · blocked</Badge>}</div>{trained ? <Button variant="secondary" size="sm" onClick={() => openScope(source)}>Manage mappings</Button>
+        return <div className="education-knowledge-scope-row" key={source.id}><div className="education-knowledge-scope-row__source"><strong>{source.name}</strong><small>{source.kind} · {source.chunks} chunks{trained ? ' · training complete' : ''}</small></div><div className="education-knowledge-scope-row__bindings">{bindings.length ? bindings.map((scope) => <div className="education-knowledge-scope-row__binding" key={scope.id}><Badge tone={scope.approvalStatus === 'published' ? 'success' : scope.approvalStatus === 'withdrawn' ? 'danger' : 'purple'}>{scopeLabel(scope)} · {scope.approvalStatus ?? 'draft'}</Badge>{scopeAction(scope)}</div>) : <Badge tone="warning">Unassigned · blocked</Badge>}</div>{trained && !hasSimplifiedCourse ? <Button variant="secondary" size="sm" onClick={() => openScope(source)}>Manage mappings</Button>
           : <span className="education-knowledge-scope-row__pending" title="Courses can only use material whose training is complete">{source.status === 'needs_review' ? 'Map after training: finish the extraction review' : source.status === 'failed' ? 'Training failed: retrain before mapping' : 'Map after training completes'}</span>}</div>;
       })}</div> : <EmptyState icon={BookOpen} title="No knowledge to map" description="Add a source with its intended Education destination before publishing." />}
     </Card>
