@@ -52,6 +52,7 @@ class EducationRetrievalScope:
     batch_id: UUID
     curriculum_id: UUID | None = None
     paper_id: UUID | None = None
+    retrieval_mode: str = "lexical"
 
 
 class RetrievalService:
@@ -76,16 +77,23 @@ class RetrievalService:
         final_context_chunks: int | None = None,
     ) -> list[Evidence]:
         started = time.perf_counter()
-        # Vectorless RAG: retrieval must not call an embedding provider.
-        evidence = await self._portable_retrieve(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            revision=revision,
-            query=query,
-            education_scope=education_scope,
-            candidate_limit=rerank_candidates,
-        )
+        if education_scope is not None and education_scope.retrieval_mode == "pgvector":
+            evidence = await self._pgvector_retrieve(
+                session, tenant_id=tenant_id, agent_id=agent_id, revision=revision,
+                query=query, education_scope=education_scope,
+                candidate_limit=rerank_candidates,
+            )
+        else:
+            # Vectorless RAG: the lexical path never calls an embedding provider.
+            evidence = await self._portable_retrieve(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                revision=revision,
+                query=query,
+                education_scope=education_scope,
+                candidate_limit=rerank_candidates,
+            )
         if education_scope is not None:
             evidence = await self._filter_assignment_blocks(
                 session,
@@ -315,6 +323,7 @@ class RetrievalService:
         # `retrieve()` always uses `_portable_retrieve()` above, so normal PDF
         # knowledge uses vectorless lexical retrieval and never calls this
         # dense cosine-distance implementation.
+        vector = await self.model.embed_query(query)
         limit = candidate_limit or self.settings.retrieval_candidate_limit
         fact_filters = [
             KnowledgeFact.tenant_id == tenant_id,
@@ -470,6 +479,75 @@ class RetrievalService:
         if not ordered:
             return []
         return ordered
+
+    async def _pgvector_retrieve(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: UUID,
+        agent_id: UUID,
+        revision: int,
+        query: str,
+        education_scope: EducationRetrievalScope,
+        candidate_limit: int | None,
+    ) -> list[Evidence]:
+        """Retrieve only PGVector chunks after the normal course scope filter.
+
+        This path deliberately excludes lexical documents and facts.  The
+        endpoint enforces a single mode for a simplified Course, so candidates
+        from the two retrieval modes can never be blended in one response.
+        """
+        vector = await self.model.embed_query(query)
+        limit = candidate_limit or self.settings.retrieval_candidate_limit
+        filters = [
+            DocumentChunk.tenant_id == tenant_id,
+            DocumentChunk.workspace_id == education_scope.workspace_id,
+            DocumentChunk.agent_id == agent_id,
+            DocumentChunk.approved.is_(True),
+            DocumentChunk.revision <= revision,
+            DocumentChunk.embedding.is_not(None),
+            KnowledgeSource.status == KnowledgeStatus.READY,
+            KnowledgeSource.retrieval_mode == "pgvector",
+            self._source_scope_filter(
+                tenant_id=tenant_id, agent_id=agent_id,
+                source_id=DocumentChunk.source_id, scope=education_scope,
+            ),
+        ]
+        if session.bind is not None and session.bind.dialect.name == "postgresql":
+            distance = DocumentChunk.embedding.cosine_distance(vector)
+            rows = (await session.execute(
+                select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url, distance.label("distance"))
+                .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
+                .where(*filters).order_by(distance).limit(limit)
+            )).all()
+            evidence = [
+                Evidence(
+                    kind="chunk", entity_id=str(chunk.id), source_id=str(chunk.source_id),
+                    title=title or "Knowledge base", url=url, text=chunk.content,
+                    score=max(0.0, 1.0 - float(distance_value)),
+                    metadata={**(chunk.metadata_json or {}), "retrieval": {"mode": "pgvector"}},
+                    dense_score=max(0.0, 1.0 - float(distance_value)),
+                )
+                for chunk, title, url, distance_value in rows
+            ]
+        else:
+            rows = (await session.execute(
+                select(DocumentChunk, KnowledgeSource.name, KnowledgeSource.url)
+                .join(KnowledgeSource, KnowledgeSource.id == DocumentChunk.source_id)
+                .where(*filters).limit(max(limit, self.settings.knowledge_max_chunks))
+            )).all()
+            evidence = []
+            for chunk, title, url in rows:
+                score = max(0.0, _cosine(vector, list(chunk.embedding or [])))
+                evidence.append(Evidence(
+                    kind="chunk", entity_id=str(chunk.id), source_id=str(chunk.source_id),
+                    title=title or "Knowledge base", url=url, text=chunk.content, score=score,
+                    metadata={**(chunk.metadata_json or {}), "retrieval": {"mode": "pgvector"}},
+                    dense_score=score,
+                ))
+            evidence.sort(key=lambda item: item.score, reverse=True)
+            evidence = evidence[:limit]
+        return [item for item in evidence if item.score >= self.settings.retrieval_min_score]
 
     async def _portable_retrieve(
         self,

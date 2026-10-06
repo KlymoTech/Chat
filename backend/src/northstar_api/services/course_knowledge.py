@@ -767,13 +767,34 @@ async def retrieve_course_evidence(session: AsyncSession, boundary: Boundary, co
         # source-scope EXISTS filter before lexical ranking.  Passing the
         # selected enrollment's Course here makes "switch course" an actual
         # data boundary, not merely a menu preference.
+        from northstar_api.education_knowledge_scope import EducationKnowledgeScope
+        from northstar_api.models import KnowledgeSource, KnowledgeStatus
         from northstar_api.modules.knowledge.retrieval import EducationRetrievalScope, RetrievalService
+        modes = set((await session.scalars(
+            select(KnowledgeSource.retrieval_mode)
+            .join(EducationKnowledgeScope, EducationKnowledgeScope.source_id == KnowledgeSource.id)
+            .where(
+                EducationKnowledgeScope.tenant_id == boundary.tenant_id,
+                EducationKnowledgeScope.workspace_id == boundary.workspace_id,
+                EducationKnowledgeScope.agent_id == boundary.agent_id,
+                EducationKnowledgeScope.course_id == UUID(context.learner.course_id),
+                EducationKnowledgeScope.approval_status == "published",
+                EducationKnowledgeScope.withdrawn_at.is_(None),
+                EducationKnowledgeScope.requires_release.is_(False),
+                KnowledgeSource.status == KnowledgeStatus.READY,
+            ).distinct()
+        )).all())
+        modes = {mode or "lexical" for mode in modes}
+        if len(modes) > 1:
+            raise KnowledgePolicyError("The Course has conflicting retrieval modes")
+        retrieval_mode = next(iter(modes), "lexical")
         scoped = EducationRetrievalScope(
             workspace_id=boundary.workspace_id,
             student_id=UUID(context.learner.student_id),
             enrollment_id=UUID(context.learner.enrollment_id),
             course_id=UUID(context.learner.course_id),
             batch_id=UUID(context.learner.batch_id),
+            retrieval_mode=retrieval_mode,
         )
         evidence = await RetrievalService(model=model).retrieve(
             session,

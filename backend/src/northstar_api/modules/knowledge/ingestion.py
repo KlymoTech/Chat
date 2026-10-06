@@ -42,6 +42,7 @@ from northstar_api.services.hybrid_extraction import (
     encode_page_checkpoint,
     extract_document,
 )
+from northstar_api.services.llm import nvidia_adapter
 from northstar_api.services.object_store import object_store
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.safe_fetch import fetch_public_text
@@ -429,6 +430,17 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             raise ValueError("Knowledge source agent no longer exists")
         publication_revision = agent.published_knowledge_revision + 1
         agent.published_knowledge_revision = publication_revision
+        vectors: list[list[float] | None]
+        embedding_model: str | None
+        if getattr(source, "retrieval_mode", "lexical") == "pgvector":
+            # Do not silently degrade to lexical after a user explicitly
+            # selected PGVector. Any provider failure fails this training job.
+            vectors = list(await nvidia_adapter.embed_documents(chunks))
+            validate_embedding_batch(vectors, len(chunks), settings.embedding_dimension)
+            embedding_model = settings.nvidia_embedding_model
+        else:
+            vectors = [None] * len(chunks)
+            embedding_model = None
         await session.execute(delete(DocumentChunk).where(DocumentChunk.source_id == source.id))
         for ordinal, content_chunk in enumerate(chunks):
             chunk_metadata = dict(chunks_with_metadata[ordinal][1])
@@ -444,10 +456,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                     token_count=max(1, round(len(content_chunk.split()) * 1.35)),
                     approved=True,
                     revision=publication_revision,
-                    # Vectorless RAG deliberately persists searchable text and
-                    # provenance only; no embedding is generated or stored.
-                    embedding_model=None,
-                    embedding=None,
+                    embedding_model=embedding_model,
+                    embedding=vectors[ordinal],
                     metadata_json=chunk_metadata,
                 )
             )
@@ -474,7 +484,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 revision=publication_revision,
                 manifest={
                     "version": 1,
-                    "retrievalMode": "lexical",
+                    "retrievalMode": getattr(source, "retrieval_mode", "lexical") or "lexical",
                     "ingestedSourceCrawl": web_crawl.manifest if web_crawl is not None else None,
                     "sources": [
                         {
@@ -525,10 +535,13 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             )
         if failed_source:
             failed_source.status = KnowledgeStatus.FAILED
-            failed_source.error = (
-                str(exc)[:1000] if isinstance(exc, CrawlIncomplete)
-                else "Ingestion failed; inspect the job log."
-            )
+            if getattr(failed_source, "retrieval_mode", "lexical") == "pgvector":
+                failed_source.error = f"PGVector training failed: {str(exc)[:900]}"
+            else:
+                failed_source.error = (
+                    str(exc)[:1000] if isinstance(exc, CrawlIncomplete)
+                    else "Ingestion failed; inspect the job log."
+                )
         if failed_job:
             failed_job.status = JobStatus.FAILED
             failed_job.step = "failed"

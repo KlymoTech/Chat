@@ -532,6 +532,8 @@ class KnowledgeSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     extraction_issue_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(String(1000))
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    # Older rows are migrated to lexical. A queued source never changes mode.
+    retrieval_mode: Mapped[str] = mapped_column(String(20), default="lexical")
 
     agent: Mapped[Agent] = relationship(back_populates="knowledge_sources")
     chunks: Mapped[list[DocumentChunk]] = relationship(back_populates="source", cascade="all, delete-orphan")

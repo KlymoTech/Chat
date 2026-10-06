@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from northstar_api.lead_crm.credentials import CredentialStoreError, credential_
 from northstar_api.lead_crm.domain import ChannelProvider
 from northstar_api.models import Message
 from northstar_api.services.telegram import TelegramAPIError, split_telegram_text, telegram_client
+from northstar_api.services.whatsapp_messages import strip_visible_source_markers
 from northstar_api.workers.celery_app import celery_app
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +27,12 @@ TELEGRAM_TERMINAL_STATUSES = frozenset(
 
 def telegram_thread_lock_key(connection_id: UUID, chat_id: str) -> str:
     return f"telegram-thread:{connection_id}:{chat_id}"
+
+
+def telegram_delivery_text(message: str) -> str:
+    """Remove internal citations and unsupported Markdown delimiters for Telegram."""
+    without_citations = strip_visible_source_markers(message)
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", without_citations, flags=re.DOTALL)
 
 
 async def _send_telegram_delivery_async(delivery_id: UUID) -> None:
@@ -104,7 +112,9 @@ async def _send_telegram_delivery_async(delivery_id: UUID) -> None:
                 return
 
             sent_ids = list(delivery.provider_message_ids or [])
-            chunks = split_telegram_text(message.content)
+            # Keep the original assistant message for audit, but hide internal
+            # source labels and raw Markdown delimiters from the student reply.
+            chunks = split_telegram_text(telegram_delivery_text(message.content))
             if not chunks:
                 delivery.status = "rejected"
                 delivery.last_error = "Telegram message text is empty"
