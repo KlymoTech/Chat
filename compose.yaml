@@ -523,7 +523,10 @@ services:
         condition: service_healthy
     healthcheck:
       disable: true
-    networks: [data, events]
+    # Telegram/WhatsApp education messages can require a query embedding for
+    # PGVector retrieval, so this consumer needs the same provider egress as
+    # the document-ingestion worker.
+    networks: [data, events, egress]
     security_opt: [no-new-privileges:true]
 
   crm-webhook-consumer:

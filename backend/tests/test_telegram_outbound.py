@@ -22,7 +22,11 @@ from northstar_api.services.telegram import (
     telegram_client,
 )
 from northstar_api.workers.job_dispatcher import whatsapp_dispatch_failure_state
-from northstar_api.workers.telegram_tasks import send_telegram_message, telegram_thread_lock_key
+from northstar_api.workers.telegram_tasks import (
+    send_telegram_message,
+    telegram_delivery_text,
+    telegram_thread_lock_key,
+)
 
 
 def _conversation(visitor_id: str) -> Conversation:
@@ -53,6 +57,12 @@ def test_telegram_text_splitter_preserves_content_and_limit() -> None:
     assert all(1 <= len(chunk) <= TELEGRAM_TEXT_LIMIT for chunk in chunks)
     assert " ".join(" ".join(chunks).split()) == " ".join(source.split())
     assert split_telegram_text("   ") == []
+
+
+def test_telegram_hides_internal_source_markers_and_raw_bold_before_delivery() -> None:
+    assert telegram_delivery_text("The Wednesday code is **sun** [S1].") == (
+        "The Wednesday code is sun."
+    )
 
 
 def test_telegram_conversation_identity_is_exact_and_safe() -> None:

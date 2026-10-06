@@ -283,6 +283,7 @@ class KnowledgeCreate(APIModel):
     unassigned_inbox: bool = False
     # Explicit direct training for a dedicated simplified Education Agent.
     simplified_training: bool = False
+    retrieval_mode: Literal["lexical", "pgvector"] = "lexical"
 
     @field_validator("content")
     @classmethod
@@ -307,6 +308,7 @@ class KnowledgeOut(APIModel):
     error: str | None = None
     extraction_issue_count: int = 0
     extraction_available: bool = False
+    retrieval_mode: Literal["lexical", "pgvector"] = "lexical"
 
 
 class KnowledgeUntrain(APIModel):

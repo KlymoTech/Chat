@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -9,7 +10,6 @@ import structlog
 from fastapi import HTTPException, Response
 from pydantic import Field
 from sqlalchemy import select
-from datetime import UTC, datetime
 
 from northstar_api.config import get_settings
 from northstar_api.education_knowledge_lifecycle import (
@@ -145,6 +145,11 @@ async def add_knowledge(
             status_code=422,
             detail="Choose the simplified Course this training document belongs to",
         )
+    if payload.retrieval_mode == "pgvector" and payload.education_destination is None:
+        raise HTTPException(
+            status_code=422,
+            detail="PGVector retrieval is available only for a Course training document",
+        )
     if payload.education_destination is not None and payload.unassigned_inbox:
         raise HTTPException(status_code=422, detail="Choose an Education destination or the unassigned inbox")
     if payload.education_destination is not None:
@@ -181,6 +186,7 @@ async def add_knowledge(
         content=payload.content,
         object_key=object_key,
         checksum=uploaded_checksum or hashlib.sha256(raw_identity.encode()).hexdigest(),
+        retrieval_mode=payload.retrieval_mode,
     )
     session.add(source)
     await session.flush()
@@ -224,6 +230,31 @@ async def add_knowledge(
             raise HTTPException(status_code=422, detail="Education destination Course no longer exists")
         if course.simplified_workflow and course.assigned_agent_id != agent.id:
             raise HTTPException(status_code=422, detail="A simplified Course can only receive training from its assigned Education Agent")
+        # One active Course deliberately uses one retrieval mode. This prevents
+        # one answer from combining lexical and vector candidates while still
+        # letting the same Agent serve different Courses in different modes.
+        existing_modes = (
+            await session.scalars(
+                select(KnowledgeSource.retrieval_mode)
+                .join(EducationKnowledgeScope, EducationKnowledgeScope.source_id == KnowledgeSource.id)
+                .where(
+                    EducationKnowledgeScope.tenant_id == principal.tenant_id,
+                    EducationKnowledgeScope.workspace_id == principal.workspace_id,
+                    EducationKnowledgeScope.agent_id == agent.id,
+                    EducationKnowledgeScope.course_id == selected.course_id,
+                    KnowledgeSource.status != KnowledgeStatus.FAILED,
+                )
+                .distinct()
+            )
+        ).all()
+        normalized_modes = {mode or "lexical" for mode in existing_modes}
+        if normalized_modes and normalized_modes != {payload.retrieval_mode}:
+            existing_label = "PGVector" if "pgvector" in normalized_modes else "lexical"
+            raise HTTPException(
+                status_code=422,
+                detail=(f"This Course already has {existing_label} retrieval documents. "
+                        "Use the same mode for every document in this Course."),
+            )
         direct_simplified_course = bool(course.simplified_workflow and course.assigned_agent_id == agent.id)
         now = datetime.now(UTC)
         session.add(

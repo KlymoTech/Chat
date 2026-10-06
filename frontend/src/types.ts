@@ -132,6 +132,7 @@ export interface KnowledgeSource {
   error?: string;
   extractionIssueCount?: number;
   extractionAvailable?: boolean;
+  retrievalMode?: 'lexical' | 'pgvector';
 }
 
 export type ConversationState = 'open' | 'resolved' | 'escalated';

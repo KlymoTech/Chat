@@ -5,6 +5,11 @@ import re
 from northstar_api.models import Agent
 
 
+def strip_visible_source_markers(message: str) -> str:
+    """Hide internal retrieval-source labels from provider-facing message text."""
+    return re.sub(r"(?:\s*\[S\d+\])+", "", message, flags=re.IGNORECASE).strip()
+
+
 def format_whatsapp_reply(agent: Agent, message: str) -> str:
     # Convert common model Markdown to the markers WhatsApp actually accepts.
     parts = re.split(r"(```[\s\S]*?```|`[^`\n]+`)", message)
@@ -19,7 +24,7 @@ def format_whatsapp_reply(agent: Agent, message: str) -> str:
     body = "".join(parts)
     # Citations remain persisted on the assistant message for audit and UI use,
     # but raw model source markers are not meaningful in a WhatsApp message.
-    body = re.sub(r"(?:\s*\[S\d+\])+", "", body, flags=re.IGNORECASE).strip()
+    body = strip_visible_source_markers(body)
     settings = (agent.appearance or {}).get("whatsapp") or {}
     template = settings.get("replyTemplate") or "{message}"
     # Only substitute placeholders in the template, never in model/user content.

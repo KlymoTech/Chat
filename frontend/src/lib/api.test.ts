@@ -260,7 +260,9 @@ describe('api client', () => {
     vi.stubGlobal('fetch', fetchMock);
     const file = new File(['pdf'], 'guide.pdf', { type: 'application/pdf' });
 
-    await expect(api.knowledge.add('agent-1', { name: 'guide.pdf', kind: 'file', file })).resolves.toEqual(source);
+    await expect(api.knowledge.add('agent-1', {
+      name: 'guide.pdf', kind: 'file', file, courseId: 'course-1', retrievalMode: 'pgvector',
+    })).resolves.toEqual(source);
 
     expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toMatchObject({
       filename: 'guide.pdf',
@@ -277,6 +279,9 @@ describe('api client', () => {
     expect(form.get('key')).toBe('tenant/guide.pdf');
     expect(form.get('policy')).toBe('signed-policy');
     expect(form.get('file')).toBe(file);
+    expect(JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body))).toMatchObject({
+      retrievalMode: 'pgvector', educationDestination: { courseId: 'course-1' },
+    });
   });
 
   it('sends Embedded Signup credentials directly to the authenticated completion endpoint', async () => {

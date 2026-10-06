@@ -37,6 +37,7 @@ def source_response(source: KnowledgeSource) -> KnowledgeOut:
         # with a null count; API contracts always expose a numeric value.
         extraction_issue_count=source.extraction_issue_count or 0,
         extraction_available=bool(source.extraction_key),
+        retrieval_mode=source.retrieval_mode or "lexical",
     )
 
 
