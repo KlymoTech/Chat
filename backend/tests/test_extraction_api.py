@@ -106,6 +106,20 @@ async def test_one_reviewer_releases_and_a_trained_file_stays_editable(review_co
     assert c.store.put_extraction.await_count == 2
 
 
+async def test_all_pages_review_requires_every_source_page_in_order(review_context, monkeypatch):
+    c = review_context
+    package = SimpleNamespace(record={"pages": [{"number": 1}, {"number": 2}]})
+    monkeypatch.setattr(knowledge, "_load_extraction", AsyncMock(return_value=package))
+    payload = approval(1)
+    payload.all_pages_selected = True
+
+    with pytest.raises(HTTPException) as failure:
+        await knowledge.approve_extraction(c.source.id, payload, SimpleNamespace(user_id=uuid4()), c.session)
+
+    assert failure.value.status_code == 422
+    assert "every source page" in str(failure.value.detail)
+
+
 async def test_extraction_retry_is_idempotent_while_processing(review_context):
     c = review_context
     c.source.status = KnowledgeStatus.PROCESSING

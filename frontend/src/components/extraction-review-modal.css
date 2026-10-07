@@ -14,9 +14,16 @@
 .xr-page-chip { min-width: 34px; height: 30px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; color: var(--ink); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; flex: 0 0 auto; }
 .xr-page-chip svg { width: 13px; height: 13px; }
 .xr-page-chip--done { border-color: #b7d6bf; background: var(--success-soft); color: var(--success); }
+.xr-page-chip--all { border-color: #b7d6bf; background: var(--success-soft); color: var(--success); }
+.xr-page-chip--all.is-selected { border-color: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 26%, transparent); }
 .xr-page-chip--partial { border-color: #ecd9a4; background: var(--warning-soft); color: var(--warning); }
 .xr-page-chip.is-active { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
+.xr-page-chip.is-all-selected,
+.xr-page-chip.is-all-selected.is-active { border-color: #78ae86; background: var(--success-soft); color: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 26%, transparent); }
 .xr-page-chip:disabled { opacity: .5; cursor: default; }
+
+.xr-all-pages-dialog { display: flex; flex-direction: column; gap: 14px; }
+.xr-all-pages-dialog__actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .xr-banner { margin: 0; padding: 10px 12px; display: flex; align-items: flex-start; gap: 8px; border: 1px solid; border-radius: 10px; font-size: 13px; line-height: 1.45; }
 .xr-banner svg { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 1px; }

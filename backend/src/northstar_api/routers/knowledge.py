@@ -426,6 +426,7 @@ class IssueResolution(APIModel):
 
 class ExtractionApproval(APIModel):
     extraction_revision: int = Field(ge=1)
+    all_pages_selected: bool = False
     pages: list[ReviewedPage] = Field(min_length=1, max_length=5_000)
     issue_resolutions: list[IssueResolution] = Field(default_factory=list, max_length=20000)
 
@@ -481,6 +482,14 @@ async def approve_extraction(
     package = await _load_extraction(source)
     if payload.extraction_revision != source.revision:
         raise HTTPException(status_code=409, detail="Evidence changed; reload before reviewing")
+    if payload.all_pages_selected:
+        expected_pages = [page["number"] for page in package.record["pages"]]
+        submitted_pages = [page.number for page in payload.pages]
+        if submitted_pages != expected_pages:
+            raise HTTPException(
+                status_code=422,
+                detail="All-pages review must include every source page in source order",
+            )
     settings = get_settings()
     if sum(len(item.selected_text) for item in payload.pages) > settings.knowledge_max_extracted_characters:
         raise HTTPException(status_code=413, detail="Reviewed text exceeds the extraction limit")

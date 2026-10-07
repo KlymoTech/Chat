@@ -1,5 +1,6 @@
 ﻿import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExtractionReviewModal } from '@/components/extraction-review-modal';
 import type { ExtractionRecord } from '@/lib/api';
@@ -145,6 +146,34 @@ describe('Extraction source review', () => {
     expect(screen.getByText('Source unit 2 of 2')).toBeInTheDocument();
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  });
+
+  it('submits every page and all unresolved issues after selecting all pages', async () => {
+    const user = userEvent.setup();
+    const second = { ...structuredClone(base.pages[0]!), number: 2, native_text: 'Second page value', visual_text: 'Second page value',
+      blocks: [{ ...structuredClone(base.pages[0]!.blocks[0]!), id: 'P0002-R0001', native_text: 'Second page value', visual: { kind: 'paragraph' as const, text: 'Second page value', complete: true } }] };
+    mocks.extraction.mockResolvedValue({ ...structuredClone(base), pages: [structuredClone(base.pages[0]!), second],
+      issues: [...structuredClone(base.issues), { id: 'I000002', page: 2, code: 'TEXT_CONFLICT', message: 'Second page differs', status: 'open' }] });
+    render(<ExtractionReviewModal source={source} onClose={vi.fn()} onApproved={vi.fn()} />);
+    await screen.findByText('Source unit 1 of 2');
+
+    await user.click(screen.getByRole('button', { name: 'Select all pages' }));
+    const dialog = screen.getByRole('dialog', { name: 'Approve all selected pages' });
+    expect(screen.getByText('2 pages selected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1' })).toHaveClass('is-all-selected');
+    expect(screen.getByRole('button', { name: '2' })).toHaveClass('is-all-selected');
+    await user.click(within(dialog).getByRole('button', { name: 'Approve all unresolved issues' }));
+    await user.click(within(dialog).getByRole('checkbox', { name: /all selected pages/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save all page reviews' }));
+
+    await waitFor(() => expect(mocks.approveExtraction).toHaveBeenCalledWith('source', expect.objectContaining({
+      allPagesSelected: true,
+      pages: [expect.objectContaining({ number: 1 }), expect.objectContaining({ number: 2 })],
+      issueResolutions: expect.arrayContaining([
+        expect.objectContaining({ id: 'I000001', action: 'source_verified' }),
+        expect.objectContaining({ id: 'I000002', action: 'source_verified' }),
+      ]),
+    })));
   });
 
   it('notifies the parent only after the server releases the extraction', async () => {
