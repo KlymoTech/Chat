@@ -67,6 +67,8 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   const [structures, setStructures] = useState<Record<string, string>>({});
   const [links, setLinks] = useState<Record<string, string>>({});
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
+  const [allPagesSelected, setAllPagesSelected] = useState(false);
+  const [allPagesDialogOpen, setAllPagesDialogOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [blank, setBlank] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -105,7 +107,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
     setStructures(Object.fromEntries(value.pages.flatMap((p) => (p.blocks ?? []).map((b) =>
       [b.id, JSON.stringify(b.reviewed_structure ?? b.proposed_structure ?? b.visual, null, 2)]))));
     setLinks(Object.fromEntries(value.pages.flatMap((p) => (p.blocks ?? []).map((b) => [b.id, (b.related_block_ids ?? []).join(', ')]))));
-    setDecisions({}); setConfirmed(false); setBlank(false); setReason('');
+    setDecisions({}); setAllPagesSelected(false); setAllPagesDialogOpen(false); setConfirmed(false); setBlank(false); setReason('');
   };
 
   useEffect(() => {
@@ -175,17 +177,23 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
     if (!record || !page || !confirmed) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      const blocks = (page.blocks ?? []).filter((b) => b.status !== 'split').map((b) => {
-        const structure = JSON.parse(structures[b.id] ?? 'null') as ExtractionReading | null;
-        if (!structure || typeof structure.text !== 'string') throw new Error(`Region ${b.id} needs a complete structured reading.`);
-        return { id: b.id, selectedText: structure.text, structure,
-          relatedBlockIds: (links[b.id] ?? '').split(',').map((v) => v.trim()).filter(Boolean) };
+      const pagesToSave = allPagesSelected ? record.pages : [page];
+      const reviewedPages = pagesToSave.map((reviewPage) => {
+        const blocks = (reviewPage.blocks ?? []).filter((b) => b.status !== 'split').map((b) => {
+          const structure = JSON.parse(structures[b.id] ?? 'null') as ExtractionReading | null;
+          if (!structure || typeof structure.text !== 'string') throw new Error(`Region ${b.id} needs a complete structured reading.`);
+          return { id: b.id, selectedText: structure.text, structure,
+            relatedBlockIds: (links[b.id] ?? '').split(',').map((v) => v.trim()).filter(Boolean) };
+        });
+        return { number: reviewPage.number, selectedText: blocks.length ? blocks.map((b) => b.selectedText).join('\n') : reviewPage.native_text,
+          reason, structureConfirmed: true, blankConfirmed: reviewPage.number === page.number ? blank : false, blocks };
       });
+      const selectedPageNumbers = new Set(pagesToSave.map((reviewPage) => reviewPage.number));
       const result = await api.knowledge.approveExtraction(source.id, {
         extractionRevision: record.extraction_revision,
-        pages: [{ number: page.number, selectedText: blocks.length ? blocks.map((b) => b.selectedText).join('\n') : page.native_text,
-          reason, structureConfirmed: confirmed, blankConfirmed: blank, blocks }],
-        issueResolutions: Object.values(decisions).filter((d) => record.issues.some((i) => i.id === d.id && (i.page === page.number || i.page === 0))),
+        allPagesSelected,
+        pages: reviewedPages,
+        issueResolutions: Object.values(decisions).filter((d) => record.issues.some((i) => i.id === d.id && (selectedPageNumbers.has(i.page) || i.page === 0))),
       });
       if (result.status !== 'needs_review') { onApproved('Verified extraction released'); return; }
       const updated = await api.knowledge.extraction(source.id);
@@ -211,12 +219,16 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   };
 
   const issues = record?.issues.filter((issue) => issue.page === page?.number || issue.page === 0) ?? [];
-  const actionableIssues = issues.filter((issue) => issue.status !== 'resolved' && !issue.technical);
+  const reviewPages = allPagesSelected && record ? record.pages : page ? [page] : [];
+  const reviewPageNumbers = new Set(reviewPages.map((reviewPage) => reviewPage.number));
+  const allReviewIssues = record?.issues.filter((issue) => reviewPageNumbers.has(issue.page) || issue.page === 0) ?? [];
+  const actionableIssues = allReviewIssues.filter((issue) => issue.status !== 'resolved' && !issue.technical);
   const leaves = (page?.blocks ?? []).filter((b) => b.status !== 'split');
+  const reviewLeaves = reviewPages.flatMap((reviewPage) => (reviewPage.blocks ?? []).filter((b) => b.status !== 'split'));
   const released = record?.review_status === 'verified_release';
-  const hasTechnicalBlocker = issues.some((i) => i.technical && i.status !== 'resolved');
+  const hasTechnicalBlocker = allReviewIssues.some((i) => i.technical && i.status !== 'resolved');
   // A region the text layer and OCR agree on (proposed_structure) does not need a vision reading.
-  const hasMissingVisualEvidence = leaves.some((b) => !b.visual && !b.proposed_structure);
+  const hasMissingVisualEvidence = reviewLeaves.some((b) => !b.visual && !b.proposed_structure);
   const evidenceLoading = Boolean(page?.image) && !imageUrl;
   const blocked = record?.schema_version !== 2 || hasTechnicalBlocker
     || hasMissingVisualEvidence || evidenceLoading;
@@ -232,6 +244,12 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
   const updateStructure = (id: string, value: string) => { setStructures((s) => ({ ...s, [id]: value })); setConfirmed(false); };
   const clearArea = () => { setAreaBox(null); setAreaResult(null); setAreaError(''); setAreaText(''); setCellTexts({}); setDrag(null); };
   const changePage = (index: number) => { setCurrent(index); setConfirmed(false); setBlank(false); setReason(''); setZoom(1); clearArea(); setSelecting(false); };
+  const selectSinglePage = (index: number) => { setAllPagesSelected(false); setAllPagesDialogOpen(false); changePage(index); };
+  const selectAllPages = () => {
+    if (!record) return;
+    setAllPagesSelected(true); setConfirmed(false); setBlank(false);
+    setAllPagesDialogOpen(true);
+  };
   const setDecision = (issue: Issue, patch: Partial<Decision>) => {
     setConfirmed(false);
     setDecisions((s) => ({ ...s, [issue.id]: { id: issue.id, action: s[issue.id]?.action ?? 'unresolved', reason: s[issue.id]?.reason ?? '', ...patch } }));
@@ -248,17 +266,17 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
       return next;
     });
     setConfirmed(false);
-    setNotice(`Approved ${actionableIssues.length} unresolved issue${actionableIssues.length === 1 ? '' : 's'} using the page review reason. Confirm source coverage, then save.`);
+    setNotice(`Approved ${actionableIssues.length} unresolved issue${actionableIssues.length === 1 ? '' : 's'} using the ${allPagesSelected ? 'all-pages' : 'page'} review reason. Confirm source coverage, then save.`);
   };
 
-  const invalidStructures = leaves.filter((block) => parseReading(structures[block.id]).invalid);
+  const invalidStructures = reviewLeaves.filter((block) => parseReading(structures[block.id]).invalid);
   const undecidedIssues = actionableIssues.filter((issue) => (decisions[issue.id]?.action ?? 'unresolved') === 'unresolved');
   const readiness: Array<{ done: boolean; label: string }> = page ? [
     { done: !blocked, label: blocked ? 'Resolve the evidence problem shown above' : 'Source evidence is ready' },
     { done: !invalidStructures.length, label: invalidStructures.length ? `Fix invalid structured reading in ${invalidStructures.map((b) => b.id).join(', ')}` : 'Structured readings are valid' },
     { done: !undecidedIssues.length, label: undecidedIssues.length ? `${undecidedIssues.length} flagged issue${undecidedIssues.length === 1 ? '' : 's'} still unresolved (optional, but release stays blocked)` : 'Flagged issues have a decision' },
-    { done: Boolean(reason.trim()), label: 'Enter a reason for the page review' },
-    { done: confirmed, label: 'Confirm you checked every region on this page' },
+    { done: Boolean(reason.trim()), label: `Enter a reason for the ${allPagesSelected ? 'all-pages' : 'page'} review` },
+    { done: confirmed, label: `Confirm you checked every region on ${allPagesSelected ? 'all selected pages' : 'this page'}` },
   ] : [];
   const zoomBy = (delta: number) => setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((z + delta) * 100) / 100)));
   const pageCount = record?.pages.length ?? 0;
@@ -372,13 +390,13 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
     footer={<div className="xr-footer">
       <div className="xr-footer__pager">
         <Button variant="secondary" size="sm" icon={ChevronLeft} disabled={saving || !record || current === 0} onClick={() => changePage(current - 1)}>Previous</Button>
-        {pageCount > 0 && <span>Page {current + 1} of {pageCount}</span>}
+        {pageCount > 0 && <span>{allPagesSelected ? `${pageCount} pages selected` : `Page ${current + 1} of ${pageCount}`}</span>}
         <Button variant="secondary" size="sm" disabled={saving || !record || current >= pageCount - 1} onClick={() => changePage(current + 1)}>Next<ChevronRight aria-hidden="true" /></Button>
       </div>
       <div className="xr-footer__actions">
         <Button variant="secondary" onClick={onClose} disabled={saving}>Close</Button>
         <Button onClick={() => void save()} disabled={saving || !page || blocked || !confirmed || !reason.trim()}>
-          {saving ? 'Saving…' : released ? 'Save and retrain' : 'Save page review'}
+          {saving ? 'Saving…' : released ? 'Save and retrain' : allPagesSelected ? 'Save all page reviews' : 'Save page review'}
         </Button>
       </div>
     </div>}>
@@ -402,12 +420,14 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
       {error && <p role="alert" className="xr-banner xr-banner--danger"><AlertTriangle aria-hidden="true" />{error}</p>}
       {notice && <p role="status" className="xr-banner xr-banner--info">{notice}</p>}
       {record && pageCount > 1 && <nav className="xr-pages" aria-label="Source pages">
+        <button type="button" className={`xr-page-chip xr-page-chip--all${allPagesSelected ? ' is-selected' : ''}`}
+          aria-pressed={allPagesSelected} disabled={saving} onClick={selectAllPages}><Check aria-hidden="true" />Select all pages</button>
         {record.pages.map((p, index) => {
           const state = pageReviewState(p);
-          return <button key={p.number} type="button" className={`xr-page-chip xr-page-chip--${state}${index === current ? ' is-active' : ''}`}
+          return <button key={p.number} type="button" className={`xr-page-chip xr-page-chip--${state}${allPagesSelected ? ' is-all-selected' : ''}${index === current ? ' is-active' : ''}`}
             aria-current={index === current ? 'page' : undefined} disabled={saving}
             title={state === 'done' ? 'Reviewed' : 'Not reviewed yet'}
-            onClick={() => changePage(index)}>{state === 'done' ? <Check aria-hidden="true" /> : null}{p.number}</button>;
+            onClick={() => selectSinglePage(index)}>{state === 'done' ? <Check aria-hidden="true" /> : null}{p.number}</button>;
         })}
       </nav>}
     </div>
@@ -590,7 +610,7 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
           </details>
         </Step>
 
-        <Step number={2} title={`Resolve flagged issues${issues.length ? ` (${issues.length})` : ''}`}
+        <Step number={2} title={`Resolve flagged issues${allReviewIssues.length ? ` (${allReviewIssues.length})` : ''}`}
           hint="Decide whether each flag matches the original. Technical failures can only be fixed by reprocessing."
           action={<Button variant="secondary" size="sm" icon={Check} onClick={approveAllIssues} disabled={saving || !record || !page || !actionableIssues.length}>Approve all unresolved issues</Button>}>
           {issues.length === 0 && <p className="xr-empty"><Check aria-hidden="true" />No issues flagged on this page.</p>}
@@ -611,11 +631,11 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
           })}
         </Step>
 
-        <Step number={3} title="Confirm and save" hint="Record why you are approving this page. The review is saved per page.">
-          <label className="xr-field">Reason for page review<input value={reason} placeholder="e.g. Compared every value with the original page" onChange={(e) => setReason(e.target.value)} /></label>
+        <Step number={3} title="Confirm and save" hint={allPagesSelected ? 'Record why you are approving all selected pages. The review is saved for every page.' : 'Record why you are approving this page. The review is saved per page.'}>
+          <label className="xr-field">Reason for {allPagesSelected ? 'all-pages' : 'page'} review<input value={reason} placeholder="e.g. Compared every value with the original page" onChange={(e) => setReason(e.target.value)} /></label>
           {!leaves.length && !page.native_text && <label className="xr-check"><input type="checkbox" checked={blank} onChange={(e) => setBlank(e.target.checked)} />Source is blank</label>}
           <label className="xr-check" title={blocked ? blockerMessage : undefined}><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
-            I checked every source region, text, order, table cell, equation and relationship on this page.</label>
+            I checked every source region, text, order, table cell, equation and relationship on {allPagesSelected ? 'all selected pages' : 'this page'}.</label>
           <ul className="xr-readiness" aria-label="Before you save">
             {readiness.map((item) => <li key={item.label} className={item.done ? 'is-done' : ''}>{item.done ? <Check aria-hidden="true" /> : <Circle aria-hidden="true" />}{item.label}</li>)}
           </ul>
@@ -630,6 +650,23 @@ export function ExtractionReviewModal({ source, onClose, onApproved }: {
         {record.word && <details className="xr-details"><summary>Word source parts and annotation channels</summary><pre className="xr-mono">{JSON.stringify(record.word, null, 2)}</pre></details>}
       </section>
     </div> : <p className="xr-banner xr-banner--warning">No source units were extracted. Check the validation checks and reprocess a readable source.</p>)}
+    <Modal open={allPagesDialogOpen} onClose={() => setAllPagesDialogOpen(false)} size="sm" title="Approve all selected pages"
+      description={`${pageCount} pages are selected. This keeps the current extraction review rules and saves all selected pages together.`}
+      footer={<div className="xr-all-pages-dialog__actions">
+        <Button variant="secondary" onClick={() => setAllPagesDialogOpen(false)} disabled={saving}>Continue reviewing</Button>
+        <Button onClick={() => void save()} disabled={saving || !page || blocked || !confirmed || !reason.trim()}>{saving ? 'Saving…' : 'Save all page reviews'}</Button>
+      </div>}>
+      <div className="xr-all-pages-dialog">
+        <Button variant="secondary" size="sm" icon={Check} onClick={approveAllIssues} disabled={saving || !actionableIssues.length}>Approve all unresolved issues</Button>
+        <p className="xr-muted">{actionableIssues.length ? `${actionableIssues.length} unresolved non-technical issue${actionableIssues.length === 1 ? '' : 's'} will be approved using the review reason below.` : 'There are no unresolved non-technical issues to approve.'}</p>
+        <label className="xr-field">Reason for all-pages review<input value={reason} placeholder="e.g. Compared every value with the original pages" onChange={(e) => { setReason(e.target.value); setConfirmed(false); }} /></label>
+        <label className="xr-check" title={blocked ? blockerMessage : undefined}><input type="checkbox" checked={confirmed} disabled={blocked} onChange={(e) => setConfirmed(e.target.checked)} />
+          I checked every source region, text, order, table cell, equation and relationship on all selected pages.</label>
+        <ul className="xr-readiness" aria-label="Before you save all pages">
+          {readiness.map((item) => <li key={item.label} className={item.done ? 'is-done' : ''}>{item.done ? <Check aria-hidden="true" /> : <Circle aria-hidden="true" />}{item.label}</li>)}
+        </ul>
+      </div>
+    </Modal>
   </Modal>;
 }
 

@@ -236,6 +236,8 @@ export interface ExtractionAreaResult {
 
 export interface ExtractionReviewSubmission {
   extractionRevision: number;
+  /** True only when the reviewer deliberately saves every source page together. */
+  allPagesSelected?: boolean;
   pages: Array<{ number: number; selectedText: string; reason: string; structureConfirmed: boolean; blankConfirmed: boolean;
     blocks: Array<{ id: string; selectedText: string; structure: ExtractionReading; relatedBlockIds: string[] }> }>;
   issueResolutions: Array<{ id: string; action: 'source_verified' | 'source_anomaly' | 'unresolved'; reason: string }>;
