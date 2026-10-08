@@ -23,6 +23,7 @@ async def test_rabbitmq_unconfigured_does_not_connect(monkeypatch):
 @pytest.mark.asyncio
 async def test_rabbitmq_probe_uses_configured_queue_and_closes_connection(monkeypatch):
     import kombu
+
     from northstar_api.modules.platform_runtime import broker_health
 
     monkeypatch.setenv("PLATFORM_QUEUE_HEALTH_RABBITMQ_QUEUE", "durable.jobs")
