@@ -16,6 +16,9 @@ import '@/theme/materialm.components.css';
 import '@/theme/academy.tokens.css';
 import '@/theme/academy.css';
 import '@/theme/academy.components.css';
+import '@fontsource-variable/jetbrains-mono';
+import '@fontsource-variable/plus-jakarta-sans';
+import '@fontsource-variable/space-grotesk';
 import '@/theme/saas-bot.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
