@@ -69,3 +69,13 @@ def test_cross_environment_event_rejected():
 def test_destructive_hot_apply_rejected():
     event = approved_event().model_copy(update={"action": "hot_apply", "destructive": True})
     assert "destructive_hot_apply_rejected" in evaluate(event)
+
+
+def test_worker_rejects_modified_plan_steps():
+    event = approved_event().model_copy(update={"plan_steps": ("skip_verification",)})
+    assert "dispatch_steps_mismatch" in evaluate(event)
+
+
+def test_worker_rejects_forged_destructive_flag():
+    event = approved_event().model_copy(update={"destructive": True})
+    assert "dispatch_destructive_flag_mismatch" in evaluate(event)
