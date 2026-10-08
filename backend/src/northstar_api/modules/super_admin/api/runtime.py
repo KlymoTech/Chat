@@ -344,6 +344,24 @@ async def read_platform_rabbitmq_health(
                 pass
 
 
+@router.get("/queue/alerts")
+async def read_platform_queue_alerts(
+    principal: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Read-only alert snapshot; delivery/deduplication are not claimed."""
+    from northstar_api.modules.platform_runtime.queue_alerts import classify_queue_alerts
+
+    overview = await read_platform_queue_overview(principal, session)
+    alerts = classify_queue_alerts(overview)
+    return {
+        "tenant_id": str(principal.tenant_id),
+        "alerts": [item.as_json() for item in alerts],
+        "source_status": overview["status"],
+        "delivery_configured": False,
+    }
+
+
 @router.get("/queue/overview")
 async def read_platform_queue_overview(
     principal: PlatformSystemReadPrincipal,
