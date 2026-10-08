@@ -9,7 +9,8 @@ from northstar_api.modules.platform_runtime.queue_replay import QueueReplayServi
 
 def db(*, updated: int = 1):
     session = MagicMock()
-    session.execute = AsyncMock(return_value=MagicMock(rowcount=updated))
+    session.execute = AsyncMock()
+    session.execute.return_value.rowcount = updated
     session.begin.return_value.__aenter__ = AsyncMock()
     session.begin.return_value.__aexit__ = AsyncMock()
     session.__aenter__ = AsyncMock(return_value=session)
