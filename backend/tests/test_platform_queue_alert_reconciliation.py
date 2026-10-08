@@ -5,8 +5,8 @@ from uuid import uuid4
 
 import pytest
 
-from northstar_api.modules.platform_runtime.queue_alerts import QueueAlert
 from northstar_api.modules.platform_runtime.queue_alert_reconciliation import reconcile_queue_alerts
+from northstar_api.modules.platform_runtime.queue_alerts import QueueAlert
 
 
 def session_with(rows):
