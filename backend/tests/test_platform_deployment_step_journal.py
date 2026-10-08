@@ -17,6 +17,11 @@ from northstar_api.modules.platform_runtime.deployment_step_journal import Deplo
 from northstar_api.modules.platform_runtime.deployment_step_persistence import PlatformDeploymentStep
 from northstar_api.modules.platform_runtime.persistence import PlatformChangeRecord
 
+_TEST_SIGNER = Ed25519PrivateKey.generate()
+_TEST_PUBLIC_KEY = _TEST_SIGNER.public_key().public_bytes(
+    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+)
+
 
 class FakeSession:
     def __init__(self, lease, change):
@@ -67,7 +72,9 @@ def fixture():
     )
     claim = DeploymentClaim(change_id, token, lease.owner, lease.lease_expires_at)
     session = FakeSession(lease, change)
-    return DeploymentStepJournal(lambda: session), session, claim
+    return DeploymentStepJournal(
+        lambda: session, verifier_public_key_pem=_TEST_PUBLIC_KEY,
+    ), session, claim
 
 
 def signed_attestation(session, claim, step, private):
@@ -111,14 +118,14 @@ async def test_order_and_duplicate_execution_are_blocked():
 async def test_independent_signature_unlocks_only_next_step():
     journal, session, claim = fixture()
     step = await journal.begin_step(claim, 0)
-    private = Ed25519PrivateKey.generate()
-    token, public = signed_attestation(session, claim, step, private)
-    assert not await journal.verify_step(claim, 0, signed_attestation=token, verifier_public_key_pem=b"invalid")
-    assert await journal.verify_step(claim, 0, signed_attestation=token, verifier_public_key_pem=public)
+    token, _ = signed_attestation(session, claim, step, Ed25519PrivateKey.generate())
+    assert not await journal.verify_step(claim, 0, signed_attestation=token)
+    token, _ = signed_attestation(session, claim, step, _TEST_SIGNER)
+    assert await journal.verify_step(claim, 0, signed_attestation=token)
     assert session.steps[claim.change_id, 0].status == "verified"
     assert session.steps[claim.change_id, 0].evidence_digest == "b" * 64
     assert await journal.begin_step(claim, 1) is not None
-    assert not await journal.verify_step(claim, 0, signed_attestation=token, verifier_public_key_pem=public)
+    assert not await journal.verify_step(claim, 0, signed_attestation=token)
 
 
 @pytest.mark.asyncio
