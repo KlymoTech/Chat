@@ -20,7 +20,8 @@ def token(kind="health_snapshot", *, issued=1000, expires=1500, environment="sta
         "run_id": "qual-run-0001", "issued_at": issued, "expires_at": expires,
     }, sort_keys=True).encode()
     digest = hmac.new(KEY, payload, hashlib.sha256).digest()
-    enc = lambda val: base64.urlsafe_b64encode(val).decode().rstrip("=")
+    def enc(val: bytes) -> str:
+        return base64.urlsafe_b64encode(val).decode().rstrip("=")
     return enc(payload) + "." + enc(digest)
 
 
