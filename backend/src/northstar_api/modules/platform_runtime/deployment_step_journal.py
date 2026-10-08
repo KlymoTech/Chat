@@ -35,8 +35,13 @@ class DeploymentStepClaim:
 
 
 class DeploymentStepJournal:
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, sessions: async_sessionmaker[AsyncSession], *, verifier_public_key_pem: bytes,
+    ) -> None:
+        if not verifier_public_key_pem:
+            raise ValueError("a pinned verifier public key is required")
         self.sessions = sessions
+        self.verifier_public_key_pem = verifier_public_key_pem
 
     async def _owned_plan(self, session: AsyncSession, claim: DeploymentClaim, now: datetime):
         """Serialize by the lease row and validate the exact approved plan."""
@@ -122,7 +127,6 @@ class DeploymentStepJournal:
         index: int,
         *,
         signed_attestation: str,
-        verifier_public_key_pem: bytes,
     ) -> bool:
         """Complete only with a fresh independent Ed25519 step attestation."""
         now = datetime.now(UTC)
@@ -142,7 +146,7 @@ class DeploymentStepJournal:
                 return False
             proof = verify_step_attestation(
                 signed_attestation,
-                public_key_pem=verifier_public_key_pem,
+                public_key_pem=self.verifier_public_key_pem,
                 change_id=claim.change_id,
                 lease_token=claim.lease_token,
                 environment=change.environment,
