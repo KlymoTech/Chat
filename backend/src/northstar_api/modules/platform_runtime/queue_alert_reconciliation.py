@@ -17,6 +17,7 @@ async def reconcile_queue_alerts(
     tenant_id: UUID,
     alerts: tuple[QueueAlert, ...],
     observed_at: datetime | None = None,
+    resolve_missing: bool = False,
 ) -> dict[str, int]:
     """Reconcile in the caller's transaction; never commit or send notifications.
 
@@ -60,7 +61,7 @@ async def reconcile_queue_alerts(
             row.occurrences += 1
     active_codes = {code for _, code in by_code}
     for row in existing:
-        if row.code not in active_codes and row.state == "open":
+        if resolve_missing and row.code not in active_codes and row.state == "open":
             row.state = "resolved"
             row.resolved_at = clock
             row.last_seen_at = clock
