@@ -38,6 +38,8 @@ def fixtures():
     session.get = AsyncMock(return_value=change)
     session.scalar = AsyncMock(side_effect=[execution, desired, current])
     session.commit = AsyncMock()
+    session.execute = AsyncMock(side_effect=[SimpleNamespace(rowcount=1), SimpleNamespace(rowcount=1)])
+    session.rollback = AsyncMock()
     return session, request, principal, change, current, desired
 
 
@@ -50,8 +52,8 @@ async def test_successful_promotion_requires_completed_execution(monkeypatch):
     session, request, principal, _, source, target = fixtures()
     result = await activate_verified_desired_state(request, principal, session)
     assert result["active"] is True
-    assert source.active is False
-    assert target.active is True
+    assert session.execute.await_count == 2
+    assert source.active is True and target.active is False  # SQL updates, not in-memory mutation
     session.commit.assert_awaited_once()
     audit.assert_called_once()
 
@@ -85,4 +87,27 @@ async def test_requestor_cannot_activate():
     with pytest.raises(HTTPException) as error:
         await activate_verified_desired_state(request, principal, session)
     assert error.value.status_code == 403
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_source_retirement_is_rejected():
+    session, request, principal, _, _, _ = fixtures()
+    session.execute = AsyncMock(return_value=SimpleNamespace(rowcount=0))
+    with pytest.raises(HTTPException) as error:
+        await activate_verified_desired_state(request, principal, session)
+    assert error.value.status_code == 409
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_target_update_rolls_back_source_retirement():
+    session, request, principal, _, _, _ = fixtures()
+    session.execute = AsyncMock(side_effect=[
+        SimpleNamespace(rowcount=1), SimpleNamespace(rowcount=0),
+    ])
+    with pytest.raises(HTTPException) as error:
+        await activate_verified_desired_state(request, principal, session)
+    assert error.value.status_code == 409
+    session.rollback.assert_awaited_once()
     session.commit.assert_not_awaited()
