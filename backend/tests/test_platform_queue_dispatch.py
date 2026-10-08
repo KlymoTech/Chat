@@ -6,7 +6,8 @@ import pytest
 
 from northstar_api.modules.platform_runtime.queue_contract import DeliveryOutcome, DispatchReceipt, DurableJob
 from northstar_api.modules.platform_runtime.queue_dispatch import (
-    ClaimedJob, DurableDispatchService,
+    ClaimedJob,
+    DurableDispatchService,
 )
 
 
