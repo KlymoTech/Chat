@@ -15,7 +15,7 @@ import { MaterialmWorkspaceSwitcher } from './WorkspaceSwitcher';
 
 const COLLAPSED_KEY = 'northstar.academy.sidebar-collapsed';
 function savedCollapsed(): boolean {
-  try { return localStorage.getItem(COLLAPSED_KEY) !== 'false'; } catch { return true; }
+  try { return localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
 }
 
 /** Responsive academy shell sharing the existing business pages, providers and APIs. */
@@ -110,11 +110,11 @@ export function MaterialmAppShell() {
     catch (error) { pushToast(error instanceof Error ? error.message : 'Sign out failed', 'error'); }
   }
 
-  return <div className={`mm-shell academy-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
+  return <div className={`mm-shell academy-shell saas-bot-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
     <a className="mm-skip" href="#mm-main-content">Skip to content</a>
     {session?.impersonation ? <div role="status" className="support-impersonation-banner"><ShieldCheck aria-hidden="true" /><span><strong>Support session active</strong> · You are acting as {session.user.email}. This session expires automatically.</span><button type="button" onClick={() => void signOut()}>Exit support session</button></div> : null}
     <aside className="mm-sidebar" aria-label="Primary navigation">
-      <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} light /></Link>
+      <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} /></Link>
       <MaterialmSidebarLinks items={items} />
       <button type="button" className="mm-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
         {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse sidebar'}</span>

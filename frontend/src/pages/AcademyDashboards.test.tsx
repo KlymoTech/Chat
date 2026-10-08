@@ -6,14 +6,16 @@ import { EducationHubPage } from './EducationHubPage';
 import { OverviewPage } from './OverviewPage';
 import { demoAgents, demoAnalytics } from '@/lib/demo-data';
 
-const mocks = vi.hoisted(() => ({ courses: vi.fn(), enrollments: vi.fn(), agents: vi.fn(), analytics: vi.fn(), conversations: vi.fn() }));
+const mocks = vi.hoisted(() => ({ courses: vi.fn(), enrollments: vi.fn(), agents: vi.fn(), analytics: vi.fn(), conversations: vi.fn(), knowledge: vi.fn(), integrations: vi.fn() }));
 vi.mock('@/components/providers', () => ({ useAuth: () => ({ session: { user: { name: 'Sam Owner', role: 'owner' } } }), useWorkspace: () => ({ activeWorkspace: { id: 'academy' } }) }));
 vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: mocks.courses } } }));
 vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: mocks.enrollments } }));
-vi.mock('@/lib/api', () => ({ api: { agents: { list: mocks.agents }, analytics: { summary: mocks.analytics }, conversations: { list: mocks.conversations } } }));
+vi.mock('@/lib/api', () => ({ api: { agents: { list: mocks.agents }, analytics: { summary: mocks.analytics }, conversations: { list: mocks.conversations }, knowledge: { list: mocks.knowledge }, integrations: { list: mocks.integrations } } }));
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.knowledge.mockResolvedValue([]);
+  mocks.integrations.mockResolvedValue([]);
   mocks.courses.mockResolvedValue([
     { id: 'cma', code: 'CMA-P1', name: 'CMA', status: 'active', description: 'Accounting course', createdAt: new Date().toISOString() },
     { id: 'old', code: 'OLD', name: 'Archived course', status: 'archived', description: '', createdAt: '2020-01-01T00:00:00Z' },

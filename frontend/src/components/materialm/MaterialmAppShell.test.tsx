@@ -49,10 +49,11 @@ describe('MaterialM application shell', () => {
   });
   it('persists only the collapsed-sidebar preference', async () => {
     mount();
-    await userEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
-    expect(localStorage.getItem('northstar.academy.sidebar-collapsed')).toBe('false');
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toHaveAttribute('aria-expanded', 'true');
     await userEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
     expect(localStorage.getItem('northstar.academy.sidebar-collapsed')).toBe('true');
+    await userEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
+    expect(localStorage.getItem('northstar.academy.sidebar-collapsed')).toBe('false');
   });
   it('makes all primary links available in the mobile drawer and closes on navigation', async () => {
     mount();

@@ -1,0 +1,50 @@
+# Temporary, branch-scoped dependency lock generation. Removed after this review.
+name: Freeze Figma font dependencies
+on:
+  pull_request:
+    paths:
+      - scripts/figma-redesign/freeze-fonts.py
+      - .github/workflows/figma-font-lock-once.yml
+permissions:
+  contents: read
+jobs:
+  freeze:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/figma-saas-bot-redesign'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - name: Freeze exact font versions and validate the install
+        run: |
+          python3 scripts/figma-redesign/freeze-fonts.py
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build
+      - name: Commit only the three generated files to the requested feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git add -- frontend/package.json package-lock.json frontend/src/main.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'build: lock and self-host the three Figma font families'
+          HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$HEADER"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin HEAD:refs/heads/feat/figma-saas-bot-redesign
+      - name: Capture workspace-local build dependencies for isolated review
+        run: |
+          mkdir -p /tmp/figma-workspace-toolchain
+          tar -czf /tmp/figma-workspace-toolchain/frontend-node-modules.tar.gz frontend/node_modules
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: figma-workspace-toolchain
+          path: /tmp/figma-workspace-toolchain/
+          retention-days: 3
+          if-no-files-found: error

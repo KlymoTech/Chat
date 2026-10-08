@@ -66,8 +66,8 @@ jobs:
             backend/test-results.xml
           retention-days: 14
           if-no-files-found: error
-  preparation:
-    name: Prepare isolated review toolchain
+  browser:
+    name: Responsive browser review (demo fixtures, not backend E2E)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -75,17 +75,19 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with: {node-version: '22', cache: npm}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
       - run: |
           npm ci --no-audit --no-fund
-          npm install --save-exact --workspace @northstar/web @fontsource-variable/space-grotesk @fontsource-variable/jetbrains-mono @fontsource-variable/plus-jakarta-sans
-          mkdir -p /tmp/review-toolchain
-          cp "$(command -v node)" /tmp/review-toolchain/node
-          cp package-lock.json /tmp/review-toolchain/package-lock.json
-          cp frontend/package.json /tmp/review-toolchain/frontend-package.json
-          tar --exclude='node_modules/@northstar/web' -czf /tmp/review-toolchain/node_modules.tar.gz node_modules
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - run: npm run build
+        env: {VITE_DEMO_MODE: 'true'}
+      - run: python scripts/figma-redesign/browser_review.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
-          name: figma-review-toolchain
-          path: /tmp/review-toolchain/
-          retention-days: 3
+          name: figma-browser-review
+          path: review-results/browser/
+          retention-days: 14
           if-no-files-found: error

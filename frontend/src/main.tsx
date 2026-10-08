@@ -16,6 +16,7 @@ import '@/theme/materialm.components.css';
 import '@/theme/academy.tokens.css';
 import '@/theme/academy.css';
 import '@/theme/academy.components.css';
+import '@/theme/saas-bot.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
