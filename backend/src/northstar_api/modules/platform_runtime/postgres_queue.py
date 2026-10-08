@@ -8,7 +8,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.modules.platform_runtime.queue_contract import DurableJob, QueueAdmissionError
 from northstar_api.modules.platform_runtime.queue_persistence import DurableQueueRecord
