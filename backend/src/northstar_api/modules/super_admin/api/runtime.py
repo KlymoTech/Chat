@@ -575,7 +575,7 @@ async def approve_runtime_change(
     # Evidence identifiers must correspond to externally verified artifacts.
     # Until the evidence store is connected, stateful/restart changes remain
     # fail-closed even if a caller asserts evidence labels.
-    if gate.change_class in {SwitchClass.B, SwitchClass.C, SwitchClass.D}:
+    if gate.changes:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="deployment evidence verifier is not configured; change cannot be dispatched",
