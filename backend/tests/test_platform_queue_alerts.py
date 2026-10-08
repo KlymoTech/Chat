@@ -7,7 +7,8 @@ import pytest
 from fastapi import HTTPException
 
 from northstar_api.modules.platform_runtime.queue_alerts import (
-    QueueAlertThresholds, classify_queue_alerts,
+    QueueAlertThresholds,
+    classify_queue_alerts,
 )
 from northstar_api.modules.super_admin.api import runtime
 
