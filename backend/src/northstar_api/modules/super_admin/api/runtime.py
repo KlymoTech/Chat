@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
 from sqlalchemy.exc import IntegrityError
 
 from northstar_api.config import get_settings
@@ -401,8 +401,31 @@ async def activate_verified_desired_state(
         raise HTTPException(status_code=409, detail="source snapshot integrity mismatch")
     if change.target_revision <= change.source_revision:
         raise HTTPException(status_code=409, detail="target revision must advance")
-    current.active = False
-    target.active = True
+    # Conditional database writes are the concurrency boundary, not the earlier
+    # SELECT snapshots. A second activator cannot reuse the same active source.
+    retired = await session.execute(
+        update(PlatformConfigVersion)
+        .where(
+            PlatformConfigVersion.id == current.id,
+            PlatformConfigVersion.active.is_(True),
+            PlatformConfigVersion.digest == change.source_digest,
+        )
+        .values(active=False)
+    )
+    if retired.rowcount != 1:
+        raise HTTPException(status_code=409, detail="active source changed concurrently")
+    promoted = await session.execute(
+        update(PlatformConfigVersion)
+        .where(
+            PlatformConfigVersion.id == target.id,
+            PlatformConfigVersion.active.is_(False),
+            PlatformConfigVersion.digest == change.target_digest,
+        )
+        .values(active=True)
+    )
+    if promoted.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="target changed concurrently")
     record_audit_event(
         session,
         tenant_id=principal.tenant_id,
