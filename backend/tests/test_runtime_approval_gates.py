@@ -23,7 +23,7 @@ def test_persisted_specs_are_reclassified_at_approval():
     assert "PlatformSpec.model_validate(record.current_spec_json)" in code
     assert "PlatformSpec.model_validate(record.desired_spec_json)" in code
     assert "gate.change_class" in code
-    assert "deployment evidence verifier is not configured" in code
+    assert "verify_qualification_proofs(" in code\n    assert "PLATFORM_QUALIFICATION_HMAC_KEY" in code
 
 
 def test_legacy_hot_safe_changes_do_not_dispatch_on_creation():
