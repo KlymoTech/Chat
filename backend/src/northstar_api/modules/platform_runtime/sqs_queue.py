@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable
 from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
