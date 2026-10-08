@@ -49,6 +49,7 @@ from northstar_api.modules.platform_runtime.tiers import (
 )
 from northstar_api.modules.platform_runtime.governed_switches import classify_transition, SwitchClass
 from northstar_api.modules.platform_runtime.qualification import verify_qualification_proofs
+from northstar_api.modules.platform_runtime.approval_integrity import persisted_change_integrity_blockers
 from northstar_api.modules.platform_runtime.control_plane import spec_digest
 from northstar_api.modules.platform_runtime.validation import validate_platform_spec
 from northstar_api.modules.platform_runtime.adaptive_safety import (
@@ -1010,6 +1011,22 @@ async def approve_runtime_change(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="platform change is not awaiting approval")
     if not approver_is_distinct(record.requested_by, principal.user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="requestor cannot approve the same change")
+    integrity_blockers = persisted_change_integrity_blockers(
+        current_json=record.current_spec_json,
+        desired_json=record.desired_spec_json,
+        environment=record.environment,
+        source_revision=record.source_revision,
+        target_revision=record.target_revision,
+        source_digest=record.source_digest,
+        target_digest=record.target_digest,
+        action=record.action,
+        classification=record.classification,
+    )
+    if integrity_blockers:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "deployment_plan_integrity_failed", "blockers": integrity_blockers},
+        )
     # Check the persisted immutable specs, never trust a client-provided class.
     # Approved work is not dispatched without qualified migration evidence.
     gate = classify_transition(
