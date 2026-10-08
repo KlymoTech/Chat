@@ -11,7 +11,6 @@ from northstar_api.modules.platform_runtime.qualification_gates import (
     evaluate_change_qualification,
 )
 
-
 NOW = datetime(2026, 10, 8, tzinfo=UTC)
 
 
