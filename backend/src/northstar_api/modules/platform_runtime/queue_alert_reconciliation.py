@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .queue_alert_persistence import QueueAlertEpisode
@@ -21,8 +21,10 @@ async def reconcile_queue_alerts(
 ) -> dict[str, int]:
     """Reconcile in the caller's transaction; never commit or send notifications.
 
-    The caller must serialize concurrent reconciliation for a tenant (e.g.
-    PostgreSQL advisory lock) before calling. Shared broker observations are
+    PostgreSQL reconciliations acquire a transaction-scoped advisory lock so
+    competing workers serialize even when the first episode does not exist.
+    The caller must own a transaction and commit after this method returns.
+    Shared broker observations are
     tracked per observing tenant, not mistakenly marked as tenant metrics.
     """
     clock = observed_at or datetime.now(UTC)
@@ -32,6 +34,14 @@ async def reconcile_queue_alerts(
     if len(by_code) != len(alerts):
         raise ValueError("duplicate alert identities in observation")
     scope_key = f"tenant:{tenant_id}"
+    # SELECT FOR UPDATE cannot lock a missing row. Serialize creation and
+    # resolution for this tenant before reading the current episode set.
+    bind = session.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
+            {"scope": "northstar:queue-alert:" + scope_key},
+        )
     existing = (await session.scalars(
         select(QueueAlertEpisode)
         .where(QueueAlertEpisode.tenant_id == tenant_id, QueueAlertEpisode.scope_key == scope_key)
