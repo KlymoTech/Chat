@@ -104,3 +104,13 @@ def test_stateful_migration_needs_backup_and_independent_approval():
     assert "healthy_backup_required" in result.blockers
     assert "independent_approval_required" in result.blockers
     assert "maintenance_window_required" in result.blockers
+
+
+def test_cross_environment_proposal_is_never_dispatchable():
+    before, after = specs()
+    after = after.model_copy(update={
+        "metadata": after.metadata.model_copy(update={"environment": "production"}),
+    })
+    result = run(before, after)
+    assert not result.allowed
+    assert "cross_environment_change_prohibited" in result.blockers
