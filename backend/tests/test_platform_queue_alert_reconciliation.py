@@ -56,7 +56,7 @@ async def test_missing_alert_resolves_existing_episode():
     session = session_with([row])
     now = datetime.now(UTC)
     result = await reconcile_queue_alerts(
-        session, tenant_id=uuid4(), alerts=(), observed_at=now,
+        session, tenant_id=uuid4(), alerts=(), observed_at=now, resolve_missing=True,
     )
     assert result["resolved"] == 1
     assert row.state == "resolved"
@@ -72,3 +72,14 @@ async def test_duplicate_observation_rejected_before_database_access():
             session, tenant_id=uuid4(), alerts=(alert, alert),
         )
     session.scalars.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_incomplete_observation_does_not_resolve_active_alert():
+    row = MagicMock(code="sqs_probe_failed", state="open")
+    session = session_with([row])
+    result = await reconcile_queue_alerts(
+        session, tenant_id=uuid4(), alerts=(),
+    )
+    assert result["resolved"] == 0
+    assert row.state == "open"
