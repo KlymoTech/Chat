@@ -50,6 +50,7 @@ from northstar_api.modules.platform_runtime.tiers import (
 from northstar_api.modules.platform_runtime.governed_switches import classify_transition, SwitchClass
 from northstar_api.modules.platform_runtime.qualification import verify_qualification_proofs
 from northstar_api.modules.platform_runtime.approval_integrity import persisted_change_integrity_blockers
+from northstar_api.modules.platform_runtime.execution_report_integrity import execution_report_matches
 from northstar_api.modules.platform_runtime.control_plane import spec_digest
 from northstar_api.modules.platform_runtime.validation import validate_platform_spec
 from northstar_api.modules.platform_runtime.adaptive_safety import (
@@ -923,10 +924,15 @@ async def report_runtime_execution(
     )
     if existing is not None:
         if (
-            existing.source_digest != payload.source_digest
-            or existing.target_digest != payload.target_digest
-            or existing.pipeline != payload.pipeline
-            or existing.status != payload.phase
+            not execution_report_matches(
+                stored_source_digest=existing.source_digest,
+                stored_target_digest=existing.target_digest,
+                stored_pipeline=existing.pipeline,
+                stored_phase=existing.status,
+                stored_health=existing.health_result_json,
+                stored_error=existing.error,
+                incoming=payload,
+            )
         ):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use")
         return _execution_response(existing)
@@ -986,10 +992,15 @@ async def report_runtime_execution(
         if existing is None:
             raise
         if (
-            existing.source_digest != payload.source_digest
-            or existing.target_digest != payload.target_digest
-            or existing.pipeline != payload.pipeline
-            or existing.status != payload.phase
+            not execution_report_matches(
+                stored_source_digest=existing.source_digest,
+                stored_target_digest=existing.target_digest,
+                stored_pipeline=existing.pipeline,
+                stored_phase=existing.status,
+                stored_health=existing.health_result_json,
+                stored_error=existing.error,
+                incoming=payload,
+            )
         ):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="execution report key is already in use") from exc
         return _execution_response(existing)
