@@ -49,6 +49,8 @@ from northstar_api.modules.platform_runtime.tiers import (
 )
 from northstar_api.modules.platform_runtime.governed_switches import classify_transition, SwitchClass
 from northstar_api.modules.platform_runtime.qualification import verify_qualification_proofs
+from northstar_api.modules.platform_runtime.control_plane import spec_digest
+from northstar_api.modules.platform_runtime.validation import validate_platform_spec
 from northstar_api.modules.platform_runtime.adaptive_safety import (
     CapacitySignals, advise_capacity,
 )
@@ -262,6 +264,67 @@ def _declared_platform_spec() -> PlatformSpec:
         resources={"redis_provisioned": redis_configured, "kafka_provisioned": kafka_enabled},
         features={"ai": ai_enabled},
     )
+
+
+class DesiredStateDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    desired: PlatformSpec
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/desired-state/versions", status_code=status.HTTP_201_CREATED)
+async def create_desired_state_draft(
+    payload: DesiredStateDraftRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Store an immutable *inactive* revision; never activate or deploy it.
+
+    Activation must go through a separate reviewed and qualified change.
+    Concurrent revision reuse fails rather than overwriting existing state.
+    """
+    spec = payload.desired
+    validate_platform_spec(spec)
+    environment = spec.metadata.environment
+    revision = spec.metadata.revision
+    latest = await session.scalar(
+        select(PlatformConfigVersion)
+        .where(PlatformConfigVersion.environment == environment)
+        .order_by(desc(PlatformConfigVersion.revision))
+        .limit(1)
+    )
+    if latest is not None and revision <= latest.revision:
+        raise HTTPException(status_code=409, detail="desired-state revision must advance")
+    record = PlatformConfigVersion(
+        environment=environment,
+        revision=revision,
+        digest=spec_digest(spec),
+        configuration_json=spec.model_dump(mode="json"),
+        created_by=principal.user_id,
+        active=False,
+        created_at=datetime.now(UTC),
+    )
+    session.add(record)
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.runtime.desired_state.draft_created",
+        entity_type="platform_config_version",
+        entity_id=str(record.id),
+        category="security",
+        severity="info",
+        after={"environment": environment, "revision": revision, "active": False, "digest": record.digest},
+        metadata={"reason": payload.reason},
+    )
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="desired-state revision conflict") from exc
+    return {"id": str(record.id), "environment": environment, "revision": revision,
+            "digest": record.digest, "active": False}
 
 
 @router.get("/desired-state")
