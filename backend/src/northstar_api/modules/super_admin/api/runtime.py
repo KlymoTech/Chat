@@ -45,7 +45,7 @@ from northstar_api.services.outbox import enqueue_event
 from northstar_api.modules.platform_runtime.tiers import (
     PlatformTier, TIERS, plan_tier_transition,
 )
-from northstar_api.modules.platform_runtime.governed_switches import classify_transition
+from northstar_api.modules.platform_runtime.governed_switches import classify_transition, verify_evidence, SwitchClass
 from northstar_api.modules.platform_runtime.adaptive_safety import (
     CapacitySignals, advise_capacity,
 )
@@ -122,6 +122,7 @@ class RuntimeChangeDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=5, max_length=500)
+    evidence: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
 
 
 class RuntimeChangeOut(BaseModel):
@@ -318,13 +319,17 @@ async def create_runtime_change(
         return _change_response(existing)
 
     now = datetime.now(UTC)
+    gate = classify_transition(payload.current, payload.desired)
+    # New non-noop requests always start in the review queue; do not dispatch
+    # immediately from a draft configuration without independently checked
+    # evidence, even when the older planner considers a change hot-safe.
     change_status: ChangeStatus = (
         "rejected"
         if analysis.plan.action == "reject"
         else "completed"
         if analysis.plan.action == "noop"
         else "waiting_approval"
-        if analysis.plan.requires_approval
+        if analysis.plan.action != "noop"
         else "approved"
     )
     record = PlatformChangeRecord(
@@ -334,7 +339,7 @@ async def create_runtime_change(
         status=change_status,
         action=analysis.plan.action,
         classification=analysis.plan.classification,
-        requires_approval=analysis.plan.requires_approval,
+        requires_approval=analysis.plan.action != "noop",
         destructive=analysis.plan.destructive,
         source_revision=analysis.plan.source_revision,
         target_revision=analysis.plan.target_revision,
@@ -347,6 +352,8 @@ async def create_runtime_change(
         impact_json={
             "changedCapabilities": list(analysis.changed_capabilities),
             "impactedCapabilities": list(analysis.impacted_capabilities),
+            "governanceClass": gate.change_class.value,
+            "requiredEvidence": list(gate.required_evidence),
         },
         requested_at=now,
         current_spec_json=payload.current.model_dump(mode="json"),
@@ -557,6 +564,28 @@ async def approve_runtime_change(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="platform change is not awaiting approval")
     if not approver_is_distinct(record.requested_by, principal.user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="requestor cannot approve the same change")
+    # Check the persisted immutable specs, never trust a client-provided class.
+    # Approved work is not dispatched without qualified migration evidence.
+    gate = classify_transition(
+        PlatformSpec.model_validate(record.current_spec_json),
+        PlatformSpec.model_validate(record.desired_spec_json),
+    )
+    if gate.change_class in {SwitchClass.L, SwitchClass.E}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="locked or unqualified change")
+    # Evidence identifiers must correspond to externally verified artifacts.
+    # Until the evidence store is connected, stateful/restart changes remain
+    # fail-closed even if a caller asserts evidence labels.
+    if gate.change_class in {SwitchClass.B, SwitchClass.C, SwitchClass.D}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="deployment evidence verifier is not configured; change cannot be dispatched",
+        )
+    blockers = verify_evidence(gate, payload.evidence, approved=True)
+    if blockers:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "deployment_evidence_required", "blockers": blockers},
+        )
     transition_change(record.status, "approved")
     now = datetime.now(UTC)
     record.status = "approved"
