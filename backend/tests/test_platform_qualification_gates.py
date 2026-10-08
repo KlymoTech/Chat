@@ -1,16 +1,18 @@
 """Fail-closed qualification tests; no cloud credentials or AWS access needed."""
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from northstar_api.modules.platform_runtime.governed_switches import SwitchClass, TransitionGate
 from northstar_api.modules.platform_runtime.qualification_gates import (
-    ChangeGuards, QualificationEvidence, evaluate_change_qualification,
+    ChangeGuards,
+    QualificationEvidence,
+    evaluate_change_qualification,
 )
 
 
-NOW = datetime(2026, 10, 8, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 8, tzinfo=UTC)
 
 
 def gate(kind=SwitchClass.C):
