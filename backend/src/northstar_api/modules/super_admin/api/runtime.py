@@ -266,6 +266,20 @@ def _declared_platform_spec() -> PlatformSpec:
     )
 
 
+@router.get("/queue/health")
+async def read_platform_queue_health(
+    principal: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Tenant-scoped durable queue state; broker probe status remains unknown."""
+    from northstar_api.modules.platform_runtime.queue_health import assess_queue_health
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    health = await assess_queue_health(session, tenant_id=principal.tenant_id)
+    return health.as_json()
+
+
 class QueueDeadLetterReplayRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
