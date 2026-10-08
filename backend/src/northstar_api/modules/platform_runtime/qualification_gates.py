@@ -7,10 +7,10 @@ immutable evidence artifact separately before recording it as trusted.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Iterable
 
 from .governed_switches import SwitchClass, TransitionGate
 
@@ -72,7 +72,7 @@ def evaluate_change_qualification(
     gate. The same evidence ID cannot satisfy multiple different requirements.
     Class L and E are blocked from automated execution regardless of evidence.
     """
-    now = guards.now.astimezone(timezone.utc)
+    now = guards.now.astimezone(UTC)
     blockers: list[str] = []
     if gate.change_class is SwitchClass.L:
         blockers.append("locked_change_prohibited")
@@ -103,8 +103,8 @@ def evaluate_change_qualification(
     for item in evidence:
         if (item.verified and item.environment == guards.environment
                 and item.target_digest == guards.target_digest
-                and item.recorded_at.astimezone(timezone.utc) <= now
-                < item.expires_at.astimezone(timezone.utc)):
+                and item.recorded_at.astimezone(UTC) <= now
+                < item.expires_at.astimezone(UTC)):
             valid_by_kind.setdefault(item.kind, set()).add(item.evidence_id)
     satisfied = tuple(sorted(set(gate.required_evidence) & valid_by_kind.keys()))
     for requirement in gate.required_evidence:
