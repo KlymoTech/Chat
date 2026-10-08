@@ -344,6 +344,55 @@ async def read_platform_rabbitmq_health(
                 pass
 
 
+@router.get("/queue/overview")
+async def read_platform_queue_overview(
+    principal: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Aggregate tenant-specific job health and explicitly shared broker probes.
+
+    A healthy broker cannot turn a degraded durable backlog healthy.
+    Unconfigured probes remain unknown, never healthy by inference.
+    """
+    import asyncio
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    durable = await read_platform_queue_health(principal, session)
+    broker_results = await asyncio.gather(
+        read_platform_sqs_health(principal),
+        read_platform_rabbitmq_health(principal),
+        return_exceptions=True,
+    )
+    brokers: dict[str, dict[str, object]] = {}
+    for name, result in zip(("sqs", "rabbitmq"), broker_results, strict=True):
+        if isinstance(result, BaseException):
+            brokers[name] = {
+                "provider": name, "status": "unavailable",
+                "scope": "shared_queue", "detail": "probe_failed",
+            }
+        else:
+            brokers[name] = result
+
+    # Broker probes may be unconfigured because the provider is inactive.
+    # That is not proof of an outage, but must not be reported as healthy.
+    states = {str(item["status"]) for item in brokers.values()}
+    if durable["status"] == "degraded" or "unavailable" in states:
+        status_label = "degraded"
+    elif "unconfigured" in states:
+        status_label = "unknown"
+    else:
+        status_label = str(durable["status"])
+    return {
+        "status": status_label,
+        "tenant_id": str(principal.tenant_id),
+        "durable_jobs": durable,
+        "brokers": brokers,
+        "broker_scope": "shared_queue",
+        "qualified": False,
+    }
+
+
 @router.get("/queue/health")
 async def read_platform_queue_health(
     principal: PlatformSystemReadPrincipal,
