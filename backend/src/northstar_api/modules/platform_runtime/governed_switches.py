@@ -5,9 +5,9 @@ It deliberately supplements the legacy change planner without changing it.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable
 
 from .contracts import PlatformSpec
 from .validation import validate_platform_spec
