@@ -33,6 +33,7 @@ on:
       - 'backend/tests/test_platform_queue_overview.py'
       - 'backend/tests/test_platform_queue_alerts.py'
       - 'backend/tests/test_platform_queue_alert_reconciliation.py'
+      - 'backend/tests/test_platform_queue_alert_postgres.py'
       - 'backend/migrations/versions/0082_platform_queue_alert_episodes.py'
       - 'backend/migrations/versions/0081_platform_queue_dispatch_lease.py'
   workflow_dispatch:
@@ -105,5 +106,5 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py
-      - run: uv run pytest tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py
+      - run: uv run ruff check tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py
+      - run: uv run pytest tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py
