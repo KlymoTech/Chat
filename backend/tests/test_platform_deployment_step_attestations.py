@@ -43,7 +43,9 @@ def sign(private, fields, **overrides):
         **overrides,
     }
     message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    encode = lambda value: base64.urlsafe_b64encode(value).decode().rstrip("=")
+    def encode(value):
+        return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
     return encode(message) + "." + encode(private.sign(message))
 
 
