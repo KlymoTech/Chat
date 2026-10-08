@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from northstar_api.modules.super_admin.api import runtime
 from northstar_api.modules.super_admin.api.runtime import read_platform_sqs_health
 
 
