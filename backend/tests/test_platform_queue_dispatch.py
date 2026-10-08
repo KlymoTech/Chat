@@ -1,18 +1,13 @@
 """Dispatch lease outcomes: empty queue, retries, and bounded attempts."""
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
-from northstar_api.modules.platform_runtime.queue_contract import (
-    DeliveryOutcome, DispatchReceipt,
-)
+from northstar_api.modules.platform_runtime.queue_contract import DeliveryOutcome, DispatchReceipt, DurableJob
 from northstar_api.modules.platform_runtime.queue_dispatch import (
     ClaimedJob, DurableDispatchService,
 )
-from northstar_api.modules.platform_runtime.queue_contract import DurableJob
 
 
 def sessions():
