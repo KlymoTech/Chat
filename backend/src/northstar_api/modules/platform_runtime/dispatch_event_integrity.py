@@ -7,6 +7,8 @@ transactional approved-state check, signed qualification and worker IAM policy.
 from __future__ import annotations
 
 from .approval_integrity import persisted_change_integrity_blockers
+from .contracts import PlatformSpec
+from .control_plane import build_change_plan
 from .executor_contract import DeploymentDispatchEvent
 
 
@@ -29,6 +31,18 @@ def validate_dispatch_event(
         action=event.action,
         classification=event.classification,
     ))
+    try:
+        plan = build_change_plan(
+            PlatformSpec.model_validate(event.current_spec),
+            PlatformSpec.model_validate(event.desired_spec),
+        )
+    except (ValueError, TypeError):
+        blockers.append("dispatch_plan_invalid")
+    else:
+        if tuple(event.plan_steps) != plan.steps:
+            blockers.append("dispatch_steps_mismatch")
+        if event.destructive != plan.destructive:
+            blockers.append("dispatch_destructive_flag_mismatch")
     if not approved:
         blockers.append("change_not_approved")
     if str(event.change_id) != approved_change_id:
