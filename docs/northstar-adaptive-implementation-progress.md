@@ -73,3 +73,38 @@ have produced artifacts and received owners' approvals.
 5. Run PostgreSQL migration against a disposable representative environment
    before production; deploy schema before code that writes lease rows.
 6. Execute staged load, chaos, restore, security and cost qualifications.
+
+
+## Increment: independently verified deployment step journal (2026-10-08)
+
+- Alembic 0086 adds `platform_deployment_steps` with immutable
+  `(change_id, step_index)` identity and step name; historical approvals are
+  not backfilled and a downgrade refuses to discard evidence.
+- `DeploymentStepJournal` validates worker token/expiry/owner, approved
+  change integrity, canonical plan steps, and strict step ordering under the
+  deployment lease row lock. Repeated starts, invalid leases, modified plans,
+  missing previous verification and uncertain effects fail closed.
+- `verify_step` requires a short-lived Ed25519 proof signed **outside the
+  application and worker**, bound to change ID, lease token, environment,
+  step index/name and source/target digests. The application receives only
+  an approved verifier public key; the issuer private key is not in Git.
+- `mark_unknown` intentionally freezes an indeterminate effect; no automatic
+  replay, reset or retry is implemented. The verifier proof records an evidence
+  SHA-256 and run identifier, not a claim that a load/restore test was run.
+- Architecture branch CI runs the new signature, sequencing and SQLite
+  migration tests. AWS qualifications and external execution are not implied.
+
+### Not implemented or authorized by these commits
+
+1. Machine-role authentication and audited worker service endpoints; the
+   journal is an internal library and **not an exposed production worker API**.
+2. Trusted independent verifier service, private-key rotation, tamper-resistant
+   artifact storage and proof provenance/revocation.
+3. Actual Terraform/Step Functions/ECS/EKS/AppConfig execution, step receipts,
+   provider rollback, forward-repair and observability.
+4. Integrated PostgreSQL contention and fault-injection qualification for
+   step journal, and release-safe schema roll-forward/rollback runbooks.
+5. Production load, cost, tenant-isolation, AWS quota and security certification.
+
+The branch is not production ready. Completion requires separate measured
+and independently signed release evidence.
