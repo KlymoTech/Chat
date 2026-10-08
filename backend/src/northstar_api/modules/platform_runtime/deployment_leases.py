@@ -48,6 +48,8 @@ class DeploymentLeaseService:
             PlatformChangeRecord.environment == PlatformDeploymentLease.environment,
             PlatformChangeRecord.status == "approved",
             PlatformChangeRecord.approved_by.is_not(None),
+            PlatformChangeRecord.approved_by != PlatformChangeRecord.requested_by,
+            PlatformChangeRecord.action.in_(("apply", "restart", "migrate")),
             PlatformChangeRecord.source_digest == PlatformDeploymentLease.source_digest,
             PlatformChangeRecord.target_digest == PlatformDeploymentLease.target_digest,
         ))
