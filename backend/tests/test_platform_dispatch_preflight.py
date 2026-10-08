@@ -30,7 +30,9 @@ def signed_token(before, after, kind):
         "expires_at": int((NOW + timedelta(minutes=10)).timestamp()),
     }, sort_keys=True).encode()
     signature = hmac.new(KEY, payload, hashlib.sha256).digest()
-    encode = lambda value: base64.urlsafe_b64encode(value).decode().rstrip("=")
+    def encode(value):
+        return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
     return encode(payload) + "." + encode(signature)
 
 
