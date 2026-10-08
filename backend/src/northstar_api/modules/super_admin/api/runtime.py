@@ -328,6 +328,99 @@ async def create_desired_state_draft(
             "digest": record.digest, "active": False}
 
 
+class DesiredStateActivationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    change_id: UUID
+    reason: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/desired-state/activate")
+async def activate_verified_desired_state(
+    payload: DesiredStateActivationRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Promote only an independently approved, reported-complete deployment.
+
+    Fail closed on stale source revisions and unknown/unfinished executions.
+    This updates the control-plane snapshot only; it never mutates AWS.
+    """
+    change = await session.get(PlatformChangeRecord, payload.change_id)
+    if change is None:
+        raise HTTPException(status_code=404, detail="platform change not found")
+    if change.status != "completed" or change.approved_by is None:
+        raise HTTPException(status_code=409, detail="change lacks approval and completed execution")
+    if change.requested_by == principal.user_id:
+        raise HTTPException(status_code=403, detail="change requestor cannot activate their own change")
+    execution = await session.scalar(
+        select(PlatformDeploymentExecution)
+        .where(
+            PlatformDeploymentExecution.change_id == change.id,
+            PlatformDeploymentExecution.status == "completed",
+            PlatformDeploymentExecution.source_digest == change.source_digest,
+            PlatformDeploymentExecution.target_digest == change.target_digest,
+        )
+        .order_by(desc(PlatformDeploymentExecution.completed_at))
+        .limit(1)
+    )
+    if execution is None:
+        raise HTTPException(status_code=409, detail="matching completed deployment proof is missing")
+    target = await session.scalar(
+        select(PlatformConfigVersion)
+        .where(
+            PlatformConfigVersion.environment == change.environment,
+            PlatformConfigVersion.revision == change.target_revision,
+        )
+        .with_for_update()
+    )
+    if target is None or target.digest != change.target_digest or target.active:
+        raise HTTPException(status_code=409, detail="inactive target revision missing or mismatched")
+    target_spec = PlatformSpec.model_validate(target.configuration_json)
+    if (
+        target_spec.metadata.environment != change.environment
+        or target_spec.metadata.revision != target.revision
+        or spec_digest(target_spec) != target.digest
+    ):
+        raise HTTPException(status_code=409, detail="target snapshot integrity mismatch")
+    current = await session.scalar(
+        select(PlatformConfigVersion)
+        .where(
+            PlatformConfigVersion.environment == change.environment,
+            PlatformConfigVersion.active.is_(True),
+        )
+        .with_for_update()
+    )
+    if (
+        current is None
+        or current.revision != change.source_revision
+        or current.digest != change.source_digest
+    ):
+        raise HTTPException(status_code=409, detail="stale or missing active source revision")
+    current_spec = PlatformSpec.model_validate(current.configuration_json)
+    if spec_digest(current_spec) != current.digest:
+        raise HTTPException(status_code=409, detail="source snapshot integrity mismatch")
+    if change.target_revision <= change.source_revision:
+        raise HTTPException(status_code=409, detail="target revision must advance")
+    current.active = False
+    target.active = True
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.runtime.desired_state.activated",
+        entity_type="platform_config_version",
+        entity_id=str(target.id),
+        category="security",
+        severity="warning",
+        after={"environment": change.environment, "revision": target.revision,
+               "digest": target.digest, "changeId": str(change.id)},
+        metadata={"reason": payload.reason, "executionId": str(execution.id)},
+    )
+    await session.commit()
+    return {"environment": change.environment, "revision": target.revision,
+            "digest": target.digest, "active": True, "changeId": str(change.id)}
+
+
 @router.get("/desired-state")
 async def get_persisted_desired_state(
     _: PlatformSystemReadPrincipal,
