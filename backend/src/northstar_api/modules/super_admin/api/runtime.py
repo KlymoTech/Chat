@@ -297,6 +297,7 @@ async def create_desired_state_draft(
     if latest is not None and revision <= latest.revision:
         raise HTTPException(status_code=409, detail="desired-state revision must advance")
     record = PlatformConfigVersion(
+        id=uuid4(),
         environment=environment,
         revision=revision,
         digest=spec_digest(spec),
