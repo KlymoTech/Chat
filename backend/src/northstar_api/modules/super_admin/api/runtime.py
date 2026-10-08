@@ -266,6 +266,38 @@ def _declared_platform_spec() -> PlatformSpec:
     )
 
 
+@router.get("/queue/brokers/sqs/health")
+async def read_platform_sqs_health(
+    _: PlatformSystemReadPrincipal,
+) -> dict[str, object]:
+    """Read-only health of the configured shared SQS queue.
+
+    Counts are queue-wide infrastructure metrics, not tenant-filtered values.
+    The URL is deployment-configured, never supplied by an HTTP caller.
+    """
+    import boto3
+
+    from northstar_api.modules.platform_runtime.broker_health import probe_sqs
+
+    queue_url = os.environ.get("PLATFORM_QUEUE_HEALTH_SQS_URL", "")
+    if not queue_url:
+        return {
+            "provider": "sqs", "status": "unconfigured",
+            "scope": "shared_queue", "detail": "probe_not_configured",
+        }
+    # Creating a client does not call AWS. Probe execution is bounded and
+    # catches provider/credential failures without revealing secret values.
+    try:
+        client = boto3.client("sqs", region_name=get_settings().s3_region)
+        result = await probe_sqs(client, queue_url, timeout_seconds=3.0)
+    except Exception:
+        return {
+            "provider": "sqs", "status": "unavailable",
+            "scope": "shared_queue", "detail": "probe_initialization_failed",
+        }
+    return {"scope": "shared_queue", **result.as_json()}
+
+
 @router.get("/queue/health")
 async def read_platform_queue_health(
     principal: PlatformSystemReadPrincipal,
