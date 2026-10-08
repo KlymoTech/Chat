@@ -8,6 +8,7 @@ approved deployment controller or GitOps pipeline.
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -45,7 +46,8 @@ from northstar_api.services.outbox import enqueue_event
 from northstar_api.modules.platform_runtime.tiers import (
     PlatformTier, TIERS, plan_tier_transition,
 )
-from northstar_api.modules.platform_runtime.governed_switches import classify_transition, verify_evidence, SwitchClass
+from northstar_api.modules.platform_runtime.governed_switches import classify_transition, SwitchClass
+from northstar_api.modules.platform_runtime.qualification import verify_qualification_proofs
 from northstar_api.modules.platform_runtime.adaptive_safety import (
     CapacitySignals, advise_capacity,
 )
@@ -572,15 +574,18 @@ async def approve_runtime_change(
     )
     if gate.change_class in {SwitchClass.L, SwitchClass.E}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="locked or unqualified change")
-    # Evidence identifiers must correspond to externally verified artifacts.
-    # Until the evidence store is connected, stateful/restart changes remain
-    # fail-closed even if a caller asserts evidence labels.
-    if gate.changes:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="deployment evidence verifier is not configured; change cannot be dispatched",
-        )
-    blockers = verify_evidence(gate, payload.evidence, approved=True)
+    # The signer runs outside this API. Without a separately provisioned key,
+    # approval remains blocked. All required artifacts must be signed and
+    # scoped to the precise environment and desired-state transition.
+    key = os.environ.get("PLATFORM_QUALIFICATION_HMAC_KEY", "").encode("utf-8")
+    blockers = verify_qualification_proofs(
+        payload.evidence,
+        required=gate.required_evidence,
+        environment=record.environment,
+        source_digest=record.source_digest,
+        target_digest=record.target_digest,
+        signing_key=key,
+    )
     if blockers:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
