@@ -51,6 +51,7 @@ from northstar_api.modules.platform_runtime.governed_switches import classify_tr
 from northstar_api.modules.platform_runtime.qualification import verify_qualification_proofs
 from northstar_api.modules.platform_runtime.approval_integrity import persisted_change_integrity_blockers
 from northstar_api.modules.platform_runtime.execution_report_integrity import execution_report_matches
+from northstar_api.modules.platform_runtime.deployment_lease_persistence import PlatformDeploymentLease
 from northstar_api.modules.platform_runtime.control_plane import spec_digest
 from northstar_api.modules.platform_runtime.validation import validate_platform_spec
 from northstar_api.modules.platform_runtime.adaptive_safety import (
@@ -1074,6 +1075,15 @@ async def approve_runtime_change(
         decision="approved",
         reason=payload.reason,
         created_at=now,
+    ))
+    # A worker claim becomes eligible only after approval and outbox are
+    # durably committed together; legacy approvals are not auto-enrolled.
+    session.add(PlatformDeploymentLease(
+        change_id=record.id,
+        environment=record.environment,
+        source_digest=record.source_digest,
+        target_digest=record.target_digest,
+        status="ready",
     ))
     enqueue_event(
         session,
