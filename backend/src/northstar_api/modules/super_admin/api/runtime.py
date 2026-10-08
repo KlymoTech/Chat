@@ -298,6 +298,52 @@ async def read_platform_sqs_health(
     return {"scope": "shared_queue", **result.as_json()}
 
 
+@router.get("/queue/brokers/rabbitmq/health")
+async def read_platform_rabbitmq_health(
+    _: PlatformSystemReadPrincipal,
+) -> dict[str, object]:
+    """Probe a deployment-configured shared RabbitMQ queue, never a caller URL."""
+    import asyncio
+
+    from kombu import Connection
+
+    from northstar_api.modules.platform_runtime.broker_health import probe_rabbitmq
+
+    queue_name = os.environ.get("PLATFORM_QUEUE_HEALTH_RABBITMQ_QUEUE", "")
+    if not queue_name:
+        return {
+            "provider": "rabbitmq", "status": "unconfigured",
+            "scope": "shared_queue", "detail": "probe_not_configured",
+        }
+    if len(queue_name) > 200 or any(ch.isspace() for ch in queue_name):
+        return {
+            "provider": "rabbitmq", "status": "unavailable",
+            "scope": "shared_queue", "detail": "invalid_probe_configuration",
+        }
+    connection = None
+    try:
+        connection = Connection(
+            get_settings().rabbitmq_url,
+            connect_timeout=2,
+            transport_options={"socket_timeout": 2},
+        )
+        # Connection setup uses blocking kombu APIs; run away from the event loop.
+        await asyncio.wait_for(asyncio.to_thread(connection.connect), timeout=3.0)
+        result = await probe_rabbitmq(connection, queue_name=queue_name, timeout_seconds=3.0)
+        return {"scope": "shared_queue", **result.as_json()}
+    except Exception:
+        return {
+            "provider": "rabbitmq", "status": "unavailable",
+            "scope": "shared_queue", "detail": "probe_initialization_failed",
+        }
+    finally:
+        if connection is not None:
+            try:
+                await asyncio.wait_for(asyncio.to_thread(connection.release), timeout=3.0)
+            except Exception:
+                pass
+
+
 @router.get("/queue/health")
 async def read_platform_queue_health(
     principal: PlatformSystemReadPrincipal,
