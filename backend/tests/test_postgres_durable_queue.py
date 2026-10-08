@@ -2,7 +2,6 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from northstar_api.modules.platform_runtime.postgres_queue import PostgresDurableJobStore
