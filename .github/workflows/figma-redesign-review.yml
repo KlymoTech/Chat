@@ -1,0 +1,54 @@
+name: Figma redesign review
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'scripts/figma-redesign/**'
+      - '.github/workflows/figma-redesign-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: figma-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Reproducible frontend review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Capture exact reviewed source
+        run: |
+          mkdir -p /tmp/figma-review
+          git rev-parse HEAD > /tmp/figma-review/commit.txt
+          git archive --format=tar HEAD | gzip > /tmp/figma-review/reviewed-source.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: figma-reviewed-source
+          path: /tmp/figma-review/
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - name: Frontend regression suite
+        run: npm run test --workspace @northstar/web -- --reporter=default --reporter=junit --outputFile.junit=test-results.xml
+      - run: npm run build
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: figma-frontend-test-results
+          path: frontend/test-results.xml
+          retention-days: 14
+          if-no-files-found: warn
