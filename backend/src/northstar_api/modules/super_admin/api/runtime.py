@@ -266,6 +266,65 @@ def _declared_platform_spec() -> PlatformSpec:
     )
 
 
+class QueueDeadLetterReplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=12, max_length=500)
+
+
+@router.post("/queue/dead-letters/{job_id}/replay")
+async def replay_platform_dead_letter(
+    job_id: UUID,
+    payload: QueueDeadLetterReplayRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Authorized, tenant-scoped replay with a transactional audit record.
+
+    This endpoint only requeues a dead-letter job; it never publishes directly.
+    """
+    from northstar_api.modules.platform_runtime.queue_persistence import DurableQueueRecord
+
+    tenant_id = principal.tenant_id
+    if tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if not payload.reason.strip():
+        raise HTTPException(status_code=422, detail="documented reason required")
+    result = await session.execute(
+        update(DurableQueueRecord)
+        .where(
+            DurableQueueRecord.id == job_id,
+            DurableQueueRecord.tenant_id == tenant_id,
+            DurableQueueRecord.status == "dead_letter",
+            DurableQueueRecord.lease_token.is_(None),
+        )
+        .values(
+            status="queued",
+            attempts=0,
+            available_at=datetime.now(UTC),
+            published_reference=None,
+            lease_expires_at=None,
+        )
+    )
+    if result.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="tenant-scoped job unavailable for replay")
+    record_audit_event(
+        session,
+        tenant_id=tenant_id,
+        actor_user_id=principal.user_id,
+        action="platform.queue.dead_letter_replayed",
+        entity_type="platform_durable_job",
+        entity_id=str(job_id),
+        category="security",
+        severity="warning",
+        after={"state": "queued", "tenantId": str(tenant_id)},
+        metadata={"reason": payload.reason.strip()},
+    )
+    await session.commit()
+    return {"jobId": str(job_id), "state": "queued", "replayed": True}
+
+
 class DesiredStateDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
