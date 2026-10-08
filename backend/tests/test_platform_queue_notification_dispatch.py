@@ -5,7 +5,9 @@ from uuid import uuid4
 import pytest
 
 from northstar_api.modules.platform_runtime.queue_notification_dispatch import (
-    NotificationClaim, NotificationDispatcher, NotificationResult,
+    NotificationClaim,
+    NotificationDispatcher,
+    NotificationResult,
 )
 
 
