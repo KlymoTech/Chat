@@ -8,6 +8,7 @@ approved deployment controller or GitOps pipeline.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -41,7 +42,57 @@ from northstar_api.modules.platform_runtime.persistence import (
 from northstar_api.routers.platform_admin import PlatformRuntimeManagePrincipal, PlatformSystemReadPrincipal
 from northstar_api.services.outbox import enqueue_event
 
+from northstar_api.modules.platform_runtime.tiers import (
+    PlatformTier, TIERS, plan_tier_transition,
+)
+from northstar_api.modules.platform_runtime.governed_switches import classify_transition
+from northstar_api.modules.platform_runtime.adaptive_safety import (
+    CapacitySignals, advise_capacity,
+)
+
 router = APIRouter(prefix="/platform-admin/runtime", tags=["platform runtime"])
+
+class TierPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: PlatformTier
+    target: PlatformTier
+
+
+class CapacityPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    signals: dict[str, float | bool]
+    replicas: int = Field(ge=2, le=100)
+
+
+@router.get("/tiers")
+async def list_runtime_tiers(_: PlatformSystemReadPrincipal) -> dict[str, object]:
+    """Read-only architecture definitions; these are not measured capacities."""
+    return {"tiers": [asdict(tier) for tier in TIERS], "qualified": False}
+
+
+@router.post("/tiers/preview")
+async def preview_tier_change(
+    payload: TierPreviewRequest,
+    _: PlatformSystemReadPrincipal,
+) -> dict[str, object]:
+    """Preview required evidence; the endpoint cannot approve or execute."""
+    return asdict(plan_tier_transition(payload.source, payload.target))
+
+
+@router.post("/capacity/preview")
+async def preview_capacity_action(
+    payload: CapacityPreviewRequest,
+    _: PlatformSystemReadPrincipal,
+) -> dict[str, object]:
+    """Advisory-only scaling recommendation with no AWS mutation."""
+    try:
+        signals = CapacitySignals(**payload.signals)
+        return asdict(advise_capacity(signals, replicas=payload.replicas))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="invalid capacity signal input") from exc
+
+
+
 
 
 class RuntimeChangePlanRequest(BaseModel):
@@ -51,6 +102,15 @@ class RuntimeChangePlanRequest(BaseModel):
 
     current: PlatformSpec
     desired: PlatformSpec
+
+
+@router.post("/changes/governance-preview")
+async def preview_change_governance(
+    payload: RuntimeChangePlanRequest,
+    _: PlatformSystemReadPrincipal,
+) -> dict[str, object]:
+    """Preview A/B/C/D/L/E evidence gates; never authorize a deployment."""
+    return asdict(classify_transition(payload.current, payload.desired))
 
 
 class RuntimeChangeCreateRequest(RuntimeChangePlanRequest):
