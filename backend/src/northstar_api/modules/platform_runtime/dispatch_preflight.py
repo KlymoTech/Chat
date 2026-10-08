@@ -41,6 +41,8 @@ def preflight_governed_dispatch(
     plan = build_change_plan(current, desired)
     gate = classify_transition(current, desired)
     blockers = list(plan.blockers)
+    if current.metadata.environment != desired.metadata.environment:
+        blockers.append("cross_environment_change_prohibited")
     if plan.action == "reject":
         blockers.append("legacy_plan_rejected")
     if plan.action == "noop":
