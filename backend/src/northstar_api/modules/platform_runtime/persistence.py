@@ -116,6 +116,13 @@ class PlatformConfigVersion(Base, UUIDPrimaryKeyMixin):
     __table_args__ = (
         UniqueConstraint("environment", "revision", name="uq_platform_config_versions_environment_revision"),
         Index("ix_platform_config_versions_environment_active", "environment", "active"),
+        Index(
+            "uq_platform_config_versions_one_active_per_environment",
+            "environment",
+            unique=True,
+            postgresql_where=sa.text("active = true"),
+            sqlite_where=sa.text("active = 1"),
+        ),
     )
 
     environment: Mapped[str] = mapped_column(String(32))
