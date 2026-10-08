@@ -42,6 +42,7 @@ from northstar_api.database import Base
 from northstar_api.lead_crm import audit_models, channel_models  # noqa: F401
 from northstar_api.modules.platform_runtime import persistence as platform_runtime_models  # noqa: F401
 from northstar_api.modules.platform_runtime import queue_persistence as platform_queue_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_alert_persistence as platform_queue_alert_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
