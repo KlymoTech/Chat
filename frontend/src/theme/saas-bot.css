@@ -36,6 +36,8 @@
 .saas-bot-shell .mm-sidebar { inset: 21px auto 21px 21px; height: calc(100dvh - 42px); width: var(--mm-sidebar-width); background: var(--sb-paper); color: var(--ink); border: 0; border-radius: 28px; box-shadow: none; }
 .saas-bot-shell .mm-sidebar__brand { height: 88px; min-height: 88px; padding: 22px 20px; }
 .saas-bot-shell .brand { color: var(--ink); font-family: var(--sb-body); font-size: 21px; }
+.saas-bot-shell .mm-sidebar__brand .brand { color: var(--ink); font-size: 21px; }
+.saas-bot-shell .mm-sidebar__brand .brand-mark { background: var(--sb-charcoal); }
 .saas-bot-shell .brand-mark { background: var(--sb-charcoal); color: #fff; border-radius: 12px; flex-shrink: 0; }
 .saas-bot-shell .mm-sidebar__navigation { padding: 4px 20px 16px; scrollbar-color: #b5b5b0 transparent; }
 .saas-bot-shell .mm-sidebar__group + .mm-sidebar__group { border-top: 0; margin-top: 23px; padding-top: 0; }
@@ -236,7 +238,8 @@
   .sb-metric__label h3 { font-size: 9px; }
   .sb-metric__value { font-size: 24px; }
   .sb-metric > small { font-size: 9px; }
-  .sb-overview__secondary { display: flex; }
+  .sb-overview__secondary { display: flex; align-items: stretch; }
+  .sb-overview__secondary > * { min-width: 0; width: 100%; }
   .sb-featured { padding: 12px; gap: 8px; }
   .sb-featured__record { gap: 8px; }
   .sb-featured__record .badge { display: none; }

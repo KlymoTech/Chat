@@ -6,7 +6,7 @@ import { Badge, Button, EmptyState } from '@/components/ui';
 import { DashboardTrend } from '@/components/academy-dashboard';
 import { api } from '@/lib/api';
 import { formatCompact, formatPercent, relativeTime } from '@/lib/format';
-import { hasNavigationPermission } from '@/lib/materialm-navigation';
+import { canUseDashboardCapability } from './dashboardPermissions';
 import { useApi, type AsyncState } from '@/lib/use-api';
 import type { Agent } from '@/types';
 
@@ -15,10 +15,12 @@ export function SaasBotOverview() {
   const { session } = useAuth();
   const { activeWorkspace } = useWorkspace();
   const scope = { role: session?.user.role, permissions: activeWorkspace?.permissions };
-  const canAgents = hasNavigationPermission(scope, 'agents.view');
-  const canAnalytics = hasNavigationPermission(scope, 'analytics.view');
-  const canInbox = hasNavigationPermission(scope, 'conversations.view');
-  const canIntegrations = hasNavigationPermission(scope, 'integrations.view');
+  const canAgents = canUseDashboardCapability(scope, 'agents.view');
+  const canCreate = canAgents && canUseDashboardCapability(scope, 'agents.create');
+  const canKnowledge = canUseDashboardCapability(scope, 'knowledge.view');
+  const canAnalytics = canUseDashboardCapability(scope, 'analytics.view');
+  const canInbox = canUseDashboardCapability(scope, 'conversations.view');
+  const canIntegrations = canUseDashboardCapability(scope, 'integrations.view');
   const [period, setPeriod] = useState<7 | 30>(7);
   const [filter, setFilter] = useState('all');
   const [metric, setMetric] = useState<'conversations' | 'resolved'>('conversations');
@@ -43,7 +45,7 @@ export function SaasBotOverview() {
         <p>Your AI workspace, at a glance.<br />Manage your agents, conversations, and knowledge in one place.</p>
         <div className="sb-hero__actions">
           {featured ? <Link className="sb-hero__agent" to={`/agents/${featured.id}/instructions`}><Bot aria-hidden="true" />{featured.name}<Badge tone={featured.status === 'active' ? 'success' : 'neutral'}>{featured.status}</Badge></Link> : null}
-          {canAgents ? <Link className="button sb-hero__create" to="/agents?create=1"><Plus aria-hidden="true" />Create agent</Link> : null}
+          {canCreate ? <Link className="button sb-hero__create" to="/agents?create=1"><Plus aria-hidden="true" />Create agent</Link> : null}
         </div>
       </div>
       {/* The original Figma illustration is pending export; do not substitute a different asset. */}
@@ -69,7 +71,7 @@ export function SaasBotOverview() {
           <section className="sb-agents" aria-labelledby="sb-agents-title">
             <div className="sb-section-heading"><h3 id="sb-agents-title">Your agents</h3><Link to="/agents">Manage agents <ArrowRight aria-hidden="true" /></Link></div>
             <div className="sb-tabs" role="group" aria-label="Filter agents">{[['all', 'All agents'], ['active', 'Active'], ['draft', 'Draft'], ['education', 'Education']].map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id!)}>{label}</button>)}</div>
-            {agents.error ? <Failure title="Agents are unavailable" state={agents} /> : agents.loading ? <Loading>Loading your agents…</Loading> : shown.length ? <div className="sb-agent-list">{shown.map((agent) => <AgentRow key={agent.id} agent={agent} />)}</div> : <EmptyState icon={Bot} title={records.length ? 'No matching agents' : 'Create your first agent'} description="Build an assistant for your customers or students." action={<Link className="button button--primary" to="/agents?create=1">Create agent</Link>} />}
+            {agents.error ? <Failure title="Agents are unavailable" state={agents} /> : agents.loading ? <Loading>Loading your agents…</Loading> : shown.length ? <div className="sb-agent-list">{shown.map((agent) => <AgentRow key={agent.id} agent={agent} />)}</div> : <EmptyState icon={Bot} title={records.length ? 'No matching agents' : canCreate ? 'Create your first agent' : 'No agents yet'} description={canCreate ? 'Build an assistant for your customers or students.' : 'An authorized workspace member can create an agent.'} action={canCreate ? <Link className="button button--primary" to="/agents?create=1">Create agent</Link> : undefined} />}
           </section>
         </> : <AccessNotice>Agent access is required to view your agents.</AccessNotice>}
 
@@ -83,7 +85,7 @@ export function SaasBotOverview() {
       </div>
 
       <aside className="sb-overview__secondary" aria-label="Workspace activity">
-        {canAgents ? featured ? <KnowledgeHealth key={featured.id} agent={featured} /> : <section className="sb-panel"><h3>Knowledge health</h3><p>{agents.loading ? 'Loading your agents…' : agents.error ? 'Available when your agents can be loaded.' : 'Create an agent to connect trusted knowledge.'}</p></section> : null}
+        {canAgents && canKnowledge ? featured ? <KnowledgeHealth key={featured.id} agent={featured} /> : <section className="sb-panel"><h3>Knowledge health</h3><p>{agents.loading ? 'Loading your agents…' : agents.error ? 'Available when your agents can be loaded.' : 'Create an agent to connect trusted knowledge.'}</p></section> : null}
         {canIntegrations ? <ConnectedChannels /> : <AccessNotice>Integration access is required to view channel connections.</AccessNotice>}
         {canInbox ? <section className="sb-attention" aria-labelledby="sb-attention-title"><div className="sb-section-heading"><h3 id="sb-attention-title">Needs attention</h3><Link to="/conversations">View inbox <ArrowRight aria-hidden="true" /></Link></div>
           {conversations.error ? <Failure title="Inbox is unavailable" state={conversations} /> : conversations.loading ? <Loading>Loading conversations…</Loading> : open.length ? <div className="sb-attention__list">{open.slice(0, 3).map((item) => <Link className="sb-inbox-row" key={item.id} to={`/conversations?selected=${encodeURIComponent(item.id)}`}><span className="mini-avatar" aria-hidden="true">{item.visitorName.charAt(0)}</span><span className="sb-inbox-row__copy"><strong>{item.visitorName}</strong><small>{item.preview}</small></span><time dateTime={item.updatedAt}>{relativeTime(item.updatedAt)}</time></Link>)}</div> : <div className="sb-empty"><Inbox aria-hidden="true" /><p>You’re all caught up.</p></div>}

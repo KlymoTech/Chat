@@ -69,6 +69,14 @@ describe('SaaS Bot overview API fidelity', () => {
     expect(mocks.knowledge).not.toHaveBeenCalled();
     expect(screen.queryByRole('link', { name: /Create agent/ })).not.toBeInTheDocument();
   });
+  it('honors an explicit workspace viewer scope even for an organization owner', async () => {
+    mocks.permissions = ['workspace.view', 'agents.view'];
+    mount();
+    expect(await screen.findByRole('link', { name: 'Open Live assistant' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Create agent/ })).not.toBeInTheDocument();
+    expect(mocks.analytics).not.toHaveBeenCalled(); expect(mocks.knowledge).not.toHaveBeenCalled();
+    expect(mocks.conversations).not.toHaveBeenCalled(); expect(mocks.integrations).not.toHaveBeenCalled();
+  });
   it('remounts the dashboard for a new workspace instead of exposing previous data', async () => {
     const view = mount();
     expect(await screen.findByRole('link', { name: 'Open Live assistant' })).toBeInTheDocument();
