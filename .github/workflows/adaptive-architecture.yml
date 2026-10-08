@@ -17,6 +17,7 @@ on:
       - 'backend/tests/test_platform_active_revision_index.py'
       - 'backend/tests/test_platform_active_revision_migration.py'
       - 'backend/tests/test_platform_postgres_activation.py'
+      - 'backend/tests/test_platform_queue_contract.py'
       - 'backend/migrations/versions/0079_platform_single_active_config.py'
   workflow_dispatch:
 
@@ -47,7 +48,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check src/northstar_api/modules/platform_runtime tests/test_platform_qualification.py tests/test_runtime_approval_gates.py tests/test_persisted_desired_state.py tests/test_desired_state_drafts.py tests/test_desired_state_activation.py tests/test_platform_active_revision_index.py tests/test_platform_active_revision_migration.py
+      - run: uv run ruff check src/northstar_api/modules/platform_runtime tests/test_platform_qualification.py tests/test_runtime_approval_gates.py tests/test_persisted_desired_state.py tests/test_desired_state_drafts.py tests/test_desired_state_activation.py tests/test_platform_active_revision_index.py tests/test_platform_active_revision_migration.py tests/test_platform_queue_contract.py
       - run: uv run pytest tests/test_platform_qualification.py tests/test_governed_switches.py tests/test_platform_tiers.py tests/test_adaptive_safety.py tests/test_adaptive_runtime_api.py tests/test_runtime_approval_gates.py tests/test_persisted_desired_state.py tests/test_desired_state_drafts.py tests/test_desired_state_activation.py tests/test_platform_active_revision_index.py tests/test_platform_active_revision_migration.py
 
   postgres-activation-contracts:
