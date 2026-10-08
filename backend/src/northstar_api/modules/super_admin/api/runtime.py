@@ -38,6 +38,7 @@ from northstar_api.modules.platform_runtime import (
 from northstar_api.modules.platform_runtime.persistence import (
     PlatformChangeApproval,
     PlatformChangeRecord,
+    PlatformConfigVersion,
     PlatformDeploymentExecution,
 )
 from northstar_api.routers.platform_admin import PlatformRuntimeManagePrincipal, PlatformSystemReadPrincipal
@@ -261,6 +262,51 @@ def _declared_platform_spec() -> PlatformSpec:
         resources={"redis_provisioned": redis_configured, "kafka_provisioned": kafka_enabled},
         features={"ai": ai_enabled},
     )
+
+
+@router.get("/desired-state")
+async def get_persisted_desired_state(
+    _: PlatformSystemReadPrincipal,
+    session: DBSession,
+    environment: str = Query(min_length=1, max_length=32, pattern=r"^(development|test|staging|production)$"),
+) -> dict[str, object]:
+    """Read only an active, persisted desired-state revision.
+
+    Never silently reconstruct production truth from local environment
+    variables: absence of a persisted version is a distinct, auditable state.
+    """
+    record = await session.scalar(
+        select(PlatformConfigVersion)
+        .where(
+            PlatformConfigVersion.environment == environment,
+            PlatformConfigVersion.active.is_(True),
+        )
+        .order_by(desc(PlatformConfigVersion.revision))
+        .limit(1)
+    )
+    if record is None:
+        return {
+            "environment": environment,
+            "state": "unconfigured",
+            "source": "database",
+            "qualified": False,
+            "desired": None,
+        }
+    spec = PlatformSpec.model_validate(record.configuration_json)
+    if spec.metadata.environment != environment or spec.metadata.revision != record.revision:
+        raise HTTPException(status_code=409, detail="persisted desired-state metadata mismatch")
+    from northstar_api.modules.platform_runtime.control_plane import spec_digest
+    if spec_digest(spec) != record.digest:
+        raise HTTPException(status_code=409, detail="persisted desired-state integrity mismatch")
+    return {
+        "environment": environment,
+        "state": "persisted",
+        "source": "database",
+        "qualified": False,
+        "revision": record.revision,
+        "digest": record.digest,
+        "desired": spec.model_dump(mode="json"),
+    }
 
 
 @router.get("/capabilities", response_model=CapabilityCatalog)
