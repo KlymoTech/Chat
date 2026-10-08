@@ -16,39 +16,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  review:
-    name: Reproducible frontend review
+  frontend:
+    name: Independent frontend diagnostics
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Capture exact reviewed source
-        run: |
-          mkdir -p /tmp/figma-review
-          git rev-parse HEAD > /tmp/figma-review/commit.txt
-          git archive --format=tar HEAD | gzip > /tmp/figma-review/reviewed-source.tar.gz
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: figma-reviewed-source
-          path: /tmp/figma-review/
-          retention-days: 7
-          if-no-files-found: error
+        with: {persist-credentials: false}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 22.13.0
-          cache: npm
+        with: {node-version: '22', cache: npm}
       - run: npm ci --no-audit --no-fund
-      - run: npm run lint
-      - run: npm run typecheck
-      - name: Frontend regression suite
-        run: npm run test --workspace @northstar/web -- --reporter=default --reporter=junit --outputFile.junit=test-results.xml
-      - run: npm run build
+      - run: python3 scripts/figma-redesign/checks.py frontend
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: figma-frontend-test-results
-          path: frontend/test-results.xml
+          name: figma-frontend-review
+          path: |
+            review-results/frontend/
+            frontend/test-results.xml
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
+  backend:
+    name: Independent backend diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      APP_ENV: test
+      DATABASE_URL: sqlite+aiosqlite:///./northstar-test.db
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      ALLOW_DETERMINISTIC_EMBEDDINGS: 'true'
+      RATE_LIMIT_FAIL_OPEN: 'true'
+      CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - run: python3 scripts/figma-redesign/checks.py backend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: figma-backend-review
+          path: |
+            review-results/backend/
+            backend/test-results.xml
+          retention-days: 14
+          if-no-files-found: error
+  preparation:
+    name: Prepare isolated review toolchain
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - run: |
+          npm ci --no-audit --no-fund
+          npm install --save-exact --workspace @northstar/web @fontsource-variable/space-grotesk @fontsource-variable/jetbrains-mono @fontsource-variable/plus-jakarta-sans
+          mkdir -p /tmp/review-toolchain
+          cp "$(command -v node)" /tmp/review-toolchain/node
+          cp package-lock.json /tmp/review-toolchain/package-lock.json
+          cp frontend/package.json /tmp/review-toolchain/frontend-package.json
+          tar --exclude='node_modules/@northstar/web' -czf /tmp/review-toolchain/node_modules.tar.gz node_modules
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: figma-review-toolchain
+          path: /tmp/review-toolchain/
+          retention-days: 3
+          if-no-files-found: error
