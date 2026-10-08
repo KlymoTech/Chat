@@ -1,6 +1,6 @@
 """Dead-letter replay rejects unauthorized, wrong-tenant and active jobs."""
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -8,14 +8,23 @@ import pytest
 from northstar_api.modules.platform_runtime.queue_replay import QueueReplayService, ReplayConflict
 
 
+class FakeSession:
+    def __init__(self, updated: int):
+        self.execute = AsyncMock(return_value=SimpleNamespace(rowcount=updated))
+
+    def begin(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        return False
+
+
 def db(*, updated: int = 1):
-    session = MagicMock()
-    session.execute = AsyncMock(return_value=SimpleNamespace(rowcount=updated))
-    session.begin.return_value.__aenter__ = AsyncMock()
-    session.begin.return_value.__aexit__ = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock()
-    return MagicMock(return_value=session), session
+    session = FakeSession(updated)
+    return lambda: session, session
 
 
 @pytest.mark.asyncio
