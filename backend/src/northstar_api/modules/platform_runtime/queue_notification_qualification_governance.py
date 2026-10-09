@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .queue_notification_qualification_persistence import NotificationWorkerQualificationRecord
+from .queue_notification_release_link_persistence import NotificationQualificationReleaseLink
 
 Audit = Callable[[AsyncSession, dict[str, str]], Awaitable[None]]
 
@@ -45,6 +46,23 @@ async def change_qualification_status(
             NotificationWorkerQualificationRecord.issued_by != actor_id,
             NotificationWorkerQualificationRecord.approved_by.is_(None),
         ])
+        if qualification_id.startswith("jenkins:"):
+            # A Jenkins-generated qualification cannot be approved without
+            # a persisted, verified, same-environment release evidence link.
+            conditions.append(
+                select(NotificationQualificationReleaseLink.qualification_id)
+                .where(
+                    NotificationQualificationReleaseLink.qualification_id
+                    == NotificationWorkerQualificationRecord.id,
+                    NotificationQualificationReleaseLink.environment
+                    == NotificationWorkerQualificationRecord.environment,
+                    NotificationQualificationReleaseLink.source_digest
+                    == NotificationWorkerQualificationRecord.source_digest,
+                    NotificationQualificationReleaseLink.target_digest
+                    == NotificationWorkerQualificationRecord.target_digest,
+                )
+                .exists()
+            )
         values = {"approved": True, "approved_by": actor_id}
     else:
         # Both pending and approved records may be revoked by independent
