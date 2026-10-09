@@ -90,6 +90,8 @@ export function CommandPalette({
     return [...pages, ...workspaceResults];
   }, [activeWorkspaceId, canViewPlatformAdmin, navigation, query, workspaces]);
 
+  // The highlighted row must always point to a current result, even when
+  // a workspace switch or a search term shortens the result list.
   const highlightedIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
 
   const closePalette = () => {
