@@ -180,3 +180,27 @@ do not merge without explicit instruction.
   protected signer, full evidence bundle, AWS qualification and production
   approval remain outstanding. CI has not been confirmed passing; this
   increment is **not production-ready**.
+
+
+## Increment: independent Jenkins attestation publication (2026-10-10)
+
+- Added `aws_jenkins_attestation_publisher.py` as the protected first-stage
+  certification publication contract. It checks the existing AWS STS publisher
+  role/session and independently signed Jenkins test-runner results against
+  protected build coordinates before any S3 write.
+- The contract calls existing append-only S3 attestation storage, then verifies
+  **the exact immutable object version** using the read-only reconciler. Only
+  the original matching versioned receipt may advance to the separate release
+  manifest signer. A failed/unknown write or readback does not trigger retry,
+  overwrite, or automatic approval.
+- Added real Ed25519 signature regression cases for valid and invalid build
+  identities, expired/tampered attestations, IAM denial, S3 conflict, and
+  mismatched/unknown readback. Registered them in GitHub branch CI and the
+  offline root Jenkins preflight, which still cannot write to AWS.
+- Still required: protected independent test-runner and release signing
+  infrastructure; reviewed AWS publisher IAM trust/KMS/retention policy;
+  real S3 version/metadata tests; evidence bundle and immutable release link
+  tests; complete certification and independent approval. No production
+  workload or notification worker is activated by this increment.
+- **Execution status:** committed test code is not a passing CI/test report;
+  repository-wide tests and real AWS/Jenkins qualification remain unverified.
