@@ -236,6 +236,20 @@ def run_browser(
                     (OUT / f"overflow-{width}.json").write_text(
                         json.dumps({"viewport": width, "documentWidth": actual, "ancestors": page.evaluate("""() => { const table = document.querySelector('.ld-table'); return table ? [table, ...(() => { const a=[]; let e=table.parentElement; while(e){a.push(e);e=e.parentElement}return a })()].map(e=>({tag:e.tagName, className:typeof e.className==='string'?e.className:'', width:e.getBoundingClientRect().width, scrollWidth:e.scrollWidth, clientWidth:e.clientWidth, overflowX:getComputedStyle(e).overflowX, minWidth:getComputedStyle(e).minWidth, display:getComputedStyle(e).display})) : [] }"""), "offenders": offenders}, indent=2)
                     )
+                if actual > width:
+                    # Include the actual out-of-flow box geometry and nearest
+                    # scroll/containing ancestors in the saved CI artifact.
+                    geometry = page.evaluate("""() => [...document.querySelectorAll('*')]
+                      .filter(e => e.getBoundingClientRect().right > innerWidth + 1)
+                      .slice(0, 60).map(e => ({
+                        tag:e.tagName, cls:typeof e.className==='string'?e.className:'',
+                        text:(e.textContent||'').trim().slice(0,45),
+                        left:e.getBoundingClientRect().left, right:e.getBoundingClientRect().right,
+                        position:getComputedStyle(e).position,
+                        overflowX:getComputedStyle(e).overflowX,
+                        parent:e.parentElement?.className || ''
+                      }))""")
+                    (OUT / f"geometry-{width}.json").write_text(json.dumps(geometry, indent=2))
                 assert actual <= width, (
                     f"Settled horizontal overflow at {width}: {actual}"
                 )
