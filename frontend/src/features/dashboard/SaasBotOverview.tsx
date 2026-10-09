@@ -31,7 +31,9 @@ export function SaasBotOverview() {
   const analytics = useApi(() => canAnalytics ? api.analytics.summary(period) : Promise.resolve(null), [canAnalytics, period]);
   const conversations = useApi(() => canInbox ? loadAttentionConversations() : Promise.resolve(null), [canInbox]);
   const records = ready(agents) ?? [];
-  const featured = records[selected % Math.max(records.length, 1)];
+  // The selected carousel index may outlive a workspace change or a deleted agent.
+  // Never render a previous workspace's agent while the new scope loads.
+  const featured = !agents.loading && !agents.error ? records[selected % Math.max(records.length, 1)] : undefined;
   const summary = ready(analytics);
   const shown = records.filter((agent) => filter === 'all' || (filter === 'education' ? agent.purpose === 'education' : agent.status === filter));
   const open = ready(conversations)?.items.filter((item) => item.state !== 'resolved') ?? [];
