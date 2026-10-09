@@ -227,7 +227,7 @@ async def test_read_does_not_accept_changed_protected_plan(altered):
     {"witness_sha256": "a" * 64},
 ])
 async def test_invalid_database_receipts_or_witness_not_trusted(altered):
-    options, proven, _, row = await persisted()
+    options, _proven, _, row = await persisted()
     for key, value in altered.items():
         setattr(row, key, value)
     if "witness_sha256" in altered:
