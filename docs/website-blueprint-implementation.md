@@ -78,3 +78,7 @@ Added Vitest regression tests for lead normalization/rejection, CMS public block
 ## Eleventh checkpoint — bounded public CMS payload validation
 
 The public page contract now validates page IDs, canonical path shapes, locale, revision, title/description sizes, block count and bounded inert text fields before rendering. Added contract assertions covering oversized pages and invalid paths. This reduces malformed published-content exposure but **does not constitute a CMS authentication, approval, or deployment test**. Production readiness remains blocked until live database integration, owner-console authorization, complete outbox recovery, browser tests and acceptance evidence pass.
+
+## Twelfth checkpoint — safe page creation foundation
+
+Added server-only `createPage` for a site-scoped draft page, initial immutable content revision and audit event in a single transaction. The `normalizeCmsPath` guard isolates new content to `/content/<slug>` and refuses reserved/system routes. Added Vitest route-validation tests. These are code changes, not verified runtime behavior: PostgreSQL migrations and integration tests have not run; the authenticated owner-console UI, trusted session adapter, publication invalidation worker and release acceptance remain pending. No merge to `main`.
