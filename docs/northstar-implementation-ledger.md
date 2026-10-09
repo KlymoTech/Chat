@@ -156,3 +156,27 @@ do not merge without explicit instruction.
 - Next: protected Jenkins publishing integration and genuine end-to-end
   environment qualification of release artifact publication, read-back,
   linking, audit and human approval. Main remains untouched; Jodo excluded.
+
+
+## Increment: protected Jenkins evidence publisher boundary (2026-10-10)
+
+- `aws_jenkins_evidence_publisher.py` adds a dedicated AWS STS identity
+  verifier for the **publishing** role, separate from the test-runner,
+  release signer, proof issuer and independent approval reviewer. The
+  principal must match a pinned account, publisher role and STS session
+  `northstar-evidence-<run-id>`; unapproved branch/session fails closed.
+  Standard AWS and GovCloud STS partitions are supported.
+- `publish_verified_release_manifest` requires the caller's protected
+  release coordinates and pinned public release key, verifies the signed
+  manifest before any S3 write, delegates to the existing immutable S3
+  publication/attestation read-back contract and verifies the exact
+  manifest S3 version afterward. An unknown read-back is not success.
+- The publisher has **no signing private key**, tenant API, approval,
+  deployment or worker-start method. The existing `Jenkinsfile` remains a
+  preflight and now tests the publishing contract without publishing.
+  Related negative-path tests have been added to the architecture CI.
+- Dedicated operations guide: `docs/northstar-jenkins-evidence-publisher.md`.
+  Live IAM trust, bucket/KMS policy, isolated agent identity, separate
+  protected signer, full evidence bundle, AWS qualification and production
+  approval remain outstanding. CI has not been confirmed passing; this
+  increment is **not production-ready**.
