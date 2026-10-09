@@ -228,6 +228,12 @@ def run_browser(
                 # Responsive shell controls animate width. Measure the settled layout,
                 # not an intermediate search-pill width immediately after a resize.
                 page.wait_for_timeout(300)
+                # Wait for the responsive layout to settle before measuring,
+                # without suppressing or weakening the overflow assertion.
+                page.wait_for_function("""() => {
+                    const el = document.querySelector('.ld-table-scroll');
+                    return !!el && el.getBoundingClientRect().width > 0;
+                }""", timeout=5000)
                 actual = page.evaluate("document.documentElement.scrollWidth")
                 if actual > width:
                     offenders = page.evaluate(
