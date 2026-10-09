@@ -428,6 +428,116 @@ async def read_platform_queue_health(
     return health.as_json()
 
 
+class NotificationRouteDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    destination_reference: str = Field(min_length=10, max_length=200)
+    expected_revision: int = Field(ge=0)
+    reason: str = Field(min_length=12, max_length=500)
+
+
+class NotificationRouteApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1)
+    reason: str = Field(min_length=12, max_length=500)
+
+
+async def _audit_notification_route(
+    session: DBSession,
+    details: dict[str, str],
+    *,
+    reason: str,
+) -> None:
+    """Record an audit row in the same transaction as the route mutation."""
+    record_audit_event(
+        session,
+        tenant_id=UUID(details["tenant_id"]),
+        actor_user_id=UUID(details["actor_id"]),
+        action=details["action"],
+        entity_type="platform_notification_route",
+        entity_id=f'{details["tenant_id"]}:{details["channel"]}',
+        category="security",
+        severity="warning",
+        after={"channel": details["channel"], "revision": details["revision"],
+               "enabled": False},
+        metadata={"reason": reason},
+    )
+
+
+@router.post("/notifications/routes/{channel}/draft", status_code=status.HTTP_201_CREATED)
+async def draft_platform_notification_route(
+    channel: str,
+    payload: NotificationRouteDraftRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Create an inactive revision; destination activation is separate."""
+    from northstar_api.modules.platform_runtime.queue_notification_governance import (
+        RouteConflict, draft_notification_route,
+    )
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if channel not in ("email", "webhook"):
+        raise HTTPException(status_code=422, detail="unsupported notification channel")
+
+    async def audit(db: DBSession, details: dict[str, str]) -> None:
+        await _audit_notification_route(db, details, reason=payload.reason.strip())
+
+    try:
+        revision = await draft_notification_route(
+            session, tenant_id=principal.tenant_id, channel=channel,
+            destination_reference=payload.destination_reference,
+            actor_id=principal.user_id, authorized=True,
+            expected_revision=payload.expected_revision, audit=audit,
+        )
+        await session.commit()
+    except (RouteConflict, IntegrityError) as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="notification route revision conflict") from exc
+    except Exception:
+        await session.rollback()
+        raise
+    return {"channel": channel, "revision": revision, "approved": False, "enabled": False}
+
+
+@router.post("/notifications/routes/{channel}/approve")
+async def approve_platform_notification_route(
+    channel: str,
+    payload: NotificationRouteApprovalRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """A different authorized operator approves, but never activates, the route."""
+    from northstar_api.modules.platform_runtime.queue_notification_governance import (
+        RouteConflict, approve_notification_route,
+    )
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if channel not in ("email", "webhook"):
+        raise HTTPException(status_code=422, detail="unsupported notification channel")
+
+    async def audit(db: DBSession, details: dict[str, str]) -> None:
+        await _audit_notification_route(db, details, reason=payload.reason.strip())
+
+    try:
+        await approve_notification_route(
+            session, tenant_id=principal.tenant_id, channel=channel,
+            revision=payload.revision, actor_id=principal.user_id,
+            authorized=True, audit=audit,
+        )
+        await session.commit()
+    except RouteConflict as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="approval conflict or separation-of-duties violation") from exc
+    except Exception:
+        await session.rollback()
+        raise
+    return {"channel": channel, "revision": payload.revision, "approved": True, "enabled": False}
+
+
 class QueueDeadLetterReplayRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
