@@ -12,8 +12,8 @@ Owner must confirm legal entity, brand, domain, languages, offers, price/claim e
 
 | Area | Blueprint mapping | Status | Acceptance evidence required |
 | --- | --- | --- | --- |
-| Public route starter, navigation, accessible responsive layout | 04–06, 73 | IMPLEMENTED / UNVERIFIED | automated build, mobile/keyboard/zoom/screenshots and content signoff |
-| Owner CMS, page revisions, preview, publish, rollback, media | 07–09, 44, 73, 76 | SCHEMA/READ CONTRACT ONLY — NOT FUNCTIONAL | SQL schema plus safe published block renderer; no authorized publishing API, privileges, migrations, media, rollback or tests |
+| Public route starter, navigation, accessible responsive layout | 04–06, 73 | PARTIAL / UNVERIFIED | Home/static routes and published-only resource index code; approved content, browser QA and build passing still pending |
+| Owner CMS, page revisions, preview, publish, rollback, media | 07–09, 44, 73, 76 | PARTIAL CODE / API DISABLED / UNVERIFIED | Draft, review, publish, rollback, protected bearer-token API and history code exist; login UI, DB/RLS grants, migrations, media, worker and acceptance tests are outstanding |
 | Blog preservation and manual-only deletion | 09, 38–39 | NOT IMPLEMENTED | authorized manual purge/restore and protected audit checks |
 | SEO metadata, crawl controls, redirects and sitemap | 10–11, 49–50, 66, 70 | PARTIAL / UNVERIFIED | sitemap, robots and canonical now implemented behind explicit approval; redirects, crawler and search-route checks remain |
 | Lead submission and durable outbox/CRM delivery | 20–23, 40, 69 | PARTIAL / DISABLED | schema, transactional enqueue and form implemented; anti-abuse, IAM/RLS, migration execution, worker, reconciliation and crash/retry tests pending |
@@ -86,3 +86,7 @@ Added server-only `createPage` for a site-scoped draft page, initial immutable c
 ## Thirteenth checkpoint — disabled owner CMS API and verified-claims boundary
 
 Added protected API routes under `/api/owner/pages` for site-scoped list/create and revision draft/review/publish/restore, using existing transactional CMS methods. Authentication requires cryptographically verified short-lived RS256 bearer tokens, issuer/audience checks and UUID site/user claims; an explicit allowlist determines permissions. The API remains **disabled by default**, also requiring operator-confirmed tenant DB isolation. Added pure claim-validation regression tests. This is NOT complete owner autonomy: token issuance/login, owner UI, real DB/RLS grants, migrations, queue consumer, cache invalidation, end-to-end security and acceptance tests have not been demonstrated. Return `202` for publication work queued for downstream processing, not completed live propagation. No updates to `main`.
+
+## Fourteenth checkpoint — published resources and owner revision history
+
+The resource index now queries the published-only PostgreSQL view and lists validated published pages, with an honest empty state. Added site-scoped owner revision-history listing and `GET /api/owner/pages/:pageId/revisions`, protected by the same verified JWT and `cms:read` permission as the owner page listing. No draft is intentionally exposed through a public route; an unavailable DB yields an empty index rather than fictitious content. No live DB migration, tenant-isolation proof, full owner dashboard, recovery test or CI result has been verified. **No deployment approval; main remains unchanged by these commits.**
