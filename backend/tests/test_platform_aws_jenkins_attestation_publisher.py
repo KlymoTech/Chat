@@ -127,7 +127,7 @@ async def test_wrong_or_expired_signed_test_provenance_fails_before_s3(changes):
 @pytest.mark.asyncio
 async def test_bad_signature_fails_before_s3():
     params, _ = scenario()
-    signed, sig = params["attestation_token"].split(".")
+    _, sig = params["attestation_token"].split(".")
     altered, _ = scenario(report_changes={"environment": "production"})
     params["attestation_token"] = altered["attestation_token"].split(".")[0] + "." + sig
     with pytest.raises(CertificationAttestationError):
