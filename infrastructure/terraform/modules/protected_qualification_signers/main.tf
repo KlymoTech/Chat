@@ -32,7 +32,15 @@ locals {
       var.release_signer_agent_role_arn
     ])) == 3 &&
     var.test_signing_secret_arn != var.release_signing_secret_arn &&
-    var.test_signing_kms_key_arn != var.release_signing_kms_key_arn
+    var.test_signing_kms_key_arn != var.release_signing_kms_key_arn &&
+    !contains([
+      "${local.role_prefix}${var.name_prefix}-test-certification-signer",
+      "${local.role_prefix}${var.name_prefix}-release-manifest-signer"
+    ], var.test_signer_agent_role_arn) &&
+    !contains([
+      "${local.role_prefix}${var.name_prefix}-test-certification-signer",
+      "${local.role_prefix}${var.name_prefix}-release-manifest-signer"
+    ], var.release_signer_agent_role_arn)
   )
 }
 
