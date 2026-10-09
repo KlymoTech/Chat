@@ -80,6 +80,7 @@ on:
       - 'backend/tests/test_platform_qualified_notification_adapter_builder.py'
       - 'backend/tests/test_platform_queue_notification_worker.py'
       - 'backend/tests/test_platform_queue_notification_reconciliation.py'
+      - 'backend/tests/test_platform_postgres_notification_recovery.py'
       - 'backend/migrations/versions/0089_platform_notification_route_approvers.py'
       - 'backend/migrations/versions/0088_platform_approved_notification_routes.py'
       - 'backend/migrations/versions/0084_platform_alert_notification_leases.py'
@@ -154,5 +155,5 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py
-      - run: uv run pytest tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py
+      - run: uv run ruff check tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py tests/test_platform_postgres_notification_recovery.py
+      - run: uv run pytest tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py tests/test_platform_postgres_notification_recovery.py
