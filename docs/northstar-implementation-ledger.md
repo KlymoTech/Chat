@@ -103,3 +103,28 @@ do not merge without explicit instruction.
   S3 version and encrypted/locked bytes; connect Jenkins artifact
   publishing only after protected runner identity, signer trust and
   full evidence-suite qualifications are established.
+
+
+## Increment: pinned release-manifest S3 read-back (2026-10-10)
+
+- `aws_release_manifest_reconciliation.py` verifies the independently
+  signed release manifest against trusted release coordinates before reading
+  S3. It requires the *manifest's own* original `VersionId` and SHA-256
+  receipt, distinct from the attestation receipt embedded within it.
+- Read-back checks exact key/version, SSE-KMS key, compliance Object Lock
+  mode and unexpired retention, JSON content type/length, release Git commit,
+  image digest, Jenkins run and linked attestation digest.
+- It compares the exact canonical signed-manifest JSON wrapper bytes with
+  the persisted S3 version and rejects different content even with the same
+  length. All S3 operations are read-only.
+- Unit tests cover conflicting identities, signatures, headers, metadata,
+  bytes, missing versions and unknown AWS failures; branch CI test references
+  are updated. Successful CI/AWS execution has **not** been independently
+  established.
+- A write whose original S3 version receipt is unknown remains an
+  indeterminate outcome. This module intentionally cannot infer one from
+  the latest key or automatically overwrite/recreate it.
+- Next acceptance gates: protected Jenkins signer/runner configuration,
+  actual S3/KMS/Object Lock/IAM tests, persisted release-to-certification
+  linkage, complete functional/security/load/restore evidence and independent
+  production approval. No worker or deployment activation is authorized.
