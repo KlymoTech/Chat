@@ -11,7 +11,7 @@ export function Button({ variant = 'primary', size = 'md', icon: Icon, className
   return <button className={`button button--${variant} button--${size} ${className}`} {...props}>{Icon ? <Icon aria-hidden="true" /> : null}{children}</button>;
 }
 
-export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'brand' | 'purple' }) {
+export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'success' | 'warning' | 'danger' | 'brand' | 'purple' | 'neutral' }) {
   return <span className={`badge badge--${tone}`}>{children}</span>;
 }
 
@@ -59,8 +59,12 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
     const focusFrame = window.requestAnimationFrame(() => {
-      const first = dialogRef.current?.querySelector<HTMLElement>(focusableSelector);
-      (first ?? dialogRef.current)?.focus();
+      const dialog = dialogRef.current;
+      // Respect React autofocus and interaction before this animation frame.
+      // Stealing focus onto Close can turn a typed space into a dismissal.
+      if (!dialog || dialog.contains(document.activeElement)) return;
+      const first = dialog.querySelector<HTMLElement>(focusableSelector);
+      (first ?? dialog).focus();
     });
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !closeDisabledRef.current) closeRef.current();

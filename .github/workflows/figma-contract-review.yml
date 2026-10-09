@@ -28,6 +28,7 @@ jobs:
           src/features/dashboard src/pages/AcademyDashboards.test.tsx
           src/pages/ConversationsSelection.test.tsx src/lib/attention-api.test.ts
           src/components/materialm/MaterialmAppShell.test.tsx
+          src/components/ModalFocus.test.tsx src/components/ui.test.tsx
           src/pages/AgentsPage.test.tsx src/pages/AgentsPage.whatsapp.test.tsx
           --reporter=default --reporter=junit --outputFile=redesign-contract-results.xml
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
