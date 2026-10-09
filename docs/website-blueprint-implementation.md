@@ -62,3 +62,7 @@ Added `website/db/003_lead_capture.sql`, a validated lead-input contract, a serv
 ## Seventh checkpoint — idempotency replay integrity
 
 Added migration `004_lead_idempotency.sql` and a normalized-payload SHA-256 check. A repeat of the same idempotency key with identical content can return the same durable receipt; a repeat with changed content returns 409 and rolls back. The lead module remains disabled, and DB migration, concurrency, abuse controls, CRM delivery, and end-to-end tests remain release blockers.
+
+## Eighth checkpoint — transactional CMS domain service (internal only)
+
+Added a server-only CMS draft/publish/restore domain service within `website/src/lib/cms-editor.ts`. Operations lock the page row, validate known block shapes, preserve revision history and commit audit and outbox alongside publication/rollback pointer updates. This is **not an owner-operated CMS**: no trusted authenticated owner-console caller, approval endpoint, page-create UI, scheduled publication, media system, or durable invalidation worker exists. Permission inputs must come from verified sessions, not request JSON. No PostgreSQL execution, CI pass or browser test is claimed. The launch gate remains BLOCKED.
