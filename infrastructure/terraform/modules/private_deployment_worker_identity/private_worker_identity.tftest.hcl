@@ -22,7 +22,7 @@ override_data {
   target = data.aws_iam_policy_document.execution
   values = {
     json = jsonencode({
-      Version   = "2012-10-17"
+      Version = "2012-10-17"
       Statement = [{
         Effect   = "Allow"
         Action   = "ecr:GetAuthorizationToken"
