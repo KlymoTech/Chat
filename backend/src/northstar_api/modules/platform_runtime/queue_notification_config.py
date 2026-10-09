@@ -28,7 +28,7 @@ class ApprovedNotificationRoute:
             raise ValueError("unsupported channel")
         if self.revision < 1:
             raise ValueError("route revision must be positive")
-        if not self.destination_reference.startswith("approved:") or len(self.destination_reference) > 200:
+        if (not self.destination_reference.startswith("approved:") or len(self.destination_reference) <= len("approved:") or len(self.destination_reference) > 200 or any(ch.isspace() for ch in self.destination_reference)):
             raise ValueError("route must use a bounded approved destination reference")
 
 
