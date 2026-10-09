@@ -11,7 +11,7 @@ import { normalizeCmsPath } from "./cms-path";
 export type CmsActor = Readonly<{
   id: string;
   siteId: string;
-  permissions: readonly ("cms:draft" | "cms:review" | "cms:publish")[];
+  permissions: readonly ("cms:read" | "cms:draft" | "cms:review" | "cms:publish")[];
 }>;
 export type CmsBlock =
   | { type: "heading" | "paragraph"; text: string }
@@ -23,7 +23,7 @@ export type DraftDocument = Readonly<{
 }>;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-function assertActor(actor: CmsActor, operation: "cms:draft" | "cms:review" | "cms:publish"): void {
+function assertActor(actor: CmsActor, operation: "cms:read" | "cms:draft" | "cms:review" | "cms:publish"): void {
   if (!UUID.test(actor.id) || !UUID.test(actor.siteId) || !actor.permissions.includes(operation)) {
     throw new Error("CMS access denied");
   }
@@ -62,6 +62,27 @@ async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise
     await client.query("ROLLBACK");
     throw e;
   } finally { client.release(); }
+}
+
+/** Site-scoped owner listing; private metadata never reaches public routes. */
+export async function listOwnerPages(actor: CmsActor): Promise<Array<{
+  id: string; path: string; locale: string; publishedRevisionId: string | null;
+  publishedTitle: string | null;
+}>> {
+  assertActor(actor, "cms:read");
+  const result = await pool().query<{
+    id: string; path: string; locale: string; publishedRevisionId: string | null;
+    publishedTitle: string | null;
+  }>(
+    `SELECT p.id::text, p.path, p.locale,
+            p.current_published_revision_id::text AS "publishedRevisionId",
+            r.title AS "publishedTitle"
+       FROM website_cms.pages p
+       LEFT JOIN website_cms.page_revisions r ON r.id=p.current_published_revision_id
+      WHERE p.site_id=$1 ORDER BY p.created_at DESC, p.path ASC LIMIT 100`,
+    [actor.siteId],
+  );
+  return result.rows;
 }
 
 /** Create an isolated page and its initial draft in one auditable transaction.
