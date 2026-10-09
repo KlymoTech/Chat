@@ -100,9 +100,7 @@ export function CommandPalette({
     inputRef.current?.focus();
   }, [open]);
 
-  useEffect(() => {
-    setActiveIndex((current) => Math.min(current, Math.max(results.length - 1, 0)));
-  }, [results.length]);
+  const highlightedIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
 
   const execute = (result: PaletteResult | undefined) => {
     if (!result) return;
@@ -132,7 +130,7 @@ export function CommandPalette({
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      execute(results[activeIndex]);
+      execute(results[highlightedIndex]);
     }
   };
 
@@ -165,7 +163,7 @@ export function CommandPalette({
         </div>
         <div className="command-palette__results" role="listbox" aria-label="Command results">
           {results.length ? results.map((result, index) => {
-            const selected = index === activeIndex;
+            const selected = index === highlightedIndex;
             const Icon = result.kind === 'workspace'
               ? Building2
               : result.to === '/workspace'
