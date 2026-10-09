@@ -78,3 +78,28 @@ do not merge without explicit instruction.
 5. Obtain passing repository-wide CI, disposable PostgreSQL, live qualification
    AWS IAM/S3/KMS, canary, rollback and security/DR/capacity evidence before
    enabling any production certification or worker delivery.
+
+
+## Increment: append-only signed release-manifest storage (2026-10-10)
+
+- `aws_immutable_release_manifest_store.py` creates the versioned object
+  `evidence/<release-id>/release-manifest.json` only after the independently
+  signed release manifest and its exact retained certification attestation
+  have passed the existing read-only verification gate.
+- The JSON wrapper preserves the complete signed manifest token, with
+  a SHA-256 checksum, pinned source/image/attestation metadata,
+  SSE-KMS, compliance Object Lock retention and `IfNoneMatch: *`.
+- A successful upload returns an exact manifest object-version receipt;
+  precondition failure is distinct from unknown S3/network results.
+  No unconditional overwrite, automatic retry, object deletion or
+  production release approval is permitted.
+- Added focused unit/failure-path regression tests and an integration-style
+  signature-to-storage test, and wired them into the branch CI.
+- **Qualification outstanding:** The focused adapter tests used stand-ins
+  for external contracts; repository-wide CI and live AWS S3/IAM/KMS
+  tests have not been confirmed. S3 write parameters alone do not prove
+  real bucket retention, locking, IAM isolation or object durability.
+- Next: independently read back and verify the *manifest's own* exact
+  S3 version and encrypted/locked bytes; connect Jenkins artifact
+  publishing only after protected runner identity, signer trust and
+  full evidence-suite qualifications are established.
