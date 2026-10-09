@@ -15,6 +15,7 @@ def test_qualification_pipeline_is_explicit_branch_fenced():
     assert "test_platform_aws_protected_qualification_signer.py" in source
     assert "test_platform_jenkins_test_provenance.py" in source
     assert "test_platform_aws_jenkins_junit_evidence.py" in source
+    assert "test_platform_aws_jenkins_junit_evidence_index.py" in source
 
 
 def test_preflight_has_no_credential_material_or_deploy_calls():
