@@ -45,3 +45,26 @@ run "isolated_task_and_execution_identity" {
     error_message = "The worker task must not gain AWS mutation authority."
   }
 }
+
+
+run "reject_cross_account_repository" {
+  command = plan
+
+  variables {
+    ecr_repository_arn = "arn:aws:ecr:us-east-1:999999999999:repository/northstar"
+  }
+
+  expect_failures = [aws_iam_role.worker_execution]
+}
+
+run "reject_orphan_kms_grant" {
+  command = plan
+
+  variables {
+    bootstrap_kms_key_arns = [
+      "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+    ]
+  }
+
+  expect_failures = [aws_iam_role.worker_execution]
+}
