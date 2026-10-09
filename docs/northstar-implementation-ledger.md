@@ -46,3 +46,35 @@ run lint/type checks, browser E2E, Terraform validation, cloud qualification
 and restore/chaos tests before marking any phase complete. Keep all
 implementation work on `feature/northstar-adaptive-architecture-20261008`;
 do not merge without explicit instruction.
+
+
+## Increment: signed release-manifest verification (2026-10-10)
+
+- `queue_notification_release_manifest.py` adds an independently signed Ed25519
+  release-manifest verifier, bound to externally pinned release ID, Jenkins run,
+  source Git commit, OCI image SHA-256 digest, environment, source/target
+  configuration digests, and the exact signed certification attestation digest.
+- The manifest embeds an immutable S3 artifact receipt (bucket, release-scoped
+  key, version ID, SHA-256). The optional read-back gate delegates to the
+  existing S3 Object Lock/KMS verifier and rejects any mismatched receipt.
+- Tests cover signature tampering, duplicate JSON fields, wrong release/image,
+  stale evidence, key/version mismatch, fail-before-I/O and unknown readback.
+- The feature branch CI includes the new test module. A passing workflow has
+  not been observed; none of this authorizes production worker activation.
+
+### Missing before release certification
+
+1. Build and independently sign `evidence/<release-id>/release-manifest.json`
+   in a protected Jenkins pipeline, with signer identity pinned to release policy.
+2. Collect and verify the full SBOM, image-signature/provenance, functional,
+   security, load, resilience, migration, DR, observability and cost evidence
+   required by the master plan. A signed manifest alone does not prove them.
+3. Persist the signed manifest immutably and verify its **own** S3 object
+   version, Object Lock policy and content digest, independently of the
+   certification-attestation receipt.
+4. Connect manifest verification to the separately governed qualification
+   approval/admission path without accepting release coordinates from
+   tenant/user input.
+5. Obtain passing repository-wide CI, disposable PostgreSQL, live qualification
+   AWS IAM/S3/KMS, canary, rollback and security/DR/capacity evidence before
+   enabling any production certification or worker delivery.
