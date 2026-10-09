@@ -13,3 +13,7 @@ This SQL is a **schema-only, additive starting point**, not an authenticated CMS
 ## Integration to do before launch
 
 Introduce site-aware authorization, tenant isolation/RLS, media, fully governed CMS API, publish-and-rollback transactions, review queues, durable worker and cache invalidation, acceptance tests and migration provenance. Until implemented and verified, keep launch BLOCKED.
+
+## Read-only API checkpoint
+
+The app now has a `GET /api/public/pages?path=/content/example&locale=en` handler and direct server-rendered content reads using `website_cms.public_published_pages` (created by `002_public_read_role.sql`). Configure a separate SELECT-only database principal with access to **this view alone**. The SQL files have not been applied or tested in a database. No permission is automatically granted. The API returns 404 for unavailable content and 503 for database errors. Owner edits/publishing remain unimplemented. This is not a reviewed authorization boundary until view ownership, grants, and database security are tested.
