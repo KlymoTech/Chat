@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
+import { normalizeCmsPath } from "./cms-path";
 
 /**
  * Private CMS domain service. Never import into a public API route.
@@ -61,6 +62,37 @@ async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise
     await client.query("ROLLBACK");
     throw e;
   } finally { client.release(); }
+}
+
+/** Create an isolated page and its initial draft in one auditable transaction.
+ * Does not publish the page or make it visible in public navigation. */
+export async function createPage(
+  actor: CmsActor, pathInput: string, locale: string, document: DraftDocument,
+): Promise<{ pageId: string; revisionId: string }> {
+  assertActor(actor, "cms:draft");
+  validateDocument(document);
+  const path = normalizeCmsPath(pathInput);
+  if (!path || !/^[a-z]{2}(?:-[A-Z]{2})?$/.test(locale)) throw new Error("Invalid page route or locale");
+  return transaction(async client => {
+    const pageId = randomUUID();
+    const revisionId = randomUUID();
+    const created = await client.query(
+      `INSERT INTO website_cms.pages (id,site_id,path,locale)
+       SELECT $1,s.id,$2,$3 FROM website_cms.sites s WHERE s.id=$4
+       ON CONFLICT(site_id,locale,path) DO NOTHING RETURNING id`,
+      [pageId,path,locale,actor.siteId]);
+    if (created.rowCount !== 1) throw new Error("Page already exists or site not provisioned");
+    await client.query(
+      `INSERT INTO website_cms.page_revisions
+       (id,page_id,revision_number,state,title,description,blocks,actor_id)
+       VALUES($1,$2,1,'draft',$3,$4,$5::jsonb,$6)`,
+      [revisionId,pageId,document.title,document.description,JSON.stringify(document.blocks),actor.id]);
+    await client.query(
+      `INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id)
+       VALUES($1,$2,$3,'cms.page_created',$4)`,
+      [randomUUID(),actor.siteId,actor.id,pageId]);
+    return { pageId, revisionId };
+  });
 }
 
 /** Save a new, never overwritten draft revision. No public visibility change. */
