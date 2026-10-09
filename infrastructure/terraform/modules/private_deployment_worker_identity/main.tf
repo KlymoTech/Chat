@@ -47,6 +47,25 @@ resource "aws_iam_role" "worker_execution" {
   permissions_boundary = var.permissions_boundary_arn
   max_session_duration = 3600
   tags                 = local.tags
+
+  lifecycle {
+    precondition {
+      condition = alltrue(concat(
+        [
+          strcontains(var.ecr_repository_arn, ":${var.aws_region}:${var.aws_account_id}:"),
+          strcontains(var.log_group_arn, ":${var.aws_region}:${var.aws_account_id}:"),
+        ],
+        [for arn in var.bootstrap_secret_arns : strcontains(arn, ":${var.aws_region}:${var.aws_account_id}:")],
+        [for arn in var.bootstrap_kms_key_arns : strcontains(arn, ":${var.aws_region}:${var.aws_account_id}:")],
+      ))
+      error_message = "ECR, logging, secret and KMS ARNs must match the approved AWS account and region."
+    }
+
+    precondition {
+      condition     = length(var.bootstrap_kms_key_arns) == 0 || length(var.bootstrap_secret_arns) > 0
+      error_message = "KMS grants cannot exist without explicit bootstrap secrets."
+    }
+  }
 }
 
 data "aws_iam_policy_document" "execution" {
@@ -97,6 +116,12 @@ data "aws_iam_policy_document" "execution" {
         test     = "StringEquals"
         variable = "kms:ViaService"
         values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+      }
+
+      condition {
+        test     = "ForAnyValue:StringEquals"
+        variable = "kms:EncryptionContext:SecretARN"
+        values   = sort(tolist(var.bootstrap_secret_arns))
       }
     }
   }
