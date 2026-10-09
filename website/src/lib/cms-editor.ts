@@ -85,6 +85,29 @@ export async function listOwnerPages(actor: CmsActor): Promise<Array<{
   return result.rows;
 }
 
+/** Site-scoped editorial history, including drafts. Never use in public CMS paths. */
+export async function listOwnerRevisions(actor: CmsActor, pageId: string): Promise<Array<{
+  id: string; revision: number; state: string; title: string; description: string;
+  blocks: unknown; createdAt: string; authorId: string;
+}>> {
+  assertActor(actor, "cms:read");
+  if (!UUID.test(pageId)) throw new Error("Invalid page ID");
+  const result = await pool().query<{
+    id: string; revision: number; state: string; title: string; description: string;
+    blocks: unknown; createdAt: string; authorId: string;
+  }>(
+    `SELECT r.id::text AS id, r.revision_number AS revision, r.state,
+            r.title, r.description, r.blocks,
+            r.created_at::text AS "createdAt", r.actor_id::text AS "authorId"
+       FROM website_cms.page_revisions r
+       JOIN website_cms.pages p ON p.id=r.page_id
+      WHERE p.id=$1 AND p.site_id=$2
+      ORDER BY r.revision_number DESC LIMIT 100`,
+    [pageId, actor.siteId],
+  );
+  return result.rows;
+}
+
 /** Create an isolated page and its initial draft in one auditable transaction.
  * Does not publish the page or make it visible in public navigation. */
 export async function createPage(
