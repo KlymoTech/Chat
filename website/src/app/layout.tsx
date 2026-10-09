@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { pages, site } from "../lib/site";
+import { canonical, indexingApproved, publishedOrigin } from "../lib/seo";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(site.siteUrl),
+  ...(publishedOrigin() ? { metadataBase: publishedOrigin()! } : {}),
   title: { default: site.name, template: `%s | ${site.name}` },
   description: site.description,
-  robots: { index: process.env.NEXT_PUBLIC_SITE_URL !== undefined },
+  robots: { index: indexingApproved(), follow: indexingApproved() },
+  alternates: { canonical: canonical("/") },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
