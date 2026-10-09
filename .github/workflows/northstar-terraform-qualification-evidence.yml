@@ -1,0 +1,46 @@
+name: Northstar immutable Jenkins evidence Terraform gate
+
+on:
+  push:
+    branches:
+      - feature/northstar-adaptive-architecture-20261008
+    paths:
+      - 'infrastructure/terraform/modules/jenkins_qualification_evidence/**'
+      - 'infrastructure/terraform/examples/qualification-evidence/**'
+      - '.github/workflows/northstar-terraform-qualification-evidence.yml'
+  pull_request:
+    paths:
+      - 'infrastructure/terraform/modules/jenkins_qualification_evidence/**'
+      - 'infrastructure/terraform/examples/qualification-evidence/**'
+      - '.github/workflows/northstar-terraform-qualification-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-evidence-infrastructure-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: '1.9.8'
+          terraform_wrapper: false
+
+      # This job never authenticates to AWS and never applies or destroys state.
+      - name: Check isolated Terraform formatting
+        run: terraform fmt -check -diff -recursive infrastructure/terraform/modules/jenkins_qualification_evidence infrastructure/terraform/examples/qualification-evidence
+      - name: Initialize evidence module without state backend
+        run: terraform -chdir=infrastructure/terraform/modules/jenkins_qualification_evidence init -backend=false -input=false -no-color
+      - name: Validate evidence module
+        run: terraform -chdir=infrastructure/terraform/modules/jenkins_qualification_evidence validate -no-color
+      - name: Mock account, role and immutable S3 topology
+        run: terraform -chdir=infrastructure/terraform/modules/jenkins_qualification_evidence test -no-color
+      - name: Initialize example without state backend
+        run: terraform -chdir=infrastructure/terraform/examples/qualification-evidence init -backend=false -input=false -no-color
+      - name: Validate reference integration
+        run: terraform -chdir=infrastructure/terraform/examples/qualification-evidence validate -no-color
