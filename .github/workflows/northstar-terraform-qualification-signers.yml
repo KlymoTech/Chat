@@ -32,7 +32,7 @@ jobs:
           terraform_wrapper: false
 
       # This workflow has no AWS secrets, does not assume a signer/publisher
-      # role, and never runs terraform apply or destroy.
+      # role, and never changes live AWS resources or persistent state.
       - name: Enforce Terraform formatting
         run: terraform fmt -check -diff -recursive infrastructure/terraform/modules/protected_qualification_signers infrastructure/terraform/examples/qualification-signers
       - name: Initialize role module without state backend
