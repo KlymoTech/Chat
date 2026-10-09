@@ -108,3 +108,39 @@ have produced artifacts and received owners' approvals.
 
 The branch is not production ready. Completion requires separate measured
 and independently signed release evidence.
+
+
+## Increment: short-lived deployment machine authorization (2026-10-09)
+
+- `deployment_machine_identity.py` validates EdDSA JWT signatures against a
+  pinned Ed25519 public key, exact issuer/audience, one allowed machine
+  subject, environment, required `jti`, strict token lifetime (<= 5 min)
+  and operation-specific scopes. Human sessions and API keys are not machine
+  credentials.
+- `deployment_worker_operations.py` wraps existing lease and journal methods
+  with fresh authorization for **every** claim, renewal, step start, signed
+  verification, unknown-result report, and terminal closure. Callers cannot
+  inject trust keys or choose the worker's subject or environment.
+- Leases retain an optional environment field to preserve internal legacy
+  consumers, but **the authenticated facade rejects unscoped legacy claims**
+  and always provides a mandatory environment predicate for its database
+  calls. Journal ownership also rejects a conflicting bound environment.
+- Negative tests cover cross-environment identities, mismatched worker
+  subjects, missing scopes, invalid signers/tokens, wrong lease ownership and
+  SQL environment predicates.
+- No HTTP route, issuer private key, production workload identity mapping or
+  cloud mutation has been enabled in this increment. The facade is a
+  server-side library only.
+
+### Gate before exposing machine endpoints
+
+1. Restrict ingress at the private service boundary, with approved mTLS or
+   workload-identity attestation; do not expose these routes to user traffic.
+2. Provision issuer public keys via managed configuration with rotation and
+   emergency revocation, keeping private signing keys outside the API.
+3. Persist machine token ID / principal / change ID / operation decisions
+   into a durable audit record, with concurrency and denial-path tests.
+4. Add role-specific deployment worker runtime, signed admission policy,
+   dry-run executor, reconciliation/forward-repair runbooks and AWS IAM.
+5. Qualify all components against a disposable production-shaped PostgreSQL
+   environment before enabling any live infrastructure side effects.
