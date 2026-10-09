@@ -3,8 +3,9 @@
 Each machine action writes an intent BEFORE execution and an outcome AFTER
 execution. A crash between them leaves a pending attempt; further actions
 are refused until independent reconciliation. No credentials or signed
-attestation bodies are stored. Locking the change row serializes attempts
-in PostgreSQL, and the sequence UNIQUE constraint rejects racing inserts.
+attestation bodies are stored. A PostgreSQL transaction-scoped advisory lock serializes attempts without
+requiring UPDATE privilege on approved changes; a unique sequence prevents
+racing inserts.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .deployment_machine_identity import DeploymentMachinePrincipal, WorkerAction
@@ -137,11 +138,20 @@ class DeploymentWorkerAuditTrail:
     async def _lock_change(
         session: AsyncSession, change_id: UUID, environment: str,
     ) -> None:
+        # SELECT FOR UPDATE would require UPDATE permission on an approved
+        # change. Use a transaction-scoped lock instead, keeping the worker DB
+        # role SELECT-only on the source-of-truth approval record.
+        if session.bind is not None and session.bind.dialect.name == "postgresql":
+            digest = hashlib.sha256(b"northstar-worker-audit:" + change_id.bytes).digest()
+            lock_id = int.from_bytes(digest[:8], byteorder="big", signed=True)
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id},
+            )
         matched = await session.scalar(
-            select(PlatformChangeRecord.id)
-            .where(PlatformChangeRecord.id == change_id,
-                   PlatformChangeRecord.environment == environment)
-            .with_for_update()
+            select(PlatformChangeRecord.id).where(
+                PlatformChangeRecord.id == change_id,
+                PlatformChangeRecord.environment == environment,
+            )
         )
         if matched is None:
             raise DeploymentAuditBlocked("change is missing or outside worker environment")
