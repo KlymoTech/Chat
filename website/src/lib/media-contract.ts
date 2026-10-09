@@ -18,6 +18,10 @@ export type MediaManifest = Readonly<{
 }>;
 const fileName = /^[a-zA-Z0-9][a-zA-Z0-9 _.,()\-]{0,254}$/;
 const sha256 = /^[0-9a-f]{64}$/;
+const extensions: Record<MediaMime,readonly string[]> = {
+  "image/jpeg":["jpg","jpeg"],"image/png":["png"],
+  "image/webp":["webp"],"image/avif":["avif"],
+};
 export function parseMediaManifest(value: unknown): MediaManifest | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const data = value as Record<string,unknown>;
@@ -31,6 +35,8 @@ export function parseMediaManifest(value: unknown): MediaManifest | null {
       originalFilename.length > 255 || !fileName.test(originalFilename) ||
       typeof claimedMime !== "string" ||
       !MEDIA_MIME_ALLOWLIST.includes(claimedMime as MediaMime) ||
+      !extensions[claimedMime as MediaMime]?.some(ext =>
+        originalFilename.toLowerCase().endsWith("." + ext)) ||
       typeof claimedSha256 !== "string" || !sha256.test(claimedSha256) ||
       typeof claimedByteSize !== "number" ||
       !Number.isSafeInteger(claimedByteSize) || claimedByteSize < 1 ||
