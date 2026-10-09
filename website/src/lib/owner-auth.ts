@@ -1,25 +1,7 @@
 import "server-only";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { CmsActor } from "./cms-editor";
-
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const permissions = ["cms:read", "cms:draft", "cms:review", "cms:publish"] as const;
-type CmsPermission = typeof permissions[number];
-
-/** Only call this on claims returned by successful cryptographic JWT verification. */
-export function actorFromVerifiedClaims(claims: JWTPayload): CmsActor | null {
-  const siteId = claims.site_id;
-  const raw = claims.permissions;
-  if (typeof claims.sub !== "string" || !uuid.test(claims.sub) ||
-      typeof siteId !== "string" || !uuid.test(siteId) ||
-      !Array.isArray(raw) || raw.length > permissions.length ||
-      raw.some(value => typeof value !== "string" || !permissions.includes(value as CmsPermission))) {
-    return null;
-  }
-  const expectedSite = process.env.WEBSITE_CMS_OWNER_SITE_ID;
-  if (!expectedSite || !uuid.test(expectedSite) || siteId !== expectedSite) return null;
-  return { id: claims.sub, siteId, permissions: [...new Set(raw)] as CmsPermission[] };
-}
+import { actorFromVerifiedClaims } from "./owner-claims";
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 let jwksUrlCached: string | undefined;
@@ -52,7 +34,7 @@ export async function authenticateOwner(request: Request): Promise<CmsActor | nu
     const { payload } = await jwtVerify(token, jwks, {
       issuer, audience, algorithms: ["RS256"], clockTolerance: "5s", maxTokenAge: "15m",
     });
-    return actorFromVerifiedClaims(payload);
+    return actorFromVerifiedClaims(payload, process.env.WEBSITE_CMS_OWNER_SITE_ID);
   } catch {
     return null;
   }
