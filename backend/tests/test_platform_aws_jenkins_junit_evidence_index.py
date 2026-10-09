@@ -27,6 +27,7 @@ from northstar_api.modules.platform_runtime.aws_jenkins_junit_evidence_index imp
     JunitIndexWriteUnknown,
 )
 from northstar_api.modules.platform_runtime.aws_jenkins_junit_reconciliation import (
+    JenkinsJunitVersionMissing,
     ReadOnlyWitnessedJunitReconciler,
 )
 from northstar_api.modules.platform_runtime.queue_notification_jenkins_test_provenance import (
@@ -189,7 +190,7 @@ async def test_three_real_locked_reports_before_single_signed_index_and_exact_re
         receipts=receipts, **plan,
     )
     assert verified == result.provenance
-    assert len(s3.heads) == len(s3.gets) == 8
+    assert len(s3.heads) == len(s3.gets) == 7
     assert all("VersionId" in request for request in s3.gets)
     identity.verify.assert_awaited()
 
@@ -216,7 +217,7 @@ async def test_witness_signature_mismatch_blocks_index_creation():
 async def test_wrong_original_report_version_blocks_index_creation():
     plan, s3, reader, index, identity, receipts = await populated()
     receipts["notification_worker"] = replace(receipts["notification_worker"], version_id="foreign")
-    with pytest.raises(Exception):
+    with pytest.raises(JenkinsJunitVersionMissing):
         await index.publish(identity=identity, report_reconciler=reader, receipts=receipts, **plan)
     assert len(s3.writes) == 3
 
