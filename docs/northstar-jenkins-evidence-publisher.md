@@ -83,3 +83,39 @@ does not derive trusted values from the signed token or mutable job parameters.
 
 **Never infer production readiness or successful publication from a mocked
 regression test, a GitHub commit or a Jenkins preflight check.**
+
+
+## Increment: independently signed attestation publishing boundary
+
+A protected publisher now has a separate, fail-closed first-stage publishing
+contract in `aws_jenkins_attestation_publisher.py`:
+
+1. Require the same reviewed `AwsJenkinsEvidencePublisherIdentity` for the
+   exact run and feature branch; its AWS IAM trust policy remains an external
+   prerequisite and must be verified independently.
+2. Require the **independently signed** test-runner Ed25519 attestation with
+   exact run, source commit, environment and source/target digests. The issuer
+   private key must not be available to the publisher.
+3. Call the existing `AwsImmutableCertificationArtifactStore` with compliance
+   Object Lock, SSE-KMS and a conditional `IfNoneMatch=*` write for
+   `evidence/<release-id>/jenkins/<run-id>/certification-attestation.token`.
+4. Read back the **same version** via
+   `ReadOnlyCertificationArtifactReconciler`, verifying exact bytes, checksum,
+   retention and encryption. Return its versioned receipt only on success.
+5. Make a separate release authority sign the resulting exact receipt into
+   the release manifest, then use `publish_verified_release_manifest`
+   to verify/write/read-back that immutable manifest.
+
+**Limitations:** Both publishing steps are server-side libraries, not active
+Jenkins jobs. They do not generate real signed test results, create AWS roles,
+issue credentials, migrate database records, approve evidence or deploy.
+No automatic retry is allowed after a possibly successful S3 write. A failed
+readback requires operator reconciliation, not an overwrite or selecting
+the latest object version. Passing local mocks is not AWS qualification.
+
+The existing root `Jenkinsfile` is still a **no-credentials, non-publishing
+preflight**, and its new test hook only runs the publishing contract tests.
+A future protected job needs separately audited machine authentication,
+private agent isolation, pinned release coordinates, two separate signing
+services, actual AWS bucket/KMS/IAM policy review, complete qualification
+bundle retention, and end-to-end tests before being enabled.
