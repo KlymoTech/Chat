@@ -8,7 +8,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from botocore.exceptions import ClientError
@@ -140,6 +140,7 @@ class FakeS3:
 
 def pair():
     args = fixture()
+    args["identity"] = SimpleNamespace(verify=AsyncMock(return_value=True))
     s3 = FakeS3()
     writer = AwsImmutableJenkinsJunitStore(
         bucket=BUCKET, region="us-east-1", account_id="123456789012",
@@ -153,9 +154,8 @@ def pair():
 
 async def archived():
     args, s3, writer, reader = pair()
-    result = await writer.archive_witnessed_reports(
-        authorized_publisher=True, **args
-    )
+    result = await writer.archive_witnessed_reports(**args)
+    args.pop("identity")
     return args, s3, reader, result
 
 
@@ -185,8 +185,10 @@ async def test_end_to_end_write_and_read_three_exact_versioned_objects():
 @pytest.mark.asyncio
 async def test_unauthorized_publisher_never_writes():
     args, s3, writer, _ = pair()
+    args["identity"].verify.return_value = False
     with pytest.raises(PermissionError):
-        await writer.archive_witnessed_reports(authorized_publisher=False, **args)
+        await writer.archive_witnessed_reports(**args)
+    args["identity"].verify.assert_awaited_once_with(run_id=RUN, branch=BRANCH)
     assert not s3.writes
 
 
@@ -195,7 +197,7 @@ async def test_wrong_approved_build_or_tampered_witness_never_writes():
     args, s3, writer, _ = pair()
     args["source_commit"] = "f" * 40
     with pytest.raises(JenkinsProvenanceRejected):
-        await writer.archive_witnessed_reports(authorized_publisher=True, **args)
+        await writer.archive_witnessed_reports(**args)
     assert not s3.writes
 
 
@@ -207,7 +209,7 @@ async def test_failed_junit_never_writes_any_report():
         b'<testcase name="x"><failure/></testcase></testsuite>'
     )
     with pytest.raises(JenkinsProvenanceRejected):
-        await writer.archive_witnessed_reports(authorized_publisher=True, **args)
+        await writer.archive_witnessed_reports(**args)
     assert not s3.writes
 
 
@@ -216,7 +218,7 @@ async def test_report_conflict_is_blocking_without_retries():
     args, s3, writer, _ = pair()
     s3.break_on_write = 1
     with pytest.raises(JenkinsJunitArchiveConflict):
-        await writer.archive_witnessed_reports(authorized_publisher=True, **args)
+        await writer.archive_witnessed_reports(**args)
     assert len(s3.writes) == 1
 
 
@@ -225,7 +227,7 @@ async def test_unconfirmed_version_is_blocking():
     args, s3, writer, _ = pair()
     s3.put_object = MagicMock(return_value={})
     with pytest.raises(JenkinsJunitArchiveUnknown):
-        await writer.archive_witnessed_reports(authorized_publisher=True, **args)
+        await writer.archive_witnessed_reports(**args)
     assert s3.put_object.call_count == 1
 
 
