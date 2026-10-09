@@ -6,7 +6,6 @@ Deployers must explicitly wire and enable it after integration qualification.
 """
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from typing import Protocol
 from uuid import UUID
 
