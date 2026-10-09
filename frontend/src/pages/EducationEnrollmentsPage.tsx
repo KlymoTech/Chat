@@ -64,7 +64,12 @@ export function EducationEnrollmentsPage() {
   const [params, setParams] = useSearchParams();
   const agentId = params.get('agentId') || 'all';
   const setAgentId = (id: string) => setParams(id === 'all' ? {} : { agentId: id });
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [manualPickerOpen, setPickerOpen] = useState(false);
+  const pickerOpen = manualPickerOpen || params.get('create') === '1';
+  const closePicker = () => {
+    setPickerOpen(false);
+    if (params.has('create')) { const next = new URLSearchParams(params); next.delete('create'); setParams(next, { replace: true }); }
+  };
   const [pickerStudentId, setPickerStudentId] = useState('');
   const [pickerSearch, setPickerSearch] = useState('');
   const [managedStudent, setManagedStudent] = useState<EducationStudent | null>(null);
@@ -171,7 +176,7 @@ export function EducationEnrollmentsPage() {
   const managePickedStudent = () => {
     const student = studentById.get(pickerStudentId);
     if (!student) return;
-    setPickerOpen(false);
+    closePicker();
     setManagedStudent(student);
   };
 
@@ -289,11 +294,11 @@ export function EducationEnrollmentsPage() {
 
     <Modal
       open={pickerOpen}
-      onClose={() => setPickerOpen(false)}
+      onClose={closePicker}
       title="Choose student"
       description="Select an active Student. The existing enrollment manager will handle Course, Batch, Agent, dates, and status rules."
       footer={<>
-        <Button variant="secondary" onClick={() => setPickerOpen(false)}>Cancel</Button>
+        <Button variant="secondary" onClick={closePicker}>Cancel</Button>
         <Button onClick={managePickedStudent} disabled={!pickerStudentId}>Continue</Button>
       </>}
     >

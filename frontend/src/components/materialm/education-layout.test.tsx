@@ -13,8 +13,10 @@ const context = vi.hoisted(() => ({
   role: 'member', permissions: ['education.view', 'education.manage'],
   workspaceId: 'workspace-a', loading: false,
 }));
-vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: async () => [] } } }));
+vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: async () => [] }, batches: { list: async () => [] } } }));
 vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: async () => [] } }));
+vi.mock('@/lib/education-student-api', () => ({ educationStudentApi: { list: async () => [] } }));
+vi.mock('@/lib/education-access-request-api', () => ({ educationAccessRequestApi: { list: async () => [] } }));
 vi.mock('@/components/providers', () => ({
   useAuth: () => ({ session: { user: { role: context.role } } }),
   useWorkspace: () => ({ activeWorkspace: { id: context.workspaceId, name: 'Academy A', permissions: context.permissions }, loading: context.loading }),
@@ -38,7 +40,7 @@ describe('Unified education workspace', () => {
   it('renders the hub without querying CRM or adding demo statistics', () => {
     const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
     renderEducation();
-    expect(screen.getByRole('heading', { name: 'Hello there!' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Education Hub' })).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Education navigation' });
     expect(within(nav).getAllByRole('link')).toHaveLength(8);
     expect(fetchMock).not.toHaveBeenCalled();

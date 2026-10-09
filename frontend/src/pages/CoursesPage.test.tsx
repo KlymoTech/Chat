@@ -19,8 +19,10 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/education-api', () => ({
-  educationApi: { courses: apiMocks },
+  educationApi: { courses: apiMocks, batches: { list: async () => [] } },
 }));
+
+vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: async () => [] } }));
 
 describe('CoursesPage', () => {
   let records: EducationCourse[];

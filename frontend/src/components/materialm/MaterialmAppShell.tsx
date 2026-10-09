@@ -9,7 +9,8 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth, useToast, useWorkspace } from '@/components/providers';
 import { platformAdminApi } from '@/lib/platform-admin-api';
 import { dashboardTheme } from '@/lib/dashboard-theme';
-import { commandNavigation, materialmPageTitle, primaryNavigation, visibleNavigation } from '@/lib/materialm-navigation';
+import { commandNavigation, educationNavigation, materialmPageTitle, primaryNavigation, visibleNavigation } from '@/lib/materialm-navigation';
+import { canUseDashboardCapability } from '@/features/dashboard/dashboardPermissions';
 import { MaterialmSidebarLinks } from './MaterialmSidebar';
 import { MaterialmWorkspaceSwitcher } from './WorkspaceSwitcher';
 
@@ -115,7 +116,7 @@ export function MaterialmAppShell() {
     {session?.impersonation ? <div role="status" className="support-impersonation-banner"><ShieldCheck aria-hidden="true" /><span><strong>Support session active</strong> · You are acting as {session.user.email}. This session expires automatically.</span><button type="button" onClick={() => void signOut()}>Exit support session</button></div> : null}
     <aside className="mm-sidebar" aria-label="Primary navigation">
       <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} /></Link>
-      <MaterialmSidebarLinks items={items} />
+      <MaterialmSidebarLinks items={items} educationItems={educationNavigation.filter((item) => canUseDashboardCapability(scope, item.permission))} />
       <button type="button" className="mm-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
         {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse sidebar'}</span>
       </button>
@@ -147,7 +148,7 @@ export function MaterialmAppShell() {
     <dialog ref={drawer} id="mm-mobile-navigation" className="mm-drawer" aria-label="Main navigation" onCancel={() => setMobileOpen(false)} onClose={() => { setMobileOpen(false); menuTrigger.current?.focus(); }} onClick={(event) => { if (event.target === event.currentTarget) setMobileOpen(false); }}>
       <div className="mm-drawer__inner">
         <div className="mm-drawer__header"><Brand /><button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X aria-hidden="true" /></button></div>
-        <MaterialmSidebarLinks items={items} onNavigate={() => setMobileOpen(false)} />
+        <MaterialmSidebarLinks items={items} educationItems={educationNavigation.filter((item) => canUseDashboardCapability(scope, item.permission))} onNavigate={() => setMobileOpen(false)} />
       </div>
     </dialog>
     <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} navigation={commands} workspaces={workspaces} activeWorkspaceId={activeWorkspace?.id} onSelectWorkspace={selectWorkspace} canViewPlatformAdmin={platformAdmin} />

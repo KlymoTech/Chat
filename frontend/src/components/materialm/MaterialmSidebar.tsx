@@ -1,13 +1,14 @@
 import { CircleHelp, Settings2 } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import type { NavigationItem } from '@/lib/materialm-navigation';
 import { navigationIcons } from './navigation-icons';
 
-interface Props { items: NavigationItem[]; onNavigate?: () => void; }
+interface Props { items: NavigationItem[]; educationItems?: NavigationItem[]; onNavigate?: () => void; }
 const sections: NavigationItem['section'][] = ['Workspace', 'Engagement', 'Learning', 'Operations'];
 
 /** Adapts MaterialM Sidebaritems + NavItems to Northstar's existing routes. */
-export function MaterialmSidebarLinks({ items, onNavigate }: Props) {
+export function MaterialmSidebarLinks({ items, educationItems = [], onNavigate }: Props) {
+  const { pathname } = useLocation();
   return <>
     <nav className="mm-sidebar__navigation" aria-label="Application pages">
       {sections.map((section) => {
@@ -17,9 +18,9 @@ export function MaterialmSidebarLinks({ items, onNavigate }: Props) {
           <p className="mm-sidebar__heading">{section}</p>
           {links.map((item) => {
             const Icon = navigationIcons[item.icon];
-            return <NavLink key={item.to} to={item.to} end={item.end} aria-label={item.label} title={item.label} onClick={onNavigate} className={({ isActive }) => `mm-nav-link${isActive ? ' is-active' : ''}`}>
+            return <div key={item.to}><NavLink to={item.to} end={item.end} aria-label={item.label} title={item.label} onClick={onNavigate} className={({ isActive }) => `mm-nav-link${isActive ? ' is-active' : ''}`}>
               <Icon aria-hidden="true" /><span>{item.label}</span>
-            </NavLink>;
+            </NavLink>{item.to === '/education' && pathname.startsWith('/education') ? <nav className="mm-education-subnav" aria-label="Education sections">{educationItems.map((entry) => <NavLink key={entry.to} to={entry.to} end={entry.end || entry.to === '/education/students'} onClick={onNavigate}>{entry.label}</NavLink>)}</nav> : null}</div>;
           })}
         </div>;
       })}

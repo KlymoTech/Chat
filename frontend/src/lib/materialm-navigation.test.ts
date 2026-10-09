@@ -8,7 +8,7 @@ describe('MaterialM navigation', () => {
   it('keeps every existing education destination', () => {
     expect(educationNavigation.map((item) => item.to)).toEqual([
       '/education', '/education/students', '/education/courses', '/education/batches',
-      '/education/enrollments', '/education/students/import', '/education/access-requests', '/education/activity',
+      '/education/enrollments', '/education/students/import', '/education/access-requests', '/education/knowledge', '/education/activity',
     ]);
   });
   it.each([

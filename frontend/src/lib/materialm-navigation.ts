@@ -36,6 +36,7 @@ export const educationNavigation: NavigationItem[] = [
   { to: '/education/enrollments', label: 'Enrollments', icon: 'enrollments', section: 'Learning', permission: 'education.view', description: 'Review student access, assigned agents and enrollment status.' },
   { to: '/education/students/import', label: 'Imports', icon: 'imports', section: 'Learning', permission: 'education.manage', description: 'Use the existing student import, preview and validation workflow.' },
   { to: '/education/access-requests', label: 'Access requests', icon: 'access', section: 'Learning', permission: 'education.view', description: 'Review academy access requests and identity recovery.' },
+  { to: '/education/knowledge', label: 'Course knowledge', icon: 'courses', section: 'Learning', permission: 'knowledge.view', description: 'Manage approved sources and course access.' },
   { to: '/education/activity', label: 'Activity', icon: 'activity', section: 'Learning', permission: 'education.view', description: 'Browse student activity and links to education conversations.' },
 ];
 

@@ -1,6 +1,8 @@
 import { Archive, CalendarRange, Pencil, Plus, RotateCcw, Search } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMemo, useState, type FormEvent } from 'react';
-import { useToast } from '@/components/providers';
+import { useOptionalWorkspace, useToast } from '@/components/providers';
+import { canUseDashboardCapability } from '@/features/dashboard/dashboardPermissions';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader } from '@/components/ui';
 import {
   educationApi,
@@ -11,6 +13,11 @@ import {
 import { relativeTime } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import './BatchesPage.css';
+import { educationEnrollmentApi } from '@/lib/education-enrollment-api';
+import { EducationRecordDetail } from '@/features/education/EducationRecordDetail';
+import { BatchEditorFrame } from '@/features/education/BatchEditorFrame';
+import { uniqueStudents } from '@/features/education/educationPresentation';
+import '@/features/education/education-design.css';
 
 type BatchFilter = 'all' | BatchStatus;
 
@@ -46,12 +53,16 @@ export function BatchesPage() {
   const batches = useApi(() => educationApi.batches.list());
   const courses = useApi(() => educationApi.courses.list());
   const { pushToast } = useToast();
+  const canManage = canUseDashboardCapability({ permissions: useOptionalWorkspace()?.activeWorkspace?.permissions }, 'education.manage');
+  const [params, setParams] = useSearchParams();
+  const enrollments = useApi(() => educationEnrollmentApi.list());
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BatchFilter>('all');
-  const [courseFilter, setCourseFilter] = useState('all');
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [courseFilter, setCourseFilter] = useState(params.get('courseId') || 'all');
+  const [manualEditorOpen, setEditorOpen] = useState(false);
+  const editorOpen = canManage && (manualEditorOpen || params.get('create') === '1');
   const [editing, setEditing] = useState<EducationBatch | null>(null);
-  const [form, setForm] = useState<BatchFormState>(emptyForm);
+  const [form, setForm] = useState<BatchFormState>({ ...emptyForm, courseId: params.get('courseId') || '' });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<EducationBatch | null>(null);
@@ -103,6 +114,7 @@ export function BatchesPage() {
 
   const closeEditor = () => {
     if (saving) return;
+    if (params.has('create')) { const next = new URLSearchParams(params); next.delete('create'); setParams(next, { replace: true }); }
     setEditorOpen(false);
     setEditing(null);
     setForm(emptyForm);
@@ -193,7 +205,7 @@ export function BatchesPage() {
   if ((batches.loading && !batches.data) || (courses.loading && !courses.data)) return <PageLoader />;
   const loadError = batches.error || courses.error;
   if (loadError) {
-    return <div className="page batches-page"><Card><EmptyState
+    return <div className="page batches-page ed-catalog-page"><Card><EmptyState
       icon={CalendarRange}
       title="Batches are unavailable"
       description={loadError}
@@ -201,13 +213,16 @@ export function BatchesPage() {
     /></Card></div>;
   }
 
-  return <div className="page batches-page">
+  const selectedBatch = batches.data?.find((b) => b.id === params.get('selected'));
+  const backToList = () => { const next = new URLSearchParams(params); next.delete('selected'); setParams(next); };
+  return <div className={`page batches-page ed-catalog-page${editorOpen ? ' ed-catalog-page--editing' : ''}`}>
+    {!editorOpen && (params.has('selected') ? selectedBatch ? <EducationRecordDetail key={selectedBatch.id} batch={selectedBatch} course={courseById.get(selectedBatch.courseId)} batches={batches.data ?? []} enrollments={enrollments.data ?? []} associationsReady={!enrollments.loading && !enrollments.error} associationsError={enrollments.error} retryAssociations={() => { batches.reload(); enrollments.reload(); }} onBack={backToList} onEdit={() => openEdit(selectedBatch)} /> : <EmptyState icon={CalendarRange} title="Batch not found" description="This batch is unavailable in the current workspace." action={<Button onClick={backToList}>Back to Batches</Button>} /> : <>
     <div className="page-heading page-heading--split">
       <div>
         <h2>Batches</h2>
         <p>Manage course cohorts and their access dates inside the active workspace.</p>
       </div>
-      <Button icon={Plus} onClick={openCreate} disabled={!activeCourses.length}>Create batch</Button>
+      <Button icon={Plus} onClick={openCreate} disabled={!canManage || !activeCourses.length}>Create batch</Button>
     </div>
 
     <div className="batch-stats" aria-label="Batch summary">
@@ -260,25 +275,26 @@ export function BatchesPage() {
       </div>
 
       {records.length ? <div className="batch-table-wrap"><table className="batch-table">
-        <thead><tr><th>Code</th><th>Batch</th><th>Course</th><th>Access dates</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th>Batch</th><th>Code</th><th>Course</th><th>Students</th><th>Access dates</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>{records.map((batch) => {
           const course = courseById.get(batch.courseId);
           return <tr key={batch.id}>
+            <td><div className="ed-table-record"><span className="ed-icon"><CalendarRange /></span><div><Link to={`?selected=${batch.id}`}><strong>{batch.name}</strong></Link><small>{batch.description || 'No description'}</small></div></div></td>
             <td><code>{batch.code}</code></td>
-            <td><strong>{batch.name}</strong><small>{batch.description || 'No description'}</small></td>
             <td><strong>{course?.code ?? 'Unknown course'}</strong><small>{course?.name ?? batch.courseId}</small></td>
+            <td>{enrollments.data && !enrollments.error ? uniqueStudents(enrollments.data.filter((e) => e.batchId === batch.id)) : '—'}</td>
             <td><span>{formatDate(batch.startsOn)}</span><small>to {formatDate(batch.endsOn)}</small></td>
             <td><Badge tone={batch.status === 'active' ? 'success' : 'neutral'}>{batch.status}</Badge></td>
             <td><time dateTime={batch.updatedAt}>{relativeTime(batch.updatedAt)}</time></td>
             <td><div className="batch-actions">
-              <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEdit(batch)}>Edit</Button>
+              <Button variant="secondary" size="sm" icon={Pencil} disabled={!canManage} onClick={() => openEdit(batch)}>Edit</Button>
               {batch.status === 'active'
-                ? <Button variant="ghost" size="sm" icon={Archive} onClick={() => setArchiveTarget(batch)}>Archive</Button>
+                ? <Button variant="ghost" size="sm" icon={Archive} disabled={!canManage} onClick={() => setArchiveTarget(batch)}>Archive</Button>
                 : <Button
                     variant="secondary"
                     size="sm"
                     icon={RotateCcw}
-                    disabled={reactivating === batch.id}
+                    disabled={!canManage || reactivating === batch.id}
                     onClick={() => void reactivateBatch(batch)}
                   >Reactivate</Button>}
             </div></td>
@@ -292,12 +308,19 @@ export function BatchesPage() {
           : activeCourses.length
             ? 'Batches organize students within a course and provide durable access-date boundaries for future enrollments.'
             : 'A batch must belong to an active course. Create or reactivate a course before adding batches.'}
-        action={!batches.data?.length && activeCourses.length ? <Button icon={Plus} onClick={openCreate}>Create batch</Button> : undefined}
+        action={!batches.data?.length && activeCourses.length ? <Button icon={Plus} onClick={openCreate} disabled={!canManage}>Create batch</Button> : undefined}
       />}
     </Card>
 
-    <Modal
+    </>)}
+    <BatchEditorFrame
       open={editorOpen}
+      name={form.name}
+      code={form.code}
+      courseName={courseById.get(form.courseId)?.name}
+      startsOn={form.startsOn}
+      endsOn={form.endsOn}
+      status={editing?.status ?? 'active'}
       onClose={closeEditor}
       title={editing ? 'Edit batch' : 'Create batch'}
       description={editing
@@ -310,6 +333,7 @@ export function BatchesPage() {
       </>}
     >
       <form id="batch-editor-form" className="batch-editor" noValidate onSubmit={(event) => void submitBatch(event)}>
+        <div className="ed-form-section-heading"><h3>Batch Baseline Details</h3><p>Primary identity, academic course, and cohort description.</p></div>
         <Field label="Course" htmlFor="batch-course" hint={editing ? 'Course cannot be changed after creation.' : 'Only active courses can receive new batches.'}>
           <select
             id="batch-course"
@@ -344,6 +368,7 @@ export function BatchesPage() {
             />
           </Field>
         </div>
+        <div className="ed-form-section-heading"><h3>Schedule &amp; Timeline</h3><p>Inclusive access dates for student enrollments.</p></div>
         <div className="two-fields">
           <Field label="Start date" htmlFor="batch-starts-on" hint="Optional">
             <input
@@ -375,7 +400,7 @@ export function BatchesPage() {
         </Field>
         {formError ? <p className="batch-form-error" role="alert">{formError}</p> : null}
       </form>
-    </Modal>
+    </BatchEditorFrame>
 
     <Modal
       open={Boolean(archiveTarget)}
