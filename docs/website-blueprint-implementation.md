@@ -46,3 +46,7 @@ No `main` branch files were modified by this work.
 ## Third checkpoint — CMS revision and public rendering foundation
 
 Introduced isolated `website/db/001_cms_foundation.sql` for site/page/revision/audit/outbox tables, `website/src/lib/cms.ts` for a validated read-only published-page contract, safe fixed block components, and a `/content/[slug]` public route. This is **not** a functioning owner-operated CMS: the backend public API, editorial console, authorization, publication transaction, and worker have not been created or verified. The SQL was **not applied to any database**. A missing backend returns 404 instead of inventing content, and no success is claimed for unpersisted operations. All additions are isolated to the website folder and the requirements document.
+
+## Fourth checkpoint — database-backed published-page read path
+
+Implemented a `pg`-based server-only data access function reading from a published-only PostgreSQL view and a no-store GET API route. Next.js content routes can render the same view directly, without leaking database credentials to the browser. SQL view, dependency declarations, and configuration example added. No migration, integration test, production database, owner console or authenticated publication workflow has been executed or verified. **Release remains blocked.**
