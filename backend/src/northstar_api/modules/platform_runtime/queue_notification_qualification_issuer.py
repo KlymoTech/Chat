@@ -10,7 +10,7 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from .qualification import QualificationProof, verify_qualification_proofs
 from .queue_notification_worker_qualification import PersistedNotificationWorkerQualification
