@@ -79,6 +79,11 @@ async def test_append_only_junit_custody_and_release_run_uniqueness(monkeypatch)
         monkeypatch.setattr(migration, "op", Operations(context))
         migration.upgrade()
 
+    def downgrade(connection):
+        context = MigrationContext.configure(connection)
+        monkeypatch.setattr(migration, "op", Operations(context))
+        migration.downgrade()
+
     try:
         async with admin.begin() as conn:
             await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
@@ -122,7 +127,7 @@ async def test_append_only_junit_custody_and_release_run_uniqueness(monkeypatch)
         # A downgrade must not silently erase already archived receipts.
         with pytest.raises(RuntimeError, match="Reconcile archived"):
             async with qualified.begin() as conn:
-                await conn.run_sync(migration.downgrade)
+                await conn.run_sync(downgrade)
 
         async with qualified.connect() as conn:
             actual = await conn.scalar(text(
