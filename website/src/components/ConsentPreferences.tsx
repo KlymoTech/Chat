@@ -14,7 +14,10 @@ function readChoices(): ConsentChoices | null {
     if (!parsed || typeof parsed !== "object") return null;
     const p = parsed as Record<string, unknown>;
     return p.version === 1 && typeof p.analytics === "boolean" && typeof p.marketing === "boolean" &&
-      typeof p.savedAt === "string"
+      typeof p.savedAt === "string" &&
+      Number.isFinite(Date.parse(p.savedAt)) &&
+      Date.now()-Date.parse(p.savedAt)>=0 &&
+      Date.now()-Date.parse(p.savedAt)<30*24*60*60*1000
       ? { analytics: p.analytics, marketing: p.marketing, savedAt: p.savedAt, version: 1 } : null;
   } catch {
     return null;
@@ -36,10 +39,17 @@ export function ConsentPreferences() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    const saved = readChoices();
-    setDecided(Boolean(saved));
-    setAnalytics(Boolean(saved?.analytics));
-    setMarketing(Boolean(saved?.marketing));
+    const sync=()=>{
+      const saved=readChoices();
+      setDecided(Boolean(saved));
+      setAnalytics(Boolean(saved?.analytics));
+      setMarketing(Boolean(saved?.marketing));
+    };
+    sync();
+    window.addEventListener("storage",sync);
+    window.addEventListener(CONSENT_CHANGE_EVENT,sync);
+    return ()=>{window.removeEventListener("storage",sync);
+      window.removeEventListener(CONSENT_CHANGE_EVENT,sync);};
   }, []);
 
   async function save(nextAnalytics: boolean, nextMarketing: boolean) {
