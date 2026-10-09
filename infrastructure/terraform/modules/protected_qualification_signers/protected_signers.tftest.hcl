@@ -155,3 +155,28 @@ run "deny_wildcard_agent_arn" {
   }
   expect_failures = [var.release_signer_agent_role_arn]
 }
+
+
+run "deny_test_signer_role_self_assumption" {
+  command = plan
+  variables {
+    test_signer_agent_role_arn = "arn:aws:iam::123456789012:role/northstarqa-test-certification-signer"
+  }
+  expect_failures = [aws_iam_role.test_signer, aws_iam_role.release_signer]
+}
+
+run "deny_release_signer_as_test_signer_parent" {
+  command = plan
+  variables {
+    test_signer_agent_role_arn = "arn:aws:iam::123456789012:role/northstarqa-release-manifest-signer"
+  }
+  expect_failures = [aws_iam_role.test_signer, aws_iam_role.release_signer]
+}
+
+run "deny_release_signer_role_self_assumption" {
+  command = plan
+  variables {
+    release_signer_agent_role_arn = "arn:aws:iam::123456789012:role/northstarqa-release-manifest-signer"
+  }
+  expect_failures = [aws_iam_role.test_signer, aws_iam_role.release_signer]
+}
