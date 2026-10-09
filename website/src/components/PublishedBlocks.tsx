@@ -1,5 +1,6 @@
 import type { PublicBlock } from "../lib/cms";
-import Link from "next/link";
+import {ACTION_PATH} from "../lib/builder-contract";
+import {MeasuredActionLink,MeasuredFaq} from "./MeasuredActions";
 /** Fixed, accessible block registry: never execute owner-authored HTML or scripts. */
 export function PublishedBlocks({ blocks }: { blocks: PublicBlock[] }) {
   return <div className="cms-blocks">{blocks.map((block, index) => {
@@ -18,16 +19,21 @@ export function PublishedBlocks({ blocks }: { blocks: PublicBlock[] }) {
     if (block.type === "hero") return <section key={key} className={"cms-hero cms-hero-"+block.variant}>
       {block.eyebrow&&<p className="eyebrow">{block.eyebrow}</p>}
       <h2>{block.heading}</h2><p>{block.description}</p>
-      <Link className="button" href={block.actionPath}>{block.actionLabel}</Link>
+      {ACTION_PATH.test(block.actionPath)?
+        <MeasuredActionLink className="button" href={block.actionPath}
+          actionKey={"cta_"+(block.blockId??index)}>{block.actionLabel}</MeasuredActionLink>:
+        <p>Choose an approved internal action path before publishing.</p>}
     </section>;
     if (block.type === "cta") return <section key={key} className={"cms-cta cms-cta-"+block.variant}>
       <h2>{block.heading}</h2><p>{block.description}</p>
-      <Link className="button" href={block.actionPath}>{block.actionLabel}</Link>
+      {ACTION_PATH.test(block.actionPath)?
+        <MeasuredActionLink className="button" href={block.actionPath}
+          actionKey={"cta_"+(block.blockId??index)}>{block.actionLabel}</MeasuredActionLink>:
+        <p>Choose an approved internal action path before publishing.</p>}
     </section>;
     if (block.type === "faq") return <section key={key} className="cms-faq" aria-label="Frequently asked questions">
-      {block.items.map((entry,i)=><details key={i}>
-        <summary>{entry.question}</summary><p>{entry.answer}</p>
-      </details>)}
+      {block.items.map((entry,i)=><MeasuredFaq key={i} question={entry.question}
+        answer={entry.answer} actionKey={"faq_"+(block.blockId??index)+"_"+i}/> )}
     </section>;
     return <aside className="cms-callout" key={key} aria-label={block.title}><h2>{block.title}</h2><p>{block.body}</p></aside>;
   })}</div>;
