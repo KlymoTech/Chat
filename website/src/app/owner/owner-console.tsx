@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PublishedBlocks } from "../../components/PublishedBlocks";
 import type { PublicBlock } from "../../lib/cms";
 import { freshBuilderBlock } from "../../lib/builder-contract";
+import {BUILDER_TEMPLATES,instantiateTemplate,type BuilderTemplateId} from "../../lib/builder-templates";
 import "./owner.css";
 
 type Page={id:string;path:string;locale:string;publishedRevisionId:string|null;publishedTitle:string|null;trashedAt:string|null};
@@ -102,6 +103,12 @@ export default function OwnerConsole(){
         }
       }
     }catch{setProblem("Blog classification could not be loaded.");}
+  }
+  function addTemplate(template:BuilderTemplateId){
+    const blocks=instantiateTemplate(template,()=>crypto.randomUUID());
+    setDoc(old=>old.blocks.length+blocks.length>100?old:
+      {...old,blocks:[...old.blocks,...blocks]});
+    setNotice("Layout inserted locally. Replace placeholders and save a new reviewed draft.");
   }
   function addBlock(type:PublicBlock["type"]){
     const blockId=crypto.randomUUID();
@@ -292,6 +299,15 @@ export default function OwnerConsole(){
               <button onClick={()=>addBlock("paragraph")}>Add paragraph</button>
               <button onClick={()=>addBlock("callout")}>Add callout</button>
               <button onClick={()=>addBlock("image")}>Add approved image</button>
+              <label className="owner-template-picker">Reusable page layout
+                <select defaultValue="" aria-label="Insert page layout"
+                  onChange={e=>{if(e.target.value){
+                    addTemplate(e.target.value as BuilderTemplateId);e.target.value="";
+                  }}}>
+                  <option value="">Choose an approved layout</option>
+                  {BUILDER_TEMPLATES.map(t=><option value={t.id} key={t.id}>{t.title}</option>)}
+                </select>
+              </label>
               <button onClick={()=>addBlock("hero")}>Add hero section</button>
               <button onClick={()=>addBlock("cta")}>Add CTA section</button>
               <button onClick={()=>addBlock("faq")}>Add FAQ section</button>
