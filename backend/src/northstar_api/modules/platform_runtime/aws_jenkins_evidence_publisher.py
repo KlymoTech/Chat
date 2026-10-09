@@ -74,7 +74,8 @@ class AwsJenkinsEvidencePublisherIdentity:
         ):
             raise ValueError("invalid protected publisher identity configuration")
         self._account = account_id
-        self._arn_prefix = f"arn:aws:sts::{account_id}:assumed-role/{role_name}/"
+        partition = "aws-us-gov" if region.startswith("us-gov-") else "aws"
+        self._arn_prefix = f"arn:{partition}:sts::{account_id}:assumed-role/{role_name}/"
         self._branch = allowed_branch
         self._timeout = timeout_seconds
         self._sts = sts_client if sts_client is not None else boto3.client(
