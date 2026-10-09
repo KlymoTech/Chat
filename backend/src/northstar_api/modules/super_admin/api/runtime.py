@@ -698,6 +698,60 @@ async def activate_platform_notification_route(
     return {"channel": channel, "revision": revision, "enabled": True}
 
 
+class NotificationQualificationDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    reason: str = Field(min_length=12, max_length=500)
+
+
+@router.post("/notifications/qualifications/{qualification_id}/{action}")
+async def decide_notification_worker_qualification(
+    qualification_id: str,
+    action: str,
+    payload: NotificationQualificationDecisionRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Govern signed worker evidence; never activate or dispatch a worker."""
+    from northstar_api.modules.platform_runtime.queue_notification_qualification_governance import (
+        QualificationGovernanceConflict, change_qualification_status,
+    )
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if action not in ("approve", "revoke"):
+        raise HTTPException(status_code=404, detail="unknown qualification action")
+    if not 8 <= len(qualification_id) <= 128:
+        raise HTTPException(status_code=422, detail="invalid qualification ID")
+
+    async def audit(db: DBSession, details: dict[str, str]) -> None:
+        record_audit_event(
+            db, tenant_id=principal.tenant_id, actor_user_id=principal.user_id,
+            action=details["action"], entity_type="platform_notification_qualification",
+            entity_id=qualification_id, category="security", severity="warning",
+            after={"revision": details["revision"], "action": action},
+            metadata={"reason": payload.reason.strip()},
+        )
+
+    try:
+        revision = await change_qualification_status(
+            session, qualification_id=qualification_id,
+            expected_revision=payload.expected_revision,
+            actor_id=str(principal.user_id), authorized=True,
+            action=action, audit=audit,
+        )
+        await session.commit()
+    except (QualificationGovernanceConflict, IntegrityError) as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="qualification revision or governance conflict") from exc
+    except Exception:
+        await session.rollback()
+        raise
+    return {"qualification_id": qualification_id, "revision": revision,
+            "approved": action == "approve", "revoked": action == "revoke"}
+
+
 class QueueDeadLetterReplayRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
