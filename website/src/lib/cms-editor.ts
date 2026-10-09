@@ -10,7 +10,7 @@ import { Pool, type PoolClient } from "pg";
 export type CmsActor = Readonly<{
   id: string;
   siteId: string;
-  permissions: readonly ("cms:draft" | "cms:publish")[];
+  permissions: readonly ("cms:draft" | "cms:review" | "cms:publish")[];
 }>;
 export type CmsBlock =
   | { type: "heading" | "paragraph"; text: string }
@@ -22,7 +22,7 @@ export type DraftDocument = Readonly<{
 }>;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-function assertActor(actor: CmsActor, operation: "cms:draft" | "cms:publish"): void {
+function assertActor(actor: CmsActor, operation: "cms:draft" | "cms:review" | "cms:publish"): void {
   if (!UUID.test(actor.id) || !UUID.test(actor.siteId) || !actor.permissions.includes(operation)) {
     throw new Error("CMS access denied");
   }
@@ -88,6 +88,38 @@ export async function saveDraft(actor: CmsActor, pageId: string, document: Draft
   });
 }
 
+/** Review a draft without editing its content. A separate reviewer is required. */
+export async function approveDraft(actor: CmsActor, pageId: string, revisionId: string): Promise<string> {
+  assertActor(actor, "cms:review");
+  if (!UUID.test(pageId) || !UUID.test(revisionId)) throw new Error("Invalid CMS IDs");
+  return transaction(async client => {
+    const page = await client.query(
+      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 FOR UPDATE",
+      [pageId, actor.siteId]);
+    if (page.rowCount !== 1) throw new Error("Page not found");
+    const revision = await client.query<{state:string;actor_id:string}>(
+      "SELECT state,actor_id FROM website_cms.page_revisions WHERE id=$1 AND page_id=$2 FOR UPDATE",
+      [revisionId,pageId]);
+    if (revision.rowCount !== 1 || revision.rows[0].state !== "draft")
+      throw new Error("Only draft revisions can be approved");
+    if (revision.rows[0].actor_id === actor.id)
+      throw new Error("Authors cannot approve their own revision");
+    const approvalId = randomUUID();
+    await client.query(
+      `INSERT INTO website_cms.revision_approvals
+       (id,site_id,page_id,revision_id,reviewer_id) VALUES($1,$2,$3,$4,$5)`,
+      [approvalId,actor.siteId,pageId,revisionId,actor.id]);
+    await client.query(
+      "UPDATE website_cms.page_revisions SET state='approved' WHERE id=$1 AND page_id=$2 AND state='draft'",
+      [revisionId,pageId]);
+    await client.query(
+      `INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id)
+       VALUES($1,$2,$3,'cms.approved',$4)`,
+      [randomUUID(),actor.siteId,actor.id,revisionId]);
+    return approvalId;
+  });
+}
+
 /**
  * Publish a separately approved revision as a NEW immutable published revision.
  * Approval itself must be performed by a separate, authenticated review workflow.
@@ -108,6 +140,13 @@ export async function publishApproved(actor: CmsActor, pageId: string, approvedR
       throw new Error("Revision has not been approved");
     if (source.rows[0].actor_id === actor.id)
       throw new Error("Publisher must differ from the approved revision author");
+    const approval = await client.query<{reviewer_id:string}>(
+      `SELECT reviewer_id FROM website_cms.revision_approvals
+       WHERE site_id=$1 AND page_id=$2 AND revision_id=$3 LIMIT 1`,
+      [actor.siteId,pageId,approvedRevisionId]);
+    if (approval.rowCount !== 1 || approval.rows[0].reviewer_id === source.rows[0].actor_id)
+      throw new Error("Independent review evidence missing");
+
     const next = await client.query<{next:number}>(
       "SELECT COALESCE(MAX(revision_number),0)+1 AS next FROM website_cms.page_revisions WHERE page_id=$1",[pageId]);
     const publishedId = randomUUID();
