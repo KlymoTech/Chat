@@ -63,8 +63,6 @@ export function NotificationBell() {
   }, [activeWorkspace?.id, pushToast]);
 
   useEffect(() => {
-    setOpen(false);
-    setItems([]);
     void refreshCount();
     const timer = window.setInterval(() => { void refreshCount(); }, 60_000);
     return () => window.clearInterval(timer);
@@ -104,7 +102,8 @@ export function NotificationBell() {
     }
   };
 
-  return <div className="notification-center">
+  const workspaceId = activeWorkspace?.id ?? '';
+  return <div className="notification-center" data-workspace-id={workspaceId}>
     <button
       className="icon-button notification-center__trigger"
       type="button"
