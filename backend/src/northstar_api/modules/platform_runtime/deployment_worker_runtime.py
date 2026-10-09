@@ -18,11 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import uvicorn
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from northstar_api.config import get_settings
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .deployment_worker_database import (
     WorkerDatabaseConfig,
