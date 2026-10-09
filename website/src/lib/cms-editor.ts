@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { normalizeCmsPath } from "./cms-path";
+import { attachPublishedMediaUsages } from "./editor-media-links";
 import { assertManualPreservationOnly } from "./preservation-contract";
 
 /**
@@ -16,7 +17,8 @@ export type CmsActor = Readonly<{
 }>;
 export type CmsBlock =
   | { type: "heading" | "paragraph"; text: string }
-  | { type: "callout"; title: string; body: string };
+  | { type: "callout"; title: string; body: string }
+  | { type: "image"; assetId: string; alt: string; caption: string };
 export type DraftDocument = Readonly<{
   title: string;
   description: string;
@@ -37,6 +39,11 @@ function validateDocument(value: DraftDocument): void {
     if (block.type === "heading" || block.type === "paragraph") {
       if (typeof block.text !== "string" || !block.text.trim() || block.text.length > 10000)
         throw new Error("Invalid text block");
+    } else if (block.type === "image") {
+      if (!UUID.test(block.assetId) || typeof block.alt !== "string" ||
+          !block.alt.trim() || block.alt.length > 300 ||
+          typeof block.caption !== "string" || block.caption.length > 500)
+        throw new Error("Invalid media image block");
     } else if (block.type === "callout") {
       if (typeof block.title !== "string" || !block.title.trim() || block.title.length > 180 ||
           typeof block.body !== "string" || block.body.length > 10000)
@@ -210,8 +217,8 @@ export async function publishApproved(actor: CmsActor, pageId: string, approvedR
       "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
       [pageId,actor.siteId]);
     if (page.rowCount !== 1) throw new Error("Page not found");
-    const source = await client.query<{state:string;actor_id:string}>(
-      "SELECT state,actor_id FROM website_cms.page_revisions WHERE id=$1 AND page_id=$2",
+    const source = await client.query<{state:string;actor_id:string;blocks:CmsBlock[]}>(
+      "SELECT state,actor_id,blocks FROM website_cms.page_revisions WHERE id=$1 AND page_id=$2",
       [approvedRevisionId,pageId]);
     if (source.rowCount !== 1 || source.rows[0].state !== "approved")
       throw new Error("Revision has not been approved");
@@ -233,6 +240,7 @@ export async function publishApproved(actor: CmsActor, pageId: string, approvedR
        SELECT $1,page_id,$2,'published',title,description,blocks,seo,$3
        FROM website_cms.page_revisions WHERE id=$4 AND page_id=$5`,
       [publishedId,next.rows[0].next,actor.id,approvedRevisionId,pageId]);
+    await attachPublishedMediaUsages(client,actor.siteId,pageId,publishedId,source.rows[0].blocks);
     await client.query(
       "UPDATE website_cms.pages SET current_published_revision_id=$1 WHERE id=$2 AND site_id=$3",
       [publishedId,pageId,actor.siteId]);
@@ -282,6 +290,7 @@ export async function restorePublished(actor: CmsActor, pageId: string, targetRe
        SELECT $1,page_id,$2,'published',title,description,blocks,seo,$3
        FROM website_cms.page_revisions WHERE id=$4 AND page_id=$5 AND state='published'`,
       [restoredId,next.rows[0].next,actor.id,targetRevisionId,pageId]);
+    await attachPublishedMediaUsages(client,actor.siteId,pageId,restoredId,target.rows[0].blocks);
     await client.query(
       "UPDATE website_cms.pages SET current_published_revision_id=$1 "+
       "WHERE id=$2 AND site_id=$3",
