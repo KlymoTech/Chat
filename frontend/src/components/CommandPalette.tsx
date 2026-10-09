@@ -150,7 +150,6 @@ export function CommandPalette({
         <div className="command-palette__search">
           <Search aria-hidden="true" />
           <input
-            ref={inputRef}
             autoFocus
             value={query}
             onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
