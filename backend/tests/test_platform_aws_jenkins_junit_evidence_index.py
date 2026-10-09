@@ -89,7 +89,7 @@ class FakeS3:
 
     def get_object(self, **kwargs):
         self.gets.append(kwargs)
-        if self.fail_get is not None:
+        if self.fail_get is not None and kwargs["Key"].endswith("/verified-index.json"):
             raise self.fail_get
         version, args = self._lookup(kwargs)
         return {"VersionId": version, "Body": io.BytesIO(args["Body"])}
