@@ -29,7 +29,6 @@ async def seed(scopes: list[dict]) -> dict:
         return record
 
     agent = create("agents", {"name": "CMA AI", "purpose": "education", "deploymentChannel": "website", "description": "Synthetic export review assistant"})
-    assert runtime.api(f"agents/{agent['id']}", method="PATCH", token=token, workspace=workspace, body={"status": "active"})[0] == 200
     today = datetime.now(UTC).date()
     courses, batches, students = [], [], []
     for index, (code, name, description) in enumerate([
@@ -46,6 +45,8 @@ async def seed(scopes: list[dict]) -> dict:
         enrollment = create("education/enrollments", {"studentId": student["id"], "courseId": course["id"], "batchId": batch["id"], "agentId": agent["id"], "startsOn": str(today - timedelta(days=1)), "endsOn": str(today + timedelta(days=60))})
         if index == 0:
             assert runtime.api(f"education/enrollments/{enrollment['id']}", method="PATCH", token=token, workspace=workspace, body={"status": "active"})[0] == 200
+    # The real service requires an active enrollment before activating its agent.
+    assert runtime.api(f"agents/{agent['id']}", method="PATCH", token=token, workspace=workspace, body={"status": "active"})[0] == 200
     return {"courses": courses, "batches": batches, "students": students, "agent": agent}
 
 
