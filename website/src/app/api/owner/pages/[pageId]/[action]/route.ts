@@ -32,8 +32,9 @@ export async function POST(request: Request, { params }: Params) {
       const revisionId = await publishApproved(actor, pageId, input.revisionId);
       return ownerResponse({ revisionId, state: "publication-queued" }, 202);
     }
-    await restorePublished(actor, pageId, input.revisionId);
-    return ownerResponse({ revisionId: input.revisionId, state: "restoration-queued" }, 202);
+    const revisionId = await restorePublished(actor, pageId, input.revisionId);
+    return ownerResponse({ revisionId, sourceRevisionId: input.revisionId,
+      state: "restoration-queued" }, 202);
   } catch {
     return ownerResponse({ error: "CMS action failed, state unchanged or rolled back" }, 409);
   }
