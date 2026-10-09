@@ -88,4 +88,4 @@ async def test_flush_error_is_not_masked_or_committed():
     session.flush = AsyncMock(side_effect=RuntimeError("unique constraint"))
     with pytest.raises(RuntimeError):
         await admit_notification_qualification(session, **kwargs())
-    assert not hasattr(session, "commit_called")
+    session.commit.assert_not_called()
