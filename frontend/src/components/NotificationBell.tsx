@@ -81,7 +81,9 @@ export function NotificationBell() {
     try {
       await markRead(item);
       setOpen(false);
-      if (item.actionUrl?.startsWith('/')) navigate(item.actionUrl);
+      // Only navigate to an application-relative path; reject protocol-relative
+      // URLs and backslashes that browsers can interpret as external hosts.
+      if (item.actionUrl && /^\/(?!\/)[^\\]*$/.test(item.actionUrl)) navigate(item.actionUrl);
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Notification could not be updated', 'error');
     }
