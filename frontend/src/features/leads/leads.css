@@ -205,3 +205,19 @@
 .ld-reminders label:has(:checked) { background:#111; color:#fff; }
 .ld-reminders label:has(:focus-visible) { outline:2px solid #007355; outline-offset:2px; }
 @media(max-width:650px) { .ld-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); width:100%; gap:6px; }.ld-filter { min-width:0; flex-wrap:wrap; gap:0; padding:5px 7px; }.ld-page .ld-filter select { width:100%; font-size:10px; }.ld-filter>svg { top:50%; }.ld-reminders { flex-wrap:wrap; }.ld-reminders label { min-width:52px; } }
+
+/* Narrow-screen containment: wide lead tables scroll inside their own viewport,
+   never force the workspace shell wider than the device. */
+@media (max-width:650px) {
+  .saas-bot-shell.mm-shell--leads,
+  .saas-bot-shell.mm-shell--leads .mm-main,
+  .saas-bot-shell.mm-shell--leads .mm-content,
+  .saas-bot-shell.mm-shell--leads .ld-page,
+  .saas-bot-shell.mm-shell--leads .ld-list { min-width:0; max-width:100%; }
+  .saas-bot-shell.mm-shell--leads .mm-main,
+  .saas-bot-shell.mm-shell--leads .mm-content { overflow-x:clip; }
+  .saas-bot-shell.mm-shell--leads .ld-table-scroll { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+  .saas-bot-shell.mm-shell--leads .ld-toolbar,
+  .saas-bot-shell.mm-shell--leads .ld-heading__top { min-width:0; max-width:100%; }
+  .saas-bot-shell.mm-shell--leads .ld-heading__top>div { min-width:0; flex-wrap:wrap; }
+}
