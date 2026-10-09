@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.rsa import generate_private_key
 
 from northstar_api.modules.platform_runtime import deployment_worker_runtime as runtime
+from northstar_api.modules.platform_runtime.deployment_worker_database import WorkerDatabaseSecurityError
 
 
 def env(**updates):
@@ -167,7 +168,7 @@ def test_production_runtime_refuses_sqlite(tmp_path, monkeypatch):
     write_key(directory, "machine.pem", signer_public_pem())
     write_key(directory, "step.pem", signer_public_pem())
     monkeypatch.setenv("NORTHSTAR_DEPLOYMENT_WORKER_DATABASE_URL", "sqlite+aiosqlite:///unsafe.db")
-    with pytest.raises(runtime.WorkerDatabaseSecurityError, match="PostgreSQL|worker"):
+    with pytest.raises(WorkerDatabaseSecurityError, match="PostgreSQL|worker"):
         runtime.build_private_worker_app(configured_settings(directory))
 
 
@@ -207,12 +208,12 @@ async def test_worker_startup_rejects_unqualified_database_role(tmp_path, monkey
     directory = private_dir(tmp_path, monkeypatch)
     write_key(directory, "machine.pem", signer_public_pem())
     write_key(directory, "step.pem", signer_public_pem())
-    verified = AsyncMock(side_effect=runtime.WorkerDatabaseSecurityError(
+    verified = AsyncMock(side_effect=WorkerDatabaseSecurityError(
         "unqualified role: high privilege",
     ))
     monkeypatch.setattr(runtime, "verify_worker_database_identity", verified)
     app = runtime.build_private_worker_app(configured_settings(directory))
-    with pytest.raises(runtime.WorkerDatabaseSecurityError, match="unqualified role"):
+    with pytest.raises(WorkerDatabaseSecurityError, match="unqualified role"):
         async with app.router.lifespan_context(app):
             pytest.fail("worker served requests despite unqualified database")
     verified.assert_awaited_once()
