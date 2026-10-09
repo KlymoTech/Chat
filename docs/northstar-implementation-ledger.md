@@ -204,3 +204,35 @@ do not merge without explicit instruction.
   workload or notification worker is activated by this increment.
 - **Execution status:** committed test code is not a passing CI/test report;
   repository-wide tests and real AWS/Jenkins qualification remain unverified.
+
+
+## Increment: Terraform isolation of Jenkins qualification evidence storage (2026-10-10)
+
+- Added `infrastructure/terraform/modules/jenkins_qualification_evidence/` as
+  an isolated, **not-applied** AWS foundation for evidence publication. The
+  module defines an Object Lock enabled, versioned, private S3 bucket with
+  COMPLIANCE retention, customer-managed SSE-KMS, default-deny TLS/write
+  guards, no force-destroy, and account/region sanity checks.
+- Added a dedicated publisher IAM role that trusts only one separately
+  reviewed Jenkins agent role with run-scoped STS session names and a
+  mandatory permissions boundary. IAM S3 grants cover one `evidence/*`
+  prefix; KMS cryptographic grants require S3 service and scoped object
+  encryption context. No publisher permission to delete evidence, modify
+  production workloads, fetch private signer keys or deploy Terraform.
+- Added an additive example `examples/qualification-evidence/`,
+  `terraform test` mock-provider topology checks, a no-credentials/no-apply
+  GitHub Actions Terraform gate and backend-authored policy security checks.
+  The existing private worker Terraform and root Jenkins preflight remain
+  unchanged. Deployment continues to require separate review.
+- The module does **not** create the Jenkins agent role, signing roles,
+  organization permissions boundary, state backend, audit archive, CloudTrail
+  S3 data-event logging, full evidence suite, cross-region replication or
+  live qualification environment.
+- **Verification limitation:** Terraform binaries/provider packages were
+  unavailable in the current execution environment. The files were
+  committed, but actual `terraform fmt`, `init`, `validate`, mock
+  `test`, IAM/S3/KMS qualification and production operation have not been
+  demonstrated. No CI success or active publishing should be inferred.
+- Next incremental gate: secure release-signing/test-runner agent identities
+  and protected Jenkins-to-AWS identity issuance, followed by real
+  qualification S3 Object Lock/KMS read-back and CloudTrail evidence.
