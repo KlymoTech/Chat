@@ -34,7 +34,7 @@ if(!enabled||!origin||!secret||secret.length<32||!validSite||!database){
           "o.payload->>'pageId' AS page_id,p.path "+
           "FROM website_cms.outbox o "+
           "JOIN website_cms.sites s ON s.id=o.site_id "+
-          "LEFT JOIN website_cms.pages p ON p.id=(o.payload->>'pageId')::uuid "+
+          "LEFT JOIN website_cms.pages p ON p.id::text=o.payload->>'pageId' "+
           "AND p.site_id=o.site_id "+
           "WHERE s.slug=$1 AND o.event_type=ANY($2::text[]) "+
           "AND o.delivered_at IS NULL AND o.next_attempt_at<=now() "+
