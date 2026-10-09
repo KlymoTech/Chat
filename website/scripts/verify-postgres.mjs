@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:11},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 011 must be contiguous");
+const expected=Array.from({length:12},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 012 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -188,7 +188,16 @@ try {
   await mustReject(
     "INSERT INTO website_cms.media_usages(site_id,asset_id,page_id,revision_id) "+
     "VALUES($1,$2,$3,$4)",[otherSiteId,mediaId,otherPageId,otherRevisionId],"23503");
-  console.log(JSON.stringify({database:"website_test",migrations:11,checks:[
+  // Processing evidence columns added by 012 must exist before activation.
+  const mediaEvidence=await client.query(
+    "SELECT sanitized_key,sanitized_sha256,sanitized_byte_size,scan_engine,inspected_at "+
+    "FROM website_cms.media_assets WHERE id=$1",[mediaId]);
+  assert.equal(mediaEvidence.rows.length,1,"Media fixture should survive migration");
+  assert.equal(mediaEvidence.rows[0].sanitized_key,null,
+    "Unscanned media must never have a sanitized candidate");
+  assert.equal(mediaEvidence.rows[0].inspected_at,null,
+    "Unscanned media must remain uninspected");
+  console.log(JSON.stringify({database:"website_test",migrations:12,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
