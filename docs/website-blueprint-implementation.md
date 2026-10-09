@@ -58,3 +58,7 @@ Added user-controlled analytics/marketing preferences on all public routes and a
 ## Sixth checkpoint — lead intake, strictly disabled by default
 
 Added `website/db/003_lead_capture.sql`, a validated lead-input contract, a server-only PostgreSQL transaction committing the lead and one outbox intent, a same-origin POST endpoint, and an accessible contact form shown only when explicitly enabled. Idempotent retries reference the same saved lead. Endpoint acknowledges success only after transaction commit, otherwise responds with failure. The module stays disabled by default pending spam/rate limits, DB privilege isolation, approved privacy copy, operations and integration testing. A worker to actually deliver outbox events to CRM/email is still NOT implemented. No migrations were applied and no automated tests are claimed passing.
+
+## Seventh checkpoint — idempotency replay integrity
+
+Added migration `004_lead_idempotency.sql` and a normalized-payload SHA-256 check. A repeat of the same idempotency key with identical content can return the same durable receipt; a repeat with changed content returns 409 and rolls back. The lead module remains disabled, and DB migration, concurrency, abuse controls, CRM delivery, and end-to-end tests remain release blockers.
