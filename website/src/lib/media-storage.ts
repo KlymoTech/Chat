@@ -21,7 +21,16 @@ export function readQuarantineStoreConfig(env:NodeJS.ProcessEnv):StoreConfig|nul
       ["localhost","127.0.0.1"].includes(url.hostname);
     if(url.protocol!=="https:" && !(local&&url.protocol==="http:"))return null;
     if(url.username||url.password||url.search||url.hash||url.pathname!=="/")return null;
-    if(url.hostname.endsWith(".local")&&!local)return null;
+    // Production stores must be operator-configured DNS hosts. Local-only
+    // development may use localhost; never use private IP/metadata endpoints.
+    if(!local && (!url.hostname.includes(".") ||
+      !/^[a-z0-9.-]+$/.test(url.hostname) ||
+      /^\\d+(?:\\.\\d+){3}$/.test(url.hostname) ||
+      url.hostname.endsWith(".local") ||
+      url.hostname.endsWith(".localhost") ||
+      url.hostname.endsWith(".internal") ||
+      url.hostname.endsWith(".test") ||
+      url.hostname.endsWith(".example")))return null;
     return {endpoint:url.origin,bucket,region,accessKeyId,secretAccessKey};
   }catch{return null;}
 }
