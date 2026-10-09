@@ -1,5 +1,5 @@
 import "server-only";
-import {S3Client,PutObjectCommand,HeadObjectCommand} from "@aws-sdk/client-s3";
+import {S3Client,PutObjectCommand,HeadObjectCommand,GetObjectCommand} from "@aws-sdk/client-s3";
 import {createHash} from "node:crypto";
 import type {VerifiedQuarantineBytes} from "./media-bytes";
 
@@ -79,4 +79,59 @@ export async function putQuarantineObject(
   if(head.ContentLength!==validated.byteSize ||
      head.Metadata?.sha256!==validated.sha256)
     throw new Error("Object-store acknowledgement does not match verified manifest");
+}
+
+/** Bounded private object read for an independent scanner process. */
+export async function getQuarantineObject(key:string):Promise<Uint8Array> {
+  const config=readQuarantineStoreConfig(process.env);
+  if(!config)throw new Error("Private media storage is disabled");
+  if(!/^quarantine\\/[0-9a-f-]{36}\\/[0-9a-f-]{36}\\/original$/.test(key))
+    throw new Error("Invalid quarantine object key");
+  const storage=storageClient(config);
+  const head=await storage.send(new HeadObjectCommand({
+    Bucket:config.bucket,Key:key,
+  }),{abortSignal:AbortSignal.timeout(5000)});
+  const size=head.ContentLength;
+  if(!Number.isSafeInteger(size)||!size||size<12||size>10*1024*1024)
+    throw new Error("Private object exceeds scan limit");
+  const object=await storage.send(new GetObjectCommand({
+    Bucket:config.bucket,Key:key,
+  }),{abortSignal:AbortSignal.timeout(15000)});
+  if(!object.Body)throw new Error("Private object missing body");
+  const chunks:Uint8Array[]=[];
+  let total=0;
+  for await(const chunk of object.Body as AsyncIterable<Uint8Array>) {
+    total+=chunk.length;
+    if(total>10*1024*1024)throw new Error("Private object exceeded scan limit while streaming");
+    chunks.push(chunk);
+  }
+  if(total!==size)throw new Error("Private object length changed during scan");
+  return Buffer.concat(chunks.map(c=>Buffer.from(c)),total);
+}
+
+/** Derivative stays PRIVATE until an independent editor approves and publishes. */
+export async function putSanitizedCandidate(
+  key:string,bytes:Uint8Array,expectedSha256:string,
+):Promise<void> {
+  const config=readQuarantineStoreConfig(process.env);
+  if(!config)throw new Error("Private media storage is disabled");
+  if(!/^processed\\/[0-9a-f-]{36}\\/[0-9a-f-]{36}\\/candidate\\.webp$/.test(key))
+    throw new Error("Invalid derivative destination");
+  if(bytes.length<1||bytes.length>10*1024*1024||
+     !/^[a-f0-9]{64}$/.test(expectedSha256)||
+     createHash("sha256").update(bytes).digest("hex")!==expectedSha256)
+    throw new Error("Invalid derivative integrity");
+  const storage=storageClient(config);
+  await storage.send(new PutObjectCommand({
+    Bucket:config.bucket,Key:key,
+    Body:Buffer.from(bytes),ContentType:"application/octet-stream",
+    CacheControl:"private, no-store",
+    ChecksumSHA256:Buffer.from(expectedSha256,"hex").toString("base64"),
+    Metadata:{sha256:expectedSha256,purpose:"unreviewed-processed-candidate"},
+  }),{abortSignal:AbortSignal.timeout(15000)});
+  const head=await storage.send(new HeadObjectCommand({
+    Bucket:config.bucket,Key:key,
+  }),{abortSignal:AbortSignal.timeout(5000)});
+  if(head.ContentLength!==bytes.length||head.Metadata?.sha256!==expectedSha256)
+    throw new Error("Private processed candidate not acknowledged");
 }
