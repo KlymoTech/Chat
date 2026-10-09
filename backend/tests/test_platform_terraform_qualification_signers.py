@@ -1,4 +1,5 @@
 """Static audit of authored signer IAM policy; mocks alone cannot prove it."""
+import re
 from pathlib import Path
 
 ROOT = (
@@ -8,7 +9,10 @@ ROOT = (
 
 
 def _read(name: str) -> str:
-    return (ROOT / name).read_text(encoding="utf-8")
+    source = (ROOT / name).read_text(encoding="utf-8")
+    # Terraform fmt right-aligns equals within neighboring assignment groups.
+    # Normalize spacing for text assertions without weakening policy checks.
+    return re.sub(r"(?<=\\w)[ \\t]+=[ \\t]+", " = ", source)
 
 
 def _block(source: str, marker: str) -> str:
