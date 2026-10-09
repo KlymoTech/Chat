@@ -221,3 +221,12 @@
   .saas-bot-shell.mm-shell--leads .ld-heading__top { min-width:0; max-width:100%; }
   .saas-bot-shell.mm-shell--leads .ld-heading__top>div { min-width:0; flex-wrap:wrap; }
 }
+
+/* Keep the Leads mobile canvas independent of the desktop fixed sidebar width. */
+@media(max-width:650px) {
+  .saas-bot-shell.mm-shell--leads { width:100%; margin:0; border-radius:0; }
+  .saas-bot-shell.mm-shell--leads .mm-main { width:100%; margin-left:0; }
+  .saas-bot-shell.mm-shell--leads .mm-content { width:100%; box-sizing:border-box; }
+  .saas-bot-shell.mm-shell--leads .ld-page { width:100%; box-sizing:border-box; }
+  .saas-bot-shell.mm-shell--leads .ld-table-scroll { display:block; }
+}
