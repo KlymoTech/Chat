@@ -47,6 +47,7 @@ from northstar_api.modules.platform_runtime import queue_notification_persistenc
 from northstar_api.modules.platform_runtime import queue_notification_config_persistence as platform_notification_route_models  # noqa: F401
 from northstar_api.modules.platform_runtime import queue_notification_qualification_persistence as platform_notification_qualification_models  # noqa: F401
 from northstar_api.modules.platform_runtime import queue_notification_release_link_persistence as platform_notification_release_link_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_junit_index_custody_persistence as platform_notification_junit_custody_models  # noqa: F401
 from northstar_api.modules.platform_runtime import queue_notification_jenkins_junit_custody_persistence as platform_notification_junit_custody_models  # noqa: F401
 
 config = context.config
