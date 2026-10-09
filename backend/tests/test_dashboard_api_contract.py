@@ -117,7 +117,11 @@ async def test_dashboard_period_metrics_are_scoped_real_data(client: AsyncClient
     assert payload["conversations"] == (2 if days == 7 else 3)
     assert 0 <= payload["resolutionRate"] <= 100
     assert payload["avgResponseSeconds"] >= 0
-    assert len(payload["chart"]) == days
+    # Existing API uses daily weekly buckets and four-day monthly buckets.
+    assert len(payload["chart"]) == (7 if days == 7 else 8)
+    assert payload["period"] == f"Last {days} days"
+    assert sum(item["conversations"] for item in payload["chart"]) == payload["conversations"]
+    assert sum(item["resolved"] for item in payload["chart"]) == 1
     assert all({"label", "conversations", "resolved"} <= item.keys() for item in payload["chart"])
 
 
@@ -126,7 +130,8 @@ async def test_dashboard_agents_knowledge_and_connection_shapes(client: AsyncCli
     agents = await client.get("/api/v1/agents", headers=scope["headers"])
     assert agents.status_code == 200, agents.text
     assert [agent["id"] for agent in agents.json()] == [scope["agent"]["id"]]
-    assert agents.json()[0]["status"] == "draft"
+    # Default website support agents are active; education/WhatsApp use draft.
+    assert agents.json()[0]["status"] == "active"
     sources = await client.get(f"/api/v1/agents/{scope['agent']['id']}/knowledge", headers=scope["headers"])
     assert sources.status_code == 200, sources.text
     assert sources.json() == []
