@@ -324,3 +324,37 @@ do not merge without explicit instruction.
 - Next: version-fenced, read-only JUnit report retrieval and witnessed
   report binding; then authenticated, independently qualified signing
   service that self-verifies each issued Ed25519 attestation.
+
+
+## Increment: pinned S3 JUnit suite archiving and readback (2026-10-10)
+
+- Added `aws_immutable_jenkins_junit_store.py` to enforce an AWS
+  `PublicationIdentity` role/session check, then validate the complete
+  independently witnessed three-suite JUnit report set before any
+  side effect. Writes are `IfNoneMatch=*`, encrypted with pinned
+  SSE-KMS, COMPLIANCE-locked and retained with one day of policy margin.
+  One original S3 version/checksum receipt is produced per suite.
+- Added `aws_jenkins_junit_reconciliation.py`, a read-only reconciler
+  that requires externally pinned receipt versions and release/run/suite
+  key paths for all three JUnit files, checks per-version encryption,
+  Object Lock retention, metadata and byte checksums, and then passes
+  the **actual S3 bytes** to the independently signed Jenkins witness
+  verifier. It binds each S3 version's stored witness checksum to the
+  verified witness body hash. It cannot replace, overwrite, list latest,
+  approve or activate workers.
+- Added fake-S3 end-to-end and failure-path tests for complete writing
+  and readback, different object versions, altered byte content, KMS/
+  retention/source/witness metadata tampering, independent signature
+  mismatch, authorization denial, partial archive conflict and unknown
+  AWS outcomes. Wired into feature-branch GitHub Actions and the
+  unchanged non-publishing Jenkins preflight.
+- **Outstanding:** a protected Jenkins witness producer and complete
+  isolated suite execution, independent durable receipt collection,
+  version-locked signed witness archival, partial-write reconciliation,
+  production IAM and KMS Object Lock verification, and connection to
+  the authenticated private attestation signer. A caller-controlled
+  or self-reported witness is never sufficient for qualification.
+- **Evidence status:** code/tests/CI hooks are committed. Passing full
+  CI or actual AWS/Jenkins execution was not established from this
+  session. No main-branch changes, Jodo code or production worker
+  activation are part of this increment.
