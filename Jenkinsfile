@@ -36,8 +36,8 @@ pipeline {
           sh '''
             set -eu
             uv sync --all-groups --locked
-            uv run ruff check src/northstar_api/modules/platform_runtime tests/test_platform_notification_qualification_governance.py tests/test_platform_notification_qualification_api.py tests/test_platform_notification_qualification_ingestion.py tests/test_platform_aws_jenkins_evidence_publisher.py tests/test_platform_aws_jenkins_attestation_publisher.py
-            uv run pytest -q tests/test_platform_notification_qualification_governance.py tests/test_platform_notification_qualification_api.py tests/test_platform_notification_qualification_ingestion.py tests/test_platform_queue_notification_worker_qualification.py tests/test_platform_aws_jenkins_evidence_publisher.py tests/test_platform_aws_jenkins_attestation_publisher.py
+            uv run ruff check src/northstar_api/modules/platform_runtime tests/test_platform_notification_qualification_governance.py tests/test_platform_notification_qualification_api.py tests/test_platform_notification_qualification_ingestion.py tests/test_platform_aws_jenkins_evidence_publisher.py tests/test_platform_aws_jenkins_attestation_publisher.py tests/test_platform_aws_protected_qualification_signer.py
+            uv run pytest -q tests/test_platform_notification_qualification_governance.py tests/test_platform_notification_qualification_api.py tests/test_platform_notification_qualification_ingestion.py tests/test_platform_queue_notification_worker_qualification.py tests/test_platform_aws_jenkins_evidence_publisher.py tests/test_platform_aws_jenkins_attestation_publisher.py tests/test_platform_aws_protected_qualification_signer.py
           '''
         }
       }
