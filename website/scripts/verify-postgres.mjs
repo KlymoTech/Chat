@@ -89,6 +89,20 @@ try {
   await mustReject("DELETE FROM website_cms.page_revisions WHERE id=$1",[revisionId]);
   await mustReject("DELETE FROM website_cms.revision_approvals WHERE revision_id=$1",[revisionId]);
 
+  // Rollback appends a fresh immutable snapshot, retaining the original.
+  const rollbackRevisionId=uuid();
+  await client.query("INSERT INTO website_cms.page_revisions "+
+    "(id,page_id,revision_number,state,title,description,blocks,seo,actor_id) "+
+    "SELECT $1,page_id,3,'published',title,description,blocks,seo,$2 "+
+    "FROM website_cms.page_revisions WHERE id=$3 AND state='published'",
+    [rollbackRevisionId,reviewerId,publicId]);
+  await client.query("UPDATE website_cms.pages SET current_published_revision_id=$1 WHERE id=$2",
+    [rollbackRevisionId,pageId]);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.page_revisions WHERE page_id=$1",[pageId]),3,
+    "Rollback must preserve originals and append a new published snapshot");
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.public_published_pages WHERE site_slug=$1",[slug]),1);
   // Blog metadata remains attached to the page, not to ephemeral search records.
   // Public blog discovery must use the live published revision pointer.
   await client.query("INSERT INTO website_cms.blog_entries(id,page_id,category,tags,created_by_actor_id) "+
@@ -100,11 +114,11 @@ try {
   // Trash must remove public visibility while retaining all source revisions.
   await client.query("UPDATE website_cms.pages SET trashed_at=now(),trashed_by_actor_id=$1,"+
     "trash_reason='Manual editorial removal',trashed_published_revision_id=$2,"+
-    "current_published_revision_id=NULL WHERE id=$3",[authorId,publicId,pageId]);
+    "current_published_revision_id=NULL WHERE id=$3",[authorId,rollbackRevisionId,pageId]);
   assert.equal(await count(
     "SELECT COUNT(*) AS total FROM website_cms.public_published_pages WHERE site_slug=$1",[slug]),0);
   assert.equal(await count(
-    "SELECT COUNT(*) AS total FROM website_cms.page_revisions WHERE page_id=$1",[pageId]),2);
+    "SELECT COUNT(*) AS total FROM website_cms.page_revisions WHERE page_id=$1",[pageId]),3);
   assert.equal(await count(
     "SELECT COUNT(*) AS total FROM website_cms.public_published_blog_entries WHERE site_slug=$1",[slug]),0,
     "Trashed articles must not appear in blog discovery");
@@ -154,7 +168,7 @@ try {
   console.log(JSON.stringify({database:"website_test",migrations:10,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
-    "cross-page-publication-blocked","published-blog-discovery","trash-invisible","restore-unpublished",
+    "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
     "blog-trash-exclusion","lead-outbox-atomic-fixture","idempotency-unique","quota-fourth-rejected"
   ],status:"passed"}));
 } finally {
