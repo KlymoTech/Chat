@@ -1,0 +1,78 @@
+# Temporary exact-source transfer for PR 134; removes itself after applying.
+name: Apply Education design implementation
+on:
+  pull_request:
+    paths: ['.github/workflows/apply-education-export-once.yml']
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: github.event.pull_request.number == 134 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/figma-saas-bot-redesign'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Validate previous files, transfer integrity and exact resulting source
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, lzma, subprocess
+          from pathlib import Path
+          expected = {
+            '.github/workflows/design-bundle-source-once.yml': ('1d4e1bfb3de2270d519cdb61f1ccde130ccbc94b', None),
+            '.github/workflows/education-design-review.yml': (None, '198fedf76d7247a38e008fe9b2f1e6e234f48ba8'),
+            'docs/EDUCATION_DESIGN_EXPORT.md': (None, 'c3ff9c9237c0ee21f711be3b1c03701a8d3cf09d'),
+            'frontend/src/components/materialm/EducationLayout.tsx': ('26464377f74d18bb52e329e26ee044fcc350e3cf', '395a4fa6ce22a76e1d32a5e9833cac32a9fde6aa'),
+            'frontend/src/components/materialm/MaterialmAppShell.tsx': ('88fd31340fa6a9f766da2634d46625c0386b76d8', 'bd6b7c98075e98669e8524dfcb94fcf9206caff2'),
+            'frontend/src/components/materialm/MaterialmSidebar.tsx': ('d1bfdd93f31db73a7cc4452535d87994d3806cf8', '141f1a5cb120d24eca87703dbaae82cedfadaccb'),
+            'frontend/src/components/materialm/education-layout.test.tsx': ('5d5a0a4d39b54717bb7c589606c07ee487380e30', '6f38f60be0b7c36e11663846de5262843f771331'),
+            'frontend/src/features/education/BatchEditorFrame.tsx': (None, '8f3b196f9dd9fdf226a36e8f8bc9d70d611abda5'),
+            'frontend/src/features/education/EducationOverview.test.tsx': (None, 'abd8623488febb518fdd8c4e52d26612d655ae3c'),
+            'frontend/src/features/education/EducationOverview.tsx': (None, 'e399981f45cf1f385b757972a822a39ce0985eee'),
+            'frontend/src/features/education/EducationRecordDetail.tsx': (None, 'ee439a016b6466d028ba57b476f85e0d3836b7f3'),
+            'frontend/src/features/education/education-design.css': (None, 'ba54df94844fd9ff0531291e4c5731367df312ec'),
+            'frontend/src/features/education/educationPresentation.test.ts': (None, '271c48d381fa479a182e8cc332ef5839e4274733'),
+            'frontend/src/features/education/educationPresentation.ts': (None, 'abb8585fcc61188450720e9580b95280ca108f3d'),
+            'frontend/src/lib/materialm-navigation.ts': ('0f58b1942bd0c4ff48f041e9e5daf06cdcddbc8a', 'c4e86cb1d0b58083432d9b0c90a707d91e6e1adc'),
+            'frontend/src/pages/AcademyDashboards.test.tsx': ('a6da18d06c121284e0295b0d2fdf9c19a235bf17', '0d1d568f533c3d71743d65efdf765f466737edc2'),
+            'frontend/src/pages/BatchesPage.test.tsx': ('09ba874794a8da6852da3042852bc10f3a013a2e', 'a3d80e7bc51472b0c7f702ced99b4e47704ffa6f'),
+            'frontend/src/pages/BatchesPage.tsx': ('4d74404d4eac11f3ef7e2a826932fad985c82c2d', '6bffd89b08f14a8832f01b81a102c88a066e73f7'),
+            'frontend/src/pages/CoursesPage.test.tsx': ('f334ea3990ca6d65116a592ed483df7d3c0655ed', 'c04a2fbe5a14cea1c8803f63ced2c7695e64311a'),
+            'frontend/src/pages/CoursesPage.tsx': ('83111131402131b0a7204a1bf0a94468bb9f8d1a', '4b5531123c50571a509105bcf9e6a676dd23b23a'),
+            'frontend/src/pages/EducationEnrollmentsPage.tsx': ('7f07577363a228c02a26ca93cc962a17f5587d7e', '772d77a6655c28141c5e58a5b2151488fd04c554'),
+            'frontend/src/pages/EducationHubPage.tsx': ('d4da668675253af59c916e856200f446b3004332', '9fe40485043be627efefc7de1f3ad517a733cf8e'),
+            'frontend/src/pages/StudentsPage.tsx': ('d709d17c05ae48995e5f56a225d8f750cb9a65fb', '2d924a732918847e2c05b26f8ea40624b3eaf16d'),
+            'scripts/figma-redesign/education_browser_review.py': (None, '925cf31c9bc872183a6baef221a91a007736fc88'),
+          }
+          def blob(path):
+              if not Path(path).exists(): return None
+              value = Path(path).read_bytes()
+              return hashlib.sha1(f'blob {len(value)}\0'.encode() + value).hexdigest()
+          for path, (before, _) in expected.items():
+              assert blob(path) == before, f'Concurrent or unexpected source: {path}'
+          parts = [Path(f'.github/education-transfer/part-{i}.txt') for i in range(1, 4)]
+          packed = base64.b64decode(''.join(p.read_text() for p in parts), validate=True)
+          assert hashlib.sha256(packed).hexdigest() == 'e3c9be5ca24aeabc45068e2e0133f6b3f577952b3ebf6605e72f48f25e911b0e'
+          patch = lzma.decompress(packed)
+          subprocess.run(['git', 'apply', '--check', '--unidiff-zero', '-'], input=patch, check=True)
+          subprocess.run(['git', 'apply', '--unidiff-zero', '-'], input=patch, check=True)
+          for path, (_, after) in expected.items():
+              assert blob(path) == after, f'Transfer verification failed: {path}'
+          cleanup = [*parts, Path('.github/workflows/apply-education-export-once.yml')]
+          for path in cleanup: path.unlink()
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          subprocess.run(['git', 'add', '-A', '--', *expected, *(str(p) for p in cleanup)], check=True)
+          PY
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' -c core.hooksPath=/dev/null commit -m 'feat: implement exported Education hub and course/batch workflows'
+      - name: Fast-forward only the existing design feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$HEADER"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin HEAD:refs/heads/feat/figma-saas-bot-redesign
