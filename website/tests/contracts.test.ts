@@ -36,6 +36,15 @@ const page = {
 };
 describe("public CMS rendering contract", () => {
   it("accepts safe published block shapes", () => expect(isPublishedPage(page)).toBe(true));
+  it("accepts safe image references and rejects untrusted image URLs", () => {
+    const image={type:"image",assetId:"550e8400-e29b-41d4-a716-446655440000",
+      alt:"Alt text for image",caption:"Optional caption"};
+    expect(isPublishedPage({...page,blocks:[image]})).toBe(true);
+    expect(isPublishedPage({...page,blocks:[{...image,assetId:"../../private"}]})).toBe(false);
+    expect(isPublishedPage({...page,blocks:[{...image,assetId:"https://untrusted.example/image"}]})).toBe(false);
+    expect(isPublishedPage({...page,blocks:[{...image,alt:""}]})).toBe(false);
+    expect(isPublishedPage({...page,blocks:[{...image,caption:"x".repeat(501)}]})).toBe(false);
+  });
   it("rejects executable HTML block types", () =>
     expect(isPublishedPage({...page,blocks:[{type:"html",html:"<script>alert(1)</script>"}]})).toBe(false));
   it("rejects oversized content, unsafe paths and excessive blocks", () => {
