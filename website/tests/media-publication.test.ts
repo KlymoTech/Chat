@@ -20,13 +20,15 @@ const clean=()=>({
   alt_default:"Alt description",rights_statement:"Owned by site",
 });
 let row:ReturnType<typeof clean>;
+let livePageCount=0;
 beforeEach(()=>{
   vi.stubEnv("WEBSITE_MEDIA_PUBLICATION_ENABLED","true");
   vi.stubEnv("WEBSITE_MEDIA_PUBLISH_DB_ROLE_VERIFIED","true");
   vi.stubEnv("WEBSITE_MEDIA_PUBLICATION_DATABASE_URL","postgres://test:test@localhost/db");
-  row=clean();fake.query.mockReset();fake.release.mockReset();
+  row=clean();livePageCount=0;fake.query.mockReset();fake.release.mockReset();
   fake.query.mockImplementation(async(sql:string)=>{
     if(sql.includes("SELECT state,created_by_actor_id"))return {rows:[row],rowCount:1};
+    if(sql.includes("COUNT(*)::integer AS total"))return {rows:[{total:livePageCount}],rowCount:1};
     if(sql.includes("UPDATE website_cms.media_assets"))return {rowCount:1};
     return {rowCount:0};
   });
@@ -48,7 +50,7 @@ describe("independent media publication decisions",()=>{
   it("publishes only an approved record and appends attributable audit",async()=>{
     const outcome=await decideMediaPublication(actor,assetId,"publish",
       "Reviewed accessibility and legal rights");
-    expect(outcome).toEqual({assetId,published:true});
+    expect(outcome).toEqual({assetId,published:true,livePageCount:0});
     const update=fake.query.mock.calls.find(args=>String(args[0]).includes(
       "UPDATE website_cms.media_assets"));
     expect(String(update?.[0])).toContain("published_at=now()");
@@ -60,13 +62,28 @@ describe("independent media publication decisions",()=>{
     row.published_at="2026-10-01";
     expect(await decideMediaPublication(actor,assetId,"withdraw",
       "Remove published image pending legal review")).toEqual({
-      assetId,published:false,
+      assetId,published:false,livePageCount:0,
     });
     const update=fake.query.mock.calls.find(args=>String(args[0]).includes(
       "UPDATE website_cms.media_assets"));
     expect(String(update?.[0])).toContain("withdrawn_at=now()");
     expect(fake.query.mock.calls.some(args=>String(args[0]).includes(
       "DELETE FROM website_cms.media_assets"))).toBe(false);
+  });
+  it("requires impact acknowledgement when withdrawal affects active pages",async()=>{
+    row.published_at="2026-10-01";
+    livePageCount=2;
+    await expect(decideMediaPublication(actor,assetId,"withdraw",
+      "Urgent removal with active page references")).rejects.toThrow(/Acknowledge/);
+    expect(fake.query.mock.calls.some(call=>
+      String(call[0]).includes("UPDATE website_cms.media_assets"))).toBe(false);
+    expect(await decideMediaPublication(actor,assetId,"withdraw",
+      "Urgent removal with active page references",true)).toEqual({
+      assetId,published:false,livePageCount:2,
+    });
+    const audit=fake.query.mock.calls.find(call=>
+      String(call[0]).includes("INSERT INTO website_cms.audit_events"));
+    expect(audit?.[1].slice(-2)).toEqual([2,true]);
   });
   it("rejects publishing already-public assets and withdrawing never-public ones",async()=>{
     row.published_at="2026-10-01";
