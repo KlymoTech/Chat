@@ -72,7 +72,8 @@ export async function inspectQuarantinedImage(bytes:Uint8Array):Promise<Inspecte
      metadata.width*metadata.height>25_000_000)
     throw new Error("Unsupported image dimensions or animation");
   const formats:{[key:string]:string}={
-    jpeg:"image/jpeg",png:"image/png",webp:"image/webp",avif:"image/avif",
+    jpeg:"image/jpeg",png:"image/png",webp:"image/webp",
+    avif:"image/avif",heif:"image/avif",
   };
   if(formats[metadata.format]!==originalMime)throw new Error("Image decoder and signature disagree");
   // No withMetadata() call: orientation is baked into the pixels by rotate().
