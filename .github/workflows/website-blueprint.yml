@@ -1,0 +1,30 @@
+name: Website Blueprint isolated checks
+on:
+  push:
+    branches: [feature/website-blueprint-v1-3]
+    paths:
+      - "website/**"
+      - ".github/workflows/website-blueprint.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  website-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies (lockfile not yet committed)
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SITE_APPROVED: "false"
