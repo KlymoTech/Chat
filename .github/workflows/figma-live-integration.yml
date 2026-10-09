@@ -36,6 +36,7 @@ jobs:
         run: >-
           npm run test --workspace @northstar/web --
           src/lib/use-polling-api src/pages/ConversationsSelection.test.tsx
+          src/pages/ConversationsEducationFilters.test.tsx
           src/features/dashboard src/lib/attention-api.test.ts
           --reporter=default --reporter=junit --outputFile=live-scope-results.xml
       - run: uv sync --all-groups --locked
