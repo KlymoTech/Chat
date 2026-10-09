@@ -1,4 +1,4 @@
-/** Read-only public CMS contract. Never return draft data to public visitors. */
+/** Read-only public CMS contract. Restrict blocks to inert plain text. */
 export type PublicBlock =
   | { type: "heading"; text: string }
   | { type: "paragraph"; text: string }
@@ -14,28 +14,42 @@ export type PublishedPage = {
   blocks: PublicBlock[];
 };
 
-const allowedBlockTypes = new Set(["heading", "paragraph", "callout"]);
+const safeText = (value: unknown, max: number) =>
+  typeof value === "string" && value.length <= max;
 export function isPublishedPage(value: unknown): value is PublishedPage {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const page = value as Record<string, unknown>;
-  return typeof page.id === "string" && typeof page.path === "string" && page.path.startsWith("/")
-    && typeof page.locale === "string" && typeof page.revision === "number"
-    && Number.isSafeInteger(page.revision) && page.revision > 0
-    && typeof page.title === "string" && typeof page.description === "string"
-    && Array.isArray(page.blocks) && page.blocks.every(block => {
-      if (!block || typeof block !== "object") return false;
+  return typeof page.id === "string" && /^[0-9a-f-]{36}$/i.test(page.id)
+    && typeof page.path === "string" && /^\/[a-z0-9/-]{0,511}$/.test(page.path)
+    && typeof page.locale === "string" && /^[a-z]{2}(?:-[A-Z]{2})?$/.test(page.locale)
+    && Number.isSafeInteger(page.revision) && (page.revision as number) > 0
+    && safeText(page.title, 180) && (page.title as string).trim().length > 0
+    && safeText(page.description, 500)
+    && Array.isArray(page.blocks) && page.blocks.length <= 100
+    && page.blocks.every(block => {
+      if (!block || typeof block !== "object" || Array.isArray(block)) return false;
       const item = block as Record<string, unknown>;
-      if (typeof item.type !== "string" || !allowedBlockTypes.has(item.type)) return false;
-      return item.type === "callout" ? typeof item.title === "string" && typeof item.body === "string"
-        : typeof item.text === "string";
+      if (item.type === "heading" || item.type === "paragraph") {
+        return safeText(item.text, 10000) && (item.text as string).trim().length > 0;
+      }
+      if (item.type === "callout") {
+        return safeText(item.title, 180) && (item.title as string).trim().length > 0
+          && safeText(item.body, 10000);
+      }
+      return false;
     });
 }
 
-/** Server-side API fetch; deliberately does not expose admin credentials. */
+/** Optional server-side published-only provider adapter. */
 export async function getPublishedPage(path: string, locale = "en"): Promise<PublishedPage | null> {
   const base = process.env.WEBSITE_CMS_PUBLIC_API_URL;
-  if (!base || !path.startsWith("/") || path.includes("?") || path.includes("#")) return null;
-  const endpoint = new URL("/public/pages", base);
+  if (!base || !/^\/[a-z0-9/-]{0,511}$/.test(path) || !/^[a-z]{2}(?:-[A-Z]{2})?$/.test(locale)) return null;
+  // Never follow a URL supplied by a visitor: base must come from server configuration.
+  let endpoint: URL;
+  try {
+    endpoint = new URL("/public/pages", base);
+    if (!["http:", "https:"].includes(endpoint.protocol) || endpoint.username || endpoint.password) return null;
+  } catch { return null; }
   endpoint.searchParams.set("path", path);
   endpoint.searchParams.set("locale", locale);
   try {
