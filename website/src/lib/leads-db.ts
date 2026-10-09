@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID, createHash } from "node:crypto";
 import { Pool } from "pg";
 import type { LeadInput } from "./lead-input";
+import { leadRateSubject, LEAD_RATE_LIMITS, LeadRateLimited, LeadRateNotConfigured } from "./lead-rate";
 
 let pool: Pool | undefined;
 function getPool() {
@@ -15,6 +16,10 @@ export async function saveLead(input: LeadInput): Promise<{ id: string; accepted
   const db = getPool();
   if (!slug || !db) return null;
   const fingerprint = createHash("sha256").update([input.fullName, input.email, input.message, "true"].join("\n")).digest("hex");
+  // Fail closed before opening a transaction if abuse controls are not configured.
+  if (process.env.WEBSITE_LEAD_RATE_ENABLED !== "true") throw new LeadRateNotConfigured();
+  const rateSecret = process.env.WEBSITE_LEAD_RATE_SECRET;
+  if (!rateSecret || rateSecret.length < 32) throw new LeadRateNotConfigured();
   const client = await db.connect();
   try {
     await client.query("BEGIN");
@@ -38,6 +43,25 @@ export async function saveLead(input: LeadInput): Promise<{ id: string; accepted
     if (existing.payload_sha256 !== fingerprint) throw new LeadIdempotencyConflict();
     const id = existing.id;
     if (inserted.rowCount === 1) {
+      // Charge quotas only for a NEW durable lead. Idempotent retries remain free.
+      // Fixed lock order (site then contact) prevents multi-bucket deadlocks.
+      for (const [dimension, maximum] of [
+        ["site", LEAD_RATE_LIMITS.sitePerHour],
+        ["contact", LEAD_RATE_LIMITS.contactPerHour],
+      ] as const) {
+        const key = leadRateSubject(dimension, siteId, input.email, rateSecret);
+        const counted = await client.query(
+          `INSERT INTO website_cms.lead_rate_windows
+           (site_id,window_start,dimension,subject_hash,accepted_count)
+           VALUES ($1,date_trunc('hour',now()),$2,$3,1)
+           ON CONFLICT(site_id,window_start,dimension,subject_hash)
+           DO UPDATE SET accepted_count=website_cms.lead_rate_windows.accepted_count+1
+           WHERE website_cms.lead_rate_windows.accepted_count < $4
+           RETURNING accepted_count`,
+          [siteId, dimension, key, maximum],
+        );
+        if (counted.rowCount !== 1) throw new LeadRateLimited();
+      }
       await client.query(
         `INSERT INTO website_cms.outbox (id, site_id, event_type, payload)
          VALUES ($1,$2,'lead.accepted',jsonb_build_object('leadId',$3::text))`,
