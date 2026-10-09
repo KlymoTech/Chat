@@ -81,9 +81,18 @@ def compute_worker_audit_digest(
 def validate_worker_audit_chain(events: list[PlatformDeploymentWorkerAudit]) -> bool:
     """Validate exported events; requires ALL events in ascending sequence order."""
     previous = _ZERO_DIGEST
-    awaiting: UUID | None = None
+    awaiting: PlatformDeploymentWorkerAudit | None = None
+    expected_change_id: UUID | None = None
+    recovery_required = False
     for sequence, event in enumerate(events, start=1):
-        if event.sequence != sequence or event.previous_digest != previous:
+        if expected_change_id is None:
+            expected_change_id = event.change_id
+        if (
+            event.change_id != expected_change_id
+            or event.sequence != sequence
+            or event.previous_digest != previous
+            or recovery_required
+        ):
             return False
         if compute_worker_audit_digest(
             change_id=event.change_id,
@@ -101,9 +110,18 @@ def validate_worker_audit_chain(events: list[PlatformDeploymentWorkerAudit]) -> 
         ) != event.event_digest:
             return False
         if event.kind == "intent" and event.outcome is None and awaiting is None:
-            awaiting = event.attempt_id
-        elif (event.kind == "outcome" and event.outcome in _OUTCOMES
-              and event.attempt_id == awaiting):
+            awaiting = event
+        elif (
+            event.kind == "outcome" and event.outcome in _OUTCOMES
+            and awaiting is not None
+            and event.attempt_id == awaiting.attempt_id
+            and event.action == awaiting.action
+            and event.environment == awaiting.environment
+            and event.machine_subject == awaiting.machine_subject
+            and event.token_id_hash == awaiting.token_id_hash
+            and event.step_index == awaiting.step_index
+        ):
+            recovery_required = event.outcome == "unknown"
             awaiting = None
         else:
             return False
@@ -200,6 +218,7 @@ class DeploymentWorkerAuditTrail:
                 last is None or last.kind != "intent"
                 or last.attempt_id != attempt.attempt_id
                 or last.action != attempt.action
+                or last.environment != attempt.environment
                 or last.machine_subject != attempt.machine_subject
                 or last.token_id_hash != attempt.token_id_hash
                 or last.step_index != attempt.step_index
