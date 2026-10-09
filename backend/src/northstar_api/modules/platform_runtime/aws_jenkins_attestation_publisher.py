@@ -10,11 +10,7 @@ import re
 from datetime import datetime
 from typing import Protocol
 
-from .aws_certification_artifact_reconciliation import ReadOnlyCertificationArtifactReconciler
-from .aws_immutable_certification_artifact_store import (
-    AwsImmutableCertificationArtifactStore,
-    CertificationArtifactReceipt,
-)
+from .aws_immutable_certification_artifact_store import CertificationArtifactReceipt
 from .aws_jenkins_evidence_publisher import ProtectedReleaseCoordinates, PublicationIdentity
 from .queue_notification_certification_attestation import (
     CertificationAttestationError,
