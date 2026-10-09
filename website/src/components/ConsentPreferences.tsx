@@ -110,6 +110,6 @@ export function ConsentPreferences() {
         <button type="button" className="button secondary" onClick={() => setOpen(false)}>Close</button>
       </div>
     </section>}
-    <span className="visually-hidden" role="status" aria-live="polite">{notice}</span>
+    {notice&&<p className="consent-feedback" role="status" aria-live="polite">{notice}</p>}
   </>;
 }
