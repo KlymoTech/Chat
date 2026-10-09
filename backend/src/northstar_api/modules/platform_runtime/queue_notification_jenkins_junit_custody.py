@@ -20,7 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .aws_immutable_jenkins_junit_store import JenkinsJunitReceipt
 from .aws_jenkins_evidence_publisher import PublicationIdentity
-from .aws_jenkins_junit_evidence_index import JenkinsJunitIndexReceipt
+from .aws_jenkins_junit_evidence_index import (
+    JenkinsJunitIndexReceipt,
+    WitnessedReportReconciler,
+)
 from .queue_notification_jenkins_junit_custody_persistence import (
     NotificationJenkinsJunitCustodyRecord,
 )
@@ -38,7 +41,7 @@ class JenkinsJunitCustodyRejected(ValueError):
 class JunitEvidenceIndexReconciler(Protocol):
     async def reconcile(
         self, *, index_receipt: JenkinsJunitIndexReceipt,
-        report_reconciler: object,
+        report_reconciler: WitnessedReportReconciler,
         receipts: Mapping[str, JenkinsJunitReceipt],
         release_id: str, witness_token: str,
         witness_public_key_pem: bytes,
@@ -133,6 +136,10 @@ async def stage_witnessed_junit_custody(
         or _SHA.fullmatch(index_receipt.sha256) is None
     ):
         raise JenkinsJunitCustodyRejected("original evidence index receipt is not pinned")
+    if not isinstance(receipts, Mapping) or frozenset(receipts) != _SUITES:
+        raise JenkinsJunitCustodyRejected("original JUnit receipts must be complete")
+    if any(not isinstance(value, JenkinsJunitReceipt) for value in receipts.values()):
+        raise JenkinsJunitCustodyRejected("original JUnit receipt type mismatch")
     frozen_receipts = _restore_receipts(
         {key: asdict(value) for key, value in receipts.items()},
         bucket=index_receipt.bucket, release_id=release_id, run_id=run_id,
