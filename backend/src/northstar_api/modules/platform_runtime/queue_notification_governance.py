@@ -105,3 +105,46 @@ async def approve_notification_route(
         "tenant_id": str(tenant_id), "channel": channel,
         "revision": str(revision), "actor_id": str(actor_id),
     })
+
+
+async def deactivate_notification_route(
+    session: AsyncSession, *, tenant_id: UUID, channel: str,
+    expected_revision: int, actor_id: UUID, authorized: bool,
+    audit: AuditWriter,
+) -> int:
+    """Disable a route via compare-and-swap, retaining its approval history.
+
+    Deactivation advances the revision to prevent stale administrative writes.
+    The caller commits mutation and audit in a single transaction.
+    """
+    if not authorized:
+        raise PermissionError("route deactivation requires manage authorization")
+    if audit is None:
+        raise ValueError("transactional audit required")
+    if channel not in ("email", "webhook") or expected_revision < 1:
+        raise ValueError("invalid channel or expected revision")
+    statement = (
+        update(ApprovedNotificationRouteRecord)
+        .where(
+            ApprovedNotificationRouteRecord.tenant_id == tenant_id,
+            ApprovedNotificationRouteRecord.channel == channel,
+            ApprovedNotificationRouteRecord.revision == expected_revision,
+        )
+        .values(
+            enabled=False,
+            revision=expected_revision + 1,
+            updated_at=datetime.now(UTC),
+        )
+    )
+    result = await session.execute(statement)
+    if result.rowcount != 1:
+        raise RouteConflict("route revision changed or tenant/channel not found")
+    revision = expected_revision + 1
+    await audit(session, {
+        "action": "platform.notification_route.deactivated",
+        "tenant_id": str(tenant_id),
+        "channel": channel,
+        "revision": str(revision),
+        "actor_id": str(actor_id),
+    })
+    return revision
