@@ -1,0 +1,45 @@
+name: Northstar private worker IAM Terraform gate
+
+on:
+  push:
+    branches:
+      - feature/northstar-adaptive-architecture-20261008
+    paths:
+      - 'infrastructure/terraform/**'
+      - '.github/workflows/northstar-terraform-worker-identity.yml'
+  pull_request:
+    paths:
+      - 'infrastructure/terraform/**'
+      - '.github/workflows/northstar-terraform-worker-identity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-worker-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: '1.9.8'
+          terraform_wrapper: false
+
+      # This workflow requires NO AWS secrets, does not assume a cloud IAM
+      # role, and NEVER runs terraform apply/destroy.
+      - name: Verify Terraform formatting
+        run: terraform fmt -check -recursive infrastructure/terraform
+      - name: Initialize offline state for worker identity module
+        run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_identity init -backend=false -input=false -no-color
+      - name: Validate worker identity module
+        run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_identity validate -no-color
+      - name: Test IAM topology using mocked AWS provider
+        run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_identity test -no-color
+      - name: Initialize reference integration without state backend
+        run: terraform -chdir=infrastructure/terraform/examples/worker-identity init -backend=false -input=false -no-color
+      - name: Validate reference integration
+        run: terraform -chdir=infrastructure/terraform/examples/worker-identity validate -no-color
