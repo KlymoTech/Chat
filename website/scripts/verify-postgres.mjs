@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:12},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 012 must be contiguous");
+const expected=Array.from({length:13},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 013 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -197,12 +197,26 @@ try {
     "Unscanned media must never have a sanitized candidate");
   assert.equal(mediaEvidence.rows[0].inspected_at,null,
     "Unscanned media must remain uninspected");
-  console.log(JSON.stringify({database:"website_test",migrations:12,checks:[
+  // Publication requires a distinct explicit action after independent review.
+  const privateMedia=await client.query(
+    "SELECT published_at,withdrawn_at FROM website_cms.media_assets WHERE id=$1",
+    [mediaId]);
+  assert.equal(privateMedia.rows.length,1,"Media fixture must persist");
+  assert.equal(privateMedia.rows[0].published_at,null,
+    "New quarantine media must not have a public publication timestamp");
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.public_published_media WHERE site_slug=$1",
+    [slug]),0,"Private, unscanned media must never enter public media index");
+  await mustReject(
+    "UPDATE website_cms.media_assets SET published_at=now(),published_by_actor_id=$2 WHERE id=$1",
+    [mediaId,authorId],"23514");
+  console.log(JSON.stringify({database:"website_test",migrations:13,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
     "blog-trash-exclusion","lead-outbox-atomic-fixture","idempotency-unique","quota-fourth-rejected",
-    "media-quarantine-initial","media-no-self-approval","media-usage-site-boundary"
+    "media-quarantine-initial","media-no-self-approval","media-usage-site-boundary",
+    "unpublished-media-default","media-public-view-excludes-quarantine","no-unapproved-media-publication"
   ],status:"passed"}));
 } finally {
   client.release();
