@@ -234,7 +234,7 @@ def run_browser(
                         """() => [...document.querySelectorAll('*')].map(e => ({tag:e.tagName,cls:e.className,right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width,overflow:getComputedStyle(e).overflow})).filter(e => e.right > innerWidth + 1)"""
                     )
                     (OUT / f"overflow-{width}.json").write_text(
-                        json.dumps(offenders, indent=2)
+                        json.dumps({"viewport": width, "documentWidth": actual, "ancestors": page.evaluate("""() => { const table = document.querySelector('.ld-table'); return table ? [table, ...(() => { const a=[]; let e=table.parentElement; while(e){a.push(e);e=e.parentElement}return a })()].map(e=>({tag:e.tagName, className:typeof e.className==='string'?e.className:'', width:e.getBoundingClientRect().width, scrollWidth:e.scrollWidth, clientWidth:e.clientWidth, overflowX:getComputedStyle(e).overflowX, minWidth:getComputedStyle(e).minWidth, display:getComputedStyle(e).display})) : [] }"""), "offenders": offenders}, indent=2)
                     )
                 assert actual <= width, (
                     f"Settled horizontal overflow at {width}: {actual}"
