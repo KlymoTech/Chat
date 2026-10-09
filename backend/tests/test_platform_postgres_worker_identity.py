@@ -67,6 +67,7 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
             CREATE TABLE "{schema}".platform_changes (
                 id UUID PRIMARY KEY, environment VARCHAR(32) NOT NULL
             );
+            CREATE TABLE "{schema}".platform_config_versions (id UUID PRIMARY KEY);
             CREATE TABLE "{schema}".platform_deployment_leases (id UUID PRIMARY KEY);
             CREATE TABLE "{schema}".platform_deployment_steps (id UUID PRIMARY KEY);
         """)
@@ -93,7 +94,10 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
             await admin_engine.dispose()
 
         await admin.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
-        for table in ("platform_changes", "platform_deployment_leases", "platform_deployment_steps"):
+        for table in (
+            "platform_changes", "platform_config_versions",
+            "platform_deployment_leases", "platform_deployment_steps",
+        ):
             await admin.execute(f'GRANT SELECT ON "{schema}".{table} TO "{role}"')
         await admin.execute(f'GRANT UPDATE ON "{schema}".platform_deployment_leases TO "{role}"')
         await admin.execute(f'GRANT INSERT, UPDATE ON "{schema}".platform_deployment_steps TO "{role}"')
@@ -138,6 +142,13 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
                     "UPDATE platform_changes SET environment='production' WHERE id=:id"
                 ), {"id": change_id})
             await conn.rollback()
+
+        # Even with a fully functional audit path, extra configuration
+        # mutation rights must invalidate the worker login immediately.
+        await admin.execute(f'GRANT UPDATE ON "{schema}".platform_changes TO "{role}"')
+        with pytest.raises(WorkerDatabaseSecurityError, match="least-privilege"):
+            await verify_worker_database_identity(worker_engine, expected_role=role)
+        await admin.execute(f'REVOKE UPDATE ON "{schema}".platform_changes FROM "{role}"')
 
         # An extra audit DELETE permission must invalidate startup.
         await admin.execute(f'GRANT DELETE ON "{schema}".platform_deployment_worker_audit TO "{role}"')
