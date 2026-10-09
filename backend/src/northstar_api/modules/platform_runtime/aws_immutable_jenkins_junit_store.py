@@ -19,6 +19,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from .aws_jenkins_evidence_publisher import PublicationIdentity
 from .queue_notification_jenkins_test_provenance import (
     VerifiedJenkinsProvenance,
     verify_witnessed_jenkins_reports,
@@ -102,7 +103,7 @@ class AwsImmutableJenkinsJunitStore:
     async def archive_witnessed_reports(
         self,
         *,
-        authorized_publisher: bool,
+        identity: PublicationIdentity,
         release_id: str,
         witness_token: str,
         witness_public_key_pem: bytes,
@@ -121,12 +122,12 @@ class AwsImmutableJenkinsJunitStore:
     ) -> ArchivedJenkinsJunitEvidence:
         """Verify first, then conditionally archive all three immutable reports.
 
-        An isolated caller must independently authorize the publishing AWS
-        role before passing authorized_publisher=True. This flag itself is
-        not machine authentication; callers must not expose it over HTTP.
+        The role check must run under the publisher's own short-lived AWS
+        credentials. Source SHA, release and test coordinates must originate
+        from a separate protected build plan, never a tenant/API request.
         """
-        if not authorized_publisher:
-            raise PermissionError("protected Jenkins JUnit publisher authorization required")
+        if not await identity.verify(run_id=run_id, branch=branch):
+            raise PermissionError("protected Jenkins JUnit publisher identity required")
         if (
             not isinstance(release_id, str) or _RELEASE.fullmatch(release_id) is None
             or not isinstance(run_id, str) or _RUN.fullmatch(run_id) is None
