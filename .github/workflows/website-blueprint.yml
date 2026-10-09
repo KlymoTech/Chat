@@ -49,3 +49,10 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
           NEXT_PUBLIC_SITE_APPROVED: "false"
+      - name: Install Chromium for public browser acceptance
+        run: npx playwright install --with-deps chromium
+      - name: Isolated browser smoke acceptance
+        run: npm run test:e2e
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SITE_APPROVED: "false"
