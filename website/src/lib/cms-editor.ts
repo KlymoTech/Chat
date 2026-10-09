@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { normalizeCmsPath } from "./cms-path";
+import { assertManualPreservationOnly } from "./preservation-contract";
 
 /**
  * Private CMS domain service. Never import into a public API route.
@@ -11,7 +12,7 @@ import { normalizeCmsPath } from "./cms-path";
 export type CmsActor = Readonly<{
   id: string;
   siteId: string;
-  permissions: readonly ("cms:read" | "cms:draft" | "cms:review" | "cms:publish")[];
+  permissions: readonly ("cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore")[];
 }>;
 export type CmsBlock =
   | { type: "heading" | "paragraph"; text: string }
@@ -23,7 +24,7 @@ export type DraftDocument = Readonly<{
 }>;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-function assertActor(actor: CmsActor, operation: "cms:read" | "cms:draft" | "cms:review" | "cms:publish"): void {
+function assertActor(actor: CmsActor, operation: "cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore"): void {
   if (!UUID.test(actor.id) || !UUID.test(actor.siteId) || !actor.permissions.includes(operation)) {
     throw new Error("CMS access denied");
   }
@@ -67,7 +68,7 @@ async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise
 /** Site-scoped owner listing; private metadata never reaches public routes. */
 export async function listOwnerPages(actor: CmsActor): Promise<Array<{
   id: string; path: string; locale: string; publishedRevisionId: string | null;
-  publishedTitle: string | null;
+  publishedTitle: string | null; trashedAt: string | null;
 }>> {
   assertActor(actor, "cms:read");
   const result = await pool().query<{
@@ -76,7 +77,7 @@ export async function listOwnerPages(actor: CmsActor): Promise<Array<{
   }>(
     `SELECT p.id::text, p.path, p.locale,
             p.current_published_revision_id::text AS "publishedRevisionId",
-            r.title AS "publishedTitle"
+            r.title AS "publishedTitle", p.trashed_at::text AS "trashedAt"
        FROM website_cms.pages p
        LEFT JOIN website_cms.page_revisions r ON r.id=p.current_published_revision_id
       WHERE p.site_id=$1 ORDER BY p.created_at DESC, p.path ASC LIMIT 100`,
@@ -146,7 +147,7 @@ export async function saveDraft(actor: CmsActor, pageId: string, document: Draft
   validateDocument(document);
   return transaction(async client => {
     const page = await client.query(
-      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 FOR UPDATE",
+      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
       [pageId, actor.siteId]);
     if (page.rowCount !== 1) throw new Error("Page not found");
     const count = await client.query<{next: number}>(
@@ -170,7 +171,7 @@ export async function approveDraft(actor: CmsActor, pageId: string, revisionId: 
   if (!UUID.test(pageId) || !UUID.test(revisionId)) throw new Error("Invalid CMS IDs");
   return transaction(async client => {
     const page = await client.query(
-      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 FOR UPDATE",
+      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
       [pageId, actor.siteId]);
     if (page.rowCount !== 1) throw new Error("Page not found");
     const revision = await client.query<{state:string;actor_id:string}>(
@@ -206,7 +207,7 @@ export async function publishApproved(actor: CmsActor, pageId: string, approvedR
   if (!UUID.test(pageId) || !UUID.test(approvedRevisionId)) throw new Error("Invalid CMS IDs");
   return transaction(async client => {
     const page = await client.query(
-      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 FOR UPDATE",
+      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
       [pageId,actor.siteId]);
     if (page.rowCount !== 1) throw new Error("Page not found");
     const source = await client.query<{state:string;actor_id:string}>(
@@ -253,7 +254,7 @@ export async function restorePublished(actor: CmsActor, pageId: string, targetRe
   if (!UUID.test(pageId) || !UUID.test(targetRevisionId)) throw new Error("Invalid CMS IDs");
   await transaction(async client => {
     const page = await client.query(
-      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 FOR UPDATE",
+      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
       [pageId,actor.siteId]);
     if (page.rowCount !== 1) throw new Error("Page not found");
     const target = await client.query(
@@ -271,5 +272,70 @@ export async function restorePublished(actor: CmsActor, pageId: string, targetRe
       `INSERT INTO website_cms.outbox(id,site_id,event_type,payload)
        VALUES($1,$2,'cms.restored',jsonb_build_object('pageId',$3::text,'revisionId',$4::text))`,
       [randomUUID(),actor.siteId,pageId,targetRevisionId]);
+  });
+}
+
+/**
+ * Manually trash a page, without destroying its source or revision history.
+ * An authorized human must supply the reason. Public delivery is withdrawn in
+ * the same committed transaction that records audit and outbox events.
+ */
+export async function trashContentPage(actor: CmsActor, pageId: string, reason: string):
+  Promise<{operationId: string; state: "trash-queued"}> {
+  assertActor(actor, "cms:trash");
+  assertManualPreservationOnly(process.env.BLOG_AUTO_DELETE_ENABLED);
+  if (!UUID.test(pageId) || typeof reason !== "string" ||
+      reason.trim().length < 10 || reason.trim().length > 500) throw new Error("Invalid trash request");
+  return transaction(async client => {
+    const page = await client.query<{current_published_revision_id: string | null}>(
+      "SELECT current_published_revision_id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
+      [pageId, actor.siteId],
+    );
+    if (page.rowCount !== 1) throw new Error("Page not found or already trashed");
+    const operationId = randomUUID();
+    const previousRevision = page.rows[0].current_published_revision_id;
+    await client.query(
+      "UPDATE website_cms.pages SET trashed_at=now(),trashed_by_actor_id=$1,trash_reason=$2,trashed_published_revision_id=$3,current_published_revision_id=NULL WHERE id=$4 AND site_id=$5",
+      [actor.id, reason.trim(), previousRevision, pageId, actor.siteId],
+    );
+    await client.query(
+      "INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id,metadata) VALUES($1,$2,$3,'cms.trashed',$4,jsonb_build_object('operationId',$5::text,'reason',$6::text,'previousRevisionId',$7::text))",
+      [randomUUID(),actor.siteId,actor.id,pageId,operationId,reason.trim(),previousRevision],
+    );
+    await client.query(
+      "INSERT INTO website_cms.outbox(id,site_id,event_type,payload) VALUES($1,$2,'cms.trashed',jsonb_build_object('pageId',$3::text,'operationId',$4::text))",
+      [randomUUID(),actor.siteId,pageId,operationId],
+    );
+    return {operationId,state:"trash-queued" as const};
+  });
+}
+
+/** Restore the source as an unpublished draft container, never silently republish. */
+export async function restoreTrashedContentPage(actor: CmsActor, pageId: string, reason: string):
+  Promise<{operationId: string; state: "restored-unpublished"}> {
+  assertActor(actor, "cms:restore");
+  assertManualPreservationOnly(process.env.BLOG_AUTO_DELETE_ENABLED);
+  if (!UUID.test(pageId) || typeof reason !== "string" ||
+      reason.trim().length < 10 || reason.trim().length > 500) throw new Error("Invalid restore request");
+  return transaction(async client => {
+    const page = await client.query<{trashed_published_revision_id: string|null}>(
+      "SELECT trashed_published_revision_id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NOT NULL FOR UPDATE",
+      [pageId,actor.siteId],
+    );
+    if (page.rowCount !== 1) throw new Error("Page not found in trash");
+    const operationId = randomUUID();
+    await client.query(
+      "UPDATE website_cms.pages SET trashed_at=NULL,trashed_by_actor_id=NULL,trash_reason=NULL,trashed_published_revision_id=NULL,current_published_revision_id=NULL WHERE id=$1 AND site_id=$2",
+      [pageId,actor.siteId],
+    );
+    await client.query(
+      "INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id,metadata) VALUES($1,$2,$3,'cms.restored_from_trash',$4,jsonb_build_object('operationId',$5::text,'reason',$6::text,'previousRevisionId',$7::text))",
+      [randomUUID(),actor.siteId,actor.id,pageId,operationId,reason.trim(),page.rows[0].trashed_published_revision_id],
+    );
+    await client.query(
+      "INSERT INTO website_cms.outbox(id,site_id,event_type,payload) VALUES($1,$2,'cms.restored_from_trash',jsonb_build_object('pageId',$3::text,'operationId',$4::text))",
+      [randomUUID(),actor.siteId,pageId,operationId],
+    );
+    return {operationId,state:"restored-unpublished" as const};
   });
 }
