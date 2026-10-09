@@ -27,9 +27,8 @@ resource "aws_security_group" "worker" {
   vpc_id                 = var.vpc_id
   revoke_rules_on_delete = true
 
-  # Empty managed inline rules revoke the AWS default allow-all egress.
-  ingress = []
-  egress  = []
+  # AWS provider revokes default outbound access on creation. Only the
+  # separately managed, narrow egress rules below are authorized.
 
   tags = merge(local.tags, { Name = "${var.name_prefix}-worker" })
 
@@ -61,8 +60,6 @@ resource "aws_security_group" "endpoints" {
   description            = "Dedicated interface endpoints accessible only from Northstar worker"
   vpc_id                 = var.vpc_id
   revoke_rules_on_delete = true
-  ingress                = []
-  egress                 = []
   tags                   = merge(local.tags, { Name = "${var.name_prefix}-endpoints" })
 }
 
