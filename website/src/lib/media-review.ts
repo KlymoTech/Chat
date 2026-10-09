@@ -2,6 +2,7 @@ import "server-only";
 import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
 import type {CmsActor} from "./cms-editor";
+import {getSanitizedCandidate} from "./media-storage";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let reviewPool:Pool|undefined;
@@ -106,4 +107,25 @@ export async function reviewPrivateMedia(
     try{await client.query("ROLLBACK");}catch{}
     throw error;
   }finally{client.release();}
+}
+
+/** Authenticated reviewer preview of independently sanitized and scanned bytes. */
+export async function loadPrivateReviewImage(
+  actor:CmsActor,assetId:string,
+):Promise<Uint8Array> {
+  assertReviewer(actor);
+  if(!uuid.test(assetId))throw new Error("Invalid media ID");
+  const r=await reviewDatabase().query<{
+    sanitized_key:string;sanitized_sha256:string;sanitized_byte_size:string;
+  }>(
+    `SELECT sanitized_key,sanitized_sha256,sanitized_byte_size::text
+       FROM website_cms.media_assets
+      WHERE site_id=$1 AND id=$2 AND state='quarantined'
+        AND scanned_at IS NOT NULL AND inspected_at IS NOT NULL
+        AND sanitized_key IS NOT NULL AND sanitized_sha256 IS NOT NULL`,
+    [actor.siteId,assetId]);
+  if(r.rowCount!==1)throw new Error("No reviewed candidate");
+  const item=r.rows[0];
+  return getSanitizedCandidate(item.sanitized_key,item.sanitized_sha256,
+    Number(item.sanitized_byte_size));
 }
