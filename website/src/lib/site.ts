@@ -12,5 +12,6 @@ export const pages = [
   { href: "/services", label: "Services" },
   { href: "/about", label: "About" },
   { href: "/resources", label: "Resources" },
+  { href: "/blog", label: "Blog" },
   { href: "/contact", label: "Contact" },
 ] as const;
