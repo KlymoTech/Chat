@@ -89,6 +89,7 @@ on:
       - 'backend/tests/test_platform_notification_qualification_governance.py'
       - 'backend/tests/test_platform_notification_qualification_api.py'
       - 'backend/tests/test_platform_postgres_notification_qualification_governance.py'
+      - 'backend/tests/test_platform_postgres_notification_qualification_migrations.py'
       - 'backend/migrations/versions/0091_notification_qualification_governance.py'
       - 'backend/tests/test_platform_notification_qualification_admission.py'
       - 'backend/migrations/versions/0090_platform_notification_worker_qualification.py'
@@ -166,5 +167,5 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py tests/test_platform_postgres_notification_recovery.py tests/test_platform_postgres_notification_reconciler_concurrency.py tests/test_platform_postgres_notification_qualification_governance.py
-      - run: uv run pytest tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py tests/test_platform_postgres_notification_recovery.py tests/test_platform_postgres_notification_reconciler_concurrency.py tests/test_platform_postgres_notification_qualification_governance.py
+      - run: uv run ruff check tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py tests/test_platform_postgres_notification_recovery.py tests/test_platform_postgres_notification_reconciler_concurrency.py tests/test_platform_postgres_notification_qualification_governance.py tests/test_platform_postgres_notification_qualification_migrations.py
+      - run: uv run pytest tests/test_platform_postgres_worker_identity.py tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py tests/test_platform_postgres_notification_recovery.py tests/test_platform_postgres_notification_reconciler_concurrency.py tests/test_platform_postgres_notification_qualification_governance.py tests/test_platform_postgres_notification_qualification_migrations.py
