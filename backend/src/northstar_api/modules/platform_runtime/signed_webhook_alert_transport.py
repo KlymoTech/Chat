@@ -10,9 +10,8 @@ import hashlib
 import hmac
 import ipaddress
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
