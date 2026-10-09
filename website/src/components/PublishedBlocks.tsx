@@ -1,18 +1,34 @@
 import type { PublicBlock } from "../lib/cms";
+import Link from "next/link";
 /** Fixed, accessible block registry: never execute owner-authored HTML or scripts. */
 export function PublishedBlocks({ blocks }: { blocks: PublicBlock[] }) {
   return <div className="cms-blocks">{blocks.map((block, index) => {
-    if (block.type === "heading") return <h2 key={index}>{block.text}</h2>;
-    if (block.type === "paragraph") return <p key={index}>{block.text}</p>;
+    const key=block.blockId??index;
+    if (block.type === "heading") return <h2 key={key}>{block.text}</h2>;
+    if (block.type === "paragraph") return <p key={key}>{block.text}</p>;
     if (block.type === "image") {
       const ready = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(block.assetId);
-      return <figure key={index} className="cms-media">
+      return <figure key={key} className="cms-media">
         {ready?<img src={"/media/"+encodeURIComponent(block.assetId)} alt={block.alt}
           loading="lazy" decoding="async" style={{maxWidth:"100%",height:"auto"}}/>:
           <p>Image preview is available after selecting a published media asset.</p>}
         {block.caption&&<figcaption>{block.caption}</figcaption>}
       </figure>;
     }
-    return <aside className="cms-callout" key={index} aria-label={block.title}><h2>{block.title}</h2><p>{block.body}</p></aside>;
+    if (block.type === "hero") return <section key={key} className={"cms-hero cms-hero-"+block.variant}>
+      {block.eyebrow&&<p className="eyebrow">{block.eyebrow}</p>}
+      <h2>{block.heading}</h2><p>{block.description}</p>
+      <Link className="button" href={block.actionPath}>{block.actionLabel}</Link>
+    </section>;
+    if (block.type === "cta") return <section key={key} className={"cms-cta cms-cta-"+block.variant}>
+      <h2>{block.heading}</h2><p>{block.description}</p>
+      <Link className="button" href={block.actionPath}>{block.actionLabel}</Link>
+    </section>;
+    if (block.type === "faq") return <section key={key} className="cms-faq" aria-label="Frequently asked questions">
+      {block.items.map((entry,i)=><details key={i}>
+        <summary>{entry.question}</summary><p>{entry.answer}</p>
+      </details>)}
+    </section>;
+    return <aside className="cms-callout" key={key} aria-label={block.title}><h2>{block.title}</h2><p>{block.body}</p></aside>;
   })}</div>;
 }
