@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseLeadInput } from "../../../lib/lead-input";
-import { saveLead } from "../../../lib/leads-db";
+import { saveLead, LeadIdempotencyConflict } from "../../../lib/leads-db";
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 export async function POST(request: NextRequest) {
@@ -23,7 +23,9 @@ export async function POST(request: NextRequest) {
     const result = await saveLead(parsed);
     if (!result) throw new Error("Unconfigured storage");
     return NextResponse.json(result, { status: 201, headers });
-  } catch {
+  } catch (error) {
+    if (error instanceof LeadIdempotencyConflict)
+      return NextResponse.json({ error: "Retry identifier was used for a different enquiry. Submit again with a new identifier." }, { status: 409, headers });
     return NextResponse.json({ error: "Enquiry could not be saved. Please retry or use our contact email." }, { status: 503, headers });
   }
 }
