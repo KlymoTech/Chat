@@ -31,3 +31,5 @@
 .owner-message,.owner-error{border-left:4px solid #116a73;padding:.7rem 1rem;background:white}
 .owner-error{border-left-color:#a52d37}
 @media(max-width:760px){.owner-grid{grid-template-columns:1fr}.owner-console{padding:1.5rem 0}.owner-heading{align-items:flex-start}}
+
+.owner-preserve input{border:1px solid #71828e;border-radius:.5rem;background:#fff;color:#172a3a;padding:.65rem;width:100%;font:inherit}
