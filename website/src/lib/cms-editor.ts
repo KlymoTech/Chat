@@ -153,10 +153,13 @@ export async function createPage(
 }
 
 /** Save a new, never overwritten draft revision. No public visibility change. */
-export async function saveDraft(actor: CmsActor, pageId: string, document: DraftDocument): Promise<string> {
+export async function saveDraft(actor: CmsActor, pageId: string, document: DraftDocument,
+  expectedVersion: number): Promise<string> {
   assertActor(actor, "cms:draft");
   if (!UUID.test(pageId)) throw new Error("Invalid page ID");
   validateDocument(document);
+  if(!Number.isSafeInteger(expectedVersion)||expectedVersion<1)
+    throw new Error("Expected CMS revision is required");
   return transaction(async client => {
     const page = await client.query(
       "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
@@ -164,6 +167,8 @@ export async function saveDraft(actor: CmsActor, pageId: string, document: Draft
     if (page.rowCount !== 1) throw new Error("Page not found");
     const count = await client.query<{next: number}>(
       "SELECT COALESCE(MAX(revision_number),0)+1 AS next FROM website_cms.page_revisions WHERE page_id=$1", [pageId]);
+    if (count.rows[0].next !== expectedVersion+1)
+      throw new Error("CMS revision conflict: another editor saved a newer version");
     const id = randomUUID();
     await client.query(
       `INSERT INTO website_cms.page_revisions
