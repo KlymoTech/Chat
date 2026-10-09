@@ -14,9 +14,11 @@ Implementation Plan v2.0: `evidence/<release-id>/`.
   COMPLIANCE retention of at least 90 days, no force-destroy, public-access
   blocks, bucket-owner enforcement and dedicated KMS encryption.
 - Bucket policy denies non-TLS access, object deletion, unqualified
-  non-conditional writes, missing/wrong SSE-KMS headers and wrong KMS key.
+  non-conditional writes, non-COMPLIANCE object retention, requests shorter
+  than the approved minimum, missing/wrong SSE-KMS headers and wrong KMS key.
   Publisher libraries already use `IfNoneMatch="*"` and the explicit
-  `ObjectLockMode="COMPLIANCE"` and retention parameters.
+  `ObjectLockMode="COMPLIANCE"` and retention parameters with one extra
+  day of safety margin to satisfy minimum-day evaluation at the S3 service.
 - Dedicated customer-managed KMS key with key rotation, prevent-destroy,
   30-day deletion window and AWS-account-owner administration. The publisher
   IAM policy permits only `kms:GenerateDataKey` and `kms:Decrypt` through
