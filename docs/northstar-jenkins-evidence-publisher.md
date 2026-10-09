@@ -119,3 +119,36 @@ A future protected job needs separately audited machine authentication,
 private agent isolation, pinned release coordinates, two separate signing
 services, actual AWS bucket/KMS/IAM policy review, complete qualification
 bundle retention, and end-to-end tests before being enabled.
+
+
+## Increment: independent test/release signer IAM isolation (2026-10-10)
+
+New additive Terraform module:
+`infrastructure/terraform/modules/protected_qualification_signers/`.
+
+- Two dedicated short-session IAM roles now have different *pre-existing*
+  agent trust principals. Neither trusts the Jenkins publisher agent or
+  the other signer's agent. Trust pins `aws:PrincipalArn` and uses distinct
+  `sts:RoleSessionName` patterns. Those session names are only defense in
+  depth, not verifiable source-commit/build provenance.
+- The test signer role has `secretsmanager:GetSecretValue` on **only** its
+  pre-existing Ed25519 attestation secret, and `kms:Decrypt` on **only**
+  its pre-existing test KMS key, restricted by `kms:ViaService` and
+  `kms:EncryptionContext:SecretARN`.
+- The release signer role has the corresponding independent release
+  secret and KMS key. Each role is subject to a mandatory, independently
+  controlled signer permissions boundary. No secret value or private key
+  is entered into Terraform state or repository source.
+- There are no AWS resource, S3 evidence, IAM mutation or production
+  deployment grants in either signer's inline policy.
+- Mock Terraform tests check trusted role separation, distinct secrets,
+  different KMS keys, correct account/region, ARN validation and
+  permission boundaries. Backend security-policy tests inspect the
+  actual authored trust/secret policies. A separate GitHub Actions
+  workflow is non-deploying and has no AWS credentials.
+
+**Not yet implemented:** protected Jenkins attestation/release signer
+services, signer lifecycle and public-key pinning, workload identity
+issuance, live AWS KMS/Secrets Manager/IAM permissions tests, explicit
+organization permissions boundary definitions and comprehensive CloudTrail
+auditing. The module is **unapplied**; actual CI success is unconfirmed.
