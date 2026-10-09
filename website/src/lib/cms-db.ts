@@ -1,6 +1,7 @@
 import "server-only";
 import { Pool } from "pg";
 import { isPublishedPage, type PublishedPage } from "./cms";
+import { collectPublicResources } from "./publication-policy";
 
 let pool: Pool | undefined;
 function getPool(): Pool | null {
@@ -58,10 +59,7 @@ export async function readPublishedResources(locale = "en"): Promise<PublishedRe
       [site, locale],
     );
     // Never show a malformed or non-canonical page in a public listing.
-    const resources = result.rows
-      .filter(page => isPublishedPage(page) && page.locale === locale &&
-        /^\/content\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(page.path))
-      .map(({ path, title, description }) => ({ path, title, description }));
+    const resources = collectPublicResources(result.rows, locale);
     return { status: "ready", resources };
   } catch {
     // No raw SQL, schema or database detail is exposed publicly.
