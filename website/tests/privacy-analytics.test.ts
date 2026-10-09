@@ -1,4 +1,5 @@
-import {describe,expect,it} from "vitest";
+import {describe,expect,it,vi} from "vitest";
+vi.mock("server-only",()=>({}));
 import {parseAnalyticsEvent} from "../src/lib/analytics-contract";
 import {parseConsentChoice} from "../src/lib/consent-server";
 
