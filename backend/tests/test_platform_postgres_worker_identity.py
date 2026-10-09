@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import os
 from uuid import uuid4
+from importlib import util
+from pathlib import Path
 
 import asyncpg
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -40,6 +43,12 @@ def _disposable_dsn() -> str:
     return dsn
 
 
+MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1] / "migrations" / "versions"
+    / "0087_platform_deployment_worker_audit.py"
+)
+
+
 @pytest.mark.asyncio
 async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals():
     dsn = _disposable_dsn()
@@ -62,14 +71,7 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
             CREATE TABLE "{schema}".platform_deployment_steps (id UUID PRIMARY KEY);
         """)
         # Use the same migration DDL as the application for the worker audit.
-        from importlib import util
-        from pathlib import Path
-
-        migration_path = (
-            Path(__file__).resolve().parents[1] / "migrations" / "versions"
-            / "0087_platform_deployment_worker_audit.py"
-        )
-        spec = util.spec_from_file_location("ns_worker_audit_0087", migration_path)
+        spec = util.spec_from_file_location("ns_worker_audit_0087", MIGRATION_PATH)
         assert spec is not None and spec.loader is not None
         migration = util.module_from_spec(spec)
         spec.loader.exec_module(migration)
@@ -109,8 +111,9 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
 
         audit = DeploymentWorkerAuditTrail(async_sessionmaker(worker_engine, expire_on_commit=False))
         change_id = uuid4()
+        await admin.execute("SELECT set_config('search_path', $1, false)", f"{schema},public")
         await admin.execute(
-            f'INSERT INTO "{schema}".platform_changes (id, environment) VALUES ($1, $2)',
+            "INSERT INTO platform_changes (id, environment) VALUES ($1, $2)",
             change_id, "qualification",
         )
         actor = DeploymentMachinePrincipal(
@@ -130,7 +133,7 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
 
         # The worker must not obtain direct UPDATE on an approved change.
         async with worker_engine.connect() as conn:
-            with pytest.raises(Exception):
+            with pytest.raises(DBAPIError):
                 await conn.execute(text(
                     "UPDATE platform_changes SET environment='production' WHERE id=:id"
                 ), {"id": change_id})
