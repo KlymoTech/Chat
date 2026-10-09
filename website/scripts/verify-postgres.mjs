@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:9},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 009 must be contiguous");
+const expected=Array.from({length:10},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 010 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -89,6 +89,14 @@ try {
   await mustReject("DELETE FROM website_cms.page_revisions WHERE id=$1",[revisionId]);
   await mustReject("DELETE FROM website_cms.revision_approvals WHERE revision_id=$1",[revisionId]);
 
+  // Blog metadata remains attached to the page, not to ephemeral search records.
+  // Public blog discovery must use the live published revision pointer.
+  await client.query("INSERT INTO website_cms.blog_entries(id,page_id,category,tags,created_by_actor_id) "+
+    "VALUES($1,$2,'guidance',$3::text[],$4)",
+    [uuid(),pageId,["guidance","updates"],authorId]);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.public_published_blog_entries WHERE site_slug=$1",[slug]),1,
+    "A published, classified article must be discoverable");
   // Trash must remove public visibility while retaining all source revisions.
   await client.query("UPDATE website_cms.pages SET trashed_at=now(),trashed_by_actor_id=$1,"+
     "trash_reason='Manual editorial removal',trashed_published_revision_id=$2,"+
@@ -97,6 +105,9 @@ try {
     "SELECT COUNT(*) AS total FROM website_cms.public_published_pages WHERE site_slug=$1",[slug]),0);
   assert.equal(await count(
     "SELECT COUNT(*) AS total FROM website_cms.page_revisions WHERE page_id=$1",[pageId]),2);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.public_published_blog_entries WHERE site_slug=$1",[slug]),0,
+    "Trashed articles must not appear in blog discovery");
   await client.query("UPDATE website_cms.pages SET current_published_revision_id=$1 WHERE id=$2",
     [publicId,pageId]);
   assert.equal(await count(
@@ -140,11 +151,11 @@ try {
     assert.equal(result.rowCount,attempt<=3?1:0,"Quota did not reject attempt "+attempt);
   }
 
-  console.log(JSON.stringify({database:"website_test",migrations:9,checks:[
+  console.log(JSON.stringify({database:"website_test",migrations:10,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
-    "cross-page-publication-blocked","trash-invisible","restore-unpublished",
-    "lead-outbox-atomic-fixture","idempotency-unique","quota-fourth-rejected"
+    "cross-page-publication-blocked","published-blog-discovery","trash-invisible","restore-unpublished",
+    "blog-trash-exclusion","lead-outbox-atomic-fixture","idempotency-unique","quota-fourth-rejected"
   ],status:"passed"}));
 } finally {
   client.release();
