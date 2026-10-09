@@ -230,3 +230,9 @@
   .saas-bot-shell.mm-shell--leads .ld-page { width:100%; box-sizing:border-box; }
   .saas-bot-shell.mm-shell--leads .ld-table-scroll { display:block; }
 }
+
+/* A visually-hidden status label was absolutely positioned at its static
+   table-cell location (x=598px), extending the document scroll width despite
+   the correctly clipped, independently scrollable table. Anchor it locally. */
+.ld-status-control { position:relative; }
+.ld-status-control .sr-only { left:0; top:0; }
