@@ -28,3 +28,7 @@ The contact route has an optional enquiry form with PostgreSQL lead+outbox atomi
 ### Idempotency safety update
 
 `db/004_lead_idempotency.sql` adds a SHA-256 fingerprint of the normalized submission payload. Reusing an idempotency key with different form data now returns HTTP 409 and does not pretend a new enquiry was accepted. Apply migrations in order after backup and privilege review, with a tested deployment backfill. This code remains unverified against live PostgreSQL.
+
+## CMS writing foundation (internal only, not enabled)
+
+`src/lib/cms-editor.ts` provides server-only `saveDraft`, `publishApproved`, and `restorePublished` domain operations, each using one PostgreSQL transaction. They require actor permission objects sourced from a future authenticated server-side owner console. No write endpoint or login/role verification is wired to these functions. Publication requires an already-approved revision and a different publishing actor; an approval workflow is **not yet implemented**. Publication inserts a new published snapshot, updates the live pointer, and writes audit and outbox records atomically. Restoring an older published snapshot preserves all revision history. The database migration, role permissions, cache invalidation worker and cross-instance verification remain outstanding. DO NOT deploy or expose these operations before authentication, migration and role tests.
