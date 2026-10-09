@@ -1,7 +1,7 @@
 import type { CmsActor } from "./cms-editor";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const permissions = ["cms:read", "cms:draft", "cms:review", "cms:publish"] as const;
+const permissions = ["cms:read", "cms:draft", "cms:review", "cms:publish", "cms:trash", "cms:restore"] as const;
 type CmsPermission = typeof permissions[number];
 
 /** Only pass cryptographically VERIFIED JWT claims to this validator. */
