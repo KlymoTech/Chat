@@ -4,10 +4,7 @@ import { PublishedBlocks } from "../../../components/PublishedBlocks";
 import { loadPublishedPage } from "../../../lib/cms-db";
 import { canonical, indexingApproved } from "../../../lib/seo";
 
-// Publication and trash visibility must be read from the live published-only view.
-// Do not cache a page after its publication pointer has been revoked.
-export const dynamic = "force-dynamic";
-
+// Publication and trash visibility are read from the published-only view.
 // Always resolve the live published pointer. Never prerender a CMS snapshot at build time.
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
