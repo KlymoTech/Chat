@@ -429,3 +429,33 @@ do not merge without explicit instruction.
   `load_and_reconcile_witnessed_junit_custody` with protected AWS test
   signer identity and verify the emitted Ed25519 attestation against
   original run/release digests. Production approval/workers stay disabled.
+
+
+## Increment: independently reverified JUnit index receipt custody (2026-10-10)
+
+- Added migration `0093_notification_junit_index_custody.py` and ORM model
+  for one append-only PostgreSQL custody record per release ID with a
+  uniqueness constraint on Jenkins run ID. It pins the signed witness hash,
+  release/run/source identity, original index S3 `VersionId`/SHA-256 and
+  **all three** original JUnit object `VersionId`/SHA-256 receipts.
+  Database triggers reject UPDATE and DELETE; a non-empty table prevents
+  destructive migration downgrade.
+- `stage_witnessed_junit_custody` checks the dedicated AWS publisher
+  session identity and re-verifies the original S3 index/report versions
+  before staging an insert. It does not commit/approve/sign/deploy.
+  Uniqueness conflicts remain blocking and require caller rollback.
+- `verify_custodied_junit_evidence` fetches custody by a protected release
+  identifier, reconstructs **all original version receipts solely from
+  persisted database fields**, re-verifies locked S3 index and JUnit
+  signatures/bytes, and compares the independently witnessed digest.
+  Caller-provided S3 versions cannot override database custody.
+- Added mock-based staging/readback denial-path tests and included them
+  and the migration in branch architecture CI. The schema is registered
+  in Alembic. **Actual PostgreSQL migration execution, CI success,
+  independent protected DB principal authorization and live AWS KMS/S3
+  tests remain unverified.**
+- Next gate: independently authenticated and audited attestation signing
+  that retrieves the existing pinned Ed25519 key **only after** custody
+  readback and protected test-run identity validation, plus a real
+  PostgreSQL integration test and replay prevention policy. No Jodo,
+  main-branch merge or production worker activation.
