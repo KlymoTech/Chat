@@ -32,7 +32,7 @@ jobs:
       # This workflow requires NO AWS secrets, does not assume a cloud IAM
       # role, and NEVER runs terraform apply/destroy.
       - name: Verify Terraform formatting
-        run: terraform fmt -check -recursive infrastructure/terraform
+        run: terraform fmt -check -diff -recursive infrastructure/terraform
       - name: Initialize offline state for worker identity module
         run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_identity init -backend=false -input=false -no-color
       - name: Validate worker identity module
