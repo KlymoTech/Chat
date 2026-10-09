@@ -2,7 +2,8 @@
 export type PublicBlock =
   | { type: "heading"; text: string }
   | { type: "paragraph"; text: string }
-  | { type: "callout"; title: string; body: string };
+  | { type: "callout"; title: string; body: string }
+  | { type: "image"; assetId: string; alt: string; caption: string };
 
 export type PublishedPage = {
   id: string;
@@ -31,6 +32,12 @@ export function isPublishedPage(value: unknown): value is PublishedPage {
       const item = block as Record<string, unknown>;
       if (item.type === "heading" || item.type === "paragraph") {
         return safeText(item.text, 10000) && (item.text as string).trim().length > 0;
+      }
+      if (item.type === "image") {
+        return typeof item.assetId === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.assetId) &&
+          safeText(item.alt, 300) && (item.alt as string).trim().length > 0 &&
+          safeText(item.caption, 500);
       }
       if (item.type === "callout") {
         return safeText(item.title, 180) && (item.title as string).trim().length > 0
