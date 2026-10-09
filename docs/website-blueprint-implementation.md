@@ -17,7 +17,7 @@ Owner must confirm legal entity, brand, domain, languages, offers, price/claim e
 | Blog preservation and manual-only deletion | 09, 38–39 | NOT IMPLEMENTED | authorized manual purge/restore and protected audit checks |
 | SEO metadata, crawl controls, redirects and sitemap | 10–11, 49–50, 66, 70 | PARTIAL / UNVERIFIED | sitemap, robots and canonical now implemented behind explicit approval; redirects, crawler and search-route checks remain |
 | Lead submission and durable outbox/CRM delivery | 20–23, 40, 69 | NOT IMPLEMENTED | committed receipt + outbox retry/crash and reconciliation tests |
-| Privacy, consent-aware visitor and UTM events | 14–18, 35–37, 59, 72 | NOT IMPLEMENTED | consent-denial, revocation, retention and identity separation tests |
+| Privacy, consent-aware visitor and UTM events | 14–18, 35–37, 59, 72 | PARTIAL / UNVERIFIED | fail-closed device-local preferences UI added; no CMP, backend consent record, lawful-basis policies, revocation propagation or event tests |
 | Marketing automation, scoring, experiments, ads | 12–13, 19, 34, 43, 45–56, 67–71, 77 | NOT IMPLEMENTED | approved-provider sandbox tests + quality/goal reconciliation |
 | Security, identity, immutable audit, recovery | 24, 28–30, 39, 57–60, 74 | NOT IMPLEMENTED | threat, authorization, backup restore and incident drills |
 | Specialized commerce/booking/etc. | 25–26, 54, 61, 75 | NOT ACTIVATED | explicit site brief + complete transaction lifecycle |
@@ -50,3 +50,7 @@ Introduced isolated `website/db/001_cms_foundation.sql` for site/page/revision/a
 ## Fourth checkpoint — database-backed published-page read path
 
 Implemented a `pg`-based server-only data access function reading from a published-only PostgreSQL view and a no-store GET API route. Next.js content routes can render the same view directly, without leaking database credentials to the browser. SQL view, dependency declarations, and configuration example added. No migration, integration test, production database, owner console or authenticated publication workflow has been executed or verified. **Release remains blocked.**
+
+## Fifth checkpoint — fail-closed visitor preferences
+
+Added user-controlled analytics/marketing preferences on all public routes and a discoverable footer control. Unknown or unavailable storage results in denied optional purposes, with no vendor script or tracking activated. Acceptance of future analytics is **not** wired to any provider. The privacy/legal notice is still a placeholder; enforce jurisdiction, withdrawal propagation, server-side consent logs and automated browser tests before release. No tracking consent is implied by viewing a page.
