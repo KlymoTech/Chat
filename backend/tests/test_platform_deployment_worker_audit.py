@@ -6,6 +6,7 @@ qualification gates; SQLite proves event chaining and fail-closed semantics.
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -22,7 +23,7 @@ from northstar_api.modules.platform_runtime.deployment_worker_audit_persistence 
 )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def audit_database():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     change_id = uuid4()
