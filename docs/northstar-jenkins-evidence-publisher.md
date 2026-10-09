@@ -190,3 +190,58 @@ locally generated Ed25519/RSA test keys. This is **not** a passing repository
 CI run, real AWS IAM test, key-rotation certification, or live signing service.
 The existing Jenkinsfile only runs the unit tests and does not gain
 signing credentials, AWS mutation permissions or qualification approval.
+
+
+## Increment: independently witnessed Jenkins test-result provenance (2026-10-10)
+
+A new verification-only contract in
+`queue_notification_jenkins_test_provenance.py` requires that a **separate,
+pinned Jenkins witness authority** sign a v1 run statement for the exact
+approved Jenkins controller, job, run, branch, environment, Git commit,
+source/target configuration digests and observed run times. The witness key
+must differ from the test-attestation signer key.
+
+The witness must commit to SHA-256 hashes and test counts of the **three
+mandatory** raw JUnit XML reports: `notification_worker`,
+`notification_egress` and `notification_secrets`.
+
+Verification refuses:
+
+- Absent, extra, repeated or malformed suite evidence; hash mismatches;
+  unqualified XML, missing test cases, skipped/failing/error test cases,
+  conflicting suite counts, XML DTD/entity declarations and oversized
+  report bytes.
+- Incorrect or replayed job/run/branch/build/environment coordinates,
+  an untrusted witness key, forged signatures, duplicate signed JSON
+  fields, timestamps in the future or older than 15 minutes, or a report
+  duration exceeding two hours.
+- Reuse of the test-signing public key as the supposedly independent
+  Jenkins witness public key.
+
+The returned value records validated metadata and suite counts only. No
+private key is read, no certification token is signed, no object is
+published and no worker or qualification is activated.
+
+**Required separate work before permitting signing:**
+
+1. Implement and review an isolated witness producer under a
+   separately governed Jenkins job/controller identity and protected
+   workload-authentication policy. The signer MUST NOT accept witness
+   assertions from a shared unprotected Jenkins workspace or request.
+2. Store and independently read the raw JUnit reports under immutable,
+   version-fenced S3 receipts; the reports passed to this gate currently
+   come from the calling component. Matching a signed digest alone does
+   not prove that the reports came from a qualified isolated test execution.
+3. Bind the witnessed report hashes and witness identity to durable release
+   evidence with rollback/replay protection and a witnessed build-run
+   uniqueness constraint. Independently qualify key rotation/revocation.
+4. Connect the verified provenance to a private, independently authenticated
+   signer service and produce the existing Ed25519 v1 certification token
+   format only AFTER this gate and the exact AWS signer credential gate pass.
+   Re-verify that resulting signature against the pinned test signer key.
+5. Run the full suite in repository CI and on the isolated Jenkins controller.
+   The new tests are committed and scheduled; no passing CI or live Jenkins
+   proof has been confirmed from this development session.
+
+This is a **verification boundary, not a complete certification or
+production signing service**.
