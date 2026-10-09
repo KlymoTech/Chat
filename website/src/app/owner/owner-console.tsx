@@ -58,6 +58,8 @@ export default function OwnerConsole(){
     present:emptyDoc,past:[],future:[],
   });
   const doc=history.present;
+  const [acknowledgedDoc,setAcknowledgedDoc]=useState(JSON.stringify(emptyDoc));
+  const hasUnsavedChanges=JSON.stringify(doc)!==acknowledgedDoc;
   const setDoc=(value:SetStateAction<Document>)=>dispatch({kind:"edit",value});
   const resetDoc=(value:Document)=>dispatch({kind:"reset",value});
   const [slug,setSlug]=useState("");
@@ -82,6 +84,15 @@ export default function OwnerConsole(){
     }
   },[]);
   useEffect(()=>{void refresh();},[refresh]);
+  useEffect(()=>{
+    if(!hasUnsavedChanges)return;
+    const protect=(event:BeforeUnloadEvent)=>{
+      event.preventDefault();
+      event.returnValue="";
+    };
+    window.addEventListener("beforeunload",protect);
+    return ()=>window.removeEventListener("beforeunload",protect);
+  },[hasUnsavedChanges]);
 
   const loadRevisions=useCallback(async(id:string)=>{
     if(!id){setRevisions([]);setRevisionId("");return;}
@@ -90,6 +101,8 @@ export default function OwnerConsole(){
     setRevisions(result.revisions as Revision[]);setRevisionId("");
   },[]);
   async function choose(id:string){
+    if(id!==selected && hasUnsavedChanges &&
+       !window.confirm("You have unsaved local edits. Continue without saving them?"))return;
     setSelected(id);setNotice("");setProblem("");
     setBlogCategory("general");setBlogTags("");setBlogClassified(false);
     try{await loadRevisions(id);}catch(error){setProblem(error instanceof Error?error.message:"Revision history unavailable");}
@@ -155,13 +168,20 @@ export default function OwnerConsole(){
   }
   function loadRevision(){
     const current=revisions.find(r=>r.id===revisionId);
-    if(current)resetDoc({title:current.title,description:current.description,blocks:current.blocks.map(b=>({...b}))});
+    if(!current)return;
+    if(hasUnsavedChanges &&
+       !window.confirm("Loading a revision will replace unsaved local edits. Continue?"))return;
+    const restored={title:current.title,description:current.description,
+      blocks:current.blocks.map(b=>({...b}))};
+    resetDoc(restored);
+    setAcknowledgedDoc(JSON.stringify(restored));
   }
-  async function act(url:string,body:unknown,success:string){
+  async function act(url:string,body:unknown,success:string,onAcknowledged?:()=>void){
     if(busy)return;
     setBusy(true);setNotice("");setProblem("");
     try{
       await requestJson(url,"POST",body);
+      onAcknowledged?.();
       setNotice(success);await refresh();
       if(selected)await loadRevisions(selected);
     }catch(error){setProblem(error instanceof Error?error.message:"Operation was not confirmed");}
@@ -289,7 +309,11 @@ export default function OwnerConsole(){
         </section>}
         <section className="owner-panel">
           <h2>Block editor</h2>
-          <p className="owner-hint">Changes are local until you save a new draft.</p>
+          <p className="owner-hint">Changes are local until the server acknowledges a new draft.</p>
+          <p role="status" aria-live="polite" className="owner-hint">
+            {hasUnsavedChanges?"Unsaved local edits — not yet committed.":
+              "Editor content loaded or acknowledged by the server."}
+          </p>
           <div className="owner-form">
             <label htmlFor="page-title">Title</label><input id="page-title" value={doc.title} maxLength={180}
               onChange={e=>setDoc(old=>({...old,title:e.target.value}))}/>
@@ -384,7 +408,8 @@ export default function OwnerConsole(){
                 disabled={busy||!!chosen.trashedAt||latestRevisionNumber<1}
                 onClick={()=>void act("/api/owner/pages/"+chosen.id+"/draft",
                   {document:doc,expectedVersion:latestRevisionNumber},
-                  "New draft revision acknowledged by the server.")}>
+                  "New draft revision acknowledged by the server.",
+                  ()=>setAcknowledgedDoc(JSON.stringify(doc)))}>
                 Save new draft revision</button>
             </>}
           </div>
