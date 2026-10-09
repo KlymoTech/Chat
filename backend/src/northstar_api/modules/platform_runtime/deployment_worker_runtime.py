@@ -26,7 +26,6 @@ from northstar_api.config import get_settings
 
 from .deployment_worker_database import (
     WorkerDatabaseConfig,
-    WorkerDatabaseSecurityError,
     verify_worker_database_identity,
 )
 from .deployment_worker_http import create_deployment_worker_app
