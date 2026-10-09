@@ -6,10 +6,10 @@ import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-import pytest
 from botocore.exceptions import ClientError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+import pytest
 
 from northstar_api.modules.platform_runtime.aws_immutable_certification_artifact_store import (
     CertificationArtifactReceipt,
