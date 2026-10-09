@@ -216,6 +216,16 @@ async def load_and_reconcile_witnessed_junit_custody(
         or not isinstance(row.witness_sha256, str)
         or _SHA.fullmatch(row.witness_sha256) is None
         or not isinstance(row.witness_token, str)
+        or not 1 <= len(row.witness_token) <= 16384
+        or not isinstance(row.index_bucket, str)
+        or not isinstance(row.index_key, str)
+        or row.index_key != (
+            f"evidence/{release_id}/jenkins/{run_id}/junit/verified-index.json"
+        )
+        or not isinstance(row.index_version_id, str)
+        or not 1 <= len(row.index_version_id) <= 255
+        or not isinstance(row.index_sha256, str)
+        or _SHA.fullmatch(row.index_sha256) is None
     ):
         raise JenkinsJunitCustodyRejected("persisted evidence not bound to approved run")
     index_receipt = JenkinsJunitIndexReceipt(
