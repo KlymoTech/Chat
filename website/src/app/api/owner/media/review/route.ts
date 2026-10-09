@@ -27,12 +27,15 @@ export async function POST(request:Request) {
   const fields=body as Record<string,unknown>;
   if(typeof fields.assetId!=="string" ||
      (fields.action!=="approve" && fields.action!=="reject") ||
+     (fields.action==="approve" && (typeof fields.reviewedSha256!=="string" ||
+       !/^[0-9a-f]{64}$/.test(fields.reviewedSha256))) ||
      typeof fields.reason!=="string" ||
      fields.reason.trim().length<10||fields.reason.trim().length>500)
     return ownerResponse({error:"Review reason and explicit decision required"},422);
   try{
     return ownerResponse(await reviewPrivateMedia(
-      actor,fields.assetId,fields.action,fields.reason),200);
+      actor,fields.assetId,fields.action,fields.reason,
+      typeof fields.reviewedSha256==="string"?fields.reviewedSha256:undefined),200);
   }catch{
     return ownerResponse({error:"Cannot review this media; check independence and inspection evidence"},409);
   }
