@@ -24,3 +24,7 @@ The source blueprint defaults to Next.js public web + React owner console + Nest
 ## Enquiry storage (disabled by default)
 
 The contact route has an optional enquiry form with PostgreSQL lead+outbox atomic writes. It is **disabled** unless `WEBSITE_LEAD_CAPTURE_ENABLED=true` and the dedicated database and origin values are configured. Never enable before anti-abuse controls, least-privilege credentials, approved privacy text, and durable retry/worker verification. CRM/email deliveries are not implemented. SQL has not been run against a database; see `db/003_lead_capture.sql`.
+
+### Idempotency safety update
+
+`db/004_lead_idempotency.sql` adds a SHA-256 fingerprint of the normalized submission payload. Reusing an idempotency key with different form data now returns HTTP 409 and does not pretend a new enquiry was accepted. Apply migrations in order after backup and privilege review, with a tested deployment backfill. This code remains unverified against live PostgreSQL.
