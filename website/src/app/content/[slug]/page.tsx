@@ -8,6 +8,10 @@ import { canonical, indexingApproved } from "../../../lib/seo";
 // Do not cache a page after its publication pointer has been revoked.
 export const dynamic = "force-dynamic";
 
+// Always resolve the live published pointer. Never prerender a CMS snapshot at build time.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const validSlug = (slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 export async function generateMetadata({ params }: { params: Promise<{slug: string}> }): Promise<Metadata> {
   const { slug } = await params;
