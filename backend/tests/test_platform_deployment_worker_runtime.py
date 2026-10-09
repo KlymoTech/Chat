@@ -1,5 +1,4 @@
 """Worker runtime boots only through an explicitly authorized Unix socket."""
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -98,7 +97,7 @@ def test_missing_directory_relative_socket_and_symlink_rejected(tmp_path, monkey
     with pytest.raises(runtime.WorkerRuntimeConfigurationError, match="pre-provisioned"):
         runtime.ensure_private_socket_path(directory / "missing" / "worker.sock")
     target = directory / "worker.sock"
-    target.symlink_to("/tmp/nonexistent-target")
+    target.symlink_to(directory / "nonexistent-target")
     with pytest.raises(runtime.WorkerRuntimeConfigurationError, match="already exists"):
         runtime.ensure_private_socket_path(target)
 
