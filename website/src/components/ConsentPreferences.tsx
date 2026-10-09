@@ -42,25 +42,36 @@ export function ConsentPreferences() {
     setMarketing(Boolean(saved?.marketing));
   }, []);
 
-  function save(nextAnalytics: boolean, nextMarketing: boolean) {
-    const choices: ConsentChoices = {
-      analytics: nextAnalytics, marketing: nextMarketing,
-      savedAt: new Date().toISOString(), version: 1,
-    };
+  async function save(nextAnalytics: boolean, nextMarketing: boolean) {
+    let recorded=false;
     try {
-      window.localStorage.setItem(CONSENT_KEY, JSON.stringify(choices));
-      window.dispatchEvent(new CustomEvent(CONSENT_CHANGE_EVENT, { detail: choices }));
-      setNotice("Your preferences are saved on this device.");
-      setDecided(true);
-      setOpen(false);
-    } catch {
-      // No consent is persisted: never activate optional tracking.
-      setNotice("Preferences could not be saved. Optional tracking remains disabled.");
-      setDecided(false);
-      setOpen(false);
-      window.dispatchEvent(new CustomEvent(CONSENT_CHANGE_EVENT, {
-        detail: { analytics: false, marketing: false, savedAt: "", version: 1 },
+      const response=await fetch("/api/privacy/choices",{
+        method:"POST",cache:"no-store",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({analytics:nextAnalytics,marketing:nextMarketing}),
+      });
+      recorded=response.ok;
+    }catch{/* Server unreachable: never infer permission. */}
+    // Grant optional local permission only after a durable server receipt.
+    const allowedAnalytics=recorded && nextAnalytics;
+    const allowedMarketing=recorded && nextMarketing;
+    const choices:ConsentChoices={
+      analytics:allowedAnalytics,marketing:allowedMarketing,
+      savedAt:new Date().toISOString(),version:1,
+    };
+    try{
+      window.localStorage.setItem(CONSENT_KEY,JSON.stringify(choices));
+      window.dispatchEvent(new CustomEvent(CONSENT_CHANGE_EVENT,{detail:choices}));
+      setAnalytics(allowedAnalytics);setMarketing(allowedMarketing);
+      setDecided(true);setOpen(false);
+      setNotice(recorded?"Your privacy choices are saved.":
+        "The server could not confirm this choice. Optional browser tracking remains off. Please retry to confirm a withdrawal on the server.");
+    }catch{
+      setDecided(false);setOpen(false);
+      window.dispatchEvent(new CustomEvent(CONSENT_CHANGE_EVENT,{
+        detail:{analytics:false,marketing:false,savedAt:"",version:1},
       }));
+      setNotice("Preferences could not be saved on this device. Optional browser tracking stays off.");
     }
   }
 
