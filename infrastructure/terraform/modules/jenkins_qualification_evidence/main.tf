@@ -176,6 +176,56 @@ data "aws_iam_policy_document" "bucket_guards" {
     }
   }
 
+  # An object-level retention header overrides a bucket default.
+  # Never allow a writer to switch to GOVERNANCE or shorten COMPLIANCE.
+  statement {
+    sid       = "DenyMissingObjectLockMode"
+    effect    = "Deny"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.evidence.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Null"
+      variable = "s3:object-lock-mode"
+      values   = ["true"]
+    }
+  }
+
+  statement {
+    sid       = "DenyNonComplianceObjectLockMode"
+    effect    = "Deny"
+    actions   = ["s3:PutObject", "s3:PutObjectRetention"]
+    resources = ["${aws_s3_bucket.evidence.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:object-lock-mode"
+      values   = ["COMPLIANCE"]
+    }
+  }
+
+  statement {
+    sid       = "DenyShortObjectRetention"
+    effect    = "Deny"
+    actions   = ["s3:PutObject", "s3:PutObjectRetention"]
+    resources = ["${aws_s3_bucket.evidence.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "NumericLessThan"
+      variable = "s3:object-lock-remaining-retention-days"
+      values   = [tostring(var.retention_days)]
+    }
+  }
+
   statement {
     sid       = "DenyUnencryptedPut"
     effect    = "Deny"
