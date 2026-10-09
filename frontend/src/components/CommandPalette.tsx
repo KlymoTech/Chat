@@ -95,12 +95,16 @@ export function CommandPalette({
 
   useEffect(() => {
     if (!open) return;
-    setQuery('');
-    setActiveIndex(0);
     inputRef.current?.focus();
   }, [open]);
 
   const highlightedIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
+
+  const closePalette = () => {
+    setQuery('');
+    setActiveIndex(0);
+    onClose();
+  };
 
   const execute = (result: PaletteResult | undefined) => {
     if (!result) return;
@@ -109,13 +113,13 @@ export function CommandPalette({
     } else if (!result.current) {
       onSelectWorkspace(result.workspaceId);
     }
-    onClose();
+    closePalette();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      onClose();
+      closePalette();
       return;
     }
     if (event.key === 'ArrowDown') {
@@ -135,7 +139,7 @@ export function CommandPalette({
   };
 
   const closeFromBackdrop = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget) closePalette();
   };
 
   if (!open) return null;
