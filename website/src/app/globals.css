@@ -30,3 +30,5 @@
 .cms-faq summary:focus-visible{outline:3px solid #df8e20;outline-offset:4px}
 .cms-faq details p{margin-bottom:0;white-space:pre-wrap}
 @media(prefers-reduced-motion:reduce){.cms-hero,.cms-cta,.cms-faq{scroll-behavior:auto}}
+
+.consent-feedback{margin:.75rem 0;font-size:.95rem;color:var(--ink);border-left:3px solid var(--accent);padding:.5rem .75rem;background:var(--white)}
