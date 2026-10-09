@@ -102,8 +102,7 @@ export function NotificationBell() {
     }
   };
 
-  const workspaceId = activeWorkspace?.id ?? '';
-  return <div className="notification-center" data-workspace-id={workspaceId}>
+  return <div className="notification-center">
     <button
       className="icon-button notification-center__trigger"
       type="button"
