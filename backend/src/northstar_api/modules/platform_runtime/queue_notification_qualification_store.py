@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .queue_notification_worker_qualification import NotificationQualificationRecord
 from .queue_notification_qualification_persistence import NotificationWorkerQualificationRecord
+from .queue_notification_release_link_persistence import NotificationQualificationReleaseLink
 
 
 class PostgresNotificationQualificationStore:
@@ -25,6 +26,18 @@ class PostgresNotificationQualificationStore:
                 isinstance(t, str) for t in row.proof_tokens
             ):
                 return None
+            if qualification_id.startswith("jenkins:"):
+                link = await session.get(NotificationQualificationReleaseLink, qualification_id)
+                if (
+                    link is None
+                    or link.environment != row.environment
+                    or link.source_digest != row.source_digest
+                    or link.target_digest != row.target_digest
+                    or link.run_id != qualification_id.removeprefix("jenkins:")
+                ):
+                    # Legacy records are unaffected. Jenkins-created records
+                    # must carry a verified, release-specific evidence link.
+                    return None
             return NotificationQualificationRecord(
                 id=row.id, environment=row.environment,
                 source_digest=row.source_digest, target_digest=row.target_digest,
