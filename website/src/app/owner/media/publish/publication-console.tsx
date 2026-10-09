@@ -4,7 +4,7 @@ import Link from "next/link";
 
 type Approved={
   id:string;originalFilename:string;altDefault:string;rightsStatement:string;
-  publishedAt:string|null;withdrawnAt:string|null;
+  publishedAt:string|null;withdrawnAt:string|null;livePageCount:number;
 };
 async function request(url:string,body?:unknown):Promise<unknown>{
   const response=await fetch(url,{method:body?"POST":"GET",cache:"no-store",
@@ -21,6 +21,7 @@ async function request(url:string,body?:unknown):Promise<unknown>{
 export default function MediaPublicationConsole(){
   const [assets,setAssets]=useState<Approved[]>([]);
   const [reasons,setReasons]=useState<Record<string,string>>({});
+  const [acknowledged,setAcknowledged]=useState<Record<string,boolean>>({});
   const [busy,setBusy]=useState("");
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
@@ -39,10 +40,13 @@ export default function MediaPublicationConsole(){
   useEffect(()=>{void refresh();},[refresh]);
   async function decide(asset:Approved,action:"publish"|"withdraw"){
     const reason=reasons[asset.id]?.trim()??"";
-    if(reason.length<10||reason.length>500||busy)return;
+    if(reason.length<10||reason.length>500||busy ||
+      (action==="withdraw" && asset.livePageCount>0 && !acknowledged[asset.id]))return;
     setBusy(asset.id);setError("");setNotice("");
     try{
-      await request("/api/owner/media/publication",{assetId:asset.id,action,reason});
+      await request("/api/owner/media/publication",{assetId:asset.id,action,reason,
+        impactAcknowledged:action==="withdraw"?!!acknowledged[asset.id]:false});
+      setAcknowledged(old=>({...old,[asset.id]:false}));
       setNotice(action==="publish"?
         "Publication recorded. Public delivery remains subject to separate production configuration.":
         "Withdrawal recorded. New uncached requests will no longer receive the asset.");
@@ -70,6 +74,8 @@ export default function MediaPublicationConsole(){
           <p>Status: <strong>{live?"Published":asset.withdrawnAt?"Withdrawn":"Approved — private"}</strong></p>
           <p><strong>Alternative text:</strong> {asset.altDefault}</p>
           <p><strong>Declared rights:</strong> {asset.rightsStatement}</p>
+          <p><strong>Currently referencing published pages:</strong> {asset.livePageCount}</p>
+          {live&&asset.livePageCount>0&&<p role="alert">Withdrawing this image will leave an unavailable image on {asset.livePageCount} published page(s). Review and republish those pages with a replacement where appropriate.</p>}
           {live&&<p><a href={"/media/"+encodeURIComponent(asset.id)} target="_blank"
             rel="noopener noreferrer">Inspect public asset endpoint</a>
             {" "}(only available when delivery is enabled)</p>}
@@ -77,7 +83,13 @@ export default function MediaPublicationConsole(){
           <textarea id={"reason-"+asset.id} maxLength={500} rows={3}
             style={{display:"block",width:"100%"}}
             value={reason} onChange={event=>setReasons(old=>({...old,[asset.id]:event.target.value}))}/>
-          <button className="button" disabled={!!busy||reason.trim().length<10}
+          {live&&asset.livePageCount>0&&<label style={{display:"block",margin:"1rem 0"}}>
+            <input type="checkbox" checked={!!acknowledged[asset.id]}
+              onChange={event=>setAcknowledged(old=>({...old,[asset.id]:event.target.checked}))}/>
+            I acknowledge the affected pages and understand this withdrawal takes effect immediately on uncached public requests.
+          </label>}
+          <button className="button" disabled={!!busy||reason.trim().length<10||
+            (live&&asset.livePageCount>0&&!acknowledged[asset.id])}
             onClick={()=>void decide(asset,live?"withdraw":"publish")}>
             {busy===asset.id?"Saving…":live?"Withdraw public asset":"Publish approved asset"}
           </button>
