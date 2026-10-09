@@ -12,3 +12,21 @@
 .blog-category{text-transform:capitalize;color:var(--accent);font-weight:700}
 .blog-tags{display:flex;flex-wrap:wrap;gap:.5rem}
 .blog-tags span:not(.visually-hidden){display:inline-block;background:#edf3f4;padding:.2rem .7rem;border-radius:1rem;font-size:.9rem;text-transform:capitalize}
+
+
+/* Allowlisted CMS visual builder sections: responsive and keyboard navigable. */
+.cms-hero,.cms-cta{padding:clamp(1.5rem,5vw,3.5rem);margin:1.5rem 0;border-radius:1.15rem;border:1px solid var(--line);background:#eef5f5}
+.cms-hero h2,.cms-cta h2{max-width:22ch;line-height:1.18;margin:.4rem 0 1rem}
+.cms-hero p,.cms-cta p{max-width:64ch}
+.cms-hero-center{text-align:center}
+.cms-hero-center h2,.cms-hero-center p{margin-left:auto;margin-right:auto}
+.cms-hero-split{border-left:6px solid var(--accent)}
+.cms-cta-solid{background:#123b49;color:white}
+.cms-cta-solid .button{background:white;border-color:white;color:#123b49}
+.cms-cta-outline{background:white;border:2px solid var(--accent)}
+.cms-faq{margin:2rem 0}
+.cms-faq details{border:1px solid var(--line);border-radius:.7rem;margin:.65rem 0;padding:1rem;background:white}
+.cms-faq summary{cursor:pointer;font-weight:700}
+.cms-faq summary:focus-visible{outline:3px solid #df8e20;outline-offset:4px}
+.cms-faq details p{margin-bottom:0;white-space:pre-wrap}
+@media(prefers-reduced-motion:reduce){.cms-hero,.cms-cta,.cms-faq{scroll-behavior:auto}}
