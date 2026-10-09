@@ -41,11 +41,11 @@ def upgrade() -> None:
     # qualification ID and explicit incident reconciliation.
     op.execute(sa.text("""
         CREATE FUNCTION reject_notification_qualification_release_link_mutation()
-        RETURNS trigger LANGUAGE plpgsql AS $
+        RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
             RAISE EXCEPTION 'qualification release links are append-only';
         END;
-        $
+        $$
     """))
     op.execute(sa.text("""
         CREATE TRIGGER notification_qualification_release_links_immutable
