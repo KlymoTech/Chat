@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS website_cms.media_assets (
   CONSTRAINT website_media_approved_evidence CHECK (
     state <> 'approved' OR (
       blob_status = 'uploaded' AND
+      detected_mime IS NOT NULL AND verified_sha256 IS NOT NULL AND
+      verified_byte_size IS NOT NULL AND
       detected_mime = claimed_mime AND
       verified_sha256 = claimed_sha256 AND
       verified_byte_size = claimed_byte_size AND
