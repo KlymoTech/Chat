@@ -36,7 +36,7 @@ class DeploymentLeaseService:
         self.sessions = sessions
         self.lease_seconds = lease_seconds
 
-    async def claim( 
+    async def claim(
         self, change_id: UUID, *, owner: str, expected_environment: str | None = None,
     ) -> DeploymentClaim | None:
         """Atomic compare-and-swap; no duplicate workers for the same change."""
@@ -70,6 +70,7 @@ class DeploymentLeaseService:
             update(PlatformDeploymentLease)
             .where(
                 PlatformDeploymentLease.change_id == change_id,
+                *([PlatformDeploymentLease.environment == expected_environment] if expected_environment else []),
                 PlatformDeploymentLease.status == "ready",
                 PlatformDeploymentLease.lease_token.is_(None),
                 PlatformDeploymentLease.lease_expires_at.is_(None),
@@ -86,16 +87,19 @@ class DeploymentLeaseService:
                 return None
         return DeploymentClaim(change_id, token, owner, expires, expected_environment)
 
-    async def renew( 
+    async def renew(
         self, claim: DeploymentClaim, *, expected_environment: str | None = None,
     ) -> bool:
         """Fence an expired or superseded worker; use DB CAS, not local state."""
+        if expected_environment and claim.environment and expected_environment != claim.environment:
+            return False
         now = datetime.now(UTC)
         expires = now + timedelta(seconds=self.lease_seconds)
         statement = (
             update(PlatformDeploymentLease)
             .where(
                 PlatformDeploymentLease.change_id == claim.change_id,
+                *([PlatformDeploymentLease.environment == expected_environment] if expected_environment else []),
                 PlatformDeploymentLease.status == "leased",
                 PlatformDeploymentLease.lease_token == claim.lease_token,
                 *([PlatformDeploymentLease.environment == claim.environment] if claim.environment else []),
@@ -108,10 +112,12 @@ class DeploymentLeaseService:
             outcome = await session.execute(statement)
             return outcome.rowcount == 1
 
-    async def close( 
+    async def close(
         self, claim: DeploymentClaim, *, expected_environment: str | None = None,
     ) -> bool:
         """Close only after the control plane persisted a terminal outcome."""
+        if expected_environment and claim.environment and expected_environment != claim.environment:
+            return False
         now = datetime.now(UTC)
         terminal = exists(select(PlatformChangeRecord.id).where(
             PlatformChangeRecord.id == claim.change_id,
@@ -121,8 +127,10 @@ class DeploymentLeaseService:
             update(PlatformDeploymentLease)
             .where(
                 PlatformDeploymentLease.change_id == claim.change_id,
+                *([PlatformDeploymentLease.environment == expected_environment] if expected_environment else []),
                 PlatformDeploymentLease.status == "leased",
                 PlatformDeploymentLease.lease_token == claim.lease_token,
+                *([PlatformDeploymentLease.environment == claim.environment] if claim.environment else []),
                 PlatformDeploymentLease.owner == claim.owner,
                 PlatformDeploymentLease.lease_expires_at > now,
                 terminal,
