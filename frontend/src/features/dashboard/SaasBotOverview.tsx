@@ -33,7 +33,7 @@ export function SaasBotOverview() {
   const records = ready(agents) ?? [];
   // The selected carousel index may outlive a workspace change or a deleted agent.
   // Never render a previous workspace's agent while the new scope loads.
-  const featured = ready(agents) ? records[selected % Math.max(records.length, 1)] : undefined;
+  const featured = records.length > 0 ? records[selected % records.length] : undefined;
   const summary = ready(analytics);
   const shown = records.filter((agent) => filter === 'all' || (filter === 'education' ? agent.purpose === 'education' : agent.status === filter));
   const open = ready(conversations)?.items.filter((item) => item.state !== 'resolved') ?? [];
