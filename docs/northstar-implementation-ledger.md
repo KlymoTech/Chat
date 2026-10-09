@@ -294,3 +294,33 @@ do not merge without explicit instruction.
   result provenance into an isolated signer service, then implement
   release-manifest signing only after verifying the precise retained
   attestation S3 version. Do not make private key retrieval a tenant API.
+
+
+## Increment: witnessed Jenkins test-result provenance (2026-10-10)
+
+- Added independent Ed25519 Jenkins witness verification in
+  `queue_notification_jenkins_test_provenance.py`, pinning the approved
+  controller/job, run ID, branch, environment, source SHA and source/target
+  digests. The witness key must differ from the attestation signer key.
+  Time-bounded, duplicate-key-rejecting, strict signed JSON binds the
+  three mandatory suites to exact JUnit XML report SHA-256 hashes/counts.
+- Parsed JUnit evidence is restricted in byte size and DTD/entity use;
+  zero-failure, zero-skip, zero-error and exact test-count/suite-name
+  checks fail closed. Tampering, stale builds, wrong principals, absent
+  suites and inconsistent signed counts are rejected.
+- Added negative-path tests for signed source/run replay, different signer
+  and witness keys, tampered JUnit files, misleading all-passed summaries,
+  XML hazards and duplicate signed JSON. Registered the tests with the
+  architecture workflow and the **non-signing** root Jenkins preflight.
+- **Incomplete production controls:** the witness producer and isolated
+  agent-authentication policy are not implemented; raw JUnit bytes are
+  currently supplied by the caller, not independently read back from
+  protected versioned S3 receipts. Persisted witness receipts, build
+  replay prevention, trusted witness key rotation and downstream signing
+  integration must be completed before permitting certification signing.
+- **Execution:** code/test/CI commits are recorded, but passing
+  repository-wide CI and live Jenkins/AWS test execution were **not
+  observed**. No production signing, approval or worker startup occurred.
+- Next: version-fenced, read-only JUnit report retrieval and witnessed
+  report binding; then authenticated, independently qualified signing
+  service that self-verifies each issued Ed25519 attestation.
