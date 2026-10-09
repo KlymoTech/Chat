@@ -80,3 +80,46 @@ run "reject_insufficient_private_subnets" {
 
   expect_failures = [var.private_subnet_ids]
 }
+
+run "reject_auto_public_ip_subnet" {
+  command = plan
+
+  override_data {
+    target = data.aws_subnet.private["subnet-00000001"]
+    values = {
+      vpc_id                  = "vpc-00000001"
+      availability_zone       = "us-east-1a"
+      map_public_ip_on_launch = true
+    }
+  }
+
+  expect_failures = [aws_security_group.worker]
+}
+
+run "reject_database_security_group_in_other_vpc" {
+  command = plan
+
+  override_data {
+    target = data.aws_security_group.database
+    values = {
+      vpc_id = "vpc-99999999"
+    }
+  }
+
+  expect_failures = [aws_security_group.worker]
+}
+
+run "reject_both_subnets_in_single_az" {
+  command = plan
+
+  override_data {
+    target = data.aws_subnet.private["subnet-00000002"]
+    values = {
+      vpc_id                  = "vpc-00000001"
+      availability_zone       = "us-east-1a"
+      map_public_ip_on_launch = false
+    }
+  }
+
+  expect_failures = [aws_security_group.worker]
+}
