@@ -196,7 +196,12 @@ def run_browser(scopes: list[dict], ids: dict[str, str], email: str, password: s
             for width in [1392, 390]:
                 page.set_viewport_size({"width": width, "height": 900})
                 expect(page.locator(".sb-overview")).to_be_visible()
-                assert page.evaluate("document.documentElement.scrollWidth") <= width
+                page.wait_for_timeout(300)
+                document_width = page.evaluate("document.documentElement.scrollWidth")
+                if document_width > width:
+                    overflow = page.evaluate("""() => [...document.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > innerWidth + 1).slice(0,80).map(e => ({tag:e.tagName, className:typeof e.className==='string'?e.className:'', left:e.getBoundingClientRect().left, right:e.getBoundingClientRect().right, width:e.getBoundingClientRect().width, position:getComputedStyle(e).position, overflowX:getComputedStyle(e).overflowX, parent:e.parentElement?.className || ''}))""")
+                    (OUT / f"overview-overflow-{width}.json").write_text(json.dumps({"viewport":width,"documentWidth":document_width,"elements":overflow},indent=2))
+                assert document_width <= width, f"Overview overflow at {width}: {document_width}"
                 page.screenshot(path=str(OUT / f"live-overview-b-{width}.png"), full_page=True)
             passed("live-data-overview-desktop-and-mobile-no-overflow")
             page.set_viewport_size({"width": 1392, "height": 1000})
