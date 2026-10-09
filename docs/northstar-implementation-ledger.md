@@ -236,3 +236,32 @@ do not merge without explicit instruction.
 - Next incremental gate: secure release-signing/test-runner agent identities
   and protected Jenkins-to-AWS identity issuance, followed by real
   qualification S3 Object Lock/KMS read-back and CloudTrail evidence.
+
+
+## Increment: independent Jenkins signer IAM roles (2026-10-10)
+
+- Added an independent `infrastructure/terraform/modules/protected_qualification_signers/`
+  module and isolated reference example. It provisions separately named
+  **test attestation** and **release authority** IAM roles with mandatory
+  signer permissions boundaries and distinct reviewed parent agent roles.
+  Both have a one-hour maximum STS session and pinned session-name patterns;
+  the pre-existing publisher agent is expressly excluded from signer trust.
+- Only one exact existing Secrets Manager Ed25519 signing secret is readable
+  per signer, with `kms:Decrypt` restricted to its independently named KMS
+  key via Secrets Manager and exact secret encryption context. Neither role
+  has S3 publishing, production deployment, IAM changes or secret creation
+  rights. No private-key content enters Terraform or the repository.
+- Offline `terraform test` mock-provider coverage now includes role
+  collision, reused secrets or KMS keys, wrong account/region, cross-account
+  secret/KMS ARNs and wildcard principals. A separate no-credentials,
+  no-apply GitHub Actions workflow, source-policy Python tests and operator
+  documentation were added.
+- **Unverified:** actual `terraform fmt`, `init`, `validate`, `test`
+  execution, live AWS agent/trust/Secrets Manager/KMS authorization,
+  protected signing services, rotation/revocation and public-key pinning.
+  The Terraform binary was unavailable locally and GitHub CI has not yet
+  supplied passing evidence. Pre-existing signer parent roles, secrets and
+  permissions boundaries must be independently provisioned and audited.
+- Next: protected signer service implementations and negative IAM/Jenkins
+  integration verification; do not use mock Terraform plans as production
+  approval or as evidence that a private signing service exists.
