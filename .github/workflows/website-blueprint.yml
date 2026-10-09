@@ -21,6 +21,8 @@ jobs:
           node-version: "22"
       - name: Install dependencies (lockfile not yet committed)
         run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Contract regression tests
+        run: npm test
       - name: Typecheck
         run: npm run typecheck
       - name: Build
