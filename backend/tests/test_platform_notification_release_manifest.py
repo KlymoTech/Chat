@@ -215,3 +215,24 @@ async def test_reconciliation_failure_blocks_verified_result():
             attestation_issuer="isolated-test-runner",
             **expected,
         )
+
+
+@pytest.mark.asyncio
+async def test_readback_must_confirm_same_object_version():
+    private, document, expected = harness()
+    receipt = expected["artifact_receipt"]
+    conflicting = CertificationArtifactReceipt(
+        bucket=receipt.bucket,
+        key=receipt.key,
+        version_id="different-version",
+        sha256=receipt.sha256,
+    )
+    reconciler = SimpleNamespace(reconcile=AsyncMock(return_value=conflicting))
+    with pytest.raises(ReleaseManifestRejected, match="pinned receipt"):
+        await verify_manifest_and_reconcile_artifact(
+            sign(private, document),
+            reconciler=reconciler,
+            test_runner_public_key_pem=b"pinned",
+            attestation_issuer="isolated-test-runner",
+            **expected,
+        )
