@@ -74,3 +74,7 @@ Added migration `005_cms_approvals.sql` and server-only `approveDraft`. Review r
 ## Tenth checkpoint — isolated website contract tests
 
 Added Vitest regression tests for lead normalization/rejection, CMS public block validation, deny-by-default optional measurement, and production SEO approval gating. Also corrected email validation to apply to normalized input. The branch-only GitHub Actions workflow now includes `npm test` before typecheck and build. These test definitions are committed but their execution/passing status is NOT confirmed, and they do not replace PostgreSQL integration, authenticated CMS, browser accessibility, worker crash/retry, or release acceptance tests.
+
+## Eleventh checkpoint — bounded public CMS payload validation
+
+The public page contract now validates page IDs, canonical path shapes, locale, revision, title/description sizes, block count and bounded inert text fields before rendering. Added contract assertions covering oversized pages and invalid paths. This reduces malformed published-content exposure but **does not constitute a CMS authentication, approval, or deployment test**. Production readiness remains blocked until live database integration, owner-console authorization, complete outbox recovery, browser tests and acceptance evidence pass.
