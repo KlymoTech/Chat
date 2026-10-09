@@ -11,6 +11,7 @@ vi.mock('@/components/providers', () => ({ useAuth: () => ({ session: { user: { 
 vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: mocks.courses } } }));
 vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: mocks.enrollments } }));
 vi.mock('@/lib/api', () => ({ api: { agents: { list: mocks.agents }, analytics: { summary: mocks.analytics }, conversations: { list: mocks.conversations }, knowledge: { list: mocks.knowledge }, integrations: { list: mocks.integrations } } }));
+vi.mock('@/lib/attention-api', () => ({ loadAttentionConversations: mocks.conversations }));
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();

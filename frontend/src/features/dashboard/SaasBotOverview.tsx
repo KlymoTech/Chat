@@ -5,6 +5,7 @@ import { useAuth, useWorkspace } from '@/components/providers';
 import { Badge, Button, EmptyState } from '@/components/ui';
 import { DashboardTrend } from '@/components/academy-dashboard';
 import { api } from '@/lib/api';
+import { loadAttentionConversations } from '@/lib/attention-api';
 import { formatCompact, formatPercent, relativeTime } from '@/lib/format';
 import { canUseDashboardCapability } from './dashboardPermissions';
 import { useApi, type AsyncState } from '@/lib/use-api';
@@ -28,7 +29,7 @@ export function SaasBotOverview() {
   const [today] = useState(() => new Date());
   const agents = useApi(() => canAgents ? api.agents.list() : Promise.resolve([]), [canAgents]);
   const analytics = useApi(() => canAnalytics ? api.analytics.summary(period) : Promise.resolve(null), [canAnalytics, period]);
-  const conversations = useApi(() => canInbox ? api.conversations.list() : Promise.resolve(null), [canInbox]);
+  const conversations = useApi(() => canInbox ? loadAttentionConversations() : Promise.resolve(null), [canInbox]);
   const records = ready(agents) ?? [];
   const featured = records[selected % Math.max(records.length, 1)];
   const summary = ready(analytics);

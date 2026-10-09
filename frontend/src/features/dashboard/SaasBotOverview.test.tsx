@@ -17,6 +17,7 @@ vi.mock('@/lib/api', () => ({ api: {
   agents: { list: mocks.agents }, analytics: { summary: mocks.analytics }, conversations: { list: mocks.conversations },
   knowledge: { list: mocks.knowledge }, integrations: { list: mocks.integrations },
 } }));
+vi.mock('@/lib/attention-api', () => ({ loadAttentionConversations: mocks.conversations }));
 afterEach(cleanup);
 beforeEach(() => {
   vi.resetAllMocks();

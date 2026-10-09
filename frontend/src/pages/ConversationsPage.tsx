@@ -48,7 +48,7 @@ export function ConversationsPage() {
   const [batchId, setBatchId] = useState('all');
   const [studentId, setStudentId] = useState('all');
   const [channel, setChannel] = useState<ChannelFilter>('all');
-  const [reply, setReply] = useState('');
+  const [replyDraft, setReplyDraft] = useState({ scope: '', value: '' });
   const [sending, setSending] = useState(false);
   const [purposeFilter, setPurposeFilter] = useState<'all' | NonNullable<Conversation['purpose']>>('all');
   const [savingState, setSavingState] = useState(false);
@@ -150,13 +150,20 @@ export function ConversationsPage() {
     [activeWorkspace?.id, selectedId],
     2000,
   );
-  const selected = detail.data ?? selectedSummary;
+  // Polling retains its last result. Never display or act on another selection.
+  const selected = showingList ? null : detail.data?.id === selectedId ? detail.data : selectedSummary;
+  const draftScope = `${activeWorkspace?.id ?? ''}:${selectedId ?? ''}`;
+  const reply = replyDraft.scope === draftScope ? replyDraft.value : '';
+  const setReply = (value: string) => setReplyDraft({ scope: draftScope, value });
   const selectedAgent = selected ? agents.data?.find((item) => item.id === selected.agentId) : null;
   useEffect(() => {
     if (showingList) return;
     const selectedParam = params.get('selected');
-    if ((!selectedParam || !conversations.some((item) => item.id === selectedParam)) && conversations[0]) {
-      setParams({ selected: conversations[0].id }, { replace: true });
+    // The requested detail may legitimately be outside the first 100 list rows.
+    if (!selectedParam && conversations[0]) {
+      const next = new URLSearchParams(params);
+      next.set('selected', conversations[0].id);
+      setParams(next, { replace: true });
     }
   }, [conversations, params, setParams, showingList]);
 
@@ -252,7 +259,10 @@ export function ConversationsPage() {
       <div className="conversation-items" role="region" aria-label="Conversation list" tabIndex={0}>{conversations.map((conversation) => <button key={conversation.id} className={`conversation-item ${conversation.id === selectedId ? 'is-active' : ''}`} onClick={() => setParams({ selected: conversation.id })}><span className="mini-avatar conversation-list-avatar">{conversation.visitorName.charAt(0)}<ProviderLogo provider={conversation.channel} size={16} className="conversation-channel-logo" /></span><span className="conversation-item__copy"><span><strong>{conversation.visitorName}</strong><time>{relativeTime(conversation.updatedAt)}</time></span><small>{conversation.preview}</small><span className="conversation-item__tags"><Badge tone={conversation.state === 'escalated' ? 'danger' : conversation.state === 'resolved' ? 'neutral' : 'brand'}>{conversation.state}</Badge>{conversation.purpose === 'education' || agents.data?.find((agent) => agent.id === conversation.agentId)?.purpose === 'education' ? <Badge tone="purple">Education</Badge> : null}<em className={`sentiment sentiment--${conversation.sentiment}`}>{conversation.sentiment}</em></span></span>{conversation.unread ? <i className="unread-count">{conversation.unread}</i> : null}</button>)}</div>
       {!conversations.length ? <EmptyState icon={Inbox} title="No conversations here" description={isEducationAgent ? 'Try another Course, Batch, Student, channel, status, or search.' : 'Try another workspace, agent, channel, status, or search.'} /> : null}
     </section>
-    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={() => { result.reload(); detail.reload(); }} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} sendStructuredReply={sendStructuredReply} setState={setState} purpose={selected.purpose ?? selectedAgent?.purpose} onBack={() => setParams({ view: 'list' })} sending={sending} /> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
+    {selected ? <ConversationDetail key={selected.id} savingState={savingState} onVisitorSaved={() => { result.reload(); detail.reload(); }} conversation={selected} agentName={selectedAgent?.name ?? 'Assigned agent'} workspaceName={activeWorkspace?.name ?? 'Workspace'} reply={reply} setReply={setReply} submitReply={submitReply} sendStructuredReply={sendStructuredReply} setState={setState} purpose={selected.purpose ?? selectedAgent?.purpose} onBack={() => setParams({ view: 'list' })} sending={sending} /> : selectedId ? <div className="conversation-empty" role={detail.error ? 'alert' : 'status'}>
+      <MessageCircle /><h3>{detail.error ? 'Conversation is unavailable' : 'Loading conversation…'}</h3>
+      {detail.error ? <><p>{detail.error}</p><Button variant="secondary" onClick={detail.reload}>Try again</Button></> : <p>Retrieving the selected conversation.</p>}
+    </div> : <div className="conversation-empty"><MessageCircle /><h3>Select a conversation</h3><p>Read the full context, step in, or mark it resolved.</p></div>}
   </div>;
 }
 
