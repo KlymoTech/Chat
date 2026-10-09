@@ -1,14 +1,19 @@
 # Isolated, non-deploying AWS foundation for immutable Jenkins qualification evidence.
 # Protected Jenkins runners and independent signing services are NOT created here.
 locals {
-  partition = startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"
+  partition   = startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"
   bucket_name = "${var.name_prefix}-qual-evidence-${var.aws_account_id}-${var.aws_region}"
-  tags = merge(var.tags, {
+  tags        = merge(var.tags, {
     Component   = "northstar-jenkins-qualification-evidence"
     Environment = var.environment
     ManagedBy   = "terraform"
   })
 }
+
+# Never rely on a caller-provided AWS account or region without comparing
+# it with the authenticated AWS provider before any resource creation.
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 data "aws_iam_policy_document" "kms_account_admin" {
   statement {
@@ -43,6 +48,16 @@ resource "aws_s3_bucket" "evidence" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition = (
+        data.aws_caller_identity.current.account_id == var.aws_account_id &&
+        data.aws_region.current.name == var.aws_region &&
+        length(local.bucket_name) <= 63
+      )
+      error_message = "Terraform must run in the approved AWS account/region with a valid evidence bucket name."
+    }
+
     precondition {
       condition = (
         startswith(var.trusted_jenkins_agent_role_arn, "arn:${local.partition}:iam::${var.aws_account_id}:role/") &&
@@ -247,7 +262,7 @@ data "aws_iam_policy_document" "publisher" {
   statement {
     sid       = "EncryptAndDecryptOnlyThroughS3ForEvidence"
     effect    = "Allow"
-    actions   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
     resources = [aws_kms_key.evidence.arn]
 
     condition {
