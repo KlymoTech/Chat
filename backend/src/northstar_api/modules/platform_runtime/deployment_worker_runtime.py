@@ -13,13 +13,21 @@ from __future__ import annotations
 import os
 import stat
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import uvicorn
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from northstar_api.config import get_settings
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from .deployment_worker_database import (
+    WorkerDatabaseConfig,
+    verify_worker_database_identity,
+)
 from .deployment_worker_http import create_deployment_worker_app
 from .deployment_worker_operations import (
     DeploymentWorkerOperations,
@@ -129,15 +137,29 @@ def build_private_worker_app(settings: DeploymentWorkerRuntimeSettings):
             "machine issuer and independent step verifier must use distinct keys"
         )
 
-    # Defer database import until opt-in, socket and trust configuration pass.
-    from northstar_api.database import SessionFactory, engine
-
-    if engine.dialect.name != "postgresql":
-        raise WorkerRuntimeConfigurationError("deployment worker requires durable PostgreSQL")
+    # Never reuse the customer API's engine or credentials.
+    database_config = WorkerDatabaseConfig.from_environment(
+        os.environ, public_database_url=get_settings().database_url,
+    )
+    engine = create_async_engine(
+        database_config.database_url, pool_pre_ping=True, pool_size=4, max_overflow=0,
+    )
+    sessions = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
     from .deployment_leases import DeploymentLeaseService
     from .deployment_step_journal import DeploymentStepJournal
     from .deployment_worker_audit import DeploymentWorkerAuditTrail
+
+    @asynccontextmanager
+    async def worker_lifespan(_app):
+        # Failure exits Uvicorn startup before any machine route is served.
+        try:
+            await verify_worker_database_identity(
+                engine, expected_role=database_config.expected_role,
+            )
+            yield
+        finally:
+            await engine.dispose()
 
     operations = DeploymentWorkerOperations(
         policy=DeploymentWorkerPolicy(
@@ -147,13 +169,15 @@ def build_private_worker_app(settings: DeploymentWorkerRuntimeSettings):
             environment=settings.environment,
             allowed_subject=settings.allowed_subject,
         ),
-        leases=DeploymentLeaseService(SessionFactory),
+        leases=DeploymentLeaseService(sessions),
         journal=DeploymentStepJournal(
-            SessionFactory, verifier_public_key_pem=step_public_key,
+            sessions, verifier_public_key_pem=step_public_key,
         ),
-        audit=DeploymentWorkerAuditTrail(SessionFactory),
+        audit=DeploymentWorkerAuditTrail(sessions),
     )
-    return create_deployment_worker_app(operations, private_ingress_enabled=True)
+    return create_deployment_worker_app(
+        operations, private_ingress_enabled=True, lifespan=worker_lifespan,
+    )
 
 
 def run() -> None:
