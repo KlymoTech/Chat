@@ -66,3 +66,7 @@ Added migration `004_lead_idempotency.sql` and a normalized-payload SHA-256 chec
 ## Eighth checkpoint — transactional CMS domain service (internal only)
 
 Added a server-only CMS draft/publish/restore domain service within `website/src/lib/cms-editor.ts`. Operations lock the page row, validate known block shapes, preserve revision history and commit audit and outbox alongside publication/rollback pointer updates. This is **not an owner-operated CMS**: no trusted authenticated owner-console caller, approval endpoint, page-create UI, scheduled publication, media system, or durable invalidation worker exists. Permission inputs must come from verified sessions, not request JSON. No PostgreSQL execution, CI pass or browser test is claimed. The launch gate remains BLOCKED.
+
+## Ninth checkpoint — independent review enforcement
+
+Added migration `005_cms_approvals.sql` and server-only `approveDraft`. Review requires a separate actor from the author, writes attributable approval evidence and audit within a transaction, and publication rejects approved state without matching review evidence. This remains an internal domain implementation, **not** a live authenticated editor: trusted session integration, authorization grants, tests, worker processing, deployments, and UI are absent. The complete website and release acceptance remain blocked.
