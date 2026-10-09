@@ -355,6 +355,7 @@ export default function OwnerConsole(){
               <div className="owner-actions">
                 <button disabled={i===0} onClick={()=>moveBlock(i,-1)}>Up</button>
                 <button disabled={i===doc.blocks.length-1} onClick={()=>moveBlock(i,1)}>Down</button>
+                <button type="button" disabled={doc.blocks.length>=100} onClick={()=>duplicateBlock(i)}>Duplicate</button>
                 <button onClick={()=>setDoc(old=>({...old,blocks:old.blocks.filter((_,j)=>j!==i)}))}>Remove</button>
               </div>
             </fieldset>)}
