@@ -34,7 +34,8 @@ export function NotificationBell() {
       return;
     }
     try {
-      setUnreadCount(await notificationsApi.unreadCount());
+      const count = await notificationsApi.unreadCount();
+      setUnreadCount(count);
     } catch {
       // The top bar should remain usable during an API outage. The full error is
       // surfaced when the user explicitly opens the inbox.
