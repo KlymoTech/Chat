@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lead:deliver:once": "node scripts/lead-outbox-worker.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",
