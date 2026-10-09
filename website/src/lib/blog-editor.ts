@@ -32,7 +32,9 @@ export async function classifyBlogDraft(
     await client.query("BEGIN");
     const page=await client.query(
       "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 "+
-      "AND trashed_at IS NULL AND current_published_revision_id IS NULL FOR UPDATE",
+      "AND trashed_at IS NULL AND current_published_revision_id IS NULL "+
+      "AND NOT EXISTS(SELECT 1 FROM website_cms.page_revisions r "+
+      "WHERE r.page_id=website_cms.pages.id AND r.state IN (\'approved\',\'published\')) FOR UPDATE",
       [pageId,actor.siteId]);
     if(page.rowCount!==1)throw new Error("Only unpublished active pages can change classification");
     await client.query(
