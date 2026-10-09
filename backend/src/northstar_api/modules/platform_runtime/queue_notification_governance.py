@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Awaitable, Callable
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .queue_notification_config import ApprovedNotificationRoute
