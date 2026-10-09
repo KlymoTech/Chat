@@ -1,4 +1,5 @@
 """Workspace-owned lead operations, separate from externally synchronized lead fields."""
+
 from __future__ import annotations
 
 from typing import Any

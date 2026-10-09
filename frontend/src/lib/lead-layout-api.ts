@@ -31,8 +31,10 @@ export const leadLayoutApi = {
     return (await checked(await fetch(`${base}/leads/layout/template`, { method: 'POST', headers: headers(false), credentials: 'include', body }))).json();
   },
   edit: async (id: string, value: { name: string | null; email: string | null; phone: string | null; consent: boolean; fields: Record<string, unknown> }): Promise<Lead> => (await checked(await fetch(`${base}/leads/${id}/details`, { method: 'PATCH', headers: headers(), credentials: 'include', body: JSON.stringify(value) }))).json(),
-  export: async (format: 'csv' | 'xlsx', search: string, status: string) => {
+  export: async (format: 'csv' | 'xlsx', search: string, status: string, filters: { agentId?: string; channel?: string } = {}) => {
     const params = new URLSearchParams({ format, search, status });
+    if (filters.agentId && filters.agentId !== 'all') params.set('agent_id', filters.agentId);
+    if (filters.channel && filters.channel !== 'all') params.set('channel', filters.channel);
     const response = await checked(await fetch(`${base}/leads/layout/export?${params}`, { headers: headers(false), credentials: 'include' }));
     const url = URL.createObjectURL(await response.blob());
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `northstar-leads.${format}`; anchor.click();

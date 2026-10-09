@@ -28,6 +28,7 @@ from northstar_api import (
     education_tutor,  # noqa: F401
     email_verification,  # noqa: F401
     help_models,  # noqa: F401
+    lead_workspace_models,  # noqa: F401
     mfa,  # noqa: F401
     models,  # noqa: F401
     notifications,  # noqa: F401

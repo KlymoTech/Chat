@@ -140,6 +140,7 @@ async def create_lead(payload: LeadCreate, principal: LeadsUpdatePrincipal, sess
             Agent.id == payload.agent_id,
             Agent.tenant_id == principal.tenant_id,
             Agent.workspace_id == principal.workspace_id,
+            *((Agent.id.in_(principal.agent_ids),) if principal.agent_ids is not None else ()),
         )
     )
     if not agent:

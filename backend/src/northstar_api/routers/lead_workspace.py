@@ -3,6 +3,7 @@
 Follow-ups are durable workspace records with downloadable calendar reminders.
 They do not send email/WhatsApp messages or claim that external CRM activity synced.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -56,9 +57,18 @@ class LeadSummary(APIModel):
 
 @router.get("/summary", response_model=LeadSummary)
 async def summary(principal: LeadsViewPrincipal, session: DB) -> LeadSummary:
-    rows = (await session.execute(select(Lead.status, func.count(Lead.id)).where(*lead_scope(principal)).group_by(Lead.status))).all()
+    rows = (
+        await session.execute(
+            select(Lead.status, func.count(Lead.id)).where(*lead_scope(principal)).group_by(Lead.status)
+        )
+    ).all()
     counts = dict(rows)
-    return LeadSummary(total=sum(counts.values()), new=counts.get("new", 0), qualified=counts.get("qualified", 0), converted=counts.get("converted", 0))
+    return LeadSummary(
+        total=sum(counts.values()),
+        new=counts.get("new", 0),
+        qualified=counts.get("qualified", 0),
+        converted=counts.get("converted", 0),
+    )
 
 
 class Assignee(APIModel):
@@ -134,23 +144,39 @@ class LeadWorkspaceOut(APIModel):
 
 async def options_for(lead: Lead, principal: Principal, session: DB) -> list[Assignee]:
     _, workspace = await load_workspace(principal, session)
-    rows = (await session.execute(
-        select(User, WorkspaceMembership).join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
-        .where(WorkspaceMembership.tenant_id == principal.tenant_id, WorkspaceMembership.workspace_id == principal.workspace_id, User.is_active.is_(True))
-        .order_by(User.name, User.id)
-    )).all()
-    access = set(await session.scalars(select(WorkspaceMemberAgentAccess.user_id).where(
-        WorkspaceMemberAgentAccess.workspace_id == principal.workspace_id,
-        WorkspaceMemberAgentAccess.agent_id == lead.agent_id,
-    )))
-    members = [Assignee(id=str(user.id), name=user.name, role=membership.role.value, kind="person")
-               for user, membership in rows if not is_member_suspended(workspace.settings_json, user.id)
-               and (membership.all_agents_access or user.id in access)]
+    rows = (
+        await session.execute(
+            select(User, WorkspaceMembership)
+            .join(WorkspaceMembership, WorkspaceMembership.user_id == User.id)
+            .where(
+                WorkspaceMembership.tenant_id == principal.tenant_id,
+                WorkspaceMembership.workspace_id == principal.workspace_id,
+                User.is_active.is_(True),
+            )
+            .order_by(User.name, User.id)
+        )
+    ).all()
+    access = set(
+        await session.scalars(
+            select(WorkspaceMemberAgentAccess.user_id).where(
+                WorkspaceMemberAgentAccess.workspace_id == principal.workspace_id,
+                WorkspaceMemberAgentAccess.agent_id == lead.agent_id,
+            )
+        )
+    )
+    members = [
+        Assignee(id=str(user.id), name=user.name, role=membership.role.value, kind="person")
+        for user, membership in rows
+        if not is_member_suspended(workspace.settings_json, user.id)
+        and (membership.all_agents_access or user.id in access)
+    ]
     eligible = {item.id for item in members}
-    teams = [Assignee(id=team.id, name=team.name, kind="team", role="Workspace team")
-             for team in settings_document(workspace).teams.teams
-             if (not team.agent_ids or str(lead.agent_id) in team.agent_ids)
-             and any(str(member) in eligible for member in team.member_ids)]
+    teams = [
+        Assignee(id=team.id, name=team.name, kind="team", role="Workspace team")
+        for team in settings_document(workspace).teams.teams
+        if (not team.agent_ids or str(lead.agent_id) in team.agent_ids)
+        and any(str(member) in eligible for member in team.member_ids)
+    ]
     return members + teams
 
 
@@ -160,31 +186,54 @@ async def assignment_options(lead_id: UUID, principal: LeadsUpdatePrincipal, ses
 
 
 async def operations(lead: Lead, session: DB) -> LeadWorkspaceOperations | None:
-    return await session.scalar(select(LeadWorkspaceOperations).where(
-        LeadWorkspaceOperations.lead_id == lead.id,
-        LeadWorkspaceOperations.tenant_id == lead.tenant_id,
-        LeadWorkspaceOperations.workspace_id == lead.workspace_id,
-    ))
+    return await session.scalar(
+        select(LeadWorkspaceOperations).where(
+            LeadWorkspaceOperations.lead_id == lead.id,
+            LeadWorkspaceOperations.tenant_id == lead.tenant_id,
+            LeadWorkspaceOperations.workspace_id == lead.workspace_id,
+        )
+    )
 
 
 def response(lead: Lead, value: LeadWorkspaceOperations | None) -> LeadWorkspaceOut:
     doc = value.document if value else {}
-    return LeadWorkspaceOut(lead=lead_response(lead), version=value.version if value else 0,
-                            assignment=doc.get("assignment"), follow_ups=doc.get("followUps", []))
+    return LeadWorkspaceOut(
+        lead=lead_response(lead),
+        version=value.version if value else 0,
+        assignment=doc.get("assignment"),
+        follow_ups=doc.get("followUps", []),
+    )
 
 
-async def save(lead: Lead, current: LeadWorkspaceOperations | None, version: int, document: dict,
-               principal: Principal, session: DB, event: str) -> LeadWorkspaceOut:
+async def save(
+    lead: Lead,
+    current: LeadWorkspaceOperations | None,
+    version: int,
+    document: dict,
+    principal: Principal,
+    session: DB,
+    event: str,
+) -> LeadWorkspaceOut:
     if version != (current.version if current else 0):
         raise HTTPException(409, "This lead changed in another session. Refresh and try again.")
     if current is None:
-        current = LeadWorkspaceOperations(lead_id=lead.id, tenant_id=lead.tenant_id, workspace_id=lead.workspace_id, version=0, document={})
+        current = LeadWorkspaceOperations(
+            lead_id=lead.id, tenant_id=lead.tenant_id, workspace_id=lead.workspace_id, version=0, document={}
+        )
         session.add(current)
     current.document = document
     current.version += 1
-    record_audit_event(session, tenant_id=lead.tenant_id, workspace_id=lead.workspace_id,
-                       actor_user_id=principal.user_id, action=event, entity_type="lead",
-                       entity_id=str(lead.id), category="lead", metadata={"version": current.version})
+    record_audit_event(
+        session,
+        tenant_id=lead.tenant_id,
+        workspace_id=lead.workspace_id,
+        actor_user_id=principal.user_id,
+        action=event,
+        entity_type="lead",
+        entity_id=str(lead.id),
+        category="lead",
+        metadata={"version": current.version},
+    )
     await session.commit()
     return response(lead, current)
 
@@ -196,20 +245,32 @@ async def detail(lead_id: UUID, principal: LeadsViewPrincipal, session: DB) -> L
 
 
 @router.put("/{lead_id}/assignment", response_model=LeadWorkspaceOut)
-async def assign(lead_id: UUID, payload: AssignmentWrite, principal: LeadsUpdatePrincipal, session: DB) -> LeadWorkspaceOut:
+async def assign(
+    lead_id: UUID, payload: AssignmentWrite, principal: LeadsUpdatePrincipal, session: DB
+) -> LeadWorkspaceOut:
     lead = await scoped_lead(lead_id, principal, session, lock=True)
-    target = next((item for item in await options_for(lead, principal, session)
-                   if item.id == payload.target_id and item.kind == payload.kind), None)
+    target = next(
+        (
+            item
+            for item in await options_for(lead, principal, session)
+            if item.id == payload.target_id and item.kind == payload.kind
+        ),
+        None,
+    )
     if target is None:
         raise HTTPException(422, "Choose an active workspace member or team with access to this agent")
     current = await operations(lead, session)
     doc = dict(current.document if current else {})
-    doc["assignment"] = Assignment(**target.model_dump(), note=payload.note, assigned_at=datetime.now(UTC).isoformat()).model_dump(by_alias=True)
+    doc["assignment"] = Assignment(
+        **target.model_dump(), note=payload.note, assigned_at=datetime.now(UTC).isoformat()
+    ).model_dump(by_alias=True)
     return await save(lead, current, payload.version, doc, principal, session, "lead.assignment.updated")
 
 
 @router.post("/{lead_id}/follow-ups", response_model=LeadWorkspaceOut, status_code=201)
-async def schedule(lead_id: UUID, payload: FollowUpWrite, principal: LeadsUpdatePrincipal, session: DB) -> LeadWorkspaceOut:
+async def schedule(
+    lead_id: UUID, payload: FollowUpWrite, principal: LeadsUpdatePrincipal, session: DB
+) -> LeadWorkspaceOut:
     lead = await scoped_lead(lead_id, principal, session, lock=True)
     current = await operations(lead, session)
     doc = dict(current.document if current else {})
@@ -225,12 +286,25 @@ async def schedule(lead_id: UUID, payload: FollowUpWrite, principal: LeadsUpdate
         raise HTTPException(422, "Choose a future follow-up time")
     if len(records) >= 100:
         raise HTTPException(409, "This lead has reached the limit of 100 follow-up records")
-    target = next((item for item in await options_for(lead, principal, session)
-                   if item.id == payload.assignee_id and item.kind == payload.assignee_kind), None)
+    target = next(
+        (
+            item
+            for item in await options_for(lead, principal, session)
+            if item.id == payload.assignee_id and item.kind == payload.assignee_kind
+        ),
+        None,
+    )
     if target is None:
         raise HTTPException(422, "Choose an active workspace assignee with access to this agent")
-    records.append({**normalized, "assigneeName": target.name, "createdAt": datetime.now(UTC).isoformat(),
-                    "status": "scheduled", "deliveryMode": "calendar"})
+    records.append(
+        {
+            **normalized,
+            "assigneeName": target.name,
+            "createdAt": datetime.now(UTC).isoformat(),
+            "status": "scheduled",
+            "deliveryMode": "calendar",
+        }
+    )
     doc["followUps"] = records
     return await save(lead, current, payload.version, doc, principal, session, "lead.follow_up.scheduled")
 
@@ -241,8 +315,13 @@ class FollowUpStateWrite(APIModel):
 
 
 @router.patch("/{lead_id}/follow-ups/{follow_up_id}", response_model=LeadWorkspaceOut)
-async def follow_up_state(lead_id: UUID, follow_up_id: UUID, payload: FollowUpStateWrite,
-                          principal: LeadsUpdatePrincipal, session: DB) -> LeadWorkspaceOut:
+async def follow_up_state(
+    lead_id: UUID,
+    follow_up_id: UUID,
+    payload: FollowUpStateWrite,
+    principal: LeadsUpdatePrincipal,
+    session: DB,
+) -> LeadWorkspaceOut:
     lead = await scoped_lead(lead_id, principal, session, lock=True)
     current = await operations(lead, session)
     doc = dict(current.document if current else {})
@@ -261,12 +340,28 @@ class LeadStageWrite(APIModel):
 
 
 @router.put("/{lead_id}/stage", response_model=LeadOut)
-async def stage(lead_id: UUID, payload: LeadStageWrite, principal: LeadsUpdatePrincipal, session: DB) -> LeadOut:
+async def stage(
+    lead_id: UUID, payload: LeadStageWrite, principal: LeadsUpdatePrincipal, session: DB
+) -> LeadOut:
     lead = await scoped_lead(lead_id, principal, session, lock=True)
-    await lead_domain_service.update_status(session, lead=lead, status=payload.status, actor_id=str(principal.user_id), correlation_id=request_id_ctx.get())
-    record_audit_event(session, tenant_id=lead.tenant_id, workspace_id=lead.workspace_id,
-                       actor_user_id=principal.user_id, action="lead.stage.changed", entity_type="lead",
-                       entity_id=str(lead.id), category="lead", metadata={"note": payload.note, "status": payload.status.value})
+    await lead_domain_service.update_status(
+        session,
+        lead=lead,
+        status=payload.status,
+        actor_id=str(principal.user_id),
+        correlation_id=request_id_ctx.get(),
+    )
+    record_audit_event(
+        session,
+        tenant_id=lead.tenant_id,
+        workspace_id=lead.workspace_id,
+        actor_user_id=principal.user_id,
+        action="lead.stage.changed",
+        entity_type="lead",
+        entity_id=str(lead.id),
+        category="lead",
+        metadata={"note": payload.note, "status": payload.status.value},
+    )
     await session.commit()
     await session.refresh(lead)
     return lead_response(lead)
