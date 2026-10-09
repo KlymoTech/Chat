@@ -18,6 +18,6 @@ export function canonical(path: string): string | undefined {
   return origin ? new URL(path, origin).toString() : undefined;
 }
 
-export const publicRoutes = ["/", "/services", "/about", "/resources", "/contact"] as const;
+export const publicRoutes = ["/", "/services", "/about", "/resources", "/blog", "/contact"] as const;
 export const indexingApproved = () => Boolean(publishedOrigin());
 export const publicSiteName = site.name;
