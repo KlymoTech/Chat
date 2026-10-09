@@ -16,7 +16,7 @@ Owner must confirm legal entity, brand, domain, languages, offers, price/claim e
 | Owner CMS, page revisions, preview, publish, rollback, media | 07–09, 44, 73, 76 | SCHEMA/READ CONTRACT ONLY — NOT FUNCTIONAL | SQL schema plus safe published block renderer; no authorized publishing API, privileges, migrations, media, rollback or tests |
 | Blog preservation and manual-only deletion | 09, 38–39 | NOT IMPLEMENTED | authorized manual purge/restore and protected audit checks |
 | SEO metadata, crawl controls, redirects and sitemap | 10–11, 49–50, 66, 70 | PARTIAL / UNVERIFIED | sitemap, robots and canonical now implemented behind explicit approval; redirects, crawler and search-route checks remain |
-| Lead submission and durable outbox/CRM delivery | 20–23, 40, 69 | NOT IMPLEMENTED | committed receipt + outbox retry/crash and reconciliation tests |
+| Lead submission and durable outbox/CRM delivery | 20–23, 40, 69 | PARTIAL / DISABLED | schema, transactional enqueue and form implemented; anti-abuse, IAM/RLS, migration execution, worker, reconciliation and crash/retry tests pending |
 | Privacy, consent-aware visitor and UTM events | 14–18, 35–37, 59, 72 | PARTIAL / UNVERIFIED | fail-closed device-local preferences UI added; no CMP, backend consent record, lawful-basis policies, revocation propagation or event tests |
 | Marketing automation, scoring, experiments, ads | 12–13, 19, 34, 43, 45–56, 67–71, 77 | NOT IMPLEMENTED | approved-provider sandbox tests + quality/goal reconciliation |
 | Security, identity, immutable audit, recovery | 24, 28–30, 39, 57–60, 74 | NOT IMPLEMENTED | threat, authorization, backup restore and incident drills |
@@ -54,3 +54,7 @@ Implemented a `pg`-based server-only data access function reading from a publish
 ## Fifth checkpoint — fail-closed visitor preferences
 
 Added user-controlled analytics/marketing preferences on all public routes and a discoverable footer control. Unknown or unavailable storage results in denied optional purposes, with no vendor script or tracking activated. Acceptance of future analytics is **not** wired to any provider. The privacy/legal notice is still a placeholder; enforce jurisdiction, withdrawal propagation, server-side consent logs and automated browser tests before release. No tracking consent is implied by viewing a page.
+
+## Sixth checkpoint — lead intake, strictly disabled by default
+
+Added `website/db/003_lead_capture.sql`, a validated lead-input contract, a server-only PostgreSQL transaction committing the lead and one outbox intent, a same-origin POST endpoint, and an accessible contact form shown only when explicitly enabled. Idempotent retries reference the same saved lead. Endpoint acknowledges success only after transaction commit, otherwise responds with failure. The module stays disabled by default pending spam/rate limits, DB privilege isolation, approved privacy copy, operations and integration testing. A worker to actually deliver outbox events to CRM/email is still NOT implemented. No migrations were applied and no automated tests are claimed passing.
