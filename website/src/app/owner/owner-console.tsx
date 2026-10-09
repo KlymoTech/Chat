@@ -1,15 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, useReducer, type FormEvent, type SetStateAction } from "react";
 import Link from "next/link";
 import { PublishedBlocks } from "../../components/PublishedBlocks";
 import type { PublicBlock } from "../../lib/cms";
+import { freshBuilderBlock } from "../../lib/builder-contract";
 import "./owner.css";
 
 type Page={id:string;path:string;locale:string;publishedRevisionId:string|null;publishedTitle:string|null;trashedAt:string|null};
 type Revision={id:string;revision:number;state:string;title:string;description:string;blocks:PublicBlock[];createdAt:string;authorId:string};
 type Document={title:string;description:string;blocks:PublicBlock[]};
 const emptyDoc:Document={title:"",description:"",blocks:[]};
+type HistoryState={present:Document;past:Document[];future:Document[]};
+type HistoryAction=
+  | {kind:"edit";value:SetStateAction<Document>}
+  | {kind:"reset";value:Document}
+  | {kind:"undo"|"redo"};
+function builderHistory(state:HistoryState,action:HistoryAction):HistoryState {
+  if(action.kind==="reset")return {present:action.value,past:[],future:[]};
+  if(action.kind==="undo") {
+    if(!state.past.length)return state;
+    return {present:state.past[state.past.length-1],past:state.past.slice(0,-1),
+      future:[state.present,...state.future].slice(0,40)};
+  }
+  if(action.kind==="redo"){
+    if(!state.future.length)return state;
+    return {present:state.future[0],past:[...state.past,state.present].slice(-40),
+      future:state.future.slice(1)};
+  }
+  const next=typeof action.value==="function"?action.value(state.present):action.value;
+  if(next===state.present)return state;
+  return {present:next,past:[...state.past,state.present].slice(-40),future:[]};
+}
 
 async function requestJson(url:string,method:"GET"|"POST"="GET",body?:unknown):Promise<unknown>{
   const response=await fetch(url,{method,credentials:"same-origin",cache:"no-store",
@@ -31,7 +53,12 @@ export default function OwnerConsole(){
   const [selected,setSelected]=useState("");
   const [revisions,setRevisions]=useState<Revision[]>([]);
   const [revisionId,setRevisionId]=useState("");
-  const [doc,setDoc]=useState<Document>(emptyDoc);
+  const [history,dispatch]=useReducer(builderHistory,{
+    present:emptyDoc,past:[],future:[],
+  });
+  const doc=history.present;
+  const setDoc=(value:SetStateAction<Document>)=>dispatch({kind:"edit",value});
+  const resetDoc=(value:Document)=>dispatch({kind:"reset",value});
   const [slug,setSlug]=useState("");
   const [locale,setLocale]=useState("en");
   const [reason,setReason]=useState("");
@@ -77,9 +104,27 @@ export default function OwnerConsole(){
     }catch{setProblem("Blog classification could not be loaded.");}
   }
   function addBlock(type:PublicBlock["type"]){
-    setDoc(old=>({...old,blocks:[...old.blocks,
-      type==="image"?{type:"image",assetId:"",alt:"",caption:""}:
-      type==="callout"?{type:"callout",title:"",body:""}:{type,text:""}]}));
+    const blockId=crypto.randomUUID();
+    const block:PublicBlock=type==="hero"||type==="cta"||type==="faq"?
+      freshBuilderBlock(type,blockId):
+      type==="image"?{type,blockId,schemaVersion:1,assetId:"",alt:"",caption:""}:
+      type==="callout"?{type,blockId,schemaVersion:1,title:"New callout",body:""}:
+      {type,blockId,schemaVersion:1,text:"New text"};
+    setDoc(old=>({...old,blocks:[...old.blocks,block]}));
+  }
+  function editVisual(index:number,changes:Partial<PublicBlock>){
+    setDoc(old=>({...old,blocks:old.blocks.map((block,i)=>
+      i===index?{...block,...changes} as PublicBlock:block)}));
+  }
+  function duplicateBlock(index:number) {
+    setDoc(old=>{
+      const source=old.blocks[index];
+      if(!source||old.blocks.length>=100)return old;
+      const duplicate={...structuredClone(source),blockId:crypto.randomUUID(),schemaVersion:1} as PublicBlock;
+      const blocks=[...old.blocks];
+      blocks.splice(index+1,0,duplicate);
+      return {...old,blocks};
+    });
   }
   function updateImage(index:number,field:"assetId"|"alt"|"caption",value:string){
     setDoc(old=>({...old,blocks:old.blocks.map((block,i)=>
@@ -103,7 +148,7 @@ export default function OwnerConsole(){
   }
   function loadRevision(){
     const current=revisions.find(r=>r.id===revisionId);
-    if(current)setDoc({title:current.title,description:current.description,blocks:current.blocks.map(b=>({...b}))});
+    if(current)resetDoc({title:current.title,description:current.description,blocks:current.blocks.map(b=>({...b}))});
   }
   async function act(url:string,body:unknown,success:string){
     if(busy)return;
@@ -247,10 +292,47 @@ export default function OwnerConsole(){
               <button onClick={()=>addBlock("paragraph")}>Add paragraph</button>
               <button onClick={()=>addBlock("callout")}>Add callout</button>
               <button onClick={()=>addBlock("image")}>Add approved image</button>
+              <button onClick={()=>addBlock("hero")}>Add hero section</button>
+              <button onClick={()=>addBlock("cta")}>Add CTA section</button>
+              <button onClick={()=>addBlock("faq")}>Add FAQ section</button>
+              <button type="button" disabled={!history.past.length} onClick={()=>dispatch({kind:"undo"})}>Undo</button>
+              <button type="button" disabled={!history.future.length} onClick={()=>dispatch({kind:"redo"})}>Redo</button>
             </div>
             {doc.blocks.map((block,i)=><fieldset className="owner-block" key={i}>
-              <legend>{block.type} #{i+1}</legend>
-              {block.type==="image"?<>
+              <legend>{block.type} #{i+1} <small>{block.blockId?.slice(0,8)??"legacy"}</small></legend>
+              {(block.type==="hero"||block.type==="cta")?<>
+                {block.type==="hero"&&<label>Eyebrow
+                  <input maxLength={100} value={block.eyebrow}
+                    onChange={e=>editVisual(i,{eyebrow:e.target.value} as Partial<PublicBlock>)}/>
+                </label>}
+                <label>Section heading<input maxLength={180} value={block.heading}
+                  onChange={e=>editVisual(i,{heading:e.target.value} as Partial<PublicBlock>)}/></label>
+                <label>Section description<textarea maxLength={1200} value={block.description}
+                  onChange={e=>editVisual(i,{description:e.target.value} as Partial<PublicBlock>)}/></label>
+                <label>Action label<input maxLength={80} value={block.actionLabel}
+                  onChange={e=>editVisual(i,{actionLabel:e.target.value} as Partial<PublicBlock>)}/></label>
+                <label>Internal action path<input value={block.actionPath}
+                  onChange={e=>editVisual(i,{actionPath:e.target.value} as Partial<PublicBlock>)}/>
+                </label>
+                <label>Design variant<select value={block.variant}
+                  onChange={e=>editVisual(i,{variant:e.target.value} as Partial<PublicBlock>)}>
+                    {block.type==="hero"?<>
+                      <option value="center">Centered</option><option value="split">Split</option>
+                    </>:<><option value="solid">Solid</option><option value="outline">Outline</option></>}
+                  </select></label>
+              </>:block.type==="faq"?<>
+                {block.items.map((item,j)=><div key={j}>
+                  <label>Question {j+1}<input value={item.question} maxLength={240}
+                    onChange={e=>editVisual(i,{items:block.items.map((it,k)=>k===j?{...it,question:e.target.value}:it)} as Partial<PublicBlock>)}/></label>
+                  <label>Answer {j+1}<textarea value={item.answer} maxLength={2000}
+                    onChange={e=>editVisual(i,{items:block.items.map((it,k)=>k===j?{...it,answer:e.target.value}:it)} as Partial<PublicBlock>)}/></label>
+                  <button type="button" disabled={block.items.length<=1} onClick={()=>editVisual(i,
+                    {items:block.items.filter((_,k)=>k!==j)} as Partial<PublicBlock>)}>Remove question</button>
+                </div>)}
+                <button type="button" disabled={block.items.length>=20}
+                  onClick={()=>editVisual(i,{items:[...block.items,{question:"New question",answer:"Add approved answer"}]} as Partial<PublicBlock>)}>
+                  Add FAQ question</button>
+              </>:block.type==="image"?<>
                 <label>Published media UUID
                   <input value={block.assetId} maxLength={36} placeholder="Approved, published asset UUID"
                     onChange={e=>updateImage(i,"assetId",e.target.value.trim())}/>
