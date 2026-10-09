@@ -11,11 +11,11 @@ From the `website` directory: `npm install`, `npm run dev`; browse http://localh
 - Responsive semantic HTML, keyboard skip link, primary and legal navigation, focus indicators, reduced-motion handling.
 - Accessible home, services, about, resources, contact, privacy and terms **starter** routes.
 - Per-route titles, global metadata, and configurable site identity. Search indexing is withheld until an explicit site URL is configured.
-- Contact uses a configured mailto address; it **does not claim to store a lead**.
+- Contact uses a configured mailto address; it **does not claim to store a lead**.\n- Schema-only revision/audit/outbox tables and a read-only published-content renderer are introduced; no CMS service or database installation has occurred.
 
 ## Release blocking gaps
 
-These pages contain conspicuous placeholders, not approved business claims or legal policies. No CMS, owner console, durable form ingestion, transactional outbox, authentication, audit trail, blog publishing, media storage, consent manager, analytics, paid-media conversion delivery, rollback, backups, or production acceptance exists in this starter. Do **not** advertise it as a finished site or enable paid traffic. Follow `docs/website-blueprint-implementation.md` for the phased delivery and proof contract.
+These pages contain conspicuous placeholders, not approved business claims or legal policies. No functioning CMS, owner console, durable form ingestion, transactional outbox, authentication, audit trail, blog publishing, media storage, consent manager, analytics, paid-media conversion delivery, rollback, backups, or production acceptance exists in this starter. Do **not** advertise it as a finished site or enable paid traffic. Follow `docs/website-blueprint-implementation.md` for the phased delivery and proof contract.
 
 ## Architecture decision
 
