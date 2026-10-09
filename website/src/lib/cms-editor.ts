@@ -248,30 +248,56 @@ export async function publishApproved(actor: CmsActor, pageId: string, approvedR
   });
 }
 
-/** Roll back by repointing to an existing published snapshot. No historical record is destroyed. */
-export async function restorePublished(actor: CmsActor, pageId: string, targetRevisionId: string): Promise<void> {
+/** Restore a compatible published snapshot as a NEW publication action.
+ * The original snapshot is retained; the live pointer is never silently rewound.
+ */
+export async function restorePublished(actor: CmsActor, pageId: string, targetRevisionId: string): Promise<string> {
   assertActor(actor,"cms:publish");
   if (!UUID.test(pageId) || !UUID.test(targetRevisionId)) throw new Error("Invalid CMS IDs");
-  await transaction(async client => {
-    const page = await client.query(
-      "SELECT id FROM website_cms.pages WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
+  return transaction(async client => {
+    const page = await client.query<{current_published_revision_id:string|null}>(
+      "SELECT current_published_revision_id FROM website_cms.pages "+
+      "WHERE id=$1 AND site_id=$2 AND trashed_at IS NULL FOR UPDATE",
       [pageId,actor.siteId]);
     if (page.rowCount !== 1) throw new Error("Page not found");
-    const target = await client.query(
-      "SELECT id FROM website_cms.page_revisions WHERE id=$1 AND page_id=$2 AND state='published'",
+    const target = await client.query<{
+      title:string;description:string;blocks:CmsBlock[];seo:Record<string,unknown>;
+    }>(
+      "SELECT title,description,blocks,seo FROM website_cms.page_revisions "+
+      "WHERE id=$1 AND page_id=$2 AND state='published'",
       [targetRevisionId,pageId]);
     if (target.rowCount !== 1) throw new Error("Published snapshot not found");
+    // Fail closed on schema-incompatible historical revisions.
+    validateDocument({
+      title:target.rows[0].title,description:target.rows[0].description,
+      blocks:target.rows[0].blocks,
+    });
+    const next=await client.query<{next:number}>(
+      "SELECT COALESCE(MAX(revision_number),0)+1 AS next "+
+      "FROM website_cms.page_revisions WHERE page_id=$1",[pageId]);
+    const restoredId=randomUUID();
     await client.query(
-      "UPDATE website_cms.pages SET current_published_revision_id=$1 WHERE id=$2 AND site_id=$3",
-      [targetRevisionId,pageId,actor.siteId]);
+      `INSERT INTO website_cms.page_revisions
+       (id,page_id,revision_number,state,title,description,blocks,seo,actor_id)
+       SELECT $1,page_id,$2,'published',title,description,blocks,seo,$3
+       FROM website_cms.page_revisions WHERE id=$4 AND page_id=$5 AND state='published'`,
+      [restoredId,next.rows[0].next,actor.id,targetRevisionId,pageId]);
     await client.query(
-      `INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id)
-       VALUES($1,$2,$3,'cms.restored',$4)`,
-      [randomUUID(),actor.siteId,actor.id,targetRevisionId]);
+      "UPDATE website_cms.pages SET current_published_revision_id=$1 "+
+      "WHERE id=$2 AND site_id=$3",
+      [restoredId,pageId,actor.siteId]);
+    await client.query(
+      `INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id,metadata)
+       VALUES($1,$2,$3,'cms.restored',$4,
+       jsonb_build_object('sourceRevisionId',$5::text,'previousLiveRevisionId',$6::text))`,
+      [randomUUID(),actor.siteId,actor.id,restoredId,targetRevisionId,
+        page.rows[0].current_published_revision_id]);
     await client.query(
       `INSERT INTO website_cms.outbox(id,site_id,event_type,payload)
-       VALUES($1,$2,'cms.restored',jsonb_build_object('pageId',$3::text,'revisionId',$4::text))`,
-      [randomUUID(),actor.siteId,pageId,targetRevisionId]);
+       VALUES($1,$2,'cms.restored',
+       jsonb_build_object('pageId',$3::text,'revisionId',$4::text,'sourceRevisionId',$5::text))`,
+      [randomUUID(),actor.siteId,pageId,restoredId,targetRevisionId]);
+    return restoredId;
   });
 }
 
