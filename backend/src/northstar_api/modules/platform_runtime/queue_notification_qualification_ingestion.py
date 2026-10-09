@@ -30,6 +30,7 @@ async def ingest_notification_qualification(
     evidence: NotificationQualificationRecord,
     trusted_pipeline: bool,
     signing_key: bytes,
+    pipeline_actor_id: str | None = None,
 ) -> None:
     """Insert pending evidence under a caller-owned transaction.
 
@@ -56,6 +57,8 @@ async def ingest_notification_qualification(
     )
     if blockers:
         raise QualificationIngestionRejected("required certification proofs are missing or invalid")
+    if pipeline_actor_id is not None and (not pipeline_actor_id.strip() or len(pipeline_actor_id) > 128):
+        raise QualificationIngestionRejected("invalid certification actor")
     session.add(NotificationWorkerQualificationRecord(
         id=evidence.id,
         environment=evidence.environment,
@@ -64,6 +67,8 @@ async def ingest_notification_qualification(
         proof_tokens=list(evidence.proof_tokens),
         approved=False,
         revoked=False,
+        revision=1,
+        issued_by=pipeline_actor_id,
         created_at=datetime.now(UTC),
     ))
     # Flush uniqueness errors inside the caller-owned transaction. No commit here.
