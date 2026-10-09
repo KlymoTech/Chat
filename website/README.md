@@ -36,3 +36,7 @@ The contact route has an optional enquiry form with PostgreSQL lead+outbox atomi
 ### Independent editorial approval (not production activated)
 
 `db/005_cms_approvals.sql` introduces attributable approval records. The internal `approveDraft` method now requires `cms:review` permission from a **trusted server session**, excludes self-approval by the revision author, records approval and audit in one transaction, and moves the revision to approved state. Publication requires both approved state and corresponding independent approval evidence. No admin API or trusted user-session adapter has been implemented yet. Approval-state mutation is a workflow status update; content block/title snapshots remain unchanged. Confirm migration, database role grants, concurrency and audit integrity in integration tests before activation.
+
+## CMS page creation checkpoint
+
+Added server-only `createPage` to `src/lib/cms-editor.ts`. It creates a new page and initial draft revision inside one transaction, writes an audit record, and refuses duplicate site/locale/path combinations. `src/lib/cms-path.ts` restricts new routes to `/content/<slug>`, away from existing Chat and website routes. Contract tests cover reserved, malformed and nested routes. This is not a working public admin UI; it has no authenticated caller, applied schema, or validated database permissions. Production activation remains blocked.
