@@ -15,7 +15,7 @@ Owner must confirm legal entity, brand, domain, languages, offers, price/claim e
 | Public route starter, navigation, accessible responsive layout | 04–06, 73 | IMPLEMENTED / UNVERIFIED | automated build, mobile/keyboard/zoom/screenshots and content signoff |
 | Owner CMS, page revisions, preview, publish, rollback, media | 07–09, 44, 73, 76 | NOT IMPLEMENTED | role-based end-to-end publish/recovery tests |
 | Blog preservation and manual-only deletion | 09, 38–39 | NOT IMPLEMENTED | authorized manual purge/restore and protected audit checks |
-| SEO metadata, crawl controls, redirects and sitemap | 10–11, 49–50, 66, 70 | PARTIAL / UNVERIFIED | crawler evidence, canonical/robots and search-route checks |
+| SEO metadata, crawl controls, redirects and sitemap | 10–11, 49–50, 66, 70 | PARTIAL / UNVERIFIED | sitemap, robots and canonical now implemented behind explicit approval; redirects, crawler and search-route checks remain |
 | Lead submission and durable outbox/CRM delivery | 20–23, 40, 69 | NOT IMPLEMENTED | committed receipt + outbox retry/crash and reconciliation tests |
 | Privacy, consent-aware visitor and UTM events | 14–18, 35–37, 59, 72 | NOT IMPLEMENTED | consent-denial, revocation, retention and identity separation tests |
 | Marketing automation, scoring, experiments, ads | 12–13, 19, 34, 43, 45–56, 67–71, 77 | NOT IMPLEMENTED | approved-provider sandbox tests + quality/goal reconciliation |
@@ -36,3 +36,9 @@ Status labels distinguish **documented**, **implemented**, **activated** and **v
 7. Add operations, protection, end-to-end tests, cost/runbooks, backup/restore drills, and Appendix N/P release evidence.
 
 **Prohibited launch states:** falsely acknowledged leads, unauthorized access, prohibited tracking, leaked secrets, broken conversion journeys, untested recovery (chapter 01). Maintain remaining gaps openly.
+
+## Second checkpoint — explicit SEO safety and public error routes
+
+Added website-local `robots.ts`, `sitemap.ts`, `seo.ts`, `not-found.tsx`, `error.tsx`, and `loading.tsx`. Indexing requires **HTTPS, a non-local site URL and NEXT_PUBLIC_SITE_APPROVED=true**. Legal placeholders stay noindex and outside the sitemap. Canonical URLs are provided per public route. These are implementation claims only: a successful production build, crawler validation, keyboard review, browser checks, and live indexability signoff have **not** been established. The company-specific pages are still intentionally placeholders; this is not production launch clearance.
+
+No `main` branch files were modified by this work.
