@@ -12,7 +12,8 @@
     "test:postgres": "node scripts/verify-postgres.mjs",
     "cms:revalidate:once": "node scripts/cms-outbox-worker.mjs",
     "media:inspect:once": "node scripts/media-inspection-once.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:security-db": "node scripts/verify-security-grants.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",
