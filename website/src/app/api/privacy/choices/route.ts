@@ -1,7 +1,7 @@
 import {NextResponse} from "next/server";
 import {cookies} from "next/headers";
 import {CONSENT_COOKIE,parseConsentChoice,recordChoice,mayCollectByReceipt}
-  from "../../../lib/consent-server";
+  from "../../../../lib/consent-server";
 export const dynamic="force-dynamic";
 const headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"};
 const available=()=>process.env.WEBSITE_CONSENT_RECORDS_ENABLED==="true"&&
