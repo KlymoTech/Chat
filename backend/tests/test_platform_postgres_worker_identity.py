@@ -130,7 +130,7 @@ async def test_real_unprivileged_worker_role_can_audit_without_editing_approvals
 
         # The worker must not obtain direct UPDATE on an approved change.
         async with worker_engine.connect() as conn:
-            async with pytest.raises(Exception):
+            with pytest.raises(Exception):
                 await conn.execute(text(
                     "UPDATE platform_changes SET environment='production' WHERE id=:id"
                 ), {"id": change_id})
