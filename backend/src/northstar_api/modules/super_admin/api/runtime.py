@@ -538,6 +538,81 @@ async def approve_platform_notification_route(
     return {"channel": channel, "revision": payload.revision, "approved": True, "enabled": False}
 
 
+class NotificationRouteDeactivateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    reason: str = Field(min_length=12, max_length=500)
+
+
+@router.get("/notifications/routes/{channel}")
+async def read_platform_notification_route(
+    channel: str,
+    principal: PlatformSystemReadPrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Return only safe metadata for this tenant's route."""
+    from northstar_api.modules.platform_runtime.queue_notification_config_persistence import (
+        ApprovedNotificationRouteRecord,
+    )
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if channel not in ("email", "webhook"):
+        raise HTTPException(status_code=422, detail="unsupported notification channel")
+    record = await session.scalar(
+        select(ApprovedNotificationRouteRecord).where(
+            ApprovedNotificationRouteRecord.tenant_id == principal.tenant_id,
+            ApprovedNotificationRouteRecord.channel == channel,
+        )
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail="notification route not found")
+    return {
+        "channel": record.channel,
+        "revision": record.revision,
+        "enabled": record.enabled,
+        "approved": record.approved,
+        "configured": True,
+    }
+
+
+@router.post("/notifications/routes/{channel}/deactivate")
+async def deactivate_platform_notification_route(
+    channel: str,
+    payload: NotificationRouteDeactivateRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+) -> dict[str, object]:
+    """Fenced deactivation with same-transaction audit, never external sends."""
+    from northstar_api.modules.platform_runtime.queue_notification_governance import (
+        RouteConflict, deactivate_notification_route,
+    )
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if channel not in ("email", "webhook"):
+        raise HTTPException(status_code=422, detail="unsupported notification channel")
+
+    async def audit(db: DBSession, details: dict[str, str]) -> None:
+        await _audit_notification_route(db, details, reason=payload.reason.strip())
+
+    try:
+        revision = await deactivate_notification_route(
+            session, tenant_id=principal.tenant_id, channel=channel,
+            expected_revision=payload.expected_revision,
+            actor_id=principal.user_id, authorized=True, audit=audit,
+        )
+        await session.commit()
+    except RouteConflict as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="notification route revision conflict") from exc
+    except Exception:
+        await session.rollback()
+        raise
+    return {"channel": channel, "revision": revision, "enabled": False}
+
+
 class QueueDeadLetterReplayRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
