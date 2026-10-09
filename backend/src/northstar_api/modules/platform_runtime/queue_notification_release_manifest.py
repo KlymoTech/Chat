@@ -71,7 +71,14 @@ class VerifiedReleaseManifest:
 
 
 class ArtifactReconciler(Protocol):
-    async def reconcile(self, **kwargs: object) -> CertificationArtifactReceipt: ...
+    async def reconcile(
+        self, *, receipt: CertificationArtifactReceipt,
+        release_id: str, attestation_token: str,
+        test_runner_public_key_pem: bytes, issuer: str, run_id: str,
+        branch: str, environment: str, source_commit: str,
+        source_digest: str, target_digest: str,
+        now: datetime | None = None,
+    ) -> CertificationArtifactReceipt: ...
 
 
 def _unique_json(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -177,25 +184,54 @@ async def verify_manifest_and_reconcile_artifact(
     reconciler: ArtifactReconciler,
     test_runner_public_key_pem: bytes,
     attestation_issuer: str,
-    **expected: object,
+    release_signer_public_key_pem: bytes,
+    trusted_issuer: str,
+    release_id: str,
+    run_id: str,
+    branch: str,
+    environment: str,
+    source_commit: str,
+    image_digest: str,
+    source_digest: str,
+    target_digest: str,
+    attestation_token: str,
+    artifact_receipt: CertificationArtifactReceipt,
+    now: datetime | None = None,
 ) -> VerifiedReleaseManifest:
     """Allow S3 read-back only after signed release-manifest validation.
 
     Never writes or retries unknown S3 outcomes; read errors propagate.
     """
-    verified = verify_signed_release_manifest(token, **expected)
-    await reconciler.reconcile(
+    verified = verify_signed_release_manifest(
+        token,
+        release_signer_public_key_pem=release_signer_public_key_pem,
+        trusted_issuer=trusted_issuer,
+        release_id=release_id,
+        run_id=run_id,
+        branch=branch,
+        environment=environment,
+        source_commit=source_commit,
+        image_digest=image_digest,
+        source_digest=source_digest,
+        target_digest=target_digest,
+        attestation_token=attestation_token,
+        artifact_receipt=artifact_receipt,
+        now=now,
+    )
+    stored = await reconciler.reconcile(
         receipt=verified.artifact,
-        release_id=verified.release_id,
-        attestation_token=expected["attestation_token"],
+        release_id=release_id,
+        attestation_token=attestation_token,
         test_runner_public_key_pem=test_runner_public_key_pem,
         issuer=attestation_issuer,
-        run_id=expected["run_id"],
-        branch=expected["branch"],
-        environment=expected["environment"],
-        source_commit=verified.source_commit,
-        source_digest=expected["source_digest"],
-        target_digest=expected["target_digest"],
-        now=expected.get("now"),
+        run_id=run_id,
+        branch=branch,
+        environment=environment,
+        source_commit=source_commit,
+        source_digest=source_digest,
+        target_digest=target_digest,
+        now=now,
     )
+    if stored != verified.artifact:
+        raise ReleaseManifestRejected("S3 reconciliation did not confirm pinned receipt")
     return verified
