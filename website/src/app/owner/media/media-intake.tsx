@@ -36,13 +36,17 @@ export default function MediaIntake(){
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [enabled,setEnabled]=useState(false);
+  const [uploadEnabled,setUploadEnabled]=useState(false);
+  const [reservedAsset,setReservedAsset]=useState("");
 
   const refresh=useCallback(async()=>{
     try{
       const value=await loadJson("/api/owner/media");
       if(!value||typeof value!=="object"||!("media" in value)||
          !Array.isArray(value.media))throw new Error("Unexpected media response");
-      setItems(value.media as MediaItem[]);setEnabled(true);setError("");
+      setItems(value.media as MediaItem[]);
+      setUploadEnabled("uploadEnabled" in value && value.uploadEnabled===true);
+      setEnabled(true);setError("");
     }catch(e){
       setEnabled(false);
       setError(e instanceof Error?e.message:"Media metadata unavailable");
@@ -52,7 +56,7 @@ export default function MediaIntake(){
 
   async function chooseFile(event:ChangeEvent<HTMLInputElement>){
     const candidate=event.target.files?.[0]??null;
-    setFile(null);setSha("");setError("");setNotice("");
+    setFile(null);setSha("");setReservedAsset("");setError("");setNotice("");
     if(!candidate)return;
     if(!accepted.has(candidate.type)||candidate.size<1||candidate.size>maxBytes){
       setError("Choose a JPEG, PNG, WebP or AVIF image of 10 MB or less.");
@@ -67,6 +71,26 @@ export default function MediaIntake(){
     }catch{setError("Could not calculate file checksum on this device.");}
     finally{setBusy(false);}
   }
+  async function uploadFile(assetId:string,candidate:File):Promise<void>{
+    if(!uploadEnabled)throw new Error("Private upload is not enabled");
+    const result=await fetch("/api/owner/media/"+encodeURIComponent(assetId)+"/upload",{
+      method:"PUT",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/octet-stream"},
+      body:candidate,
+    });
+    if(!result.ok)throw new Error("Quarantine bytes were not accepted ("+result.status+"). Check storage configuration and file integrity.");
+  }
+  async function retryUpload(){
+    if(!file||!reservedAsset||busy)return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      await uploadFile(reservedAsset,file);
+      setNotice("File stored privately in quarantine. Scanning and approval are still pending.");
+      setFile(null);setSha("");setReservedAsset("");
+      await refresh();
+    }catch(error){setError(error instanceof Error?error.message:"Retry failed");}
+    finally{setBusy(false);}
+  }
   async function reserve(event:FormEvent<HTMLFormElement>){
     event.preventDefault();
     if(!file||!sha||busy)return;
@@ -78,9 +102,23 @@ export default function MediaIntake(){
         altDefault:alt,rightsStatement:rights,
         provenance:{source,credit,generationTool},
       });
-      if(!response||typeof response!=="object"||!("assetId" in response))throw new Error("Unexpected manifest receipt");
-      setNotice("Quarantine record reserved. Your file has NOT been uploaded, scanned or published.");
-      setFile(null);setSha("");await refresh();
+      if(!response||typeof response!=="object"||!("assetId" in response)||
+         typeof response.assetId!=="string")throw new Error("Unexpected manifest receipt");
+      const assetId=response.assetId;
+      setReservedAsset(assetId);
+      setNotice("Quarantine metadata reserved. File bytes have NOT been transferred.");
+      await refresh();
+      if(uploadEnabled){
+        try{
+          await uploadFile(assetId,file);
+          setNotice("File stored privately in quarantine. Scanning and approval are still pending.");
+          setFile(null);setSha("");setReservedAsset("");
+          await refresh();
+        }catch(uploadError){
+          setError(uploadError instanceof Error?uploadError.message:"Quarantine upload failed");
+          setNotice("Metadata is saved, but the image has NOT been confirmed uploaded. Retry below.");
+        }
+      }
     }catch(e){setError(e instanceof Error?e.message:"Manifest reservation failed");}
     finally{setBusy(false);}
   }
@@ -88,7 +126,7 @@ export default function MediaIntake(){
   return <section className="page" aria-labelledby="media-intake-heading">
     <p className="eyebrow">Owner workspace · restricted media metadata</p>
     <h1 id="media-intake-heading">Media quarantine registry</h1>
-    <p className="lead">Reserve image metadata with traceable rights and provenance. This is not yet a working upload or asset-publishing service.</p>
+    <p className="lead">Register image rights and provenance, then optionally store bytes in a private quarantine. Scanning, review and public delivery remain disabled.</p>
     <p><Link href="/owner">Back to owner CMS</Link></p>
     {error&&<p role="alert">{error}</p>}
     {notice&&<p role="status">{notice}</p>}
@@ -123,7 +161,12 @@ export default function MediaIntake(){
         <button className="button" type="submit" disabled={!file||!sha||busy}>
           {busy?"Please wait…":"Reserve quarantined manifest"}
         </button>
-        <p className="owner-hint">No binary bytes are sent by this form. A separately reviewed object-storage upload, scanner, metadata stripping and derivative pipeline are still required before any image can be used publicly.</p>
+        <p className="owner-hint">{uploadEnabled?
+          "After metadata reservation the image bytes are sent to private quarantine, with server-side signature and checksum verification. This does not scan or approve the file.":
+          "Private byte upload is disabled; this form reserves metadata only. No file bytes are sent."}
+          A separate scanner, metadata-stripping and derivative pipeline are required before public use.</p>
+        {reservedAsset&&file&&uploadEnabled&&<button type="button" className="button secondary"
+          disabled={busy} onClick={()=>void retryUpload()}>Retry private quarantine upload</button>}
       </form>
       <section aria-labelledby="media-existing">
         <h2 id="media-existing">Site media records</h2>
