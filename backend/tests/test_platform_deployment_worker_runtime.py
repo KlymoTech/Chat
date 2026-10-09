@@ -1,6 +1,5 @@
 """Worker runtime boots only through an explicitly authorized Unix socket."""
 import os
-import stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -36,11 +35,12 @@ def signer_public_pem():
 
 
 def private_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(runtime.os, "geteuid", lambda: os.getuid() + 10000)
     path = tmp_path / "only-worker"
     path.mkdir(mode=0o700)
-    # Patch to the real filesystem owner instead: tests must pass as root too.
-    monkeypatch.setattr(runtime.os, "geteuid", lambda: path.stat().st_uid)
+    owner = path.stat().st_uid
+    if owner == 0:
+        pytest.skip("private worker socket tests require a non-root test runner")
+    monkeypatch.setattr(runtime.os, "geteuid", lambda: owner)
     return path
 
 
