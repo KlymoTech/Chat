@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/providers';
 import { demoAgents, demoLeads } from '@/lib/demo-data';
 import type { CRMDeliveryAttemptView, CRMDeliveryView } from '@/lib/lead-crm-api';
-import { LeadsPage } from '@/pages/LeadsPage';
+import { LeadsWorkspacePage } from '@/pages/LeadsPage';
+import { MemoryRouter } from 'react-router-dom';
 import type { Agent, Lead, PageResult } from '@/types';
 
 interface LeadFilters {
@@ -25,6 +26,9 @@ const apiMocks = vi.hoisted(() => ({
   activityForLead: vi.fn<() => Promise<never[]>>(),
   syncLead: vi.fn<() => Promise<Record<string, never>>>(),
   retryDelivery: vi.fn<() => Promise<Record<string, never>>>(),
+  export: vi.fn(),
+  summary: vi.fn(),
+  detail: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -47,12 +51,18 @@ vi.mock('@/lib/lead-crm-api', () => ({
 
 vi.mock('@/lib/lead-layout-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/lead-layout-api')>();
-  return { ...actual, leadLayoutApi: { ...actual.leadLayoutApi, get: vi.fn(async () => actual.defaultLayout) } };
+  return { ...actual, leadLayoutApi: { ...actual.leadLayoutApi, get: vi.fn(async () => actual.defaultLayout), export: apiMocks.export } };
 });
+
+vi.mock('@/features/leads/leadWorkspaceApi', () => ({ leadWorkspaceApi: { summary: apiMocks.summary, detail: apiMocks.detail } }));
+function mount(canUpdate = true) { return render(<MemoryRouter><ToastProvider><LeadsWorkspacePage canUpdate={canUpdate} canSync={canUpdate} canConversation={canUpdate} /></ToastProvider></MemoryRouter>); }
 
 describe('LeadsPage', () => {
   beforeEach(() => {
     const leads = structuredClone(demoLeads);
+    apiMocks.summary.mockResolvedValue({ total: 24, new: 8, qualified: 6, converted: 3 });
+    apiMocks.detail.mockImplementation(async (id) => ({ lead: leads.find((lead) => lead.id === id), version: 0, assignment: null, followUps: [] }));
+    apiMocks.export.mockResolvedValue(undefined);
     apiMocks.listAgents.mockResolvedValue(structuredClone(demoAgents));
     apiMocks.listFallbackLeads.mockResolvedValue({
       items: structuredClone(demoLeads), total: demoLeads.length, page: 1, pageSize: 50,
@@ -82,7 +92,7 @@ describe('LeadsPage', () => {
 
   it('filters captured contacts through the server API and persists a status change', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><LeadsPage /></ToastProvider>);
+    mount();
 
     expect(await screen.findByText('Nora Reed')).toBeInTheDocument();
     await user.type(screen.getByLabelText('Search leads'), 'Arjun');
@@ -100,14 +110,31 @@ describe('LeadsPage', () => {
     expect(apiMocks.syncLead).not.toHaveBeenCalled();
   });
 
-  it('uses the configured app fallback when the CRM API is unavailable', async () => {
+  it('surfaces a failed production API rather than substituting demo or unrelated fallback data', async () => {
     apiMocks.listLeads.mockRejectedValueOnce(new Error('Request failed (502)'));
-
-    render(<ToastProvider><LeadsPage /></ToastProvider>);
-
+    mount();
+    expect(await screen.findByText('Leads are unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Nora Reed')).not.toBeInTheDocument();
+    expect(apiMocks.listFallbackLeads).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Nora Reed')).toBeInTheDocument();
-    expect(screen.queryByText('Leads are unavailable')).not.toBeInTheDocument();
-    expect(apiMocks.listFallbackLeads).toHaveBeenCalledOnce();
+  });
+
+  it('sends all four filters to full-dataset export instead of exporting the current page', async () => {
+    mount();
+    await screen.findByText('Nora Reed');
+    await userEvent.selectOptions(screen.getByLabelText('Filter leads by source'), 'whatsapp');
+    await userEvent.selectOptions(screen.getByLabelText('Filter leads by agent'), demoAgents[0]!.id);
+    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    expect(apiMocks.export).toHaveBeenCalledWith('csv', '', 'all', { agentId: demoAgents[0]!.id, channel: 'whatsapp' });
+  });
+
+  it('keeps mutation controls disabled for a read-only workspace member', async () => {
+    mount(false);
+    await screen.findByText('Nora Reed');
+    expect(screen.getByRole('button', { name: 'Add Lead' })).toBeDisabled();
+    expect(screen.getByLabelText('Status for Nora Reed')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Customize columns' })).toBeDisabled();
   });
 
   it('loads persisted CRM delivery attempt evidence on demand for the selected Lead', async () => {
@@ -156,9 +183,10 @@ describe('LeadsPage', () => {
     apiMocks.deliveriesForLead.mockImplementation(async (leadId) => leadId === 'lead-1' ? [delivery] : []);
     apiMocks.deliveryAttempts.mockResolvedValue(attempts);
 
-    render(<ToastProvider><LeadsPage /></ToastProvider>);
+    mount();
 
     expect(await screen.findByText('Nora Reed')).toBeInTheDocument();
+    await user.click(screen.getByLabelText('Actions for Nora Reed'));
     const viewSyncButtons = screen.getAllByRole('button', { name: 'View sync' });
     await user.click(viewSyncButtons[0]!);
     expect(await screen.findByText('Provider unavailable')).toBeInTheDocument();
