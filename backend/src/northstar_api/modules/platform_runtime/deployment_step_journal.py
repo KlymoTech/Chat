@@ -54,6 +54,7 @@ class DeploymentStepJournal:
             lease is None
             or lease.status != "leased"
             or lease.owner != claim.owner
+            or (claim.environment is not None and claim.environment != lease.environment)
             or lease.lease_token != claim.lease_token
             or lease.lease_expires_at is None
             or lease.lease_expires_at <= now
