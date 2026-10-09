@@ -3,6 +3,8 @@ import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
 import type {CmsActor} from "./cms-editor";
 import {parseMediaManifest, type MediaManifest} from "./media-contract";
+import {verifyQuarantinedBytes} from "./media-bytes";
+import {putQuarantineObject} from "./media-storage";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let db:Pool|undefined;
@@ -85,6 +87,77 @@ export async function reserveMediaManifest(
     return {assetId,state:"quarantined",blobStatus:"not_uploaded"};
   }catch(error){
     try{await client.query("ROLLBACK");}catch{}
+    throw error;
+  }finally{client.release();}
+}
+
+export class MediaUploadRejected extends Error {}
+export class MediaUploadConflict extends Error {}
+
+/**
+ * Authorize, verify and store raw bytes in the PRIVATE quarantine bucket.
+ * Hold the media row lock until storage acknowledgement and audit commit:
+ * two competing requests cannot silently replace an accepted source blob.
+ * This step is NOT malware scanning or publication approval.
+ */
+export async function uploadQuarantinedMedia(
+  actor:CmsActor,assetId:string,bytes:Uint8Array,
+):Promise<{assetId:string;state:"quarantined";blobStatus:"uploaded"}> {
+  authorize(actor);
+  if(process.env.WEBSITE_MEDIA_UPLOAD_ENABLED!=="true")
+    throw new Error("Quarantine uploads are disabled");
+  if(!uuid.test(assetId)||bytes.byteLength>10*1024*1024||bytes.byteLength<12)
+    throw new MediaUploadRejected("Invalid asset identifier or file size");
+  const client=await mediaDb().connect();
+  try{
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '3s'");
+    const found=await client.query<{
+      state:string;blob_status:string;quarantine_key:string;
+      claimed_mime:string;claimed_sha256:string;claimed_byte_size:string;
+    }>(
+      `SELECT state,blob_status,quarantine_key,claimed_mime,
+              claimed_sha256,claimed_byte_size::text
+         FROM website_cms.media_assets
+        WHERE id=$1 AND site_id=$2 FOR UPDATE`,
+      [assetId,actor.siteId],
+    );
+    if(found.rowCount!==1)throw new MediaUploadRejected("Unknown media manifest");
+    const manifest=found.rows[0];
+    if(manifest.state!=="quarantined")
+      throw new MediaUploadConflict("Only quarantined records may receive bytes");
+    const inspected=verifyQuarantinedBytes(bytes,{
+      mime:manifest.claimed_mime,
+      sha256:manifest.claimed_sha256,
+      byteSize:Number(manifest.claimed_byte_size),
+    });
+    if(!inspected)throw new MediaUploadRejected("File bytes do not match the manifest");
+    if(manifest.blob_status==="uploaded"){
+      await client.query("COMMIT");
+      return {assetId,state:"quarantined",blobStatus:"uploaded"};
+    }
+    if(manifest.blob_status!=="not_uploaded")
+      throw new MediaUploadConflict("Unexpected quarantine storage state");
+    await putQuarantineObject(manifest.quarantine_key,bytes,inspected);
+    await client.query(
+      `UPDATE website_cms.media_assets
+          SET blob_status='uploaded'
+        WHERE id=$1 AND site_id=$2 AND state='quarantined'
+          AND blob_status='not_uploaded'`,
+      [assetId,actor.siteId],
+    );
+    await client.query(
+      `INSERT INTO website_cms.audit_events(id,site_id,actor_id,action,target_id,metadata)
+       VALUES($1,$2,$3,'cms.media_quarantine_uploaded',$4,
+       jsonb_build_object('sha256',$5::text,'size',$6::bigint,'state','quarantined'))`,
+      [randomUUID(),actor.siteId,actor.id,assetId,inspected.sha256,inspected.byteSize],
+    );
+    await client.query("COMMIT");
+    return {assetId,state:"quarantined",blobStatus:"uploaded"};
+  }catch(error){
+    try{await client.query("ROLLBACK");}catch{}
+    // A storage success followed by DB failure can leave a private orphan.
+    // Do not delete automatically: operations must reconcile the object.
     throw error;
   }finally{client.release();}
 }
