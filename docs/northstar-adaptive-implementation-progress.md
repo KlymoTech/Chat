@@ -258,3 +258,39 @@ No production cloud changes are enabled or certified here.
   qualification and canary observability.
 - Qualify migrations, backups, recovery, quotas, cost and load under the
   contracted environment; these CI checks are not production certification.
+
+
+## Increment: AWS private deployment worker IAM foundation (2026-10-09)
+
+- Created `infrastructure/terraform/modules/private_deployment_worker_identity`.
+  It defines distinct AWS ECS worker **task** and **execution** identities
+  with service trust constrained by source account/ARN. The application task
+  role has no AWS mutation grants; the execution role has scoped ECR pulls,
+  log-stream writes and optional exact bootstrap secret/KMS access only.
+- Module inputs validate environment, account ID, region and resource ARNs;
+  preconditions prevent cross-account/region ECR, log, secret or KMS grants.
+  A Terraform example demonstrates wiring a pre-existing ECR repo and log
+  group without provisioning a task or network.
+- Added `.github/workflows/northstar-terraform-worker-identity.yml`:
+  Terraform 1.9.8 formatting, init with backend disabled, validation and
+  mock-provider topology tests, with no AWS credentials or apply/destroy.
+  Terraform and existing architecture CI passed on the implementation commit.
+- Technical constraints and rollout prerequisites are documented at
+  `docs/northstar-aws-worker-iam-foundation.md`. In particular, the worker
+  has a Unix socket; an in-task caller is required rather than exposing it
+  through public TCP.
+
+### AWS infrastructure still missing
+
+1. Separately approved Terraform remote state, isolation across development,
+   test, staging and production AWS accounts.
+2. VPC/private-subnet/endpoints/security-group layers; private ECS task
+   definition, sidecar/socket integration and audited secret bootstrap.
+3. Workload image digest promotion, RDS credentials/DB role provisioning,
+   machine issuer/verifier integration and WORM audit export.
+4. Independently governed AWS deployment **executor** with canary, verified
+   observed state, rollback/forward-repair, Jenkins gates, load/DR/security
+   qualification and budget/incident guards.
+
+IAM topology CI is NOT an AWS deployment, authorization to apply, or evidence
+of any production request-per-second / user-population capacity.
