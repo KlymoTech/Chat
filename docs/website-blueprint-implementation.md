@@ -70,3 +70,7 @@ Added a server-only CMS draft/publish/restore domain service within `website/src
 ## Ninth checkpoint — independent review enforcement
 
 Added migration `005_cms_approvals.sql` and server-only `approveDraft`. Review requires a separate actor from the author, writes attributable approval evidence and audit within a transaction, and publication rejects approved state without matching review evidence. This remains an internal domain implementation, **not** a live authenticated editor: trusted session integration, authorization grants, tests, worker processing, deployments, and UI are absent. The complete website and release acceptance remain blocked.
+
+## Tenth checkpoint — isolated website contract tests
+
+Added Vitest regression tests for lead normalization/rejection, CMS public block validation, deny-by-default optional measurement, and production SEO approval gating. Also corrected email validation to apply to normalized input. The branch-only GitHub Actions workflow now includes `npm test` before typecheck and build. These test definitions are committed but their execution/passing status is NOT confirmed, and they do not replace PostgreSQL integration, authenticated CMS, browser accessibility, worker crash/retry, or release acceptance tests.
