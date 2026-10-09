@@ -86,7 +86,7 @@ async def test_verified_token_is_written_once_with_object_lock_kms_and_checksum(
     assert params["Body"] == body
     assert params["IfNoneMatch"] == "*"
     assert params["ObjectLockMode"] == "COMPLIANCE"
-    assert params["ObjectLockRetainUntilDate"] >= NOW + timedelta(days=90)
+    assert params["ObjectLockRetainUntilDate"] >= NOW + timedelta(days=91)
     assert params["ServerSideEncryption"] == "aws:kms"
     assert params["SSEKMSKeyId"] == KMS
     assert base64.b64decode(params["ChecksumSHA256"]) == hashlib.sha256(body).digest()
