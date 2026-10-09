@@ -9,7 +9,7 @@ import "./owner.css";
 type Page={id:string;path:string;locale:string;publishedRevisionId:string|null;publishedTitle:string|null;trashedAt:string|null};
 type Revision={id:string;revision:number;state:string;title:string;description:string;blocks:PublicBlock[];createdAt:string;authorId:string};
 type Document={title:string;description:string;blocks:PublicBlock[]};
-const emptyDoc:Document={title:"",description:"",blocks:[{type:"paragraph",text:""}]};
+const emptyDoc:Document={title:"",description:"",blocks:[]};
 
 async function requestJson(url:string,method:"GET"|"POST"="GET",body?:unknown):Promise<unknown>{
   const response=await fetch(url,{method,credentials:"same-origin",cache:"no-store",
