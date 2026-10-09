@@ -1,0 +1,28 @@
+name: Website Studio validation
+on:
+  push:
+    branches:
+      - feature/website-master-blueprint-v1-3-20261009
+    paths:
+      - 'website-platform/**'
+      - '.github/workflows/website-platform.yml'
+  workflow_dispatch:
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website-platform
+    env:
+      DATABASE_URL: postgresql://website:example@localhost:55432/website?schema=public
+      WEB_ORIGIN: http://localhost:3101
+      API_INTERNAL_URL: http://localhost:4100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run db:generate
+      - run: npm test
+      - run: npm run build

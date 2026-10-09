@@ -18,7 +18,8 @@
     "@prisma/client": "6.17.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "dotenv": "16.6.1"
   },
   "devDependencies": {
     "@nestjs/cli": "10.4.9",
@@ -28,5 +29,7 @@
     "tsx": "4.20.6",
     "typescript": "5.9.3"
   },
-  "prisma": {"seed": "tsx src/seed.ts"}
+  "prisma": {
+    "seed": "tsx src/seed.ts"
+  }
 }
