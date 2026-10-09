@@ -120,6 +120,7 @@ class ReadOnlyWitnessedJunitReconciler:
         # counts. Every S3 read remains pinned to the separately held receipt,
         # even if a witness is invalid; its signature is checked below.
         raw_reports: dict[str, bytes] = {}
+        witness_hashes: dict[str, str] = {}
         for suite in _SUITES:
             receipt = receipts[suite]
             request = {
@@ -181,6 +182,7 @@ class ReadOnlyWitnessedJunitReconciler:
                 ):
                     raise JenkinsJunitIntegrityError("raw JUnit content differs from versioned receipt")
                 raw_reports[suite] = report
+                witness_hashes[suite] = metadata["witness-sha256"]
             except ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code")
                 if code in {"NoSuchKey", "NoSuchVersion", "NotFound", "404"}:
@@ -209,31 +211,7 @@ class ReadOnlyWitnessedJunitReconciler:
         )
         # Check the independently pinned raw signed-witness hash, not just
         # attacker-controlled values in the S3 object metadata.
-        for suite in _SUITES:
-            head = await self._head_pinned_for_witness(receipts[suite])
-            if head.get("Metadata", {}).get("witness-sha256") != verified.witness_sha256:
-                raise JenkinsJunitIntegrityError("JUnit evidence belongs to a different witness")
+        if any(witness_hashes[suite] != verified.witness_sha256 for suite in _SUITES):
+            raise JenkinsJunitIntegrityError("JUnit evidence belongs to a different witness")
         return verified
 
-    async def _head_pinned_for_witness(
-        self, receipt: JenkinsJunitReceipt
-    ) -> dict[str, Any]:
-        try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._s3.head_object,
-                    Bucket=self._bucket,
-                    Key=receipt.key,
-                    VersionId=receipt.version_id,
-                ),
-                timeout=self._timeout,
-            )
-            if not isinstance(result, dict) or result.get("VersionId") != receipt.version_id:
-                raise JenkinsJunitIntegrityError("witness metadata S3 version mismatch")
-            return result
-        except ClientError as exc:
-            raise JenkinsJunitReadUnknown("witness metadata S3 read failed") from exc
-        except JenkinsJunitIntegrityError:
-            raise
-        except Exception as exc:
-            raise JenkinsJunitReadUnknown("witness metadata S3 read indeterminate") from exc
