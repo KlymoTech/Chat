@@ -128,3 +128,31 @@ do not merge without explicit instruction.
   actual S3/KMS/Object Lock/IAM tests, persisted release-to-certification
   linkage, complete functional/security/load/restore evidence and independent
   production approval. No worker or deployment activation is authorized.
+
+
+## Increment: governance-linked immutable Jenkins release evidence (2026-10-10)
+
+- Added `platform_notification_qualification_release_links` (migration `0092`)
+  with one verified, unique release link per Jenkins qualification ID, exact
+  S3 manifest/attestation versions and checksums, Git commit, OCI digest,
+  source/target digests and environment. PostgreSQL prevents UPDATE/DELETE
+  on the link using an append-only trigger. Existing qualification rows and
+  non-Jenkins approvals are preserved.
+- `stage_qualification_release_link` verifies the independently signed test
+  attestation against the pinned S3 version **and** the release manifest
+  against its own pinned locked S3 version before row locking, exact pending
+  issuer/run/digest checks, insertion and flush. The caller owns commit or
+  rollback; no tenant/public endpoint or worker startup is added.
+- Jenkins-origin approvals now require a matching release link, and the
+  runtime's persistent qualification reader denies unlinked Jenkins
+  records even if they are marked approved. Existing non-Jenkins records
+  retain their previous path.
+- Added mock-based negative-path tests, PostgreSQL CI tests for approval and
+  database immutability, and registered the new model with Alembic.
+- **Not proven:** A successful GitHub Actions run, live PostgreSQL migration
+  execution, live S3 Object Lock/KMS tests, and certified release-signer/
+  Jenkins/approval identities. Existing proof expiry and independent
+  approval remain mandatory; this link alone is not certification.
+- Next: protected Jenkins publishing integration and genuine end-to-end
+  environment qualification of release artifact publication, read-back,
+  linking, audit and human approval. Main remains untouched; Jodo excluded.
