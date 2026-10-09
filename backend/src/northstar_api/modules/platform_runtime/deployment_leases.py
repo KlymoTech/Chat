@@ -35,7 +35,7 @@ class DeploymentLeaseService:
         self.sessions = sessions
         self.lease_seconds = lease_seconds
 
-    async def claim(self, change_id: UUID, *, owner: str) -> DeploymentClaim | None:
+    async def claim(\n        self, change_id: UUID, *, owner: str, expected_environment: str | None = None,\n    ) -> DeploymentClaim | None:
         """Atomic compare-and-swap; no duplicate workers for the same change."""
         if not owner or len(owner) > 160:
             raise ValueError("valid deployment worker identity required")
@@ -83,7 +83,7 @@ class DeploymentLeaseService:
                 return None
         return DeploymentClaim(change_id, token, owner, expires)
 
-    async def renew(self, claim: DeploymentClaim) -> bool:
+    async def renew(\n        self, claim: DeploymentClaim, *, expected_environment: str | None = None,\n    ) -> bool:
         """Fence an expired or superseded worker; use DB CAS, not local state."""
         now = datetime.now(UTC)
         expires = now + timedelta(seconds=self.lease_seconds)
@@ -102,7 +102,7 @@ class DeploymentLeaseService:
             outcome = await session.execute(statement)
             return outcome.rowcount == 1
 
-    async def close(self, claim: DeploymentClaim) -> bool:
+    async def close(\n        self, claim: DeploymentClaim, *, expected_environment: str | None = None,\n    ) -> bool:
         """Close only after the control plane persisted a terminal outcome."""
         now = datetime.now(UTC)
         terminal = exists(select(PlatformChangeRecord.id).where(
