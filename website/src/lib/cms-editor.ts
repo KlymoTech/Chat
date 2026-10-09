@@ -12,7 +12,7 @@ import { assertManualPreservationOnly } from "./preservation-contract";
 export type CmsActor = Readonly<{
   id: string;
   siteId: string;
-  permissions: readonly ("cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore" | "cms:media" | "cms:media:review")[];
+  permissions: readonly ("cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore" | "cms:media" | "cms:media:review" | "cms:media:publish")[];
 }>;
 export type CmsBlock =
   | { type: "heading" | "paragraph"; text: string }
@@ -24,7 +24,7 @@ export type DraftDocument = Readonly<{
 }>;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-function assertActor(actor: CmsActor, operation: "cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore" | "cms:media" | "cms:media:review"): void {
+function assertActor(actor: CmsActor, operation: "cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore" | "cms:media" | "cms:media:review" | "cms:media:publish"): void {
   if (!UUID.test(actor.id) || !UUID.test(actor.siteId) || !actor.permissions.includes(operation)) {
     throw new Error("CMS access denied");
   }
