@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 from email.message import EmailMessage
-from email.utils import make_msgid
 from typing import Awaitable, Callable
 
 from northstar_api.email_config import EmailSettings
