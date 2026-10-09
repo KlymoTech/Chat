@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { normalizeCmsPath } from "./cms-path";
 import { attachPublishedMediaUsages } from "./editor-media-links";
+import { validBuilderIdentities,validBuilderSection,type BuilderSection,type BuilderIdentity } from "./builder-contract";
 import { assertManualPreservationOnly } from "./preservation-contract";
 
 /**
@@ -16,9 +17,10 @@ export type CmsActor = Readonly<{
   permissions: readonly ("cms:read" | "cms:draft" | "cms:review" | "cms:publish" | "cms:trash" | "cms:restore" | "cms:media" | "cms:media:review" | "cms:media:publish")[];
 }>;
 export type CmsBlock =
-  | { type: "heading" | "paragraph"; text: string }
-  | { type: "callout"; title: string; body: string }
-  | { type: "image"; assetId: string; alt: string; caption: string };
+  | (BuilderIdentity & { type: "heading" | "paragraph"; text: string })
+  | (BuilderIdentity & { type: "callout"; title: string; body: string })
+  | (BuilderIdentity & { type: "image"; assetId: string; alt: string; caption: string })
+  | BuilderSection;
 export type DraftDocument = Readonly<{
   title: string;
   description: string;
@@ -33,7 +35,8 @@ function assertActor(actor: CmsActor, operation: "cms:read" | "cms:draft" | "cms
 }
 function validateDocument(value: DraftDocument): void {
   if (!value.title.trim() || value.title.length > 180 || value.description.length > 500 ||
-      value.blocks.length > 100 || JSON.stringify(value.blocks).length > 100_000)
+      value.blocks.length > 100 || JSON.stringify(value.blocks).length > 100_000 ||
+      !validBuilderIdentities(value.blocks))
     throw new Error("Invalid CMS document");
   for (const block of value.blocks) {
     if (block.type === "heading" || block.type === "paragraph") {
@@ -44,6 +47,8 @@ function validateDocument(value: DraftDocument): void {
           !block.alt.trim() || block.alt.length > 300 ||
           typeof block.caption !== "string" || block.caption.length > 500)
         throw new Error("Invalid media image block");
+    } else if (block.type === "hero" || block.type === "cta" || block.type === "faq") {
+      if (!validBuilderSection(block)) throw new Error("Invalid visual builder section");
     } else if (block.type === "callout") {
       if (typeof block.title !== "string" || !block.title.trim() || block.title.length > 180 ||
           typeof block.body !== "string" || block.body.length > 10000)
