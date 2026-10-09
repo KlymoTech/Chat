@@ -104,7 +104,7 @@ def _junit_count(suite_name: str, report: bytes) -> int:
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise JenkinsProvenanceRejected("DTD and entities prohibited in JUnit")
     try:
-        root = ET.fromstring(report)
+        root = ET.fromstring(report)  # noqa: S314 - bounded JUnit, DTD/entity declarations rejected above
         if root.tag != "testsuite" or root.attrib.get("name") != suite_name:
             raise JenkinsProvenanceRejected("unexpected JUnit suite identity")
         values = {name: int(root.attrib[name]) for name in ("tests", "failures", "errors", "skipped")}
