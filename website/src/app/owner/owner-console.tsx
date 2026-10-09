@@ -77,7 +77,14 @@ export default function OwnerConsole(){
     }catch{setProblem("Blog classification could not be loaded.");}
   }
   function addBlock(type:PublicBlock["type"]){
-    setDoc(old=>({...old,blocks:[...old.blocks,type==="callout"?{type,title:"",body:""}:{type,text:""}]}));
+    setDoc(old=>({...old,blocks:[...old.blocks,
+      type==="image"?{type:"image",assetId:"",alt:"",caption:""}:
+      type==="callout"?{type:"callout",title:"",body:""}:{type,text:""}]}));
+  }
+  function updateImage(index:number,field:"assetId"|"alt"|"caption",value:string){
+    setDoc(old=>({...old,blocks:old.blocks.map((block,i)=>
+      i===index && block.type==="image"?{...block,[field]:value}:block
+    )}));
   }
   function updateBlock(index:number,field:"text"|"title"|"body",value:string){
     setDoc(old=>({...old,blocks:old.blocks.map((block,i)=>{
@@ -239,10 +246,26 @@ export default function OwnerConsole(){
               <button onClick={()=>addBlock("heading")}>Add heading</button>
               <button onClick={()=>addBlock("paragraph")}>Add paragraph</button>
               <button onClick={()=>addBlock("callout")}>Add callout</button>
+              <button onClick={()=>addBlock("image")}>Add approved image</button>
             </div>
             {doc.blocks.map((block,i)=><fieldset className="owner-block" key={i}>
               <legend>{block.type} #{i+1}</legend>
-              {block.type==="callout"?<>
+              {block.type==="image"?<>
+                <label>Published media UUID
+                  <input value={block.assetId} maxLength={36} placeholder="Approved, published asset UUID"
+                    onChange={e=>updateImage(i,"assetId",e.target.value.trim())}/>
+                </label>
+                <label>Alternative text
+                  <textarea value={block.alt} maxLength={300} rows={2}
+                    onChange={e=>updateImage(i,"alt",e.target.value)}/>
+                </label>
+                <label>Caption (optional)
+                  <textarea value={block.caption} maxLength={500} rows={2}
+                    onChange={e=>updateImage(i,"caption",e.target.value)}/>
+                </label>
+                <p className="owner-hint">Only approved and separately published same-site media will be accepted for page publication.
+                  <Link href="/owner/media/publish">Open approved media registry</Link>.</p>
+              </>:block.type==="callout"?<>
                 <label>Callout title<input value={block.title} maxLength={180} onChange={e=>updateBlock(i,"title",e.target.value)}/></label>
                 <label>Callout body<textarea value={block.body} maxLength={10000} rows={3} onChange={e=>updateBlock(i,"body",e.target.value)}/></label>
               </>:<label>Text<textarea value={block.text} rows={block.type==="heading"?2:4} maxLength={10000}
