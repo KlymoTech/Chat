@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
+from northstar_api.modules.platform_runtime import aws_immutable_release_manifest_store as mod
 from northstar_api.modules.platform_runtime.aws_immutable_certification_artifact_store import (
     CertificationArtifactReceipt,
 )
-from northstar_api.modules.platform_runtime import aws_immutable_release_manifest_store as mod
 from northstar_api.modules.platform_runtime.aws_immutable_release_manifest_store import (
     AwsImmutableReleaseManifestStore,
     ReleaseManifestAlreadyExists,
@@ -211,3 +211,75 @@ def test_invalid_config_rejected():
     ):
         with pytest.raises(ValueError):
             AwsImmutableReleaseManifestStore(**(original | wrong))
+
+
+@pytest.mark.asyncio
+async def test_real_signed_manifest_contract_and_readback_before_put():
+    """Exercise the actual release verifier; mock only external S3 read-back."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    private = Ed25519PrivateKey.generate()
+    public = private.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    attestation = "independently-signed-attestation.test-token"
+    receipt = CertificationArtifactReceipt(
+        bucket=BUCKET,
+        key=f"evidence/{RELEASE}/jenkins/{RUN}/certification-attestation.token",
+        version_id="attestation-v01",
+        sha256=hashlib.sha256(attestation.encode()).hexdigest(),
+    )
+    report = {
+        "version": 1,
+        "issuer": "protected-release-issuer",
+        "release_id": RELEASE,
+        "run_id": RUN,
+        "branch": "feature/northstar-adaptive-architecture-20261008",
+        "environment": "staging",
+        "source_commit": SHA,
+        "image_digest": IMAGE,
+        "source_digest": "a" * 64,
+        "target_digest": "b" * 64,
+        "attestation_sha256": receipt.sha256,
+        "issued_at": int((NOW - timedelta(seconds=10)).timestamp()),
+        "artifact": {
+            "bucket": receipt.bucket,
+            "key": receipt.key,
+            "version_id": receipt.version_id,
+            "sha256": receipt.sha256,
+        },
+    }
+    data = json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
+    encode = lambda binary: base64.urlsafe_b64encode(binary).rstrip(b"=").decode()
+    token = encode(data) + "." + encode(private.sign(data))
+    s3 = MagicMock()
+    s3.put_object.return_value = {"VersionId": "manifest-v02"}
+    reconciler = SimpleNamespace(reconcile=AsyncMock(return_value=receipt))
+    store = AwsImmutableReleaseManifestStore(
+        bucket=BUCKET, region="us-east-1", account_id="123456789012",
+        kms_key_arn=KMS, s3_client=s3,
+    )
+    result = await store.archive_manifest(
+        manifest_token=token,
+        reconciler=reconciler,
+        test_runner_public_key_pem=b"pinned-test-runner",
+        attestation_issuer="independent-test-runner",
+        release_signer_public_key_pem=public,
+        trusted_issuer="protected-release-issuer",
+        release_id=RELEASE,
+        run_id=RUN,
+        branch=report["branch"],
+        environment="staging",
+        source_commit=SHA,
+        image_digest=IMAGE,
+        source_digest="a" * 64,
+        target_digest="b" * 64,
+        attestation_token=attestation,
+        artifact_receipt=receipt,
+        now=NOW,
+    )
+    assert result.version_id == "manifest-v02"
+    reconciler.reconcile.assert_awaited_once()
+    assert reconciler.reconcile.await_args.kwargs["receipt"] == receipt
+    assert json.loads(s3.put_object.call_args.kwargs["Body"])["signed_manifest"] == token
