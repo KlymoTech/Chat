@@ -1,6 +1,7 @@
 import {NextResponse} from "next/server";
 import {listOwnerMedia,reserveMediaManifest} from "../../../../lib/media-editor";
 import {parseMediaManifest} from "../../../../lib/media-contract";
+import {readQuarantineStoreConfig} from "../../../../lib/media-storage";
 import {bodyJson,checkMutationRequest,ownerResponse,requireOwner} from "../../../../lib/owner-api";
 
 export const dynamic="force-dynamic";
@@ -11,7 +12,8 @@ export async function GET(request:Request) {
   if(actor instanceof NextResponse)return actor;
   if(process.env.WEBSITE_MEDIA_MANIFEST_ENABLED!=="true")
     return ownerResponse({error:"Media intake disabled"},503);
-  try{return ownerResponse({media:await listOwnerMedia(actor)});}
+  try{return ownerResponse({media:await listOwnerMedia(actor),
+      uploadEnabled:readQuarantineStoreConfig(process.env)!==null});}
   catch{return ownerResponse({error:"Media records unavailable"},503);}
 }
 /**
