@@ -1,4 +1,4 @@
-name: Northstar private worker IAM Terraform gate
+name: Northstar private worker Terraform foundation gate
 
 on:
   push:
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 jobs:
-  validate-worker-identity:
+  validate-private-worker-foundation:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -43,3 +43,13 @@ jobs:
         run: terraform -chdir=infrastructure/terraform/examples/worker-identity init -backend=false -input=false -no-color
       - name: Validate reference integration
         run: terraform -chdir=infrastructure/terraform/examples/worker-identity validate -no-color
+      - name: Initialize worker network module
+        run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_network init -backend=false -input=false -no-color
+      - name: Validate worker network module
+        run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_network validate -no-color
+      - name: Test worker network isolation using mocked AWS provider
+        run: terraform -chdir=infrastructure/terraform/modules/private_deployment_worker_network test -no-color
+      - name: Initialize private network reference integration
+        run: terraform -chdir=infrastructure/terraform/examples/worker-network init -backend=false -input=false -no-color
+      - name: Validate private network reference integration
+        run: terraform -chdir=infrastructure/terraform/examples/worker-network validate -no-color
