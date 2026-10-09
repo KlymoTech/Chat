@@ -198,6 +198,7 @@ export default function OwnerConsole(){
   </section>;
 
   const chosen=pages.find(p=>p.id===selected);
+  const latestRevisionNumber=revisions.reduce((max,r)=>Math.max(max,r.revision),0);
   return <section className="owner-console" aria-labelledby="owner-title">
     <div className="owner-heading">
       <div><p className="eyebrow">Authenticated content workspace</p><h1 id="owner-title">Owner CMS</h1>
@@ -375,8 +376,17 @@ export default function OwnerConsole(){
                 <button onClick={()=>setDoc(old=>({...old,blocks:old.blocks.filter((_,j)=>j!==i)}))}>Remove</button>
               </div>
             </fieldset>)}
-            {chosen&&<button className="button" disabled={busy||!!chosen.trashedAt}
-              onClick={()=>void act("/api/owner/pages/"+chosen.id+"/draft",doc,"New draft revision saved.")}>Save new draft revision</button>}
+            {chosen&&<>
+              <p className="owner-hint">Latest server revision: {latestRevisionNumber||"not loaded"}.
+                Saving appends a new draft only if this is still the current server version.
+                A conflict keeps your local edits for review.</p>
+              <button className="button" type="button"
+                disabled={busy||!!chosen.trashedAt||latestRevisionNumber<1}
+                onClick={()=>void act("/api/owner/pages/"+chosen.id+"/draft",
+                  {document:doc,expectedVersion:latestRevisionNumber},
+                  "New draft revision acknowledged by the server.")}>
+                Save new draft revision</button>
+            </>}
           </div>
           <div className="owner-preview" aria-label="Local unpublished preview">
             <h3>Local preview — unpublished</h3><h2>{doc.title||"Untitled"}</h2>
