@@ -9,7 +9,8 @@ import { approvedCrmUrl, retryDelaySeconds, signedLeadEnvelope } from "./lead-wo
 const url=approvedCrmUrl(process.env.WEBSITE_CRM_WEBHOOK_URL);
 const secret=process.env.WEBSITE_CRM_WEBHOOK_SECRET;
 const siteSlug=process.env.WEBSITE_CMS_SITE_SLUG;
-const dbUrl=process.env.WEBSITE_LEADS_DATABASE_URL;
+// Use a separate least-privilege delivery role; never reuse public form credentials.
+const dbUrl=process.env.WEBSITE_LEAD_WORKER_DATABASE_URL;
 const enabled=process.env.WEBSITE_CRM_DELIVERY_ENABLED==="true" &&
   process.env.WEBSITE_CRM_PRIVACY_APPROVED==="true";
 if (!enabled || !url || !secret || secret.length<32 || !siteSlug ||
