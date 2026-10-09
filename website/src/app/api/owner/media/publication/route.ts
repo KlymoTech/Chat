@@ -29,6 +29,10 @@ export async function POST(request:Request) {
     (d.action!=="publish"&&d.action!=="withdraw")||
     typeof d.reason!=="string"||d.reason.trim().length<10||d.reason.trim().length>500)
     return ownerResponse({error:"Explicit decision and justification required"},422);
-  try{return ownerResponse(await decideMediaPublication(actor,d.assetId,d.action,d.reason));}
+  if(d.action==="withdraw" && d.impactAcknowledged!==true &&
+     d.impactAcknowledged!==false)
+    return ownerResponse({error:"Withdrawal impact acknowledgement is required"},422);
+  try{return ownerResponse(await decideMediaPublication(
+    actor,d.assetId,d.action,d.reason,d.impactAcknowledged===true));}
   catch{return ownerResponse({error:"Publication state or permissions do not permit this action"},409);}
 }
