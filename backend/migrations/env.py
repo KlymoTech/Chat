@@ -45,6 +45,7 @@ from northstar_api.modules.platform_runtime import queue_persistence as platform
 from northstar_api.modules.platform_runtime import queue_alert_persistence as platform_queue_alert_models  # noqa: F401
 from northstar_api.modules.platform_runtime import queue_notification_persistence as platform_queue_notification_models  # noqa: F401
 from northstar_api.modules.platform_runtime import queue_notification_config_persistence as platform_notification_route_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_qualification_persistence as platform_notification_qualification_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
