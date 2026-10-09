@@ -15,8 +15,8 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import select, text
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from northstar_api.modules.platform_runtime.deployment_machine_identity import (
