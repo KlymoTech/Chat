@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS website_cms.media_assets (
   alt_default varchar(300) NOT NULL DEFAULT '',
   rights_statement varchar(500) NOT NULL DEFAULT '',
   provenance jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(provenance)='object'),
+  blob_status varchar(16) NOT NULL DEFAULT 'not_uploaded'
+    CHECK (blob_status IN ('not_uploaded','uploaded')),
   state varchar(16) NOT NULL DEFAULT 'quarantined'
     CHECK (state IN ('quarantined','rejected','approved')),
   detected_mime varchar(60)
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS website_cms.media_assets (
   -- Public use requires independent scan + review; claim fields are insufficient.
   CONSTRAINT website_media_approved_evidence CHECK (
     state <> 'approved' OR (
+      blob_status = 'uploaded' AND
       detected_mime = claimed_mime AND
       verified_sha256 = claimed_sha256 AND
       verified_byte_size = claimed_byte_size AND
