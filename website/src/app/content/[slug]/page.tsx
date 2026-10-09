@@ -4,6 +4,10 @@ import { PublishedBlocks } from "../../../components/PublishedBlocks";
 import { loadPublishedPage } from "../../../lib/cms-db";
 import { canonical, indexingApproved } from "../../../lib/seo";
 
+// Publication and trash visibility must be read from the live published-only view.
+// Do not cache a page after its publication pointer has been revoked.
+export const dynamic = "force-dynamic";
+
 const validSlug = (slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 export async function generateMetadata({ params }: { params: Promise<{slug: string}> }): Promise<Metadata> {
   const { slug } = await params;
