@@ -2,6 +2,36 @@
 # module topology before an authorized infrastructure release.
 mock_provider "aws" {}
 
+# The AWS mock cannot synthesize a valid IAM JSON document by itself.
+# Return valid deterministic documents for its two data sources.
+override_data {
+  target = data.aws_iam_policy_document.ecs_task_trust
+  values = {
+    json = jsonencode({
+      Version = "2012-10-17"
+      Statement = [{
+        Effect    = "Allow"
+        Action    = "sts:AssumeRole"
+        Principal = { Service = "ecs-tasks.amazonaws.com" }
+      }]
+    })
+  }
+}
+
+override_data {
+  target = data.aws_iam_policy_document.execution
+  values = {
+    json = jsonencode({
+      Version   = "2012-10-17"
+      Statement = [{
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      }]
+    })
+  }
+}
+
 variables {
   name_prefix        = "northstar-qa"
   environment        = "test"
