@@ -90,7 +90,8 @@ export default function AutomationConsole(){
   }
   const valid=validateAutomation(graph);
   const steps=valid?simulateAutomation(valid,{sourceCategory:source,
-    marketingConsent:consent,at:new Date(clock).toISOString?.()??clock}):null;
+    marketingConsent:consent,at:Number.isFinite(Date.parse(clock))?
+      new Date(clock).toISOString():"invalid"}):null;
   return <section className="page" style={{maxWidth:1100}} aria-labelledby="automation-title">
     <p className="eyebrow">Owner workspace · safe draft only</p>
     <h1 id="automation-title">Visual marketing workflows</h1>
@@ -148,8 +149,19 @@ export default function AutomationConsole(){
             })}><option value="review_lead">Create internal review task</option>
               <option value="notify_owner">Queue internal owner notification (simulation only)</option></select>
           </label>}
-          {node.type!=="exit"&&<p>Next: {node.type==="condition"?
-            node.onTrue+" (true) / "+node.onFalse+" (false)":node.next}</p>}
+          {node.type==="condition"?<>
+            <label>True branch
+              <select value={node.onTrue} onChange={e=>updateNode(node.id,{onTrue:e.target.value})}>
+                {graph.nodes.filter(n=>n.id!==node.id).map(n=><option key={n.id} value={n.id}>{n.id}</option>)}
+              </select></label>
+            <label>False branch
+              <select value={node.onFalse} onChange={e=>updateNode(node.id,{onFalse:e.target.value})}>
+                {graph.nodes.filter(n=>n.id!==node.id).map(n=><option key={n.id} value={n.id}>{n.id}</option>)}
+              </select></label>
+          </>:node.type!=="exit"?<label>Next node
+            <select value={node.next} onChange={e=>updateNode(node.id,{next:e.target.value})}>
+              {graph.nodes.filter(n=>n.id!==node.id).map(n=><option key={n.id} value={n.id}>{n.id}</option>)}
+            </select></label>:null}
           {node.type==="exit"&&<p>Workflow ends. No external effects.</p>}
         </section>)}
       </div>
