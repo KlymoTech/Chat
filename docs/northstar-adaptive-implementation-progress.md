@@ -144,3 +144,42 @@ and independently signed release evidence.
    dry-run executor, reconciliation/forward-repair runbooks and AWS IAM.
 5. Qualify all components against a disposable production-shaped PostgreSQL
    environment before enabling any live infrastructure side effects.
+
+
+## Increment: append-only deployment machine audit (2026-10-09)
+
+- Migration `0087_platform_deployment_worker_audit` creates a per-change
+  machine-audit event stream with unique change sequence and attempt/phase.
+  It never backfills fabricated historical approvals or worker actions.
+- PostgreSQL trigger denies row UPDATE and DELETE; release IAM/database role
+  must additionally enforce SELECT/INSERT-only access. Downgrade refuses to
+  destroy existing audit history. Operators must archive to independently
+  controlled append-only storage before retention or migration.
+- `DeploymentWorkerAuditTrail` appends **intent** then **outcome** events,
+  hash-linked in change sequence and serialized under the platform change
+  record lock. Unknown or unfinished attempts **block** further worker
+  operations until a separate audited reconciliation workflow exists.
+- `DeploymentWorkerOperations` requires an audit instance and writes durable
+  intent **before** invoking any lease/journal action. Missing audit persistence
+  blocks the operation, and exceptions produce an `unknown` audit outcome.
+  Results are `accepted`, `rejected` or `unknown`—never silently coerced.
+- No raw JWT, credential or signed-attestation content is stored; machine
+  token IDs are SHA-256 hashed. Audit tests cover chain integrity, exact
+  replay denial, unresolved intent protection, and guarded migrations.
+
+### Limitations and release blockers
+
+1. No private machine HTTP ingress has been opened. Workload identity,
+   network isolation, key rotation, mTLS and rate controls require separate
+   certification before endpoint activation.
+2. Machine-auth **denials before identity verification** cannot have a
+   trustworthy actor ID. Capture anonymous denials with request IDs and
+   security telemetry at the ingress proxy; never log bearer credentials.
+3. Hash chaining is tamper-*evident*, not immutable against database
+   superusers. Ship evidence to independent WORM storage; audit export,
+   external signing and retention controls are still required.
+4. The PostgreSQL serialization/concurrency race and immutable-trigger
+   enforcement require a disposable Postgres integration qualification.
+5. Explicit incident reconciliation, step compensation, rollback and
+   forward-repair flows remain unimplemented, as do real AWS mutation
+   adapters, Terraform, Jenkins, and measured production capacity.
