@@ -44,6 +44,7 @@ export async function listMediaForReview(actor:CmsActor):Promise<MediaReviewEntr
 /** Independent decision never exposes public object storage nor deletes source. */
 export async function reviewPrivateMedia(
   actor:CmsActor,assetId:string,action:MediaReviewAction,reason:string,
+  reviewedSha256?:string,
 ):Promise<{assetId:string;state:"approved"|"rejected";publicAccess:false}> {
   assertReviewer(actor);
   if(!uuid.test(assetId)||!["approve","reject"].includes(action)||
@@ -77,6 +78,10 @@ export async function reviewPrivateMedia(
     if(media.state!=="quarantined")throw new Error("Media already reviewed");
     if(media.created_by_actor_id.toLowerCase()===actor.id.toLowerCase())
       throw new Error("Creator cannot independently approve or reject own media");
+    if(action==="approve" && (!reviewedSha256 ||
+       !/^[0-9a-f]{64}$/.test(reviewedSha256) ||
+       reviewedSha256!==media.sanitized_sha256))
+      throw new Error("Reviewed preview checksum no longer matches candidate");
     if(action==="approve" && (
        media.blob_status!=="uploaded" ||
        !media.scanned_at || !media.inspected_at || !media.scan_engine ||
