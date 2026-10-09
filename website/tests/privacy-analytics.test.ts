@@ -17,6 +17,15 @@ describe("versioned consent and minimal first-party analytics",()=>{
     })).toEqual({eventName:"cta_click",actionKey:"cta_contact",
       routePath:"/content/example-page"});
   });
+  it("refuses unsanctioned action labels even when they contain no special characters",()=>{
+    const base={eventName:"cta_click",actionKey:"cta_contact",routePath:"/contact"};
+    expect(parseAnalyticsEvent({...base,actionKey:"johndoe1987"})).toBeNull();
+    expect(parseAnalyticsEvent({...base,actionKey:"hidden_customer_identifier"})).toBeNull();
+    expect(parseAnalyticsEvent({...base,
+      actionKey:"cta_550e8400-e29b-41d4-a716-446655440000"})).not.toBeNull();
+    expect(parseAnalyticsEvent({...base,
+      actionKey:"faq_550e8400-e29b-41d4-a716-446655440000_3"})).not.toBeNull();
+  });
   it("blocks PII, tracking IDs, query strings and arbitrary event payloads",()=>{
     const baseline={eventName:"cta_click",actionKey:"cta_contact",routePath:"/contact"};
     for(const value of [
