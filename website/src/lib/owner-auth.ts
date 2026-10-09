@@ -2,6 +2,7 @@ import "server-only";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { CmsActor } from "./cms-editor";
 import { actorFromVerifiedClaims } from "./owner-claims";
+import { readOwnerCookie, sessionCookie } from "./owner-session";
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 let jwksUrlCached: string | undefined;
@@ -19,9 +20,11 @@ export async function authenticateOwner(request: Request): Promise<CmsActor | nu
   const jwksUrl = process.env.WEBSITE_CMS_OIDC_JWKS_URL;
   if (!issuer || !audience || !jwksUrl) return null;
   const bearer = request.headers.get("authorization");
-  if (!bearer?.startsWith("Bearer ")) return null;
-  const token = bearer.slice(7);
-  if (token.length > 8192 || !/^[\w.-]+$/.test(token) || token.split(".").length !== 3) return null;
+  // Bearer takes precedence: an invalid supplied token must never fall back to cookies.
+  const session = bearer ? null : await readOwnerCookie(request,sessionCookie,"owner-session");
+  const token = bearer?.startsWith("Bearer ") ? bearer.slice(7) : (session?.accessToken ?? "");
+  if (typeof token !== "string" || token.length > 8192 ||
+      !/^[\w.-]+$/.test(token) || token.split(".").length !== 3) return null;
   try {
     const issuerUrl = new URL(issuer), keyUrl = new URL(jwksUrl);
     if (issuerUrl.protocol !== "https:" || keyUrl.protocol !== "https:" ||
