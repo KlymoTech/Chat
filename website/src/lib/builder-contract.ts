@@ -42,6 +42,10 @@ export function validBuilderSection(block:unknown):block is BuilderSection {
   }
   return false;
 }
+export function freshBuilderBlock(type:"hero",id:string):HeroBlock;
+export function freshBuilderBlock(type:"cta",id:string):CtaBlock;
+export function freshBuilderBlock(type:"faq",id:string):FaqBlock;
+export function freshBuilderBlock(type:"hero"|"cta"|"faq",id:string):BuilderSection;
 export function freshBuilderBlock(type:"hero"|"cta"|"faq",id:string):BuilderSection {
   if(!BLOCK_ID.test(id))throw new Error("Stable block ID must be a UUID");
   const identity={blockId:id,schemaVersion:1 as const};
