@@ -30,6 +30,8 @@ model Page {
   body        String         @default("")
   status      String         @default("DRAFT")
   revision    Int            @default(0)
+  draftVersion Int           @default(0)
+  publishedSnapshot Json?
   publishedAt DateTime?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -59,6 +61,8 @@ model Article {
   body        String            @default("")
   status      String            @default("DRAFT")
   revision    Int               @default(0)
+  draftVersion Int              @default(0)
+  publishedSnapshot Json?
   publishedAt DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt

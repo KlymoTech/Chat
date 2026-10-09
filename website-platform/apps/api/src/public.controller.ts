@@ -19,8 +19,8 @@ export class PublicController {
     const s = await this.site();
     return this.db.page.findFirstOrThrow({
       where: { siteId: s.id, slug, status: 'PUBLISHED' },
-      select: { slug: true, title: true, description: true, body: true, publishedAt: true },
-    });
+      select: { slug: true, publishedSnapshot: true, publishedAt: true },
+    }).then(p => ({ slug: p.slug, ...(p.publishedSnapshot as object ?? {}), publishedAt: p.publishedAt }));
   }
 
   @Get('pages')
@@ -28,9 +28,9 @@ export class PublicController {
     const s = await this.site();
     return this.db.page.findMany({
       where: { siteId: s.id, status: 'PUBLISHED' },
-      select: { slug: true, title: true, description: true },
+      select: { slug: true, publishedSnapshot: true },
       orderBy: { title: 'asc' },
-    });
+    }).then(pages => pages.map(p => ({ slug: p.slug, ...(p.publishedSnapshot as object ?? {}) })));
   }
 
   @Get('articles')
@@ -38,10 +38,10 @@ export class PublicController {
     const s = await this.site();
     return this.db.article.findMany({
       where: { siteId: s.id, status: 'PUBLISHED' },
-      select: { slug: true, title: true, description: true, publishedAt: true },
+      select: { slug: true, publishedSnapshot: true, publishedAt: true },
       orderBy: { publishedAt: 'desc' },
       take: 100,
-    });
+    }).then(articles => articles.map(a => ({ slug: a.slug, ...(a.publishedSnapshot as object ?? {}), publishedAt: a.publishedAt })));
   }
 
   @Get('articles/:slug')
@@ -49,8 +49,8 @@ export class PublicController {
     const s = await this.site();
     return this.db.article.findFirstOrThrow({
       where: { siteId: s.id, slug, status: 'PUBLISHED' },
-      select: { slug: true, title: true, description: true, body: true, publishedAt: true },
-    });
+      select: { slug: true, publishedSnapshot: true, publishedAt: true },
+    }).then(a => ({ slug: a.slug, ...(a.publishedSnapshot as object ?? {}), publishedAt: a.publishedAt }));
   }
 
   @Post('leads')

@@ -21,7 +21,9 @@ async function main() {
       create: {
         siteId: site.id, slug: 'home', title: 'Welcome',
         description: 'An owner-managed website', body: 'Publish accurate information about your business from the owner console.',
-        status: 'PUBLISHED', publishedAt: new Date(),
+        status: 'PUBLISHED', revision: 1, draftVersion: 1,
+        publishedSnapshot: { slug: 'home', title: 'Welcome', description: 'An owner-managed website', body: 'Publish accurate information about your business from the owner console.' },
+        publishedAt: new Date(),
       }
     });
     const email = process.env.ADMIN_EMAIL.toLowerCase().trim();
