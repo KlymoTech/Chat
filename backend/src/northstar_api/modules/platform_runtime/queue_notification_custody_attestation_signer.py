@@ -23,6 +23,7 @@ from .queue_notification_jenkins_junit_custody import (
     load_and_reconcile_witnessed_junit_custody,
 )
 from .queue_notification_jenkins_test_provenance import VerifiedJenkinsProvenance
+from .queue_notification_custody_signing_claims import SigningClaimStore
 
 _REQUIRED_SUITES = frozenset({"notification_worker", "notification_egress", "notification_secrets"})
 
@@ -53,6 +54,7 @@ async def sign_custodied_jenkins_test_result(
     index_reconciler: JunitEvidenceIndexReconciler,
     report_reconciler: object,
     signing_identity: PrivateTestSigner,
+    signing_claims: SigningClaimStore,
     release_id: str,
     run_id: str,
     branch: str,
@@ -142,6 +144,14 @@ async def sign_custodied_jenkins_test_result(
         "suites": {name: count for name, count in sorted(counts)},
     }
     payload = json.dumps(statement, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    if signing_claims is None:
+        raise PermissionError("durable signing replay guard required")
+    # A separate committed transaction must succeed before key retrieval.
+    # A crash after this point burns the claim and requires a new approved run.
+    await signing_claims.claim(
+        release_id=release_id, run_id=run_id,
+        witness_sha256=verified.witness_sha256, now=instant,
+    )
     key = await signing_identity.retrieve_for_isolated_service(run_id=run_id, branch=branch)
     if not isinstance(key, Ed25519PrivateKey):
         raise PermissionError("protected test signer unavailable")
