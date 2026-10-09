@@ -101,3 +101,22 @@ async def test_close_requires_terminal_change_and_matching_token():
 def test_invalid_lease_timeout_rejected():
     with pytest.raises(ValueError, match="deployment lease"):
         DeploymentLeaseService(lambda: FakeSession(1), lease_seconds=9)
+
+
+@pytest.mark.asyncio
+async def test_worker_environment_is_bound_to_all_lease_database_operations():
+    svc, session = service()
+    change_id = uuid4()
+    claim = await svc.claim(
+        change_id, owner="role/qualified-worker", expected_environment="qualification"
+    )
+    assert claim is not None
+    assert claim.environment == "qualification"
+    statement = session.execute.await_args.args[0]
+    assert "qualification" in statement.compile().params.values()
+    assert await svc.renew(claim, expected_environment="qualification")
+    statement = session.execute.await_args.args[0]
+    assert "qualification" in statement.compile().params.values()
+    assert await svc.close(claim, expected_environment="qualification")
+    statement = session.execute.await_args.args[0]
+    assert "qualification" in statement.compile().params.values()
