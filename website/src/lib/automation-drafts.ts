@@ -3,7 +3,7 @@ import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
 import type {CmsActor} from "./cms-editor";
 import {validateAutomation,type AutomationDefinition} from "./automation-contract";
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let pool:Pool|undefined;
 function db():Pool {
   if(process.env.WEBSITE_AUTOMATION_DRAFTS_ENABLED!=="true" ||
