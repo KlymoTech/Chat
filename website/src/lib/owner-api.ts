@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticateOwner } from "./owner-auth";
 import type { CmsActor, DraftDocument } from "./cms-editor";
+import {validBuilderIdentities,validBuilderSection} from "./builder-contract";
 
 export const privateHeaders = { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" };
 export function ownerResponse(value: unknown, status = 200): NextResponse {
@@ -42,7 +43,7 @@ export function draftFromUnknown(value: unknown): DraftDocument | null {
       typeof object.description !== "string" || object.description.length > 500 ||
       !Array.isArray(object.blocks) || object.blocks.length > 100) return null;
   const blocks = object.blocks;
-  if (JSON.stringify(blocks).length > 100_000) return null;
+  if (JSON.stringify(blocks).length > 100_000 || !validBuilderIdentities(blocks)) return null;
   if (!blocks.every(block => {
     if (!block || typeof block !== "object" || Array.isArray(block)) return false;
     const item = block as Record<string, unknown>;
@@ -52,6 +53,8 @@ export function draftFromUnknown(value: unknown): DraftDocument | null {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.assetId) &&
         typeof item.alt === "string" && !!item.alt.trim() && item.alt.length <= 300 &&
         typeof item.caption === "string" && item.caption.length <= 500;
+    if (item.type === "hero" || item.type === "cta" || item.type === "faq")
+      return validBuilderSection(item);
     if (item.type === "callout") return typeof item.title === "string" && !!item.title.trim() && item.title.length <= 180 &&
       typeof item.body === "string" && item.body.length <= 10000;
     return false;
