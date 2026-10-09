@@ -1,7 +1,6 @@
 """Worker runtime boots only through an explicitly authorized Unix socket."""
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -40,6 +39,11 @@ def private_dir(tmp_path, monkeypatch):
     if owner == 0:
         pytest.skip("private worker socket tests require a non-root test runner")
     monkeypatch.setattr(runtime.os, "geteuid", lambda: owner)
+    monkeypatch.setenv(
+        "NORTHSTAR_DEPLOYMENT_WORKER_DATABASE_URL",
+        "postgresql+asyncpg://northstar_deployer:ci-worker-secret@localhost/northstar",
+    )
+    monkeypatch.setenv("NORTHSTAR_DEPLOYMENT_WORKER_DATABASE_ROLE", "northstar_deployer")
     return path
 
 
@@ -133,13 +137,12 @@ async def test_private_app_constructs_without_public_customer_routes(tmp_path, m
     directory = private_dir(tmp_path, monkeypatch)
     write_key(directory, "machine.pem", signer_public_pem())
     write_key(directory, "step.pem", signer_public_pem())
-    import northstar_api.database as database
-
-    monkeypatch.setattr(database, "engine", SimpleNamespace(
-        dialect=SimpleNamespace(name="postgresql")
-    ))
     settings = configured_settings(directory)
+    verified = AsyncMock()
+    monkeypatch.setattr(runtime, "verify_worker_database_identity", verified)
     app = runtime.build_private_worker_app(settings)
+    async with app.router.lifespan_context(app):
+        verified.assert_awaited_once()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://worker.internal"
     ) as http:
@@ -163,12 +166,8 @@ def test_production_runtime_refuses_sqlite(tmp_path, monkeypatch):
     directory = private_dir(tmp_path, monkeypatch)
     write_key(directory, "machine.pem", signer_public_pem())
     write_key(directory, "step.pem", signer_public_pem())
-    import northstar_api.database as database
-
-    monkeypatch.setattr(database, "engine", SimpleNamespace(
-        dialect=SimpleNamespace(name="sqlite")
-    ))
-    with pytest.raises(runtime.WorkerRuntimeConfigurationError, match="PostgreSQL"):
+    monkeypatch.setenv("NORTHSTAR_DEPLOYMENT_WORKER_DATABASE_URL", "sqlite+aiosqlite:///unsafe.db")
+    with pytest.raises(runtime.WorkerDatabaseSecurityError, match="PostgreSQL|worker"):
         runtime.build_private_worker_app(configured_settings(directory))
 
 
@@ -201,3 +200,19 @@ def test_launch_uses_only_unix_socket_and_restores_umask(monkeypatch):
         assert masks == [0o177, 0o022]
     finally:
         monkeypatch.setattr(runtime.os, "umask", original_umask)
+
+
+@pytest.mark.asyncio
+async def test_worker_startup_rejects_unqualified_database_role(tmp_path, monkeypatch):
+    directory = private_dir(tmp_path, monkeypatch)
+    write_key(directory, "machine.pem", signer_public_pem())
+    write_key(directory, "step.pem", signer_public_pem())
+    verified = AsyncMock(side_effect=runtime.WorkerDatabaseSecurityError(
+        "unqualified role: high privilege",
+    ))
+    monkeypatch.setattr(runtime, "verify_worker_database_identity", verified)
+    app = runtime.build_private_worker_app(configured_settings(directory))
+    with pytest.raises(runtime.WorkerDatabaseSecurityError, match="unqualified role"):
+        async with app.router.lifespan_context(app):
+            pytest.fail("worker served requests despite unqualified database")
+    verified.assert_awaited_once()
