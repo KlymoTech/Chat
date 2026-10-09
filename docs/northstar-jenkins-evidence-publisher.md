@@ -245,3 +245,48 @@ published and no worker or qualification is activated.
 
 This is a **verification boundary, not a complete certification or
 production signing service**.
+
+
+## Increment: immutable witnessed JUnit report storage and exact S3 readback (2026-10-10)
+
+Two new internal-only components protect the source evidence used by the
+independent Jenkins witness verifier:
+
+- `aws_immutable_jenkins_junit_store.py`: requires the existing
+  `PublicationIdentity.verify(run_id, branch)` AWS identity gate and
+  validates **all three** independently signed, pinned JUnit reports
+  *before the first write*. It conditionally uploads each suite to
+  `evidence/<release-id>/jenkins/<run-id>/junit/<suite>.xml`,
+  storing SHA-256, witness SHA-256, exact build/run metadata,
+  `IfNoneMatch=*`, SSE-KMS, and COMPLIANCE Object Lock with a
+  minimum-retention safety margin. Each successful upload returns a
+  receipt naming its original S3 `VersionId`.
+- `aws_jenkins_junit_reconciliation.py`: checks exactly those three
+  externally pinned receipts; each S3 `head_object` and
+  `get_object` is requested with its original `VersionId`.
+  It checks bucket/key, locked retention, KMS key, report bytes and hash,
+  signed-witness hash and exact job/build metadata, then re-verifies the
+  independent Ed25519 witness over **the bytes read from S3**.
+
+The complete result is a `VerifiedJenkinsProvenance` value. It does NOT
+contain or unlock signing credentials. The root `Jenkinsfile` invokes
+only regression tests; it does not upload files or contact AWS.
+
+**Partial-write constraint:** The three reports are separate S3 objects;
+S3 provides no atomic multi-object commit. If a later report write fails,
+earlier writes remain immutable. No retry, overwrite, reconstructed
+receipt, or use of the latest unversioned key is automatic. Operators must
+reconcile with externally controlled receipt state and restart from a new,
+reviewed release/run after incomplete attempts.
+
+**Remaining required production gates:** protect and persist all original
+suite receipts under an independent release/run record; independently
+qualify the witness issuer and signature lifecycle; add an isolated test
+executor and authenticated Jenkins report publication job; verify S3
+Object Lock/KMS/IAM in live AWS; implement replay prevention and recovery
+for partial archives; retain the signed witness itself; connect the
+**verified** readback result to a separately authenticated private
+Ed25519 signer service. Source metadata and release IDs must come from
+a protected immutable build plan, not tenant-supplied parameters.
+A mock-S3 passing test is not evidence that live S3 retention or AWS trust
+policies work correctly.
