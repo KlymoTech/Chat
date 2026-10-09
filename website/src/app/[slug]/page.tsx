@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { site } from "../../lib/site";
+import { EnquiryForm } from "../../components/EnquiryForm";
 import { canonical } from "../../lib/seo";
 
 const content = {
@@ -23,5 +24,5 @@ export default async function ContentPage({params}:{params:Promise<{slug:string}
   const {slug}=await params;
   if (!(slug in content)) notFound();
   const page = content[slug as Slug];
-  return <section className="page"><h1>{page.title}</h1><p className="lead">{page.description}</p><p>{page.body}</p>{slug === "contact" && site.contactEmail && <a className="button" href={`mailto:${site.contactEmail}`}>Email our team</a>}</section>;
+  return <section className="page"><h1>{page.title}</h1><p className="lead">{page.description}</p><p>{page.body}</p>{slug === "contact" && <>{process.env.WEBSITE_LEAD_CAPTURE_ENABLED === "true" && <EnquiryForm fallbackEmail={site.contactEmail}/>} {site.contactEmail && <p><a href={`mailto:${site.contactEmail}`}>Email our team</a></p>}</>}</section>;
 }
