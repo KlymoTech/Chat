@@ -58,7 +58,8 @@ async def test_custody_is_checked_before_key_access_and_signature_is_verified(mo
     state = {"fail": True}
 
     async def readback(*args, **kwargs):
-        assert identity.calls == (0 if state["fail"] else 0)
+        if state["fail"]:
+            assert identity.calls == 0
         if state["fail"]:
             raise ValueError("immutable version unavailable")
         return verified
