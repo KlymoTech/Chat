@@ -12,7 +12,7 @@ export function parseLeadInput(value: unknown): LeadInput | null {
   const v = value as Record<string, unknown>;
   if (typeof v.idempotencyKey !== "string" || !uuid.test(v.idempotencyKey)) return null;
   if (typeof v.fullName !== "string" || !v.fullName.trim() || v.fullName.trim().length > 160) return null;
-  if (typeof v.email !== "string" || v.email.length > 254 || !mail.test(v.email)) return null;
+  if (typeof v.email !== "string" || v.email.trim().length > 254 || !mail.test(v.email.trim())) return null;
   if (typeof v.message !== "string" || !v.message.trim() || v.message.trim().length > 4000) return null;
   if (v.privacyAcknowledged !== true) return null;
   return {
