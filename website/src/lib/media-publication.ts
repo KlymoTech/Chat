@@ -8,6 +8,7 @@ export type MediaPublicationAction="publish"|"withdraw";
 export type ApprovedMediaRow=Readonly<{
   id:string; originalFilename:string;altDefault:string;
   rightsStatement:string;publishedAt:string|null;withdrawnAt:string|null;
+  livePageCount:number;
 }>;
 let database:Pool|undefined;
 function publicationDatabase():Pool {
@@ -28,13 +29,18 @@ function authorize(actor:CmsActor):void {
 export async function listApprovedMedia(actor:CmsActor):Promise<ApprovedMediaRow[]> {
   authorize(actor);
   const result=await publicationDatabase().query<ApprovedMediaRow>(
-    `SELECT id::text,original_filename AS "originalFilename",
-            alt_default AS "altDefault",rights_statement AS "rightsStatement",
-            published_at::text AS "publishedAt",
-            withdrawn_at::text AS "withdrawnAt"
-       FROM website_cms.media_assets
-      WHERE site_id=$1 AND state='approved'
-      ORDER BY reviewed_at DESC LIMIT 100`,[actor.siteId]);
+    `SELECT m.id::text,m.original_filename AS "originalFilename",
+            m.alt_default AS "altDefault",m.rights_statement AS "rightsStatement",
+            m.published_at::text AS "publishedAt",
+            m.withdrawn_at::text AS "withdrawnAt",
+            (SELECT COUNT(*)::integer FROM website_cms.media_usages u
+               JOIN website_cms.pages p ON p.site_id=u.site_id AND p.id=u.page_id
+              WHERE u.site_id=m.site_id AND u.asset_id=m.id
+                AND p.current_published_revision_id=u.revision_id
+                AND p.trashed_at IS NULL) AS "livePageCount"
+       FROM website_cms.media_assets m
+      WHERE m.site_id=$1 AND m.state='approved'
+      ORDER BY m.reviewed_at DESC LIMIT 100`,[actor.siteId]);
   return result.rows;
 }
 /**
@@ -44,7 +50,8 @@ export async function listApprovedMedia(actor:CmsActor):Promise<ApprovedMediaRow
  */
 export async function decideMediaPublication(
   actor:CmsActor,assetId:string,action:MediaPublicationAction,reason:string,
-):Promise<{assetId:string;published:boolean}> {
+  impactAcknowledged=false,
+):Promise<{assetId:string;published:boolean;livePageCount:number}> {
   authorize(actor);
   if(!uuid.test(assetId)||(action!=="publish"&&action!=="withdraw")||
      typeof reason!=="string"||reason.trim().length<10||reason.trim().length>500)
@@ -73,6 +80,17 @@ export async function decideMediaPublication(
        !media.alt_default.trim()||!media.rights_statement.trim()||
        media.reviewed_by_actor_id.toLowerCase()===media.created_by_actor_id.toLowerCase())
       throw new Error("Media approval/scan requirements not met");
+    const liveUsage=await client.query<{total:number}>(
+      `SELECT COUNT(*)::integer AS total
+         FROM website_cms.media_usages u
+         JOIN website_cms.pages p ON p.site_id=u.site_id AND p.id=u.page_id
+        WHERE u.site_id=$1 AND u.asset_id=$2
+          AND p.current_published_revision_id=u.revision_id
+          AND p.trashed_at IS NULL`,
+      [actor.siteId,assetId]);
+    const livePageCount=liveUsage.rows[0]?.total??0;
+    if(action==="withdraw" && livePageCount>0 && !impactAcknowledged)
+      throw new Error("Acknowledge active page references before withdrawal");
     if(action==="publish"){
       if(media.published_at&&!media.withdrawn_at)
         throw new Error("Media is already public");
@@ -96,12 +114,14 @@ export async function decideMediaPublication(
     await client.query(
       `INSERT INTO website_cms.audit_events
          (id,site_id,actor_id,action,target_id,metadata)
-       VALUES($1,$2,$3,$4,$5,jsonb_build_object('reason',$6::text))`,
+       VALUES($1,$2,$3,$4,$5,
+         jsonb_build_object('reason',$6::text,'livePageCount',$7::integer,
+                            'impactAcknowledged',$8::boolean))`,
       [randomUUID(),actor.siteId,actor.id,
        action==="publish"?"cms.media_published":"cms.media_withdrawn",
-       assetId,reason.trim()]);
+       assetId,reason.trim(),livePageCount,impactAcknowledged]);
     await client.query("COMMIT");
-    return {assetId,published:action==="publish"};
+    return {assetId,published:action==="publish",livePageCount};
   }catch(error){
     try{await client.query("ROLLBACK");}catch{}
     throw error;
