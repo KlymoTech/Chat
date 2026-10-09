@@ -294,3 +294,38 @@ No production cloud changes are enabled or certified here.
 
 IAM topology CI is NOT an AWS deployment, authorization to apply, or evidence
 of any production request-per-second / user-population capacity.
+
+
+## Increment: private AWS worker networking foundation (2026-10-09)
+
+- Added Terraform module `private_deployment_worker_network`: no worker
+  ingress rules, dedicated security groups, explicit worker egress limited
+  to the existing RDS security group TCP/5432, dedicated VPC interface
+  endpoints TCP/443 and an S3 gateway prefix list TCP/443.
+- Private AWS endpoints: ECR API, ECR Docker registry, CloudWatch Logs,
+  Secrets Manager and STS (KMS is opt-in). S3 gateway endpoint uses the
+  supplied private route tables. No NAT gateway, ALB, SSH, public IP or
+  generic internet egress is created.
+- Existing subnet and RDS SG metadata are validated in Terraform for VPC
+  consistency, public-IP autoassignment disabled and two-AZ diversity.
+  This is NOT route-table certification or proof that subnets lack an IGW
+  route; manual reviewed route evidence and AWS account qualification
+  remain mandatory.
+- Added reference integration `examples/worker-network`, mock-provider
+  Terraform contract tests, negative tests for an auto-public-IP subnet,
+  wrong-VPC RDS group and single-AZ placement, and extended the isolated
+  Terraform CI gate.
+- Deployment requirements, network/data-plane boundary and further
+  qualification are recorded at `docs/northstar-aws-worker-network-foundation.md`.
+
+### Still blocked before AWS rollout
+
+1. Audited AWS account isolation, actual private route and endpoint
+   policies, remote-state/locking bootstrap and approved RDS ingress.
+2. ECS/Fargate worker task and local Unix socket caller/proxy, IAM runtime
+   bootstrap, independent signing/verifier identities and WORM audit export.
+3. Measured network connectivity, failover, cost, backup/restore,
+   reconciliation, controlled mutation executor and Jenkins qualification.
+4. Complete AWS evidence, capacity, security and disaster recovery sign-off.
+
+No Terraform apply or live infrastructure mutation was performed.
