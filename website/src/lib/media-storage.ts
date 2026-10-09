@@ -1,7 +1,7 @@
 import "server-only";
 import {S3Client,PutObjectCommand,HeadObjectCommand,GetObjectCommand} from "@aws-sdk/client-s3";
 import {createHash} from "node:crypto";
-import type {VerifiedQuarantineBytes} from "./media-bytes";
+import {sniffQuarantinedImage,type VerifiedQuarantineBytes} from "./media-bytes";
 
 type StoreConfig={endpoint:string;bucket:string;region:string;accessKeyId:string;secretAccessKey:string};
 export function readQuarantineStoreConfig(env:NodeJS.ProcessEnv):StoreConfig|null {
@@ -134,4 +134,35 @@ export async function putSanitizedCandidate(
   }),{abortSignal:AbortSignal.timeout(5000)});
   if(head.ContentLength!==bytes.length||head.Metadata?.sha256!==expectedSha256)
     throw new Error("Private processed candidate not acknowledged");
+}
+
+/** Private, reviewer-only sanitized preview. Never serves the untrusted source. */
+export async function getSanitizedCandidate(
+  key:string,expectedHash:string,expectedSize:number,
+):Promise<Uint8Array> {
+  const config=readQuarantineStoreConfig(process.env);
+  if(!config||!/^processed[/][0-9a-f-]{36}[/][0-9a-f-]{36}[/]candidate[.]webp$/.test(key)||
+     !/^[0-9a-f]{64}$/.test(expectedHash)||
+     !Number.isSafeInteger(expectedSize)||expectedSize<12||
+     expectedSize>10*1024*1024)
+    throw new Error("Private preview unavailable");
+  const s3=storageClient(config);
+  const head=await s3.send(new HeadObjectCommand({Bucket:config.bucket,Key:key}),
+    {abortSignal:AbortSignal.timeout(5000)});
+  if(head.ContentLength!==expectedSize||head.Metadata?.sha256!==expectedHash)
+    throw new Error("Private derivative reference mismatch");
+  const object=await s3.send(new GetObjectCommand({Bucket:config.bucket,Key:key}),
+    {abortSignal:AbortSignal.timeout(15000)});
+  if(!object.Body)throw new Error("Private derivative missing");
+  let total=0;const chunks:Buffer[]=[];
+  for await(const part of object.Body as AsyncIterable<Uint8Array>){
+    total+=part.byteLength;
+    if(total>expectedSize)throw new Error("Private derivative exceeded expected size");
+    chunks.push(Buffer.from(part));
+  }
+  const bytes=Buffer.concat(chunks,total);
+  if(total!==expectedSize || sniffQuarantinedImage(bytes)!=="image/webp" ||
+     createHash("sha256").update(bytes).digest("hex")!==expectedHash)
+    throw new Error("Private derivative integrity failed");
+  return bytes;
 }
