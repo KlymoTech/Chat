@@ -42,22 +42,27 @@ describe("independent private media review",()=>{
   it("rejects self-approval and never updates state",async()=>{
     row.created_by_actor_id=reviewerId;
     await expect(reviewPrivateMedia(actor,assetId,"approve",
-      "Reviewed the image independently")).rejects.toThrow(/Creator cannot/);
+      "Reviewed the image independently","a".repeat(64))).rejects.toThrow(/Creator cannot/);
     expect(fake.query.mock.calls.filter(c=>String(c[0]).includes("UPDATE website_cms.media_assets"))).toHaveLength(0);
   });
   it("rejects approval when scan evidence is incomplete",async()=>{
     row.scanned_at=null as unknown as string;
     await expect(reviewPrivateMedia(actor,assetId,"approve",
-      "Requires complete inspection evidence")).rejects.toThrow(/has not passed/);
+      "Requires complete inspection evidence","a".repeat(64))).rejects.toThrow(/has not passed/);
   });
   it("records independent approval without public delivery",async()=>{
     const result=await reviewPrivateMedia(actor,assetId,"approve",
-      "Rights and scan evidence independently verified");
+      "Rights and scan evidence independently verified","a".repeat(64));
     expect(result).toEqual({assetId,state:"approved",publicAccess:false});
     const update=fake.query.mock.calls.find(c=>String(c[0]).includes("UPDATE website_cms.media_assets"));
     expect(update?.[1][2]).toBe("approved");
     expect(update?.[1][3]).toBe(reviewerId);
     expect(fake.query.mock.calls.some(c=>String(c[0]).includes("INSERT INTO website_cms.audit_events"))).toBe(true);
+  });
+  it("blocks approval if the reviewed derivative hash changed",async()=>{
+    await expect(reviewPrivateMedia(actor,assetId,"approve",
+      "Reviewed image must match the current stored bytes","f".repeat(64)
+    )).rejects.toThrow(/checksum/);
   });
   it("allows independent rejection of unscanned content without deletion",async()=>{
     row.scanned_at=null as unknown as string;
