@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { NextRequest, NextResponse } from "next/server";
 import { ownerOidcConfig } from "../../../../../lib/owner-oidc";
 import { readOwnerCookie, encryptOwnerCookie, secureCookie, stateCookie, sessionCookie } from "../../../../../lib/owner-session";
@@ -35,9 +36,21 @@ export async function GET(request:NextRequest) {
     const body:unknown=await response.json();
     if (!body || typeof body!=="object") return result;
     const fields=body as Record<string,unknown>;
-    const access=fields.access_token;
-    if (typeof access!=="string" || access.length>3000 || fields.token_type!=="Bearer") return result;
-    // Verify signature, issuer, audience, lifetime, site and permissions BEFORE opening a session.
+    const access=fields.access_token, idToken=fields.id_token;
+    if (typeof access!=="string" || access.length>3000 ||
+        typeof idToken!=="string" || idToken.length>8192 || fields.token_type!=="Bearer") return result;
+    const jwksUrl=process.env.WEBSITE_CMS_OIDC_JWKS_URL;
+    if(!jwksUrl) return result;
+    const keyUrl=new URL(jwksUrl);
+    if (keyUrl.protocol!=="https:" || keyUrl.origin!==new URL(config.issuer).origin ||
+        keyUrl.username || keyUrl.password || keyUrl.search || keyUrl.hash) return result;
+    // Validate ID-token signature and binding to this login request (nonce).
+    const {payload}=await jwtVerify(idToken,createRemoteJWKSet(keyUrl,{timeoutDuration:3000}),{
+      issuer:config.issuer,audience:config.clientId,algorithms:["RS256"],maxTokenAge:"10m",
+      clockTolerance:"5s"
+    });
+    if (payload.nonce!==state.nonce) return result;
+    // Independently validate access-token signature, role, tenant and audience.
     const verified=await authenticateOwner(new Request(config.origin,{
       headers:{authorization:"Bearer "+access}
     }));
