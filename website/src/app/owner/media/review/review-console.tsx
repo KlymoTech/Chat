@@ -43,6 +43,7 @@ export default function MediaReviewConsole(){
     try{
       const result=await load("/api/owner/media/review",{
         assetId:item.id,action,reason,
+        reviewedSha256:action==="approve"?item.sanitizedSha256:undefined,
       });
       if(!result||typeof result!=="object"||!("state" in result))
         throw new Error("Review decision not confirmed");
