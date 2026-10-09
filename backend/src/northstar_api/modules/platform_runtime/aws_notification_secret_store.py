@@ -13,7 +13,7 @@ from typing import Any
 import boto3
 
 _SECRET_ARN = re.compile(
-    r"^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"
+    r"^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"
 )
 
 
@@ -26,7 +26,7 @@ class AwsNotificationSecretStore:
         client: Any = None,
         timeout_seconds: float = 4.0,
     ) -> None:
-        if not region or not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\\d+", region):
+        if not region or not re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d+", region):
             raise ValueError("invalid AWS region")
         if timeout_seconds <= 0 or timeout_seconds > 20:
             raise ValueError("invalid AWS secret timeout")
