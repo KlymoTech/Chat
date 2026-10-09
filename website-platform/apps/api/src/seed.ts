@@ -27,6 +27,14 @@ async function main() {
         publishedAt: new Date(),
       }
     });
+    const currentHome = await db.page.findUniqueOrThrow({ where: { siteId_slug: { siteId: site.id, slug: 'home' } } });
+    if (currentHome.revision > 0 && currentHome.publishedSnapshot) {
+      await db.pageRevision.upsert({
+        where: { pageId_revision: { pageId: currentHome.id, revision: currentHome.revision } },
+        update: {}, create: { pageId: currentHome.id, revision: currentHome.revision,
+          snapshot: currentHome.publishedSnapshot, actorId: 'system-bootstrap' }
+      });
+    }
     const email = process.env.ADMIN_EMAIL.toLowerCase().trim();
     const existingUser = await db.adminUser.findUnique({ where: { email } });
     if (!existingUser) {

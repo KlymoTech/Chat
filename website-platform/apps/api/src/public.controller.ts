@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Db, parseInput } from './core';
 import { leadSchema } from './contracts';
@@ -20,7 +20,7 @@ export class PublicController {
     return this.db.page.findFirstOrThrow({
       where: { siteId: s.id, slug, status: 'PUBLISHED' },
       select: { slug: true, publishedSnapshot: true, publishedAt: true },
-    }).then(p => ({ slug: p.slug, ...(p.publishedSnapshot as object ?? {}), publishedAt: p.publishedAt }));
+    }).then(p => ({ slug: p.slug, ...(p.publishedSnapshot as object ?? {}), publishedAt: p.publishedAt })).catch(e => { if(e instanceof Prisma.PrismaClientKnownRequestError && e.code==='P2025') throw new NotFoundException('Page not found'); throw e; });
   }
 
   @Get('pages')
@@ -50,7 +50,7 @@ export class PublicController {
     return this.db.article.findFirstOrThrow({
       where: { siteId: s.id, slug, status: 'PUBLISHED' },
       select: { slug: true, publishedSnapshot: true, publishedAt: true },
-    }).then(a => ({ slug: a.slug, ...(a.publishedSnapshot as object ?? {}), publishedAt: a.publishedAt }));
+    }).then(a => ({ slug: a.slug, ...(a.publishedSnapshot as object ?? {}), publishedAt: a.publishedAt })).catch(e => { if(e instanceof Prisma.PrismaClientKnownRequestError && e.code==='P2025') throw new NotFoundException('Article not found'); throw e; });
   }
 
   @Post('leads')
