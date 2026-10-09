@@ -30,6 +30,17 @@ class Identity:
         return self.key
 
 
+class Claims:
+    def __init__(self):
+        self.used = set()
+
+    async def claim(self, *, release_id, run_id, witness_sha256, now):
+        identity = (release_id, run_id, witness_sha256)
+        if identity in self.used:
+            raise PermissionError("duplicate custody signature")
+        self.used.add(identity)
+
+
 @pytest.mark.asyncio
 async def test_custody_is_checked_before_key_access_and_signature_is_verified(monkeypatch):
     key = Ed25519PrivateKey.generate()
@@ -54,7 +65,7 @@ async def test_custody_is_checked_before_key_access_and_signature_is_verified(mo
 
     monkeypatch.setattr(subject, "load_and_reconcile_witnessed_junit_custody", readback)
     args = dict(
-        index_reconciler=object(), report_reconciler=object(), signing_identity=identity,
+        index_reconciler=object(), report_reconciler=object(), signing_identity=identity, signing_claims=Claims(),
         release_id="release-12345678", run_id="run-12345678",
         branch="feature/test", environment="staging",
         source_commit="a" * 40, source_digest="b" * 64,
@@ -76,6 +87,9 @@ async def test_custody_is_checked_before_key_access_and_signature_is_verified(mo
         "notification_worker": 4, "notification_egress": 3, "notification_secrets": 2
     }
     assert signed.token().count(".") == 1
+    with pytest.raises(PermissionError, match="duplicate"):
+        await subject.sign_custodied_jenkins_test_result(None, **args)
+    assert identity.calls == 1
 
 
 @pytest.mark.asyncio
@@ -97,7 +111,7 @@ async def test_wrong_key_and_unqualified_suites_fail_closed(monkeypatch):
 
     monkeypatch.setattr(subject, "load_and_reconcile_witnessed_junit_custody", verified)
     args = dict(
-        index_reconciler=object(), report_reconciler=object(), signing_identity=identity,
+        index_reconciler=object(), report_reconciler=object(), signing_identity=identity, signing_claims=Claims(),
         release_id="release-12345678", run_id="run-12345678",
         branch="feature/test", environment="staging",
         source_commit="a" * 40, source_digest="b" * 64,
