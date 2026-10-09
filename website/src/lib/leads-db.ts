@@ -22,7 +22,7 @@ export async function saveLead(input: LeadInput): Promise<{ id: string; accepted
     if (site.rowCount !== 1) throw new Error("Site not provisioned");
     const siteId = site.rows[0].id;
     const leadId = randomUUID();
-    const inserted = await client.query<{id: string}>(
+    const inserted = await client.query<{id: string; payload_sha256: string}>(
       `INSERT INTO website_cms.lead_submissions
       (id, site_id, idempotency_key, full_name, email, message, privacy_acknowledged, payload_sha256)
       VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7)
