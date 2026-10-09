@@ -333,3 +333,48 @@ The unit tests use a fake S3 implementation and real generated Ed25519
 witnesses. An offline Jenkins test hook does not upload to AWS, sign
 results or approve worker startup. No release signing authority or
 production notification credentials are exposed.
+
+
+## Increment: independent PostgreSQL custody of JUnit index receipts (2026-10-10)
+
+Added PostgreSQL migration `0093_notification_jenkins_junit_custody`,
+ORM model `queue_notification_jenkins_junit_custody_persistence.py`, and
+two **internal-only** operations in `queue_notification_jenkins_junit_custody.py`.
+
+- `stage_witnessed_junit_custody` requires the protected publisher's
+  actual machine-identity check. It rejects mismatched release/run/suite
+  receipts locally, then independently reads the original **locked S3 index
+  version** and all three **locked JUnit report versions** before inserting
+  one custody row. The index receipt, signed witness token and hash, three
+  original report receipts, build SHA, environment and source/target digests
+  are stored together. The caller owns the database transaction; neither
+  commit nor qualification approval is performed here.
+- `load_and_reconcile_witnessed_junit_custody` selects the original
+  custody row by release ID; it does **not** accept a new witness token,
+  new index version or new JUnit receipts from the caller. It compares
+  protected expected build coordinates, reconstructs all three original
+  versioned S3 receipts from the row and re-runs the independent S3 index/
+  report read-back and Ed25519 witness verification. Mismatched witness
+  digests or malformed index receipts are refused.
+- PostgreSQL primary-key release uniqueness and separate run uniqueness
+  prevent a second immutable record replacing existing release/run
+  evidence. A PostgreSQL trigger rejects any row UPDATE or DELETE;
+  downgrading the migration with records refuses to erase them. Migration
+  `0092`'s existing PL/pgSQL dollar-quoting issue was also corrected
+  so that the chained migration is executable.
+- Regression tests cover authorization denial, spoofed run metadata,
+  altered reports/index versions, missing suites, database uniqueness,
+  downgrade refusal and attempting to replace witness content. A
+  disposable PostgreSQL test only runs with `PLATFORM_TEST_POSTGRES_DSN`;
+  the offline Jenkins preflight never receives database or AWS credentials.
+
+**Incomplete:** these are privileged library/ORM boundaries, not an
+authenticated production API or running signer. A separate identity
+provisioning policy, least-privilege database role (including protection
+from TRUNCATE, DDL and trigger modification), production PostgreSQL
+migrations, actual S3/KMS/IAM checks, and a private test-attestation
+signer that consumes `load_and_reconcile_witnessed_junit_custody`
+are still required. The current witness proof has a 15-minute freshness
+window: long-term legal/audit verification needs a separately designed
+historical evidence policy. The custody row alone never approves a
+notification qualification or deploys workers.
