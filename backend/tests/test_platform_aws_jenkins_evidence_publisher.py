@@ -244,3 +244,22 @@ def test_publisher_identity_configuration_fails_closed(change):
                 allowed_branch=BRANCH, sts_client=MagicMock())
     with pytest.raises(ValueError):
         AwsJenkinsEvidencePublisherIdentity(**{**base, **change})
+
+
+@pytest.mark.asyncio
+async def test_govcloud_publisher_identity_uses_correct_aws_partition():
+    sts = MagicMock()
+    session = "northstar-evidence-" + RUN
+    sts.get_caller_identity.return_value = {
+        "Account": ACCOUNT,
+        "Arn": f"arn:aws-us-gov:sts::{ACCOUNT}:assumed-role/{ROLE}/{session}",
+        "UserId": "AROAGOVEXAMPLE:" + session,
+    }
+    gate = AwsJenkinsEvidencePublisherIdentity(
+        account_id=ACCOUNT,
+        region="us-gov-west-1",
+        role_name=ROLE,
+        allowed_branch=BRANCH,
+        sts_client=sts,
+    )
+    assert await gate.verify(run_id=RUN, branch=BRANCH) is True
