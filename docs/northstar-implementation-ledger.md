@@ -265,3 +265,32 @@ do not merge without explicit instruction.
 - Next: protected signer service implementations and negative IAM/Jenkins
   integration verification; do not use mock Terraform plans as production
   approval or as evidence that a private signing service exists.
+
+
+## Increment: protected AWS signer key-material access (2026-10-10)
+
+- Added `aws_protected_qualification_signer.py` to bridge the separate,
+  Terraform-governed test and release signer roles to pre-existing,
+  independently encrypted Secrets Manager Ed25519 private keys.
+- Access fails closed unless the current AWS account, exact assumed-role ARN,
+  run-specific STS session name, UserId suffix and configured feature branch
+  all match. The adapter rejects non-current or mismatched secret versions,
+  invalid or non-Ed25519 private keys, unpinned public keys and unsupported
+  AWS partitions/account/region configurations.
+- The adapter returns transient key material only to an isolated internal
+  signing service; it does **not** sign caller-provided payloads, certify
+  passed test results, issue proofs, expose a public API, publish S3
+  artifacts or enable notification workers. Independent provenance,
+  protected signer-process identity, trusted public-key rotation and
+  immutable evidence read-back are still required before allowing signing.
+- Added focused test cases for both roles, wrong identity, wrong branch,
+  malformed run ID, STS session length, AWS/secret errors, key-rotation
+  mismatch, wrong signature algorithm and GovCloud. All **27 focused tests
+  passed locally** using stand-in AWS clients and generated test keys.
+- Registered the new suite with feature-branch GitHub Actions and the
+  non-publishing Jenkins preflight. A passing full-repository CI run and
+  real AWS IAM/KMS/Jenkins execution have **not been observed**.
+- Next: integrate authenticated and independently verified JUnit/test-runner
+  result provenance into an isolated signer service, then implement
+  release-manifest signing only after verifying the precise retained
+  attestation S3 version. Do not make private key retrieval a tenant API.
