@@ -1,8 +1,6 @@
 import { Check, CornerDownLeft, Search, Settings2, ShieldCheck, Sparkles, Building2, CircleHelp } from 'lucide-react';
 import {
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type KeyboardEvent,
   type MouseEvent,
@@ -51,7 +49,6 @@ export function CommandPalette({
   canViewPlatformAdmin = false,
 }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -92,11 +89,6 @@ export function CommandPalette({
       }));
     return [...pages, ...workspaceResults];
   }, [activeWorkspaceId, canViewPlatformAdmin, navigation, query, workspaces]);
-
-  useEffect(() => {
-    if (!open) return;
-    inputRef.current?.focus();
-  }, [open]);
 
   const highlightedIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
 
@@ -157,6 +149,7 @@ export function CommandPalette({
           <Search aria-hidden="true" />
           <input
             ref={inputRef}
+            autoFocus
             value={query}
             onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
             placeholder="Search pages and workspaces…"
