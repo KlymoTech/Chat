@@ -131,7 +131,7 @@ export function MaterialmAppShell() {
         </div>
         <div className="mm-topbar__actions">
           <button className="mm-search" type="button" aria-label="Search pages and workspaces" aria-haspopup="dialog" onClick={() => setCommandOpen(true)}><Search aria-hidden="true" /><span>Search</span><kbd>Ctrl / ⌘ K</kbd></button>
-          <NotificationBell />
+          <NotificationBell key={activeWorkspace?.id ?? 'no-workspace'} />
           <div className="account-menu" ref={account}>
             <button ref={accountTrigger} type="button" className="account-button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}><span className="avatar">{initials}</span><span className="account-copy"><strong>{session?.user.name}</strong><small>{session?.user.role}</small></span><ChevronDown aria-hidden="true" /></button>
             {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div>
