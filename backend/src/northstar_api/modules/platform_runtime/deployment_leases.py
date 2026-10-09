@@ -26,6 +26,7 @@ class DeploymentClaim:
     lease_token: UUID
     owner: str
     expires_at: datetime
+    environment: str | None = None
 
 
 class DeploymentLeaseService:
@@ -83,7 +84,7 @@ class DeploymentLeaseService:
             result = await session.execute(statement)
             if result.rowcount != 1:
                 return None
-        return DeploymentClaim(change_id, token, owner, expires)
+        return DeploymentClaim(change_id, token, owner, expires, expected_environment)
 
     async def renew( 
         self, claim: DeploymentClaim, *, expected_environment: str | None = None,
@@ -97,6 +98,7 @@ class DeploymentLeaseService:
                 PlatformDeploymentLease.change_id == claim.change_id,
                 PlatformDeploymentLease.status == "leased",
                 PlatformDeploymentLease.lease_token == claim.lease_token,
+                *([PlatformDeploymentLease.environment == claim.environment] if claim.environment else []),
                 PlatformDeploymentLease.owner == claim.owner,
                 PlatformDeploymentLease.lease_expires_at > now,
             )
