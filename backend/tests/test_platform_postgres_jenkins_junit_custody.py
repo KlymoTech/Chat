@@ -86,7 +86,7 @@ async def test_append_only_junit_custody_and_release_run_uniqueness(monkeypatch)
 
     try:
         async with admin.begin() as conn:
-            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))  # noqa: S608 - uuid-generated
             created = True
         qualified = create_async_engine(
             dsn,
@@ -140,7 +140,7 @@ async def test_append_only_junit_custody_and_release_run_uniqueness(monkeypatch)
             await qualified.dispose()
         if created:
             async with admin.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))  # noqa: S608 - uuid-generated
         await admin.dispose()
 
 
