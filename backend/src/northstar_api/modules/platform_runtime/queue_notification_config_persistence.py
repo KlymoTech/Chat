@@ -24,3 +24,5 @@ class ApprovedNotificationRouteRecord(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    proposed_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
