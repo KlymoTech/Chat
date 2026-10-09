@@ -26,7 +26,7 @@ export async function loadPublishedPage(path: string, locale = "en"): Promise<Pu
     [site, path, locale],
   );
   const value: unknown = result.rows[0];
-  return isPublishedPage(value) ? value : null;
+  return isPublishedPage(value) && value.path === path && value.locale === locale ? value : null;
 }
 
 /** Read-only publication index result.
