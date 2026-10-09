@@ -62,11 +62,15 @@ def bound():
         verify_step=AsyncMock(return_value=True),
         mark_unknown=AsyncMock(return_value=True),
     )
+    audit = SimpleNamespace(
+        begin=AsyncMock(return_value=SimpleNamespace(attempt_id=uuid4())),
+        finish=AsyncMock(),
+    )
     operations = DeploymentWorkerOperations(
         policy=DeploymentWorkerPolicy(
             PUBLIC, "northstar-issuer", "northstar-worker", ENVIRONMENT, SUBJECT
         ),
-        leases=leases, journal=journal,
+        leases=leases, journal=journal, audit=audit,
     )
     return operations, leases, journal, claim
 
@@ -87,6 +91,9 @@ async def test_machine_credentials_are_required_for_every_action():
     assert await operations.close(token, claim)
     leases.close.assert_awaited_once_with(claim, expected_environment=ENVIRONMENT)
     journal.verify_step.assert_awaited_once_with(claim, 0, signed_attestation="signed")
+    assert operations.audit.begin.await_count == 6
+    assert operations.audit.finish.await_count == 6
+    assert operations.audit.finish.await_args.kwargs["outcome"] == "accepted"
 
 
 @pytest.mark.asyncio
@@ -145,3 +152,38 @@ async def test_stolen_lease_token_with_wrong_owner_rejected():
 def test_unconfigured_worker_policy_is_invalid():
     with pytest.raises(ValueError, match="fully configured"):
         DeploymentWorkerPolicy(b"", "issuer", "audience", "qualification", SUBJECT)
+
+
+@pytest.mark.asyncio
+async def test_audit_failure_blocks_operation_before_database_mutation():
+    operations, leases, _, claim = bound()
+    operations.audit.begin.side_effect = RuntimeError("audit datastore unavailable")
+    with pytest.raises(RuntimeError, match="audit datastore unavailable"):
+        await operations.claim(credential(), claim.change_id)
+    leases.claim.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_uncertain_operation_records_unknown_outcome_and_fails():
+    operations, leases, _, claim = bound()
+    leases.renew.side_effect = TimeoutError("ambiguous database outcome")
+    with pytest.raises(TimeoutError, match="ambiguous"):
+        await operations.renew(credential(), claim)
+    assert operations.audit.finish.await_args.kwargs["outcome"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_denied_operation_records_rejected_outcome():
+    operations, leases, _, claim = bound()
+    leases.claim.return_value = None
+    assert await operations.claim(credential(), claim.change_id) is None
+    assert operations.audit.finish.await_args.kwargs["outcome"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_mark_unknown_forces_reconciliation_outcome():
+    operations, _, _, claim = bound()
+    assert await operations.mark_unknown(
+        credential(), claim, 0, reason="external result not observed",
+    )
+    assert operations.audit.finish.await_args.kwargs["outcome"] == "unknown"
