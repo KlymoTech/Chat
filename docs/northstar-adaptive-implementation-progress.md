@@ -178,8 +178,10 @@ and independently signed release evidence.
 3. Hash chaining is tamper-*evident*, not immutable against database
    superusers. Ship evidence to independent WORM storage; audit export,
    external signing and retention controls are still required.
-4. The PostgreSQL serialization/concurrency race and immutable-trigger
-   enforcement require a disposable Postgres integration qualification.
+4. Disposable PostgreSQL CI now qualifies competing worker audit intents,
+   hash-chain persistence, and database UPDATE/DELETE trigger denial. Production
+   workload-role permissions, external WORM export, full migration and recovery
+   evidence are still required.
 5. Explicit incident reconciliation, step compensation, rollback and
    forward-repair flows remain unimplemented, as do real AWS mutation
    adapters, Terraform, Jenkins, and measured production capacity.
