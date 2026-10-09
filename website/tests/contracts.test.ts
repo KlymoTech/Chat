@@ -30,7 +30,7 @@ describe("website lead intake contract", () => {
 });
 
 const page = {
-  id:"sample", path:"/content/intro", locale:"en", revision:1,
+  id:"550e8400-e29b-41d4-a716-446655440000", path:"/content/intro", locale:"en", revision:1,
   title:"Introduction", description:"Published introduction",
   blocks:[{type:"heading",text:"Welcome"},{type:"callout",title:"Note",body:"Example"}],
 };
@@ -38,6 +38,11 @@ describe("public CMS rendering contract", () => {
   it("accepts safe published block shapes", () => expect(isPublishedPage(page)).toBe(true));
   it("rejects executable HTML block types", () =>
     expect(isPublishedPage({...page,blocks:[{type:"html",html:"<script>alert(1)</script>"}]})).toBe(false));
+  it("rejects oversized content, unsafe paths and excessive blocks", () => {
+    expect(isPublishedPage({...page, path:"/content/../private"})).toBe(false);
+    expect(isPublishedPage({...page, title:"x".repeat(181)})).toBe(false);
+    expect(isPublishedPage({...page, blocks:Array.from({length:101}, () => ({type:"paragraph",text:"ok"}))})).toBe(false);
+  });
   it("rejects invalid revisions and content containers", () => {
     expect(isPublishedPage({...page,revision:0})).toBe(false);
     expect(isPublishedPage({...page,blocks:{type:"heading"}})).toBe(false);
