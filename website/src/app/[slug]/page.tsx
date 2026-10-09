@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { site } from "../../lib/site";
+import { canonical } from "../../lib/seo";
 
 const content = {
   services: { title: "Services", description: "Contact us to discuss which services meet your needs.", body: "Service details and prices will be published after review and approval." },
@@ -12,7 +13,12 @@ const content = {
 } as const;
 type Slug = keyof typeof content;
 export function generateStaticParams() { return Object.keys(content).map(slug => ({slug})); }
-export async function generateMetadata({params}: {params: Promise<{slug:string}>}): Promise<Metadata> { const {slug}=await params; return slug in content ? {title:content[slug as Slug].title} : {}; }
+export async function generateMetadata({params}: {params: Promise<{slug:string}>}): Promise<Metadata> {
+  const {slug}=await params;
+  if (!(slug in content)) return { robots: { index: false, follow: false } };
+  return { title:content[slug as Slug].title, alternates: { canonical: canonical(`/${slug}`) },
+    ...(slug === "privacy" || slug === "terms" ? {robots:{index:false,follow:false}} : {}) };
+}
 export default async function ContentPage({params}:{params:Promise<{slug:string}>}) {
   const {slug}=await params;
   if (!(slug in content)) notFound();
