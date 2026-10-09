@@ -227,3 +227,34 @@ and independently signed release evidence.
 
 The ASGI contract is a non-deployed internal implementation foundation.
 No production cloud changes are enabled or certified here.
+
+
+## Increment: dedicated worker PostgreSQL identity qualification (2026-10-09)
+
+- Added `deployment_worker_database.py` and startup credential/role
+  verification, separate from the public application SQLAlchemy engine.
+- The worker rejects privileged logins (superuser/CREATEROLE/CREATEDB/
+  BYPASSRLS), reused customer DB credentials, mutable audit history, direct
+  approval/config writes, table ownership-style broad privileges and
+  unexpected INSERT/DELETE/TRUNCATE privileges on execution tables.
+- Audit intent ordering now uses PostgreSQL transaction-scoped advisory locks
+  keyed by the change UUID instead of `SELECT FOR UPDATE` on
+  `platform_changes`, preserving serialized audit events **without** granting
+  worker UPDATE on approved changes.
+- A disposable PostgreSQL integration test provisions a unique limited LOGIN
+  and isolated schema; checks actual startup probe, audit intent/outcome
+  persistence, denial of direct approval UPDATE, rejection of unsafe added
+  privileges, and finally removes both the login and schema.
+- Operator runbook: `docs/northstar-private-worker-db-role.md`. It lists the
+  required per-table grants, separate managed credentials, worker-only UDS
+  deployment and rollback/incident requirements.
+
+### Remaining production blockers
+
+- Provision real AWS-managed worker credentials / database roles, enforce
+  network segmentation and independent workload identity.
+- Implement signed external verifier issuer, WORM audit export, live AWS
+  execution adapters, certified rollback/forward-repair, Jenkins release
+  qualification and canary observability.
+- Qualify migrations, backups, recovery, quotas, cost and load under the
+  contracted environment; these CI checks are not production certification.
