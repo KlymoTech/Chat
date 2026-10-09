@@ -63,7 +63,8 @@ async def test_concurrent_reconcilers_exhaustion_and_restart():
                 ), {
                     "id": notification_id, "tenant": owner, "episode": episode,
                     "key": key, "attempts": attempts, "now": now,
-                    "next": now - timedelta(seconds=10), "token": uuid4(),
+                    "next": now + timedelta(hours=1) if key == "other" else now - timedelta(seconds=10),
+                    "token": uuid4(),
                     "expiry": expires,
                 })
 
