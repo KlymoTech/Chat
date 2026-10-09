@@ -185,3 +185,45 @@ and independently signed release evidence.
 5. Explicit incident reconciliation, step compensation, rollback and
    forward-repair flows remain unimplemented, as do real AWS mutation
    adapters, Terraform, Jenkins, and measured production capacity.
+
+
+## Increment: standalone deployment worker HTTP boundary (2026-10-09)
+
+- Added `deployment_worker_http.create_deployment_worker_app`, an isolated
+  FastAPI ASGI factory. It is not imported, included, mounted, or served by
+  `northstar_api.main` or its public customer API/router.
+- Six narrowly typed POST contracts are provided for claim, renew, start step,
+  verify signed step, mark unknown and close. Body schemas forbid unexpected
+  properties and require explicit environment-bound fenced claim material.
+- All operations remain OFF by default: `private_ingress_enabled=False`
+  yields HTTP 503 regardless of supplied bearer credentials. Enabling the
+  flag alone does **not** enforce private networking, TLS, mTLS or workload
+  attestation. Deployers must establish those external controls separately.
+- Delegation is exclusively through `DeploymentWorkerOperations`; each
+  accepted request receives machine signature/audience/issuer/subject/scope
+  validation, lease fencing and mandatory durable intent/outcome auditing.
+- Endpoints return generic 401/403/409/503 responses, never database error
+  details, bearer credentials or signed attestation contents. No public
+  CORS, Swagger UI, OpenAPI schema or generic shell/AWS execution API exists.
+- API unit tests verify default-disable, invalid identity and environment,
+  authorization scope, typed requests, all six paths, audit failure and
+  generic response sanitization.
+
+### Mandatory before private deployment (NOT met by the ASGI factory)
+
+1. Host the worker in an isolated deployment (not the public process).
+   Bind exclusively to a protected Unix socket or independently certified
+   mTLS ingress and apply explicit namespace/security-group isolation.
+2. Provision pinned public verification keys through approved secret/config
+   management and private JWT signing keys in a separate, controlled issuer.
+   Specify key rotation, revocation, request replay protection and workload
+   identity lifecycle.
+3. Implement ingress denial logging, request metrics, rate limits, traffic
+   budgets, secure correlation IDs and security incident routing.
+4. Qualify load, malformed input, authorization matrix, PostgreSQL concurrent
+   intent handling and downstream failure containment end to end.
+5. Implement signed external qualification and AWS executor adapters only
+   with reversible IaC, canary, recovery and production release evidence.
+
+The ASGI contract is a non-deployed internal implementation foundation.
+No production cloud changes are enabled or certified here.
