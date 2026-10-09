@@ -15,9 +15,10 @@ import base64
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 import boto3
 from botocore.config import Config
