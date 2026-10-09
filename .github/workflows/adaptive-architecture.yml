@@ -25,6 +25,7 @@ on:
       - 'backend/tests/test_platform_deployment_worker_operations.py'
       - 'backend/tests/test_platform_deployment_worker_audit.py'
       - 'backend/tests/test_platform_deployment_worker_audit_migration.py'
+      - 'backend/tests/test_platform_postgres_worker_audit.py'
       - 'backend/migrations/versions/0087_platform_deployment_worker_audit.py'
       - 'backend/migrations/versions/0086_platform_deployment_step_journal.py'
       - 'backend/migrations/versions/0085_platform_deployment_leases.py'
@@ -128,5 +129,5 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --all-groups --locked
-      - run: uv run ruff check tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py
-      - run: uv run pytest tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py
+      - run: uv run ruff check tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py tests/test_postgres_durable_queue.py tests/test_platform_queue_replay.py tests/test_platform_queue_replay_api.py
+      - run: uv run pytest tests/test_platform_postgres_worker_audit.py tests/test_platform_postgres_deployment_leases.py tests/test_platform_queue_alert_postgres.py tests/test_platform_postgres_activation.py -v tests/test_postgres_durable_queue.py
