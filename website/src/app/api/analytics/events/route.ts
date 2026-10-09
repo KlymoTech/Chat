@@ -1,8 +1,8 @@
 import {NextResponse} from "next/server";
 import {cookies} from "next/headers";
-import {CONSENT_COOKIE} from "../../../lib/consent-server";
-import {parseAnalyticsEvent} from "../../../lib/analytics-contract";
-import {recordOptionalAnalytics} from "../../../lib/analytics-server";
+import {CONSENT_COOKIE} from "../../../../lib/consent-server";
+import {parseAnalyticsEvent} from "../../../../lib/analytics-contract";
+import {recordOptionalAnalytics} from "../../../../lib/analytics-server";
 export const dynamic="force-dynamic";
 const headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"};
 /** Optional first-party anonymous event. No attribution IDs, form values, URLs or IP. */
