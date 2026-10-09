@@ -358,3 +358,35 @@ do not merge without explicit instruction.
   CI or actual AWS/Jenkins execution was not established from this
   session. No main-branch changes, Jodo code or production worker
   activation are part of this increment.
+
+
+## Increment: one locked Jenkins JUnit evidence index per release/run (2026-10-10)
+
+- Added `aws_jenkins_junit_evidence_index.py` to persist the **signed
+  independent Jenkins witness token** and all three original, pinned S3
+  JUnit version receipts into one canonical, checksum-protected,
+  KMS-encrypted, COMPLIANCE Object Lock S3 index at
+  `evidence/<release-id>/jenkins/<run-id>/junit/verified-index.json`.
+- The publishing boundary enforces the existing AWS publisher role and
+  run/branch identity before verifying all three original report object
+  versions with `ReadOnlyWitnessedJunitReconciler`. A single conditional
+  S3 `IfNoneMatch=*` write occurs only after full report signature,
+  checksum, retention and build provenance read-back.
+- The independent readback method requires a separately trusted exact index
+  receipt plus exact original report receipts, revalidates all three signed
+  reports, and verifies the index's original `VersionId`, metadata,
+  unexpired Object Lock, KMS key, SHA-256 and canonical bytes. Unknown or
+  conflicting S3 results are blocking; no key listing, inferred latest
+  version, overwrite, automatic retry, approval or worker activation.
+- Added fake-S3 end-to-end and denial-path tests with real Ed25519-generated
+  witnesses for tampered contents, wrong version/receipt, incorrect AWS
+  publisher identity, KMS/retention mismatch, S3 faults, replayed witness
+  and duplicate writes. Registered the tests with GitHub branch CI and
+  the non-signing root Jenkins preflight.
+- **Unverified/outstanding:** successful repository-wide CI and live AWS
+  Object Lock/KMS/IAM tests; independent durable original index-receipt
+  custody; authenticated witness production; controlled partial-write
+  recovery; historical audit beyond the witness's 15-minute freshness
+  window; and a trusted private attestation signing service. Signed
+  release certification, production approvals and worker startup remain
+  gated and disabled.
