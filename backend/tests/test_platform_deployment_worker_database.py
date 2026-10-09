@@ -41,6 +41,20 @@ def safe_role():
         "step_insert": True,
         "step_update": True,
         "change_select": True,
+        "config_select": True,
+        "change_insert": False,
+        "change_update": False,
+        "change_delete": False,
+        "change_truncate": False,
+        "config_insert": False,
+        "config_update": False,
+        "config_delete": False,
+        "config_truncate": False,
+        "lease_insert": False,
+        "lease_delete": False,
+        "lease_truncate": False,
+        "step_delete": False,
+        "step_truncate": False,
     }
 
 
@@ -98,6 +112,20 @@ def test_unsafe_worker_dsn_or_login_refused(worker_url, role):
     ("step_insert", False),
     ("step_update", False),
     ("change_select", False),
+    ("config_select", False),
+    ("change_insert", True),
+    ("change_update", True),
+    ("change_delete", True),
+    ("change_truncate", True),
+    ("config_insert", True),
+    ("config_update", True),
+    ("config_delete", True),
+    ("config_truncate", True),
+    ("lease_insert", True),
+    ("lease_delete", True),
+    ("lease_truncate", True),
+    ("step_delete", True),
+    ("step_truncate", True),
 ])
 def test_unqualified_pg_role_denied(field, value):
     info = safe_role()
