@@ -84,6 +84,8 @@ def test_bucket_policy_denies_unsafe_tls_deletion_nonexclusive_and_wrong_kms():
         "DenyNonTLS", "DenyObjectDeletion",
         "DenyMissingWritePrecondition", "DenyNonExclusiveWrite",
         "DenyUnencryptedPut", "DenyWrongKmsKey",
+        "DenyMissingObjectLockMode", "DenyNonComplianceObjectLockMode",
+        "DenyShortObjectRetention",
     ):
         assert f'sid       = "{statement}"' in guards
     assert 'variable = "aws:SecureTransport"' in guards
@@ -91,6 +93,9 @@ def test_bucket_policy_denies_unsafe_tls_deletion_nonexclusive_and_wrong_kms():
     assert 'variable = "s3:x-amz-server-side-encryption"' in guards
     assert 'variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"' in guards
     assert '"s3:DeleteObjectVersion"' in guards
+    assert 'variable = "s3:object-lock-mode"' in guards
+    assert 'variable = "s3:object-lock-remaining-retention-days"' in guards
+    assert 'values   = [tostring(var.retention_days)]' in guards
 
 
 def test_provider_account_and_region_must_match_explicit_configuration():
