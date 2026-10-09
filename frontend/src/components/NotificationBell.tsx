@@ -68,10 +68,6 @@ export function NotificationBell() {
     return () => window.clearInterval(timer);
   }, [refreshCount]);
 
-  useEffect(() => {
-    if (open) void loadItems();
-  }, [open, loadItems]);
-
   const markRead = async (item: NotificationItem) => {
     if (item.readAt) return item;
     const updated = await notificationsApi.markRead(item.id);
@@ -109,7 +105,7 @@ export function NotificationBell() {
       aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'}
       aria-expanded={open}
       aria-haspopup="dialog"
-      onClick={() => setOpen((value) => !value)}
+      onClick={() => { if (!open) void loadItems(); setOpen((value) => !value); }}
     >
       <Bell />
       {unreadCount > 0 ? <span className="notification-center__badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
