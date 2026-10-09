@@ -13,7 +13,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import desc, select, update
 from sqlalchemy.exc import IntegrityError
@@ -460,7 +460,7 @@ async def _audit_notification_route(
         category="security",
         severity="warning",
         after={"channel": details["channel"], "revision": details["revision"],
-               "enabled": False},
+               "enabled": details["action"] == "platform.notification_route.activated"},
         metadata={"reason": reason},
     )
 
@@ -611,6 +611,91 @@ async def deactivate_platform_notification_route(
         await session.rollback()
         raise
     return {"channel": channel, "revision": revision, "enabled": False}
+
+
+class NotificationRouteActivateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    reason: str = Field(min_length=12, max_length=500)
+
+
+def get_notification_activation_preflight():
+    """Disabled until trusted IAM, catalog and egress policy are provisioned.
+
+    Operators must explicitly wire this dependency to a qualified
+    TrustedNotificationActivationPreflight; there is no insecure fallback.
+    """
+    raise HTTPException(
+        status_code=503, detail="notification route activation is not configured"
+    )
+
+
+@router.post("/notifications/routes/{channel}/activate")
+async def activate_platform_notification_route(
+    channel: str,
+    payload: NotificationRouteActivateRequest,
+    principal: PlatformRuntimeManagePrincipal,
+    session: DBSession,
+    preflight=Depends(get_notification_activation_preflight),
+) -> dict[str, object]:
+    """Review and activate only an approved, tenant-scoped route revision."""
+    from northstar_api.modules.platform_runtime.queue_notification_activation import (
+        activate_notification_route,
+    )
+    from northstar_api.modules.platform_runtime.queue_notification_config import (
+        ApprovedNotificationRoute,
+    )
+    from northstar_api.modules.platform_runtime.queue_notification_config_persistence import (
+        ApprovedNotificationRouteRecord,
+    )
+    from northstar_api.modules.platform_runtime.queue_notification_governance import RouteConflict
+
+    if principal.tenant_id is None:
+        raise HTTPException(status_code=403, detail="tenant scope required")
+    if channel not in ("email", "webhook"):
+        raise HTTPException(status_code=422, detail="unsupported notification channel")
+    try:
+        record = await session.scalar(
+            select(ApprovedNotificationRouteRecord).where(
+                ApprovedNotificationRouteRecord.tenant_id == principal.tenant_id,
+                ApprovedNotificationRouteRecord.channel == channel,
+            )
+        )
+        if record is None:
+            raise HTTPException(status_code=404, detail="notification route not found")
+        if (
+            record.revision != payload.expected_revision
+            or not record.approved or record.enabled
+            or record.proposed_by is None or record.approved_by is None
+            or record.proposed_by == record.approved_by
+        ):
+            raise HTTPException(status_code=409, detail="route is not eligible for activation")
+        route = ApprovedNotificationRoute(
+            tenant_id=record.tenant_id,
+            channel=record.channel,
+            destination_reference=record.destination_reference,
+            revision=record.revision,
+            enabled=record.enabled,
+            approved=record.approved,
+        )
+
+        async def audit(db: DBSession, details: dict[str, str]) -> None:
+            await _audit_notification_route(db, details, reason=payload.reason.strip())
+
+        revision = await activate_notification_route(
+            session, route=route, expected_revision=payload.expected_revision,
+            actor_id=principal.user_id, authorized=True,
+            preflight=preflight, audit=audit,
+        )
+        await session.commit()
+    except RouteConflict as exc:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="route activation preflight or revision conflict") from exc
+    except Exception:
+        await session.rollback()
+        raise
+    return {"channel": channel, "revision": revision, "enabled": True}
 
 
 class QueueDeadLetterReplayRequest(BaseModel):
