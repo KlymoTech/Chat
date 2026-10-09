@@ -236,3 +236,11 @@
    the correctly clipped, independently scrollable table. Anchor it locally. */
 .ld-status-control { position:relative; }
 .ld-status-control .sr-only { left:0; top:0; }
+
+/* The table's accessible status control stays in the scrollable cell. The
+   visually hidden native select label must not extend the document width. */
+@media (max-width:650px) {
+  .ld-table-scroll { contain:layout; }
+  .ld-table-scroll .ld-status-control { position:relative; isolation:isolate; }
+  .ld-table-scroll .ld-status-control .sr-only { position:absolute; left:0; top:0; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+}
