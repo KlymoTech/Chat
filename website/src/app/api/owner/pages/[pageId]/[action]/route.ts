@@ -16,9 +16,14 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const body = await bodyJson(request);
     if (action === "draft") {
-      const doc = draftFromUnknown(body);
-      if (!doc) return ownerResponse({ error: "Invalid document" }, 422);
-      const revisionId = await saveDraft(actor, pageId, doc);
+      if(!body||typeof body!=="object"||Array.isArray(body))
+        return ownerResponse({error:"Document and expected version are required"},422);
+      const data=body as Record<string,unknown>;
+      const doc = draftFromUnknown(data.document);
+      if (!doc || !Number.isSafeInteger(data.expectedVersion) ||
+          Number(data.expectedVersion)<1)
+        return ownerResponse({ error: "Valid document and expected version are required" }, 422);
+      const revisionId = await saveDraft(actor,pageId,doc,data.expectedVersion as number);
       return ownerResponse({ revisionId, state: "draft" }, 201);
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) return ownerResponse({ error: "Invalid action" }, 422);
