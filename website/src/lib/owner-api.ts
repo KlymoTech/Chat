@@ -47,6 +47,11 @@ export function draftFromUnknown(value: unknown): DraftDocument | null {
     if (!block || typeof block !== "object" || Array.isArray(block)) return false;
     const item = block as Record<string, unknown>;
     if (item.type === "heading" || item.type === "paragraph") return typeof item.text === "string" && !!item.text.trim() && item.text.length <= 10000;
+    if (item.type === "image")
+      return typeof item.assetId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.assetId) &&
+        typeof item.alt === "string" && !!item.alt.trim() && item.alt.length <= 300 &&
+        typeof item.caption === "string" && item.caption.length <= 500;
     if (item.type === "callout") return typeof item.title === "string" && !!item.title.trim() && item.title.length <= 180 &&
       typeof item.body === "string" && item.body.length <= 10000;
     return false;
