@@ -72,7 +72,7 @@ async def test_compliance_immutable_manifest_upload(monkeypatch):
     assert request["ObjectLockMode"] == "COMPLIANCE"
     assert request["ServerSideEncryption"] == "aws:kms"
     assert request["SSEKMSKeyId"] == KMS
-    assert request["ObjectLockRetainUntilDate"] >= NOW + timedelta(days=90)
+    assert request["ObjectLockRetainUntilDate"] >= NOW + timedelta(days=91)
     assert request["ContentType"] == "application/json"
     assert json.loads(request["Body"]) == {
         "format": "northstar.signed-release-manifest.v1",
