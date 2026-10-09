@@ -16,6 +16,7 @@ from northstar_api.modules.platform_runtime.deployment_machine_identity import (
 from northstar_api.modules.platform_runtime.deployment_worker_audit import (
     DeploymentAuditBlocked,
     DeploymentWorkerAuditTrail,
+    compute_worker_audit_digest,
     validate_worker_audit_chain,
 )
 from northstar_api.modules.platform_runtime.deployment_worker_audit_persistence import (
@@ -123,4 +124,30 @@ async def test_tampered_event_detected_by_chain_verifier(audit_database):
     assert not validate_worker_audit_chain(stored)
     stored[0].machine_subject = "role/deployment-executor"
     stored[1].previous_digest = "f" * 64
+    assert not validate_worker_audit_chain(stored)
+
+
+@pytest.mark.asyncio
+async def test_matching_hash_cannot_hide_mismatched_action_between_events(audit_database):
+    audit, engine, change_id = audit_database
+    attempt = await audit.begin(principal=principal(), change_id=change_id, action="claim")
+    await audit.finish(attempt, outcome="accepted")
+    stored = await events(engine, change_id)
+    assert validate_worker_audit_chain(stored)
+    forged = stored[1]
+    forged.action = "renew"
+    forged.event_digest = compute_worker_audit_digest(
+        change_id=forged.change_id,
+        attempt_id=forged.attempt_id,
+        sequence=forged.sequence,
+        kind=forged.kind,
+        action=forged.action,
+        environment=forged.environment,
+        machine_subject=forged.machine_subject,
+        token_id_hash=forged.token_id_hash,
+        step_index=forged.step_index,
+        outcome=forged.outcome,
+        occurred_at=forged.occurred_at,
+        previous_digest=forged.previous_digest,
+    )
     assert not validate_worker_audit_chain(stored)
