@@ -152,3 +152,41 @@ services, signer lifecycle and public-key pinning, workload identity
 issuance, live AWS KMS/Secrets Manager/IAM permissions tests, explicit
 organization permissions boundary definitions and comprehensive CloudTrail
 auditing. The module is **unapplied**; actual CI success is unconfirmed.
+
+
+## Increment: AWS-backed Ed25519 signer key access (2026-10-10)
+
+Added `aws_protected_qualification_signer.py`, an internal-only credential
+boundary matching the separately governed test and release signing IAM roles.
+
+- The test signer must run with the exact `<prefix>-test-certification-signer`
+  assumed role and a `northstar-test-jenkins-<run-id>` STS session.
+- The release signer must run with the exact `<prefix>-release-manifest-signer`
+  assumed role and a `northstar-release-jenkins-<run-id>` STS session.
+  The adapter rejects names exceeding the 64-character AWS session limit.
+- Before contacting Secrets Manager, the adapter checks the actual STS
+  account, assumed role ARN, session and UserId alongside the independently
+  approved branch. No broad or wildcard IAM identity is accepted.
+- It requests one exact existing secret ARN at `VersionStage=AWSCURRENT`,
+  accepts only binary PEM PKCS#8 Ed25519 private key material, and rejects a
+  missing version label, mismatched ARN, unsupported key algorithm, invalid
+  PEM or rotated key with a public half that is not explicitly pinned.
+- Failure returns `None` without including IAM/secret details in an
+  application error. The key object is returned **only to a separately
+  authenticated internal signing process**, never through a public HTTP
+  endpoint or Jenkins agent workspace.
+- Standard AWS and GovCloud partitions are supported.
+
+**This does not yet sign certification results or release manifests.**
+Independent Jenkins test-result provenance and immutable release evidence
+validation MUST occur before any private key is used. A matching STS session
+string is not sufficient proof that the requested test suite really ran.
+A compromised publisher role must remain unable to assume either signer
+role or to read either secret; this requires live IAM trust and KMS policy
+verification, not just the Python runtime identity check.
+
+27 focused local tests passed against mocked STS/Secrets Manager clients and
+locally generated Ed25519/RSA test keys. This is **not** a passing repository
+CI run, real AWS IAM test, key-rotation certification, or live signing service.
+The existing Jenkinsfile only runs the unit tests and does not gain
+signing credentials, AWS mutation permissions or qualification approval.
