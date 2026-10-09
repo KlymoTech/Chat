@@ -73,7 +73,7 @@ export async function listOwnerPages(actor: CmsActor): Promise<Array<{
   assertActor(actor, "cms:read");
   const result = await pool().query<{
     id: string; path: string; locale: string; publishedRevisionId: string | null;
-    publishedTitle: string | null;
+    publishedTitle: string | null; trashedAt: string | null;
   }>(
     `SELECT p.id::text, p.path, p.locale,
             p.current_published_revision_id::text AS "publishedRevisionId",
