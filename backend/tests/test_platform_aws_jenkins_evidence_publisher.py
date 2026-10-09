@@ -1,5 +1,6 @@
 """Trusted Jenkins publisher gates immutable manifest writes and readback."""
 import base64
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -51,9 +52,7 @@ def scenario():
     receipt = CertificationArtifactReceipt(
         bucket="northstar-evidence-bucket",
         key=f"evidence/{RELEASE}/jenkins/{RUN}/certification-attestation.token",
-        version_id="attestation-version-123", sha256=__import__("hashlib").sha256(
-            ATTESTATION.encode()
-        ).hexdigest(),
+        version_id="attestation-version-123", sha256=hashlib.sha256(ATTESTATION.encode()).hexdigest(),
     )
     data = {
         "version": 1,
