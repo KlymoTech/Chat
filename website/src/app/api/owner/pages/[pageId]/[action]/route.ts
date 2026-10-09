@@ -40,7 +40,9 @@ export async function POST(request: Request, { params }: Params) {
     const revisionId = await restorePublished(actor, pageId, input.revisionId);
     return ownerResponse({ revisionId, sourceRevisionId: input.revisionId,
       state: "restoration-queued" }, 202);
-  } catch {
+  } catch(error) {
+    if(error instanceof Error && error.message.startsWith("CMS revision conflict"))
+      return ownerResponse({error:"A newer CMS revision exists. Local changes were not committed. Refresh revisions before retrying."},409);
     return ownerResponse({ error: "CMS action failed, state unchanged or rolled back" }, 409);
   }
 }
