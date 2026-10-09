@@ -225,7 +225,20 @@ def run_browser(
             capture("leads-desktop")
             for width in [1024, 768, 390, 360]:
                 page.set_viewport_size({"width": width, "height": 900})
-                assert page.evaluate("document.documentElement.scrollWidth") <= width
+                # Responsive shell controls animate width. Measure the settled layout,
+                # not an intermediate search-pill width immediately after a resize.
+                page.wait_for_timeout(300)
+                actual = page.evaluate("document.documentElement.scrollWidth")
+                if actual > width:
+                    offenders = page.evaluate(
+                        """() => [...document.querySelectorAll('*')].map(e => ({tag:e.tagName,cls:e.className,right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width,overflow:getComputedStyle(e).overflow})).filter(e => e.right > innerWidth + 1)"""
+                    )
+                    (OUT / f"overflow-{width}.json").write_text(
+                        json.dumps(offenders, indent=2)
+                    )
+                assert actual <= width, (
+                    f"Settled horizontal overflow at {width}: {actual}"
+                )
                 capture(f"leads-{width}")
                 passed(f"responsive-leads-{width}-no-document-overflow")
             page.set_viewport_size({"width": 1440, "height": 1218})

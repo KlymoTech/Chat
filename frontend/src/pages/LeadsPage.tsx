@@ -15,7 +15,7 @@ import { canUseDashboardCapability } from '@/features/dashboard/dashboardPermiss
 import { AddLeadDialog } from '@/features/leads/LeadDialogs';
 import { LeadDrawer } from '@/features/leads/LeadDrawer';
 import { leadWorkspaceApi, type LeadWorkspace } from '@/features/leads/leadWorkspaceApi';
-import { capturedAt, displayName, initials, label, leadSource, sourceLabel } from '@/features/leads/presentation';
+import { capturedAt, currentLeadWorkspace, displayName, initials, label, leadSource, sourceLabel } from '@/features/leads/presentation';
 import type { Lead, PageResult } from '@/types';
 import './LeadsPage.css';
 import '@/features/leads/leads.css';
@@ -53,7 +53,7 @@ export function LeadsWorkspacePage({ canUpdate, canSync, canConversation }: { ca
   const leads = usePollingApi(() => loadLeads({ page, pageSize: PAGE_SIZE, search, status, agentId, channel }), [page, search, status, agentId, channel], 60000);
   const agents = useApi(() => api.agents.list()); const summary = useApi(() => leadWorkspaceApi.summary());
   const detail = usePollingApi(() => selectedId ? leadWorkspaceApi.detail(selectedId) : Promise.resolve(null), [selectedId], 60000);
-  const selected = workspaceOverride?.lead.id === selectedId && (!detail.data || workspaceOverride.version >= detail.data.version) ? workspaceOverride : detail.data;
+  const selected = currentLeadWorkspace(selectedId, detail.data, workspaceOverride);
   const records = leads.data?.items ?? []; const total = leads.data?.total ?? 0; const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const { pushToast } = useToast(); const agentNames = useMemo(() => new Map((agents.data ?? []).map((agent) => [agent.id, agent.name])), [agents.data]);
   const customColumns = layout.version > 0;
@@ -90,7 +90,7 @@ export function LeadsWorkspacePage({ canUpdate, canSync, canConversation }: { ca
       <details className="ld-export-options"><summary>Additional export options</summary><Button variant="secondary" icon={Download} disabled={exporting || !total || Boolean(layoutResult.error)} onClick={() => void exportLeads('xlsx')}>Export Excel</Button><span>Saved custom columns and all active filters are respected.</span></details>
     </section>
     {selectedId && (!selected || selected.lead.id !== selectedId) && <aside className="ld-drawer ld-drawer--loading" role="dialog" aria-label="Lead details"><button type="button" className="icon-button" aria-label="Close lead details" onClick={() => select(null)}><X /></button>{detail.error ? <div role="alert"><h3>Lead is unavailable</h3><p>{detail.error}</p><Button onClick={detail.reload}>Try again</Button></div> : <p role="status">Loading lead details…</p>}</aside>}
-    {selectedId && selected?.lead.id === selectedId && <LeadDrawer key={selectedId} workspace={selected} agent={agents.data?.find((agent) => agent.id === selected.lead.agentId)} canUpdate={canUpdate} canSync={canSync} canConversation={canConversation} onClose={() => select(null)} onSaved={savedWorkspace} onLeadSaved={(lead) => { setWorkspaceOverride({ ...selected, lead }); leads.reload(); summary.reload(); pushToast('Lead status updated'); }} onEdit={() => setEditing(selected.lead)} />}
+    {selectedId && selected?.lead.id === selectedId && <LeadDrawer key={selectedId} workspace={selected} agent={agents.data?.find((agent) => agent.id === selected.lead.agentId)} canUpdate={canUpdate} canSync={canSync} canConversation={canConversation} onClose={() => select(null)} onSaved={savedWorkspace} onLeadSaved={(lead) => { setWorkspaceOverride({ ...selected, lead }); detail.reload(); leads.reload(); summary.reload(); pushToast('Lead status updated'); }} onEdit={() => setEditing(selected.lead)} />}
     {customizing && <LeadLayoutEditor initial={layout} records={records} agentNames={agentNames} onClose={() => setCustomizing(false)} onSaved={setSavedLayout} />}
     {editing && <LeadDetailsEditor lead={editing} layout={layout} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); pushToast('Lead details saved'); }} />}
     {adding && <AddLeadDialog agents={agents.data ?? []} onClose={() => setAdding(false)} onSaved={(lead) => { setAdding(false); refresh(); select(lead.id); pushToast('Lead added'); }} />}

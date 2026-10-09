@@ -66,8 +66,8 @@ async def member(
             name="Review scoped member",
             email=f"{uuid4().hex}@example.com",
             is_active=True,
-            password_hash="not-used-for-signed-fixture-token",
-        )  # noqa: S106
+            password_hash=uuid4().hex,
+        )
         session.add(user)
         await session.flush()
         tenant_id, workspace_id = UUID(case["workspace"]["tenantId"]), UUID(case["workspace"]["id"])

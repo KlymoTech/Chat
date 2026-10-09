@@ -5,6 +5,7 @@ on:
       - 'frontend/**'
       - 'backend/**'
       - 'scripts/figma-redesign/leads_browser_review.py'
+      - 'scripts/figma-redesign/leads_migration_review.py'
       - '.github/workflows/leads-design-review.yml'
 permissions:
   contents: read
@@ -60,5 +61,40 @@ jobs:
             review-results/leads-browser/
             frontend/leads-results.xml
             backend/leads-api-results.xml
+          retention-days: 14
+          if-no-files-found: error
+  migration:
+    name: PostgreSQL migration and row-level security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      LEADS_MIGRATION_REVIEW: '1'
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16@sha256:a132765ec351c65111b5b675928a3a0515a466a40f97277329db8b8209ad8bc9
+        env:
+          POSTGRES_DB: leads_review
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-isolated-only
+        ports: ['5544:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d leads_review"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - run: uv run python ../scripts/figma-redesign/leads_migration_review.py
+        working-directory: backend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: leads-postgresql-migration
+          path: review-results/leads-migration/
           retention-days: 14
           if-no-files-found: error

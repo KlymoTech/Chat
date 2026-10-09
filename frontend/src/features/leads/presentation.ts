@@ -1,5 +1,5 @@
 import type { Lead } from '@/types';
-import type { FollowUp } from './leadWorkspaceApi';
+import type { FollowUp, LeadWorkspace } from './leadWorkspaceApi';
 
 export function displayName(lead: Lead): string { return lead.name || lead.email || lead.phone || 'Anonymous visitor'; }
 export function initials(value: string): string { return value.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase() || '?'; }
@@ -48,4 +48,13 @@ export function downloadCalendar(record: FollowUp): void {
   const url = URL.createObjectURL(new Blob([calendarText(record)], { type: 'text/calendar;charset=utf-8' }));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'lead-follow-up.ics'; anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** An optimistic mutation must not mask an equally new or newer server snapshot. */
+export function currentLeadWorkspace(id: string | null, loaded: LeadWorkspace | null, pending: LeadWorkspace | null): LeadWorkspace | null {
+  const current = loaded?.lead.id === id ? loaded : null;
+  const optimistic = pending?.lead.id === id ? pending : null;
+  if (!current) return optimistic;
+  if (!optimistic) return current;
+  return optimistic.version > current.version || (optimistic.version === current.version && Date.parse(optimistic.lead.updatedAt) > Date.parse(current.lead.updatedAt)) ? optimistic : current;
 }
