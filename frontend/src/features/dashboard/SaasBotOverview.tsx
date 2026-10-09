@@ -31,8 +31,8 @@ export function SaasBotOverview() {
   const analytics = useApi(() => canAnalytics ? api.analytics.summary(period) : Promise.resolve(null), [canAnalytics, period]);
   const conversations = useApi(() => canInbox ? loadAttentionConversations() : Promise.resolve(null), [canInbox]);
   const records = ready(agents) ?? [];
-  // The selected carousel index may outlive a workspace change or a deleted agent.
-  // Never render a previous workspace's agent while the new scope loads.
+  // A workspace change or deleted agent can invalidate the saved carousel index.
+  // `records` contains only successfully loaded current-scope data.
   const featured = records.length > 0 ? records[selected % records.length] : undefined;
   const summary = ready(analytics);
   const shown = records.filter((agent) => filter === 'all' || (filter === 'education' ? agent.purpose === 'education' : agent.status === filter));
