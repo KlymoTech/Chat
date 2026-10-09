@@ -138,7 +138,7 @@ class AwsImmutableReleaseManifestStore:
             "ServerSideEncryption": "aws:kms",
             "SSEKMSKeyId": self._kms_key_arn,
             "ObjectLockMode": "COMPLIANCE",
-            "ObjectLockRetainUntilDate": instant.astimezone(UTC) + timedelta(days=self._retention_days),
+            "ObjectLockRetainUntilDate": instant.astimezone(UTC) + timedelta(days=self._retention_days + 1),
             "ChecksumSHA256": base64.b64encode(digest).decode("ascii"),
             "Metadata": {
                 "sha256": digest.hex(),
