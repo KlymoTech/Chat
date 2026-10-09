@@ -36,6 +36,25 @@ def upgrade() -> None:
         sa.UniqueConstraint("release_id", name="uq_notification_qualification_release_id"),
     )
 
+    # Prevent application or privileged job code from silently relinking an
+    # already certified release. Administrative correction requires a new
+    # qualification ID and explicit incident reconciliation.
+    op.execute(sa.text("""
+        CREATE FUNCTION reject_notification_qualification_release_link_mutation()
+        RETURNS trigger LANGUAGE plpgsql AS $
+        BEGIN
+            RAISE EXCEPTION 'qualification release links are append-only';
+        END;
+        $
+    """))
+    op.execute(sa.text("""
+        CREATE TRIGGER notification_qualification_release_links_immutable
+        BEFORE UPDATE OR DELETE
+        ON platform_notification_qualification_release_links
+        FOR EACH ROW EXECUTE FUNCTION
+        reject_notification_qualification_release_link_mutation()
+    """))
+
 
 def downgrade() -> None:
     if op.get_bind().scalar(sa.text(
@@ -43,3 +62,4 @@ def downgrade() -> None:
     )):
         raise RuntimeError("Archive and reconcile release evidence links before downgrade")
     op.drop_table("platform_notification_qualification_release_links")
+    op.execute(sa.text("DROP FUNCTION reject_notification_qualification_release_link_mutation()"))
