@@ -12,7 +12,7 @@ def _read(name: str) -> str:
     source = (ROOT / name).read_text(encoding="utf-8")
     # Terraform fmt right-aligns equals within neighboring assignment groups.
     # Normalize spacing for text assertions without weakening policy checks.
-    return re.sub(r"(?<=\\w)[ \\t]+=[ \\t]+", " = ", source)
+    return re.sub(r"(?<=\w)[ \t]+=[ \t]+", " = ", source)
 
 
 def _block(source: str, marker: str) -> str:
