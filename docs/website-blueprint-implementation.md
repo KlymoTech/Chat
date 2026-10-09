@@ -13,7 +13,7 @@ Owner must confirm legal entity, brand, domain, languages, offers, price/claim e
 | Area | Blueprint mapping | Status | Acceptance evidence required |
 | --- | --- | --- | --- |
 | Public route starter, navigation, accessible responsive layout | 04–06, 73 | IMPLEMENTED / UNVERIFIED | automated build, mobile/keyboard/zoom/screenshots and content signoff |
-| Owner CMS, page revisions, preview, publish, rollback, media | 07–09, 44, 73, 76 | NOT IMPLEMENTED | role-based end-to-end publish/recovery tests |
+| Owner CMS, page revisions, preview, publish, rollback, media | 07–09, 44, 73, 76 | SCHEMA/READ CONTRACT ONLY — NOT FUNCTIONAL | SQL schema plus safe published block renderer; no authorized publishing API, privileges, migrations, media, rollback or tests |
 | Blog preservation and manual-only deletion | 09, 38–39 | NOT IMPLEMENTED | authorized manual purge/restore and protected audit checks |
 | SEO metadata, crawl controls, redirects and sitemap | 10–11, 49–50, 66, 70 | PARTIAL / UNVERIFIED | sitemap, robots and canonical now implemented behind explicit approval; redirects, crawler and search-route checks remain |
 | Lead submission and durable outbox/CRM delivery | 20–23, 40, 69 | NOT IMPLEMENTED | committed receipt + outbox retry/crash and reconciliation tests |
@@ -42,3 +42,7 @@ Status labels distinguish **documented**, **implemented**, **activated** and **v
 Added website-local `robots.ts`, `sitemap.ts`, `seo.ts`, `not-found.tsx`, `error.tsx`, and `loading.tsx`. Indexing requires **HTTPS, a non-local site URL and NEXT_PUBLIC_SITE_APPROVED=true**. Legal placeholders stay noindex and outside the sitemap. Canonical URLs are provided per public route. These are implementation claims only: a successful production build, crawler validation, keyboard review, browser checks, and live indexability signoff have **not** been established. The company-specific pages are still intentionally placeholders; this is not production launch clearance.
 
 No `main` branch files were modified by this work.
+
+## Third checkpoint — CMS revision and public rendering foundation
+
+Introduced isolated `website/db/001_cms_foundation.sql` for site/page/revision/audit/outbox tables, `website/src/lib/cms.ts` for a validated read-only published-page contract, safe fixed block components, and a `/content/[slug]` public route. This is **not** a functioning owner-operated CMS: the backend public API, editorial console, authorization, publication transaction, and worker have not been created or verified. The SQL was **not applied to any database**. A missing backend returns 404 instead of inventing content, and no success is claimed for unpersisted operations. All additions are isolated to the website folder and the requirements document.
