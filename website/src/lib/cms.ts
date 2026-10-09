@@ -1,9 +1,11 @@
-/** Read-only public CMS contract. Restrict blocks to inert plain text. */
+import {validBuilderIdentities,validBuilderSection,type BuilderIdentity,type BuilderSection} from "./builder-contract";
+/** Read-only public CMS contract. Render only inert, allowlisted blocks. */
 export type PublicBlock =
-  | { type: "heading"; text: string }
-  | { type: "paragraph"; text: string }
-  | { type: "callout"; title: string; body: string }
-  | { type: "image"; assetId: string; alt: string; caption: string };
+  | (BuilderIdentity & { type: "heading"; text: string })
+  | (BuilderIdentity & { type: "paragraph"; text: string })
+  | (BuilderIdentity & { type: "callout"; title: string; body: string })
+  | (BuilderIdentity & { type: "image"; assetId: string; alt: string; caption: string })
+  | BuilderSection;
 
 export type PublishedPage = {
   id: string;
@@ -26,7 +28,7 @@ export function isPublishedPage(value: unknown): value is PublishedPage {
     && Number.isSafeInteger(page.revision) && (page.revision as number) > 0
     && safeText(page.title, 180) && (page.title as string).trim().length > 0
     && safeText(page.description, 500)
-    && Array.isArray(page.blocks) && page.blocks.length <= 100
+    && Array.isArray(page.blocks) && page.blocks.length <= 100 && validBuilderIdentities(page.blocks)
     && page.blocks.every(block => {
       if (!block || typeof block !== "object" || Array.isArray(block)) return false;
       const item = block as Record<string, unknown>;
@@ -38,6 +40,9 @@ export function isPublishedPage(value: unknown): value is PublishedPage {
           /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.assetId) &&
           safeText(item.alt, 300) && (item.alt as string).trim().length > 0 &&
           safeText(item.caption, 500);
+      }
+      if (item.type === "hero" || item.type === "cta" || item.type === "faq") {
+        return validBuilderSection(item);
       }
       if (item.type === "callout") {
         return safeText(item.title, 180) && (item.title as string).trim().length > 0
