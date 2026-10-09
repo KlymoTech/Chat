@@ -8,7 +8,6 @@ export type AutomationNode=
  | {id:string;type:"exit"};
 export type AutomationDefinition={title:string;nodes:AutomationNode[]};
 const key=/^[a-z][a-z0-9_-]{0,39}$/;
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 const own=(v:unknown):v is Record<string,unknown>=>
   !!v&&typeof v==="object"&&!Array.isArray(v);
 export function validateAutomation(value:unknown):AutomationDefinition|null {
