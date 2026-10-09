@@ -40,3 +40,12 @@ The contact route has an optional enquiry form with PostgreSQL lead+outbox atomi
 ## CMS page creation checkpoint
 
 Added server-only `createPage` to `src/lib/cms-editor.ts`. It creates a new page and initial draft revision inside one transaction, writes an audit record, and refuses duplicate site/locale/path combinations. `src/lib/cms-path.ts` restricts new routes to `/content/<slug>`, away from existing Chat and website routes. Contract tests cover reserved, malformed and nested routes. This is not a working public admin UI; it has no authenticated caller, applied schema, or validated database permissions. Production activation remains blocked.
+
+## Protected CMS authoring API — NOT enabled for production
+The branch now includes an internal owner API for **listing pages**, **creating a page**, **saving drafts**, **approving**, **publishing**, and **restoring**:
+- `GET/POST /api/owner/pages`
+- `POST /api/owner/pages/:pageId/draft|approve|publish|restore`
+
+All endpoints deny access by default. A protected action requires a verified RS256 Bearer access token with exact issuer/audience, `sub` UUID, matching `site_id` UUID, permitted `permissions` array, and a maximum token age of 15 minutes. They **never trust actor, site or roles from a JSON body**. Write requests require the configured origin and JSON content type. Drafts are not served through public APIs. The identity-provider integration, login UX and JWT issuance are **not** supplied by this repository. Configure `WEBSITE_CMS_OIDC_ISSUER`, `WEBSITE_CMS_OIDC_AUDIENCE` and `WEBSITE_CMS_OIDC_JWKS_URL` only after an identity/security review.
+
+This API also requires `WEBSITE_CMS_OWNER_API_ENABLED=true` **and** `WEBSITE_CMS_OWNER_DB_RLS_VERIFIED=true`; the latter is an explicit operator attestation, **not a tested RLS implementation**. Do not enable until isolated migrations, database permissions/RLS, replay/rate limits, external identity-provider mapping, audience and permissions, audit, CSRF/origin configuration, TLS, and browser integration tests are verified. The two flags alone do not make this safe to deploy. Since no delivery worker exists, publish/restore respond `publication-queued`/`restoration-queued` instead of claiming cache refresh is complete. This is not an owner-operated production CMS yet.
