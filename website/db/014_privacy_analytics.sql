@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS website_cms.analytics_events (
 );
 CREATE INDEX IF NOT EXISTS ix_website_analytics_site_daily
  ON website_cms.analytics_events(site_id,received_at,event_name);
+CREATE TABLE IF NOT EXISTS website_cms.analytics_rate_windows (
+ site_id uuid NOT NULL,
+ consent_id uuid NOT NULL,
+ window_start timestamptz NOT NULL,
+ accepted_count integer NOT NULL CHECK (accepted_count BETWEEN 1 AND 30),
+ PRIMARY KEY(site_id,consent_id,window_start),
+ FOREIGN KEY(site_id,consent_id) REFERENCES website_cms.consent_choices(site_id,id)
+);
 -- Privacy retention/DSAR erasure must be implemented and operator-reviewed
 -- before enabling. No automatic deletion of CMS, blog, audits or content.
 COMMIT;
