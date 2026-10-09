@@ -78,3 +78,36 @@ async def test_bad_transition_fails_closed():
             actor_id="reviewer", authorized=True, action="reset", audit=AsyncMock(),
         )
     db.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_jenkins_approval_requires_matching_persisted_release_link():
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(rowcount=0))
+    audit = AsyncMock()
+    with pytest.raises(QualificationGovernanceConflict):
+        await change_qualification_status(
+            db, qualification_id="jenkins:jenkins-build-123",
+            expected_revision=1, actor_id="independent-reviewer",
+            authorized=True, action="approve", audit=audit,
+        )
+    statement = str(db.execute.await_args.args[0])
+    assert "platform_notification_qualification_release_links" in statement
+    assert "source_digest" in statement
+    assert "target_digest" in statement
+    audit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_approval_does_not_require_release_link():
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=MagicMock(rowcount=1))
+    revision = await change_qualification_status(
+        db, qualification_id="legacy-cert-123",
+        expected_revision=1, actor_id="independent-reviewer",
+        authorized=True, action="approve", audit=AsyncMock(),
+    )
+    assert revision == 2
+    assert "platform_notification_qualification_release_links" not in str(
+        db.execute.await_args.args[0]
+    )
