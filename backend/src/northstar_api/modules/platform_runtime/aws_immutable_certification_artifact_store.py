@@ -118,7 +118,7 @@ class AwsImmutableCertificationArtifactStore:
             "ServerSideEncryption": "aws:kms",
             "SSEKMSKeyId": self._kms,
             "ObjectLockMode": "COMPLIANCE",
-            "ObjectLockRetainUntilDate": instant.astimezone(UTC) + timedelta(days=self._retention),
+            "ObjectLockRetainUntilDate": instant.astimezone(UTC) + timedelta(days=self._retention + 1),
             "ChecksumSHA256": base64.b64encode(checksum).decode("ascii"),
             "Metadata": {
                 "sha256": checksum.hex(),
