@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:13},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 013 must be contiguous");
+const expected=Array.from({length:15},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 015 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -210,13 +210,67 @@ try {
   await mustReject(
     "UPDATE website_cms.media_assets SET published_at=now(),published_by_actor_id=$2 WHERE id=$1",
     [mediaId,authorId],"23514");
-  console.log(JSON.stringify({database:"website_test",migrations:13,checks:[
+  // Chapter 17: optional consent receipts are explicit, scoped and revocable.
+  const consentId=uuid(),analyticsId=uuid();
+  await client.query(
+    "INSERT INTO website_cms.consent_choices "+
+    "(id,site_id,policy_version,analytics_allowed,marketing_allowed,expires_at) "+
+    "VALUES($1,$2,'v1',true,false,now()+interval '30 days')",
+    [consentId,siteId]);
+  await client.query(
+    "INSERT INTO website_cms.analytics_events "+
+    "(id,site_id,consent_id,event_name,action_key,route_path) "+
+    "VALUES($1,$2,$3,'cta_click','cta_contact','/contact')",
+    [analyticsId,siteId,consentId]);
+  await mustReject(
+    "INSERT INTO website_cms.analytics_events "+
+    "(id,site_id,consent_id,event_name,action_key,route_path) "+
+    "VALUES($1,$2,$3,'form_values','email_user','/contact')",
+    [uuid(),siteId,consentId],"23514");
+  await mustReject(
+    "INSERT INTO website_cms.analytics_events "+
+    "(id,site_id,consent_id,event_name,action_key,route_path) "+
+    "VALUES($1,$2,$3,'cta_click','cta_contact','/contact')",
+    [uuid(),otherSiteId,consentId],"23503");
+  await client.query(
+    "UPDATE website_cms.consent_choices SET withdrawn_at=now() WHERE id=$1",
+    [consentId]);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.consent_choices "+
+    "WHERE id=$1 AND withdrawn_at IS NULL",[consentId]),0,
+    "Withdrawn consent must no longer be current");
+  // Chapter 45: immutable, private automation revisions. Never executed.
+  const automationId=uuid(),automationVersionId=uuid();
+  const graph={title:"Synthetic internal review",nodes:[
+    {id:"start",type:"trigger",event:"lead_accepted",next:"exit"},
+    {id:"exit",type:"exit"},
+  ]};
+  await client.query(
+    "INSERT INTO website_cms.automation_definitions "+
+    "(id,site_id,owner_actor_id,title) VALUES($1,$2,$3,$4)",
+    [automationId,siteId,authorId,graph.title]);
+  await client.query(
+    "INSERT INTO website_cms.automation_versions "+
+    "(id,site_id,definition_id,version,definition,created_by_actor_id) "+
+    "VALUES($1,$2,$3,1,$4::jsonb,$5)",
+    [automationVersionId,siteId,automationId,JSON.stringify(graph),authorId]);
+  await mustReject(
+    "UPDATE website_cms.automation_versions SET version=2 WHERE id=$1",
+    [automationVersionId],"23514");
+  await mustReject(
+    "INSERT INTO website_cms.automation_versions "+
+    "(id,site_id,definition_id,version,definition,created_by_actor_id) "+
+    "VALUES($1,$2,$3,2,$4::jsonb,$5)",
+    [uuid(),otherSiteId,automationId,JSON.stringify(graph),authorId],"23503");
+  console.log(JSON.stringify({database:"website_test",migrations:15,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
     "blog-trash-exclusion","lead-outbox-atomic-fixture","idempotency-unique","quota-fourth-rejected",
     "media-quarantine-initial","media-no-self-approval","media-usage-site-boundary",
-    "unpublished-media-default","media-public-view-excludes-quarantine","no-unapproved-media-publication"
+    "unpublished-media-default","media-public-view-excludes-quarantine","no-unapproved-media-publication",
+    "anonymous-consent-record","analytics-no-form-values","analytics-site-isolation",
+    "consent-withdrawn","automation-immutable-revision","automation-site-isolation"
   ],status:"passed"}));
 } finally {
   client.release();
