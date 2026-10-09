@@ -35,6 +35,9 @@ export default function OwnerConsole(){
   const [slug,setSlug]=useState("");
   const [locale,setLocale]=useState("en");
   const [reason,setReason]=useState("");
+  const [blogCategory,setBlogCategory]=useState("general");
+  const [blogTags,setBlogTags]=useState("");
+  const [blogClassified,setBlogClassified]=useState(false);
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState("");
   const [problem,setProblem]=useState("");
@@ -60,7 +63,18 @@ export default function OwnerConsole(){
   },[]);
   async function choose(id:string){
     setSelected(id);setNotice("");setProblem("");
+    setBlogCategory("general");setBlogTags("");setBlogClassified(false);
     try{await loadRevisions(id);}catch(error){setProblem(error instanceof Error?error.message:"Revision history unavailable");}
+    try{
+      const result=await requestJson("/api/owner/pages/"+encodeURIComponent(id)+"/blog");
+      if(result&&typeof result==="object"&&"blog" in result){
+        const info=(result as {blog?:{category?:string;tags?:string[]}|null}).blog;
+        if(info&&typeof info.category==="string"&&Array.isArray(info.tags)){
+          setBlogCategory(info.category);setBlogTags(info.tags.join(", "));
+          setBlogClassified(true);
+        }
+      }
+    }catch{setProblem("Blog classification could not be loaded.");}
   }
   function addBlock(type:PublicBlock["type"]){
     setDoc(old=>({...old,blocks:[...old.blocks,type==="callout"?{type,title:"",body:""}:{type,text:""}]}));
@@ -178,6 +192,26 @@ export default function OwnerConsole(){
               onClick={()=>void act("/api/owner/pages/"+chosen.id+"/publish",{revisionId},"Publication committed; public cache refresh pending.")}>Publish</button>
             <button className="button secondary" disabled={!revisionId||busy||!!chosen.trashedAt}
               onClick={()=>void act("/api/owner/pages/"+chosen.id+"/restore",{revisionId},"Previous published revision restored; refresh pending.")}>Rollback</button>
+          </div>
+          <div className="owner-preserve">
+            <h3>Blog classification</h3>
+            <p className="owner-hint">{blogClassified?"This page is marked as a blog article.":"Optional: classify this unpublished page as a blog article."}</p>
+            <label htmlFor="blog-category-input">Category slug</label>
+            <input id="blog-category-input" value={blogCategory} maxLength={60}
+              pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              onChange={e=>setBlogCategory(e.target.value)} />
+            <label htmlFor="blog-tag-input">Tags (comma-separated, up to 8)</label>
+            <input id="blog-tag-input" value={blogTags} maxLength={500}
+              onChange={e=>setBlogTags(e.target.value)} placeholder="updates, guidance"/>
+            <button className="button secondary"
+              disabled={busy||!!chosen.trashedAt||!!chosen.publishedRevisionId}
+              onClick={()=>void act("/api/owner/pages/"+chosen.id+"/blog",{
+                category:blogCategory,
+                tags:blogTags.split(",").map(tag=>tag.trim()).filter(Boolean)
+              },"Blog classification saved for editorial review.")}>
+              {blogClassified?"Update draft blog classification":"Mark as blog article"}
+            </button>
+            <p className="owner-hint">Classification locks after publication; editorial changes must be reviewed.</p>
           </div>
           <div className="owner-preserve">
             <h3>Manual preservation</h3>
