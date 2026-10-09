@@ -8,6 +8,7 @@ The API has no cloud mutation endpoint, arbitrary plan input or key-issuance API
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
 from typing import TypeVar
 from uuid import UUID
@@ -65,6 +66,7 @@ def create_deployment_worker_app(
     operations: DeploymentWorkerOperations,
     *,
     private_ingress_enabled: bool = False,
+    lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
 ) -> FastAPI:
     """Create a standalone, OFF-by-default ASGI app (never public-router mounted)."""
     if operations is None:
@@ -73,6 +75,7 @@ def create_deployment_worker_app(
     app = FastAPI(
         title="Northstar private deployment worker",
         docs_url=None, redoc_url=None, openapi_url=None,
+        lifespan=lifespan,
     )
 
     def require_machine_token(
