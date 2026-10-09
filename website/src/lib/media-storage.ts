@@ -25,7 +25,7 @@ export function readQuarantineStoreConfig(env:NodeJS.ProcessEnv):StoreConfig|nul
     // development may use localhost; never use private IP/metadata endpoints.
     if(!local && (!url.hostname.includes(".") ||
       !/^[a-z0-9.-]+$/.test(url.hostname) ||
-      /^\\d+(?:\\.\\d+){3}$/.test(url.hostname) ||
+      /^[0-9]+(?:[.][0-9]+){3}$/.test(url.hostname) ||
       url.hostname.endsWith(".local") ||
       url.hostname.endsWith(".localhost") ||
       url.hostname.endsWith(".internal") ||
