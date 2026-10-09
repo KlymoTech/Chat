@@ -390,3 +390,42 @@ do not merge without explicit instruction.
   window; and a trusted private attestation signing service. Signed
   release certification, production approvals and worker startup remain
   gated and disabled.
+
+
+## Increment: immutable PostgreSQL custody of witnessed Jenkins JUnit index (2026-10-10)
+
+- Added migration `0093_notification_jenkins_junit_custody.py` and ORM
+  `NotificationJenkinsJunitCustodyRecord` for one append-only witness
+  token, original index S3 `VersionId`/checksum, three original JUnit
+  version receipts and pinned release/run/build coordinates per release.
+  A unique `run_id`, release primary key, PostgreSQL update/delete
+  denial trigger and populated-table downgrade refusal protect
+  original custody. This is additional to, not a replacement for, the
+  existing qualification release-link governance.
+- Added `stage_witnessed_junit_custody`: it requires a protected
+  publisher machine-identity check and exact suite receipts, independently
+  readbacks all three original S3 reports and the locked index against
+  the signed witness, checks the resulting build coordinates, and
+  inserts/flushes a custody row in the caller-owned transaction. It
+  neither commits nor retries an unknown S3 outcome.
+- Added `load_and_reconcile_witnessed_junit_custody`: it takes a
+  release/build plan and trusted public-key configuration, loads the
+  original token and receipts from PostgreSQL (never replacement
+  client receipts), locally rejects malformed/mismatched metadata,
+  re-reads all version-fenced S3 evidence, and verifies the original
+  witness SHA before returning the verified provenance.
+- Fixed **existing migration 0092's invalid PL/pgSQL dollar delimiter**
+  discovered during pre-migration review. No recorded data was deleted.
+  Added custody unit regressions, a disposable PostgreSQL migration/
+  uniqueness/immutability/downgrade test, and wired both into the
+  existing feature-branch CI and non-publishing Jenkins preflight.
+- **Not demonstrated:** successful full repository CI, actual PostgreSQL
+  migration, live S3 Object Lock/KMS/IAM authorization, operator replay
+  handling, durable role restriction against SQL TRUNCATE/DDL, and
+  authenticated private attestation signing that consumes the custody
+  reader. Witness verification still enforces 15-minute freshness;
+  an archived historical audit verifier is a separate outstanding gate.
+- Next increment: bind private attestation signing exclusively to
+  `load_and_reconcile_witnessed_junit_custody` with protected AWS test
+  signer identity and verify the emitted Ed25519 attestation against
+  original run/release digests. Production approval/workers stay disabled.
