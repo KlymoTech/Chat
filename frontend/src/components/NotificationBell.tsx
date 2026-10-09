@@ -83,7 +83,7 @@ export function NotificationBell() {
       setOpen(false);
       // Only navigate to an application-relative path; reject protocol-relative
       // URLs and backslashes that browsers can interpret as external hosts.
-      if (item.actionUrl && /^\/(?!\/)[^\\]*$/.test(item.actionUrl)) navigate(item.actionUrl);
+      if (item.actionUrl && /^\/(?!\/)[^\\\u0000-\u001f\u007f]*$/.test(item.actionUrl)) navigate(item.actionUrl);
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Notification could not be updated', 'error');
     }
