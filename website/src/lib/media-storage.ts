@@ -1,5 +1,6 @@
 import "server-only";
 import {S3Client,PutObjectCommand,HeadObjectCommand} from "@aws-sdk/client-s3";
+import {createHash} from "node:crypto";
 import type {VerifiedQuarantineBytes} from "./media-bytes";
 
 type StoreConfig={endpoint:string;bucket:string;region:string;accessKeyId:string;secretAccessKey:string};
@@ -16,7 +17,7 @@ export function readQuarantineStoreConfig(env:NodeJS.ProcessEnv):StoreConfig|nul
      accessKeyId.length<3||secretAccessKey.length<16)return null;
   try {
     const url=new URL(endpoint);
-    const local=env.NODE_ENV!=="production" &&
+    const local=env.NODE_ENV==="development" &&
       env.WEBSITE_MEDIA_STORAGE_LOCAL_DEV==="true" &&
       ["localhost","127.0.0.1"].includes(url.hostname);
     if(url.protocol!=="https:" && !(local&&url.protocol==="http:"))return null;
@@ -38,7 +39,8 @@ export function readQuarantineStoreConfig(env:NodeJS.ProcessEnv):StoreConfig|nul
 let client:S3Client|undefined;
 let signature:string|undefined;
 function storageClient(config:StoreConfig):S3Client {
-  const key=[config.endpoint,config.region,config.accessKeyId,config.bucket].join("|");
+  const fingerprint=createHash("sha256").update(config.secretAccessKey).digest("hex");
+  const key=[config.endpoint,config.region,config.accessKeyId,config.bucket,fingerprint].join("|");
   if(!client||signature!==key){
     client?.destroy();
     client=new S3Client({
