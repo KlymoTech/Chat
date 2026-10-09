@@ -4,7 +4,9 @@ export const EVENT_NAMES=[
 ] as const;
 export type EventName=typeof EVENT_NAMES[number];
 export type AnalyticsEvent=Readonly<{eventName:EventName;actionKey:string;routePath:string}>;
-const key=/^[a-z0-9_-]{1,80}$/;
+// Restrict action keys to a fixed action dictionary or sanctioned block IDs.
+ // A generic free-text "action key" could smuggle names, emails or other PII.
+const key=/^(?:cta_contact|cta_services|cta_resources|nav_home|nav_services|nav_about|nav_resources|nav_blog|nav_contact|page_view|form_start|cta_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|faq_[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}_[0-9]{1,2})$/;
 const route=/^\/(?:$|services$|about$|contact$|resources$|blog$|content\/[a-z0-9]+(?:-[a-z0-9]+)*)$/;
 export function parseAnalyticsEvent(value:unknown):AnalyticsEvent|null {
   if(!value||typeof value!=="object"||Array.isArray(value))return null;
