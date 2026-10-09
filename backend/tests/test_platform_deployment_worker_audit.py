@@ -48,7 +48,7 @@ async def audit_database():
 def principal(environment="qualification"):
     return DeploymentMachinePrincipal(
         subject="role/deployment-executor", environment=environment,
-        token_id="private-opaque-token-id", scopes=frozenset(),
+        token_id=uuid4().hex, scopes=frozenset(),
     )
 
 
@@ -64,11 +64,12 @@ async def events(engine, change_id):
 @pytest.mark.asyncio
 async def test_intent_outcome_are_append_only_and_chain_linked(audit_database):
     audit, engine, change_id = audit_database
-    first = await audit.begin(principal=principal(), change_id=change_id, action="claim")
+    actor = principal()
+    first = await audit.begin(principal=actor, change_id=change_id, action="claim")
     stored = await events(engine, change_id)
     assert len(stored) == 1
     assert stored[0].kind == "intent"
-    assert "private-opaque-token-id" not in str(stored[0].__dict__)
+    assert actor.token_id not in str(stored[0].__dict__)
     with pytest.raises(DeploymentAuditBlocked, match="reconciliation"):
         await audit.begin(principal=principal(), change_id=change_id, action="renew")
     await audit.finish(first, outcome="accepted")
