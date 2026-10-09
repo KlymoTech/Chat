@@ -15,10 +15,14 @@ export async function getAnalyticsSummary(actor:CmsActor):Promise<AnalyticsDaily
   // No person/consent identifier, individual event or raw journey is returned.
   // Suppress low-volume cohorts; reporting window is deliberately bounded.
   const r=await reader.query<{day:string;eventName:string;count:number}>(
-    `SELECT to_char(date_trunc('day',received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD') AS day,
-            event_name AS "eventName",COUNT(*)::integer AS count
-       FROM website_cms.analytics_events
-      WHERE site_id=$1 AND received_at>=now()-interval '30 days'
+    `SELECT to_char(date_trunc('day',e.received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD') AS day,
+            e.event_name AS "eventName",COUNT(*)::integer AS count
+       FROM website_cms.analytics_events e
+       JOIN website_cms.consent_choices c
+         ON c.id=e.consent_id AND c.site_id=e.site_id
+      WHERE e.site_id=$1 AND e.received_at>=now()-interval '30 days'
+        AND c.withdrawn_at IS NULL AND c.expires_at>now()
+        AND c.analytics_allowed=true AND c.policy_version='v1'
       GROUP BY 1,2 HAVING COUNT(*)>=5
       ORDER BY day DESC,"eventName" ASC LIMIT 200`,
     [actor.siteId]);
