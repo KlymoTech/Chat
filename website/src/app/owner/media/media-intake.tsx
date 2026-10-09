@@ -127,7 +127,7 @@ export default function MediaIntake(){
     <p className="eyebrow">Owner workspace · restricted media metadata</p>
     <h1 id="media-intake-heading">Media quarantine registry</h1>
     <p className="lead">Register image rights and provenance, then optionally store bytes in a private quarantine. Scanning, review and public delivery remain disabled.</p>
-    <p><Link href="/owner">Back to owner CMS</Link></p>
+    <p><Link href="/owner">Back to owner CMS</Link> · <Link href="/owner/media/review">Independent media review</Link></p>
     {error&&<p role="alert">{error}</p>}
     {notice&&<p role="status">{notice}</p>}
     {enabled&&<div style={{display:"grid",gap:"1.5rem",maxWidth:"820px"}}>
