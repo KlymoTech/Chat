@@ -48,3 +48,53 @@ async def test_invalid_id_cannot_query_database():
     assert await store.read("") is None
     assert await store.read("a" * 129) is None
     session.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unlinked_jenkins_evidence_not_returned_to_worker():
+    row = SimpleNamespace(
+        id="jenkins:jenkins-build-123", environment="staging",
+        source_digest="a" * 64, target_digest="b" * 64,
+        proof_tokens=["token1", "token2", "token3"],
+        approved=True, revoked=False,
+    )
+    factory, session = sessions(row)
+    session.get.side_effect = [row, None]
+    assert await PostgresNotificationQualificationStore(factory).read(row.id) is None
+    assert session.get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_linked_jenkins_evidence_can_be_read_for_proof_verification():
+    row = SimpleNamespace(
+        id="jenkins:jenkins-build-123", environment="staging",
+        source_digest="a" * 64, target_digest="b" * 64,
+        proof_tokens=["token1", "token2", "token3"],
+        approved=True, revoked=False,
+    )
+    link = SimpleNamespace(
+        environment="staging", source_digest="a" * 64,
+        target_digest="b" * 64, run_id="jenkins-build-123",
+    )
+    factory, session = sessions(row)
+    session.get.side_effect = [row, link]
+    found = await PostgresNotificationQualificationStore(factory).read(row.id)
+    assert found is not None and found.approved is True
+    assert found.proof_tokens == tuple(row.proof_tokens)
+
+
+@pytest.mark.asyncio
+async def test_stale_link_is_denied_even_for_approved_jenkins_evidence():
+    row = SimpleNamespace(
+        id="jenkins:jenkins-build-123", environment="staging",
+        source_digest="a" * 64, target_digest="b" * 64,
+        proof_tokens=["token1", "token2", "token3"],
+        approved=True, revoked=False,
+    )
+    link = SimpleNamespace(
+        environment="production", source_digest="a" * 64,
+        target_digest="b" * 64, run_id="jenkins-build-123",
+    )
+    factory, session = sessions(row)
+    session.get.side_effect = [row, link]
+    assert await PostgresNotificationQualificationStore(factory).read(row.id) is None
