@@ -68,12 +68,16 @@ def qualify_worker_database_identity(fields: Mapping[str, Any], *, expected_role
             "can_create_database", "can_write_all_data", "can_read_server_files",
             "can_write_server_files", "can_execute_server_program",
             "audit_update", "audit_delete", "audit_truncate",
+            "change_insert", "change_update", "change_delete", "change_truncate",
+            "config_insert", "config_update", "config_delete", "config_truncate",
+            "lease_insert", "lease_delete", "lease_truncate",
+            "step_delete", "step_truncate",
         ))
         or any(fields.get(name) is not True for name in (
             "audit_select", "audit_insert",
             "lease_select", "lease_update",
             "step_select", "step_insert", "step_update",
-            "change_select",
+            "change_select", "config_select",
         ))
     ):
         raise WorkerDatabaseSecurityError("worker PostgreSQL role is not least-privilege")
@@ -123,7 +127,35 @@ async def verify_worker_database_identity(engine: AsyncEngine, *, expected_role:
             has_table_privilege(current_user, 'platform_deployment_steps', 'UPDATE')
                 AS step_update,
             has_table_privilege(current_user, 'platform_changes', 'SELECT')
-                AS change_select
+                AS change_select,
+            has_table_privilege(current_user, 'platform_changes', 'INSERT')
+                AS change_insert,
+            has_table_privilege(current_user, 'platform_changes', 'UPDATE')
+                AS change_update,
+            has_table_privilege(current_user, 'platform_changes', 'DELETE')
+                AS change_delete,
+            has_table_privilege(current_user, 'platform_changes', 'TRUNCATE')
+                AS change_truncate,
+            has_table_privilege(current_user, 'platform_config_versions', 'SELECT')
+                AS config_select,
+            has_table_privilege(current_user, 'platform_config_versions', 'INSERT')
+                AS config_insert,
+            has_table_privilege(current_user, 'platform_config_versions', 'UPDATE')
+                AS config_update,
+            has_table_privilege(current_user, 'platform_config_versions', 'DELETE')
+                AS config_delete,
+            has_table_privilege(current_user, 'platform_config_versions', 'TRUNCATE')
+                AS config_truncate,
+            has_table_privilege(current_user, 'platform_deployment_leases', 'INSERT')
+                AS lease_insert,
+            has_table_privilege(current_user, 'platform_deployment_leases', 'DELETE')
+                AS lease_delete,
+            has_table_privilege(current_user, 'platform_deployment_leases', 'TRUNCATE')
+                AS lease_truncate,
+            has_table_privilege(current_user, 'platform_deployment_steps', 'DELETE')
+                AS step_delete,
+            has_table_privilege(current_user, 'platform_deployment_steps', 'TRUNCATE')
+                AS step_truncate
         FROM pg_roles r WHERE r.rolname = current_user
     """)
     try:
