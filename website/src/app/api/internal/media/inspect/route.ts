@@ -1,6 +1,6 @@
 import {NextResponse} from "next/server";
-import {verifyPrivateScanRequest} from "../../../../lib/media-scan-auth";
-import {inspectPrivateMedia} from "../../../../lib/media-processing";
+import {verifyPrivateScanRequest} from "../../../../../lib/media-scan-auth";
+import {inspectPrivateMedia} from "../../../../../lib/media-processing";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
