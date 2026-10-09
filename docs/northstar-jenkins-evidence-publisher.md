@@ -290,3 +290,46 @@ Ed25519 signer service. Source metadata and release IDs must come from
 a protected immutable build plan, not tenant-supplied parameters.
 A mock-S3 passing test is not evidence that live S3 retention or AWS trust
 policies work correctly.
+
+
+## Increment: immutable witnessed JUnit evidence index (2026-10-10)
+
+Added an additive server-only S3 index adapter:
+`aws_jenkins_junit_evidence_index.py`.
+
+The index stores the exact independently signed witness token, release ID,
+Jenkins run, branch, environment, Git source commit, source/target digests,
+witness body SHA-256 and all three original JUnit
+`{bucket,key,version_id,sha256}` receipts in one canonical JSON object at:
+
+`evidence/<release-id>/jenkins/<run-id>/junit/verified-index.json`
+
+Publication requires the dedicated AWS publisher's STS role/session identity
+and a full read-only reconciliation of the three **original** versioned
+JUnit S3 objects against the independent witness. Only then may the
+publisher create the index using `IfNoneMatch=*`, pinned SSE-KMS,
+COMPLIANCE Object Lock, SHA-256 checksum and explicit per-object retention.
+It never overwrites a conflicting index and does not retry an unknown
+S3 write. The returned `JenkinsJunitIndexReceipt` includes the exact
+index `VersionId` and checksum.
+
+Readback requires an **externally trusted**, original index receipt AND
+three externally trusted original report receipts. It revalidates all
+three pinned report versions and the witness signature, reconstructs
+the exact expected canonical index JSON, and checks the exact index S3
+version, compliance lock, KMS identity, metadata and all bytes. It never
+uses a latest/unversioned key or reconstructs trust from index contents.
+
+**Remaining controls:** original receipt/index receipt custody in a
+separately protected persistent qualification ledger, independent witness
+producer and identity, durable idempotent partial-write incident handling,
+full IAM and S3 Object Lock qualification, and a signer service that uses
+the validated index only after authenticated build authorization. The
+current witness verifier enforces a 15-minute freshness window; historical
+audit and long-term replay-resistant verification must be designed
+separately before treating archived objects as perennial proof.
+
+The unit tests use a fake S3 implementation and real generated Ed25519
+witnesses. An offline Jenkins test hook does not upload to AWS, sign
+results or approve worker startup. No release signing authority or
+production notification credentials are exposed.
