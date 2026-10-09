@@ -61,7 +61,7 @@ export async function putQuarantineObject(
 ):Promise<void> {
   const config=readQuarantineStoreConfig(process.env);
   if(!config)throw new Error("Quarantine object storage is disabled");
-  if(!/^quarantine\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/original$/.test(key))
+  if(!/^quarantine[/][0-9a-f-]{36}[/][0-9a-f-]{36}[/]original$/.test(key))
     throw new Error("Invalid quarantine object key");
   const s3=storageClient(config);
   const body=Buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength);
@@ -85,7 +85,7 @@ export async function putQuarantineObject(
 export async function getQuarantineObject(key:string):Promise<Uint8Array> {
   const config=readQuarantineStoreConfig(process.env);
   if(!config)throw new Error("Private media storage is disabled");
-  if(!/^quarantine\\/[0-9a-f-]{36}\\/[0-9a-f-]{36}\\/original$/.test(key))
+  if(!/^quarantine[/][0-9a-f-]{36}[/][0-9a-f-]{36}[/]original$/.test(key))
     throw new Error("Invalid quarantine object key");
   const storage=storageClient(config);
   const head=await storage.send(new HeadObjectCommand({
@@ -115,7 +115,7 @@ export async function putSanitizedCandidate(
 ):Promise<void> {
   const config=readQuarantineStoreConfig(process.env);
   if(!config)throw new Error("Private media storage is disabled");
-  if(!/^processed\\/[0-9a-f-]{36}\\/[0-9a-f-]{36}\\/candidate\\.webp$/.test(key))
+  if(!/^processed[/][0-9a-f-]{36}[/][0-9a-f-]{36}[/]candidate[.]webp$/.test(key))
     throw new Error("Invalid derivative destination");
   if(bytes.length<1||bytes.length>10*1024*1024||
      !/^[a-f0-9]{64}$/.test(expectedSha256)||
