@@ -216,3 +216,16 @@ Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found 
 - Mounted `WebsiteContentPreflight` within the existing `WebsiteCMSPage`. Owner manually runs/re-runs preflight after publication; results display actionable descriptions, resource slugs, severities and the separate production release limitation.
 - Backend integration regressions were added to `test_website_forms_api.py` and `test_website_navigation_api.py`. Frontend component regressions were added in `WebsiteContentPreflight.test.tsx`. Both are picked up by the existing branch CI test commands.
 - **Not verified:** GitHub Actions still has failed job records with zero executed steps and no retrievable job logs. A content preflight cannot stand in for E2E browser tests, app migrations or verified production releases; CAP-090 remains **Not verified**.
+
+
+## Consolidated branch: bounded responsive design-token inspector — 2026-10-10
+
+- The **only** target branch for this increment is `feature/website-consolidated-20261010`. No files on `main` or the three source branches were mutated.
+- Audited the active React/FastAPI visual builder: it already has authenticated drafts, block/section reordering, duplication, history, autosave and public HTML rendering. No parallel page builder, database or UI shell was introduced.
+- Existing Pydantic `BuilderNode` now accepts an **optional** frozen, extra-forbidden `NodeAppearance` contract with three bounded enums: alignment (start/center/end), spacing (compact/normal/spacious) and color tone (default/muted/accent). Existing unstyled documents remain valid. The schema rejects raw CSS, event handlers, HTML and arbitrary appearance fields.
+- Existing public renderer emits static class names derived only from validated design tokens. Corresponding responsive static CSS is covered by the renderer's existing SHA-256 style CSP hash; no inline untrusted styles/scripts are accepted.
+- Existing `WebsiteCMSPage` renders a shared `WebsiteNodeStyleEditor` for the selected section and each block. Changes flow through the **existing** draft change operation and version-guarded save, so undo/redo, published revisions, conflict handling and autosave are reused rather than recreated.
+- The private page preview mirrors the safe styling presets. Accent/soft tones use fixed contrast-conscious choices; arbitrary customer CSS remains blocked until a governed theme editor exists.
+- Added Pydantic contract tests, public HTML/legacy compatibility tests, builder undo/redo preservation tests, dedicated inspector tests, and an existing CMS integration test confirming versioned save with appearance metadata.
+- **Verification remains incomplete:** GitHub Actions branch jobs continue failing before runner assignment with no executed steps. The styling increment is committed, **not independently build-/browser-/production-certified**. CAP-003 and CAP-004 remain `Not verified` in the capability register.
+- The rest of the blueprint remains in scope: component/template design system, breakpoint-specific controls, media/CDN, marketing journeys, consent/privacy rights, analytics reconciliation, external provider integrations and full release acceptance.
