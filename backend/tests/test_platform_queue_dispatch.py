@@ -71,7 +71,6 @@ def test_invalid_lease_configuration_fails_fast():
         DurableDispatchService(factory, MagicMock(), lease_seconds=0)
 
 
-
 @pytest.mark.asyncio
 async def test_terminal_broker_rejection_is_dead_lettered_without_retry():
     factory, session = sessions()
