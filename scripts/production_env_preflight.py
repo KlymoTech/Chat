@@ -101,6 +101,8 @@ def valid_postgres_url(value: str) -> bool:
     """Require a usable PostgreSQL URL without embedded placeholder credentials."""
     try:
         parsed = urlparse(value)
+        if re.search(r"%(?![0-9A-Fa-f]{2})", value):
+            return False
         options = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
         allowed_options = {"sslmode", "ssl"}
         if not options:
