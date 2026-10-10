@@ -75,6 +75,7 @@ from northstar_api.routers import (
     whatsapp,
     whatsapp_accounts,
     widget,
+    website_campaigns,
     website_cms,
     website_consent,
     website_analytics,
@@ -142,6 +143,7 @@ api_router.include_router(channel_deliveries.router)
 api_router.include_router(channel_health_history.router)
 api_router.include_router(channel_webhook_events.router)
 api_router.include_router(channels.router)
+api_router.include_router(website_campaigns.router)
 api_router.include_router(website_cms.router)
 api_router.include_router(website_consent.router)
 api_router.include_router(website_analytics.router)
