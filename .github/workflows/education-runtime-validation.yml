@@ -129,6 +129,12 @@ jobs:
             pwd
           } > education-ci-diagnostics.txt 2>&1
           cat education-ci-diagnostics.txt
+          {
+            echo "### Education validation environment"
+            echo '~~~text'
+            cat education-ci-diagnostics.txt
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload education validation diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0
