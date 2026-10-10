@@ -46,6 +46,7 @@ const VerifyEmailPageView = lazy(() => import('@/features/website/pages/VerifyEm
 const WorkspaceInvitationPageView = lazy(() => import('@/features/website/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
 const WorkspaceSettingsPageView = lazy(() => import('@/features/admin').then((module) => ({ default: module.WorkspaceSettingsPage })));
 const SitePrivacyPageView = lazy(() => import('@/features/website/pages/SitePrivacyPage').then((module) => ({ default: module.SitePrivacyPage })));
+const WebsiteCampaignPageView = lazy(() => import('@/pages/WebsiteCampaignPage').then((module) => ({ default: module.WebsiteCampaignPage })));
 const WebsiteCMSPageView = lazy(() => import('@/pages/WebsiteCMSPage').then((module) => ({ default: module.WebsiteCMSPage })));
 const WidgetDemoPageView = lazy(() => import('@/features/website/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
@@ -92,6 +93,7 @@ export function AppRoutes() {
       <Route path="workflows" element={<BotWorkflowBuilderPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
       <Route path="site-cms" element={<WebsiteCMSPageView />} />
+      <Route path="site-campaigns" element={<WebsiteCampaignPageView />} />
       <Route path="audit" element={<AuditPage />} />
       <Route path="integrations" element={<IntegrationsHubPage />} />
       <Route path="integrations/advanced" element={<IntegrationManagementPage />} />
