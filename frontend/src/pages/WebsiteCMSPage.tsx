@@ -10,13 +10,21 @@ type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
 type Action = 'submit' | 'approve' | 'publish';
 type Node = BuilderNode;
 interface PageSEO { description: string; canonical_url: string | null; indexable: boolean }
-interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[]; seo?: PageSEO }
+interface BlogMetadata { author: string; category: string; summary: string; reviewer: string | null; locale: string }
+interface PageDocument {
+  schema_version: 1; title: string; slug: string; nodes: Node[]; seo?: PageSEO;
+  content_type?: 'page' | 'article'; blog?: BlogMetadata | null;
+}
 interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
 interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
 const id = () => crypto.randomUUID();
 const defaultSEO: PageSEO = { description: '', canonical_url: null, indexable: false };
-const newDocument = (title: string, slug: string): PageDocument => ({ schema_version: 1, title, slug, seo: { ...defaultSEO }, nodes: [
+const newDocument = (title: string, slug: string, asArticle = false): PageDocument => ({
+  schema_version: 1, title, slug, seo: { ...defaultSEO },
+  content_type: asArticle ? 'article' : 'page',
+  blog: asArticle ? { author: 'Editorial team', category: 'General', summary: 'Update this article summary before publishing.', reviewer: null, locale: 'en' } : null,
+  nodes: [
   { id: id(), kind: 'section', children: [{ id: id(), kind: 'heading', text: title }, { id: id(), kind: 'paragraph', text: 'Edit this introduction.' }] },
 ] });
 const newBlock = (kind: Exclude<Kind, 'section'>): Node => kind === 'heading' ? { id: id(), kind, text: 'Heading' }
@@ -57,6 +65,7 @@ export function WebsiteCMSPage() {
   const [draggedItem, setDraggedItem] = useState<{ id: string; type: 'section' | 'block' } | null>(null);
   const [name, setName] = useState('New page');
   const [slug, setSlug] = useState('new-page');
+  const [newContentType, setNewContentType] = useState<'page' | 'article'>('page');
   const [copyTitle, setCopyTitle] = useState('');
   const [copySlug, setCopySlug] = useState('');
   const [importContent, setImportContent] = useState('');
@@ -91,7 +100,7 @@ export function WebsiteCMSPage() {
   const create = async () => {
     setBusy(true); setError('');
     try {
-      const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim())) });
+      const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim(), newContentType === 'article')) });
       setPages((items) => [page, ...items]); open(page, true);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
@@ -264,11 +273,17 @@ export function WebsiteCMSPage() {
       <div className="site-cms-layout">
         <Card><h3>Pages</h3><div className="site-cms-pages">
           {pages.map((page) => <button key={page.id} type="button" className={selected?.id === page.id ? 'is-selected' : ''}
-            onClick={() => open(page)}><strong>{page.title}</strong><small>/{page.slug} · {page.status}</small></button>)}
+            onClick={() => open(page)}><strong>{page.title}</strong><small>{page.document.content_type === 'article' ? 'Article' : 'Page'} · /{page.slug} · {page.status}</small></button>)}
           {!busy && pages.length === 0 ? <p>No pages yet. Create one below.</p> : null}
         </div><form className="site-cms-create" onSubmit={(event) => { event.preventDefault(); void create(); }}>
           <label>Page title<input value={name} required maxLength={180} onChange={(event) => setName(event.target.value)}/></label>
           <label>URL slug<input value={slug} required maxLength={160} pattern="[a-z0-9]+(-[a-z0-9]+)*" onChange={(event) => setSlug(event.target.value)}/></label>
+          <label>Content type
+            <select value={newContentType} onChange={(event) => setNewContentType(event.target.value as 'page' | 'article')}>
+              <option value="page">Website page</option>
+              <option value="article">Blog article</option>
+            </select>
+          </label>
           <Button type="submit" icon={FilePlus2} disabled={busy || !name.trim()}>Create draft</Button>
         </form>
         <div className="site-cms-import">
@@ -307,12 +322,14 @@ export function WebsiteCMSPage() {
               <div><strong>{metrics?.pages.length ?? '—'}</strong><span>Viewed pages</span></div>
             </div>
             {metrics && metrics.pages.length > 0 ? <p>Top page: /{metrics.pages[0]?.slug} · {metrics.pages[0]?.pageViews} views</p> : null}
+            <a className="site-cms-public-link" href={apiConfig.baseUrl + '/site-blog/' + activeWorkspace.id}
+              target="_blank" rel="noopener noreferrer">View published blog <ExternalLink size={15} aria-hidden="true" /></a>
             <a className="site-cms-public-link" href={apiConfig.baseUrl + '/site-discovery/sitemap/' + activeWorkspace.id + '.xml'}
               target="_blank" rel="noopener noreferrer">View published XML sitemap <ExternalLink size={15} aria-hidden="true" /></a>
           </Card>
           {!draft || !selected ? <Card><h3>Select a page</h3><p>Choose an existing page or create a draft.</p></Card> : <>
             <Card><div className="site-cms-toolbar"><div><strong>{selected.title}</strong> <Badge tone={selected.status === 'published' ? 'success' : 'warning'}>{selected.status}</Badge>
-              <small>Draft revision {selected.draftVersion} · Published {selected.publishedVersion ?? 'never'}</small></div>
+              <small>{draft.content_type === 'article' ? 'Article' : 'Page'} · Draft revision {selected.draftVersion} · Published {selected.publishedVersion ?? 'never'}</small></div>
               <div className="site-cms-actions">
                 <Button icon={Save} disabled={busy || !dirty} onClick={() => void save()}>Save draft</Button>
                 <Button variant="secondary" icon={Send} disabled={busy || dirty || selected.status !== 'draft'} onClick={() => void transition('submit')}>Submit review</Button>
@@ -347,8 +364,35 @@ export function WebsiteCMSPage() {
               </form>
             </Card>
             <div className="site-cms-editor-grid"><Card>
-              <h3>Visual page builder</h3>
+              <h3>{draft.content_type === 'article' ? 'Blog article editor' : 'Visual page builder'}</h3>
               <label>Page title<input value={draft.title} maxLength={180} onChange={(event) => setDraft({ ...draft, title: event.target.value })}/></label>
+              {draft.content_type === 'article' && draft.blog ? <fieldset className="site-cms-seo">
+                <legend>Blog article details</legend>
+                <label>Author
+                  <input required maxLength={120} value={draft.blog.author}
+                    onChange={(event) => setDraft({ ...draft, blog: { ...draft.blog!, author: event.target.value } })}/>
+                </label>
+                <label>Category
+                  <input required maxLength={80} value={draft.blog.category}
+                    onChange={(event) => setDraft({ ...draft, blog: { ...draft.blog!, category: event.target.value } })}/>
+                </label>
+                <label>Article summary
+                  <textarea required rows={3} maxLength={240} value={draft.blog.summary}
+                    onChange={(event) => setDraft({ ...draft, blog: { ...draft.blog!, summary: event.target.value } })}/>
+                </label>
+                <label>Reviewer (optional)
+                  <input maxLength={120} value={draft.blog.reviewer ?? ''}
+                    onChange={(event) => setDraft({ ...draft, blog: { ...draft.blog!, reviewer: event.target.value || null } })}/>
+                </label>
+                <label>Language and region
+                  <select value={draft.blog.locale}
+                    onChange={(event) => setDraft({ ...draft, blog: { ...draft.blog!, locale: event.target.value } })}>
+                    <option value="en">English</option>
+                    <option value="hi">Hindi</option>
+                    <option value="en-IN">English (India)</option>
+                  </select>
+                </label>
+              </fieldset> : null}
               <fieldset className="site-cms-seo">
                 <legend>Search appearance</legend>
                 <label>Meta description (up to 160 characters)
