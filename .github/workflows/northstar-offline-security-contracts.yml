@@ -13,9 +13,11 @@ on:
       - 'backend/migrations/versions/0096_signing_authorization_replay.py'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization*.py'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization*.py'
       - 'backend/tests/test_platform_custody*'
       - 'backend/tests/test_platform_signing_authorization*.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
+      - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
       - 'backend/pyproject.toml'
   pull_request:
@@ -27,9 +29,11 @@ on:
       - 'backend/migrations/versions/0095_notification_custody_signing_claims.py'
       - 'backend/migrations/versions/0096_signing_authorization_replay.py'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization*.py'
       - 'backend/tests/test_platform_custody*'
       - 'backend/tests/test_platform_signing_authorization*.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
+      - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
       - 'backend/pyproject.toml'
   workflow_dispatch:
