@@ -9,6 +9,11 @@ import pytest
 from northstar_api.modules.platform_runtime import queue_notification_authorized_signing as subject
 
 
+class SigningClaims:
+    async def claim(self, **kwargs):
+        return None
+
+
 class Consumption:
     def __init__(self, events, fail=False):
         self.events = events
@@ -30,7 +35,7 @@ def arguments(consumption):
         index_reconciler=object(),
         report_reconciler=object(),
         signing_identity=object(),
-        signing_claims=object(),
+        signing_claims=SigningClaims(),
         release_id="release-12345678",
         run_id="run-12345678",
         branch="feature/test",
@@ -102,8 +107,23 @@ async def test_rejected_or_duplicate_grant_never_reaches_custody(monkeypatch):
 async def test_missing_replay_ledger_rejects_request(monkeypatch):
     sign = AsyncMock()
     monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
-    with pytest.raises(PermissionError, match="one-use authorization"):
+    with pytest.raises(PermissionError, match="replay guards"):
         await subject.sign_with_protected_authorization(
             None, **arguments(None)
         )
+    sign.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["signing_claims", "authorization_consumption"])
+async def test_both_guards_required_before_any_grant_is_consumed(monkeypatch, missing):
+    verify = AsyncMock()
+    sign = AsyncMock()
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", verify)
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    parameters = arguments(Consumption([]))
+    parameters[missing] = None
+    with pytest.raises(PermissionError, match="replay guards"):
+        await subject.sign_with_protected_authorization(None, **parameters)
+    verify.assert_not_awaited()
     sign.assert_not_awaited()
