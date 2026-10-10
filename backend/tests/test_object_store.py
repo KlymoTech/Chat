@@ -695,7 +695,7 @@ class _FakeClamSocket:
 def test_clamav_instream_clean_verdict_uses_loopback_and_bounded_blocks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = _FakeClamSocket(b"stream: OK\\x00")
+    client = _FakeClamSocket(b"stream: OK\x00")
     connect = Mock(return_value=client)
     monkeypatch.setattr("northstar_api.services.object_store.socket.create_connection", connect)
     content = b"a" * (70 * 1024)
@@ -704,8 +704,8 @@ def test_clamav_instream_clean_verdict_uses_loopback_and_bounded_blocks(
 
     connect.assert_called_once_with(("127.0.0.1", 3310), timeout=60)
     assert client.timeout == 60
-    assert client.chunks[0] == b"zINSTREAM\\x00"
-    assert client.chunks[-1] == b"\\x00" * 4
+    assert client.chunks[0] == b"zINSTREAM\x00"
+    assert client.chunks[-1] == b"\x00" * 4
     assert b"".join(client.chunks[2:-1:2]) == content
     assert len(client.chunks[1]) == 4
     assert int.from_bytes(client.chunks[1], "big") == 64 * 1024
@@ -714,8 +714,8 @@ def test_clamav_instream_clean_verdict_uses_loopback_and_bounded_blocks(
 @pytest.mark.parametrize(
     ("reply", "error_type"),
     [
-        (b"stream: Eicar-Test-Signature FOUND\\x00", InvalidUpload),
-        (b"stream: ERROR\\x00", ObjectStoreUnavailable),
+        (b"stream: Eicar-Test-Signature FOUND\x00", InvalidUpload),
+        (b"stream: ERROR\x00", ObjectStoreUnavailable),
         (b"", ObjectStoreUnavailable),
         (b"stream: OK", ObjectStoreUnavailable),
     ],
