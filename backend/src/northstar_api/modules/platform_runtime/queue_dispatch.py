@@ -89,11 +89,20 @@ class DurableDispatchService:
             receipt = None
         now = datetime.now(UTC)
         accepted = receipt is not None and receipt.outcome is DeliveryOutcome.PUBLISHED
+        # A definitive broker rejection is not a transient delivery failure:
+        # quarantine the durable row for an explicitly audited manual replay.
+        rejected = receipt is not None and receipt.outcome is DeliveryOutcome.REJECTED
+        if accepted:
+            next_status = "published"
+        elif rejected or claim.attempts >= self.max_attempts:
+            next_status = "dead_letter"
+        else:
+            next_status = "retrying"
         retry_seconds = min(3600, 2 ** min(claim.attempts, 10))
         # Lease ownership is checked in SQL, so an expired prior owner cannot
         # overwrite a new worker's acknowledgement or retry status.
         async with self.sessions() as session, session.begin():
-            await session.execute(
+            result = await session.execute(
                 update(DurableQueueRecord)
                 .where(
                     DurableQueueRecord.id == claim.job.job_id,
@@ -102,13 +111,13 @@ class DurableDispatchService:
                     DurableQueueRecord.lease_expires_at > now,
                 )
                 .values(
-                    status="published" if accepted else (
-                        "dead_letter" if claim.attempts >= self.max_attempts else "retrying"
-                    ),
+                    status=next_status,
                     published_reference=receipt.reference if accepted else None,
                     available_at=now + timedelta(seconds=retry_seconds),
                     lease_token=None,
                     lease_expires_at=None,
                 )
             )
-        return True
+        # If the lease expired or another worker owns the row, the database
+        # did not record an outcome. Do not report successful progress.
+        return result.rowcount == 1
