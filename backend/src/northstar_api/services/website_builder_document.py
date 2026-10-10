@@ -24,14 +24,24 @@ _MAX_NODES = 500
 
 
 def _safe_url(value: str) -> str:
+    """Reject ambiguous URLs before they are inserted into browser attributes."""
     value = value.strip()
+    if not value:
+        raise ValueError("URL must not be empty")
+    if any(ord(char) < 32 or ord(char) == 127 or ord(char) == 92 for char in value):
+        raise ValueError("URLs cannot contain control characters or backslashes")
     parts = urlsplit(value)
-    if value.startswith("/") and not value.startswith("//") and not value.startswith("/\\"):
+    if value.startswith("/") and not value.startswith("//") and not parts.netloc:
         return value
-    if parts.scheme == "https" and parts.netloc and not parts.username and not parts.password:
+    if (
+        parts.scheme == "https"
+        and parts.hostname
+        and not parts.username
+        and not parts.password
+        and not parts.fragment
+    ):
         return value
-    raise ValueError("Only relative paths or HTTPS URLs are allowed")
-
+    raise ValueError("Only local paths or HTTPS URLs without credentials are allowed")
 
 class BuilderNode(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
