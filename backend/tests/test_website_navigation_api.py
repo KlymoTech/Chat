@@ -287,9 +287,21 @@ async def test_preflight_flags_navigation_to_archived_pages(
 
     # Restore the previously saved menu as a new version so this shared
     # test workspace does not leave a broken public navigation pointer.
+    visible = await client.get("/api/v1/site-cms/pages", headers=auth_headers)
+    assert visible.status_code == 200
+    currently_published = {
+        item["slug"] for item in visible.json()
+        if item["publishedVersion"] is not None
+    }
+    restore_doc = {
+        "items": [
+            item for item in baseline["document"]["items"]
+            if item["slug"] in currently_published
+        ],
+    }
     restored = await client.put(menu_url, headers=auth_headers, json={
         "expected_version": new_version,
-        "document": baseline["document"],
+        "document": restore_doc,
     })
     assert restored.status_code == 200, restored.text
     restore_published = await client.post(
