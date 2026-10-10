@@ -154,3 +154,9 @@ Source requirements: Chapter 04.1 (task-oriented routes and working navigation),
 - No live environment migration, frontend compilation, DB integration execution, end-to-end browser run or owner acceptance is certified by this ledger.
 - GitHub-hosted workflow jobs still fail without assignment to a runner or execution steps; investigate repository/org Actions billing, availability and policy before a release gate can pass.
 - CAP-002, CAP-004, CAP-007, CAP-011 and CAP-012 remain **not verified**. The rest of the 120-capability catalogue remains in scope and cannot be considered delivered solely because adjacent components now exist.
+
+### Additional correctness safeguards
+- The existing shared page-creation function and new redirect-creation operation both lock the workspace URL namespace before checking source/target collisions, preventing a concurrent page/redirect claim on separate tables in PostgreSQL.
+- Redirect creation, updates and disabling now append existing transactional outbox messages, with tests asserting audit/outbox evidence.
+- Tests use the existing **session-scoped** backend workspace fixture. Navigation tests derive their expected versions from the live fixture and check publication retries against previous side-effect counts instead of assuming an empty database.
+- The isolated branch workflow now includes Python source and migration syntax checks plus `alembic heads`, and explicitly includes the menu/redirect API test files. These checks remain configured but **not executed successfully** due to the GitHub runner issue.
