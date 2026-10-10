@@ -5,19 +5,21 @@ and publishing endpoints can use the same validation contract in later increment
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-NodeKind = Literal["section", "container", "heading", "paragraph", "image", "button"]
+NodeKind = Literal["section", "container", "heading", "paragraph", "image", "button", "form"]
 _ALLOWED_CHILDREN = {
-    "section": {"container", "heading", "paragraph", "image", "button"},
-    "container": {"container", "heading", "paragraph", "image", "button"},
+    "section": {"container", "heading", "paragraph", "image", "button", "form"},
+    "container": {"container", "heading", "paragraph", "image", "button", "form"},
     "heading": set(),
     "paragraph": set(),
     "image": set(),
     "button": set(),
+    "form": set(),
 }
 _MAX_DEPTH = 12
 _MAX_NODES = 500
@@ -68,10 +70,15 @@ class BuilderNode(BaseModel):
     def check_shape(self) -> "BuilderNode":
         if self.kind in {"heading", "paragraph"} and not self.text:
             raise ValueError("Text content is required")
-        if self.kind in {"image", "button"} and not self.url:
+        if self.kind in {"image", "button", "form"} and not self.url:
             raise ValueError("Image/button URL is required")
-        if self.kind == "button" and not self.text:
+        if self.kind in {"button", "form"} and not self.text:
             raise ValueError("Button label is required")
+        if self.kind == "form" and not re.fullmatch(
+            r"/api/v1/site-forms/public/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[a-z0-9]+(?:-[a-z0-9]+)*",
+            self.url or "",
+        ):
+            raise ValueError("Embedded forms must use first-party published form URLs")
         if self.kind in {"section", "container"} and (self.text is not None or self.url is not None):
             raise ValueError("Layout nodes cannot contain text or URLs")
         if any(child.kind not in _ALLOWED_CHILDREN[self.kind] for child in self.children):
