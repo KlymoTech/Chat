@@ -156,10 +156,9 @@ def validate_answers(
             controller = answers.get(field.condition.field_key)
             actual = str(controller).lower() if isinstance(controller, bool) else controller
             if actual != field.condition.equals:
-                # No processing of submitted answers outside the selected purpose.
-                hidden_value = submitted.get(field.key, "")
-                if hidden_value:
-                    errors[field.key] = "This field is not available for the selected choice"
+                # Never collect, store or process an ineligible answer. Deliberately
+                # ignore it rather than rejecting the whole submission so the
+                # accessible no-JavaScript form can show every control safely.
                 continue
         raw = submitted.get(field.key, "")
         if not isinstance(raw, str):
