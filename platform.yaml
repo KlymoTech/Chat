@@ -58,8 +58,9 @@ processes:
     image: api
     topic: domain-events
     ordered: true
-    handler: northstar_api.workers.analytics_consumer:main
-    timeout_s: 120
+    runtime: lambda
+    handler: northstar_api.handlers.domain_events:lambda_handler
+    timeout_s: 900
   - name: crm-reconcile
     kind: schedule
     image: api

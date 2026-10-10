@@ -528,6 +528,10 @@ do not merge without explicit instruction.
   **off by default**; the existing Kafka path remains untouched.
 - Local checks: 20 targeted Python tests passed, including exact legacy-topic
   and Terraform-filter parity; two mocked Terraform plan tests passed.
+- The planned `platform.yaml` event process now references the one-shot Lambda
+  handler instead of the infinite Kafka analytics worker. Manifest validation
+  and a Zoho webhook failure/retry regression pass; current Compose services
+  and Kafka consumers remain unchanged.
 - **Not complete:** no live AWS deployment or test of permissions, networking,
   SNS delivery, retries/DLQ, external Zoho idempotency, throughput, or cutover.
   This does not establish complete implementation of the source documents.

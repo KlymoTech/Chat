@@ -146,6 +146,16 @@ def test_terraform_subscription_filter_matches_dispatch_registry() -> None:
     )
 
 
+def test_planned_manifest_uses_one_shot_event_handler() -> None:
+    manifest = (Path(__file__).resolve().parents[2] / "platform.yaml").read_text(encoding="utf-8")
+    event_process = re.search(r"(?m)^  - name: events\n(.*?)(?=^  - name:|\Z)", manifest, re.DOTALL)
+    assert event_process is not None
+    assert "runtime: lambda" in event_process.group(1)
+    assert "handler: northstar_api.handlers.domain_events:lambda_handler" in event_process.group(1)
+    assert "timeout_s: 900" in event_process.group(1)
+    assert "deployment_status: planned" in manifest
+
+
 @pytest.mark.asyncio
 async def test_notification_projection_uses_existing_consumer_inbox(
     monkeypatch: pytest.MonkeyPatch,
@@ -195,3 +205,32 @@ async def test_lead_created_fans_out_to_notification_and_zoho_flow(
     notify.assert_awaited_once()
     zoho.assert_awaited_once_with(factory, envelope)
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_zoho_http_failure_leaves_event_unprocessed_for_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from northstar_api.workers import zoho_flow_lead_delivery as zoho
+
+    envelope = domain_events.parse_sns_sqs_record(
+        sqs_event("lead.updated.v1")["Records"][0], topic_arn=TOPIC_ARN, queue_arn=QUEUE_ARN
+    )
+    settings = Mock(zoho_flow_lead_workspace_id=uuid4(), zoho_flow_webhook_timeout_seconds=5)
+    settings.zoho_flow_lead_webhook_url.get_secret_value.return_value = "https://example.invalid/hook"
+    monkeypatch.setattr(domain_events, "get_settings", Mock(return_value=settings))
+    monkeypatch.setattr(zoho, "_lead_id", Mock(return_value=uuid4()))
+    monkeypatch.setattr(zoho, "_was_processed", AsyncMock(return_value=False))
+    monkeypatch.setattr(zoho, "_lead_payload", AsyncMock(return_value={"lead_id": "123"}))
+    marked = AsyncMock()
+    monkeypatch.setattr(zoho, "_mark_processed", marked)
+    response = Mock(raise_for_status=Mock(side_effect=RuntimeError("remote failure")))
+    client = Mock(post=AsyncMock(return_value=response))
+    context = AsyncMock()
+    context.__aenter__.return_value = client
+    monkeypatch.setattr(domain_events.httpx, "AsyncClient", Mock(return_value=context))
+
+    with pytest.raises(RuntimeError, match="remote failure"):
+        await domain_events._deliver_zoho_flow_event(Mock(), envelope)
+    marked.assert_not_awaited()
+    assert client.post.await_args.kwargs["headers"] == {"Idempotency-Key": str(envelope.event_id)}
