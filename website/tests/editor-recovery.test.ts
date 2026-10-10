@@ -1,4 +1,5 @@
 import {describe,expect,it} from "vitest";
+import type {PublicBlock} from "../src/lib/cms";
 import {createRecovery,parseRecovery,recoveryStorageKey,RECOVERY_TTL_MS}
   from "../src/lib/editor-recovery";
 const ownerId="550e8400-e29b-41d4-a716-446655440000";
@@ -6,7 +7,7 @@ const siteId="62a2a2bf-1b2a-4fe2-a333-12b2a2a2a2a2";
 const pageId="e6a94037-1088-4898-b2f8-72f05a4b93aa";
 const otherId="f06035b4-90b6-42f3-b77a-41bf024feac0";
 const scope={ownerId,siteId,pageId};
-const document={title:"Unpublished draft",description:"",
+const document:{title:string;description:string;blocks:PublicBlock[]}={title:"Unpublished draft",description:"",
   blocks:[{type:"paragraph",text:"Draft content"}]};
 const at=1_800_000_000_000;
 describe("opt-in browser tab recovery",()=>{
@@ -32,7 +33,7 @@ describe("opt-in browser tab recovery",()=>{
     for(const blocks of [[{type:"html",html:"<script>alert(1)</script>"}],
       [base,{...base}],[{...base,text:"x".repeat(5001)}]]) {
       expect(createRecovery({...scope,expectedVersion:1,
-        document:{...document,blocks}},at)).toBeNull();
+        document:{...document,blocks:blocks as unknown as PublicBlock[]}},at)).toBeNull();
     }
   });
   it("refuses oversized snapshots and malformed schema revisions",()=>{
