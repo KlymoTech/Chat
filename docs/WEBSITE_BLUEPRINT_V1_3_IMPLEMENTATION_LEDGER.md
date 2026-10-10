@@ -17,17 +17,17 @@ domain contract does not imply that the UI, API, persistence or end-to-end flow 
 
 | ID | Capability | Current verified evidence | Missing acceptance evidence |
 |---|---|---|---|
-| CMS-01 | Visual builder page contract | `website_builder_document.py` | UI editor, persistence, revisions, accessible keyboard controls |
-| CMS-02 | Safe public rendering | `website_builder_render.py` | Route integration, cache/preview policy, publishing smoke test |
-| CMS-03 | Editorial state machine | `website_cms_lifecycle.py` | DB transactions, owner UI, RBAC, schedule/rollback, audit/outbox |
+| CMS-01 | Visual builder page contract | Document validator and `frontend/src/pages/WebsiteCMSPage.tsx` with section/block controls | Drag-and-drop editor, full owner journeys, browser/E2E checks |
+| CMS-02 | Public rendering and preview | Responsive hashed-CSP HTML, authenticated preview and public-published-revision route | Live host/domain integration, deployment smoke test, cache invalidation proof |
+| CMS-03 | Editorial publication | API, revision history/restore, owner UI, admin-only RBAC, audit, transactional outbox | Separate approval roles, scheduling worker, published content indexing/rollback smoke tests |
 | WEB-01 | Public pages and navigation | Not audited | Responsive routes, links, content, SEO and accessibility checks |
 | CMS-04 | Blog, media and preservation | Not audited | Manual-only deletion, restore, rights, authoring, export |
 | MKT-01 | Campaign link builder | `website_campaign_links.py` | Campaign UI, automation worker, scheduling, delivery and analytics |
 | EVT-01 | Analytics and attribution | Not audited | Event ingestion, consent gating, idempotency, report reconciliation |
 | PRIV-01 | Consent decision policy | `website_consent_policy.py` | Banner, preference center, receipts DB, rights, enforcement |
 | SEC-01 | Production admin auth | Existing auth routes identified | Admin UI, RBAC, MFA, cookie/CSRF/session E2E security |
-| DB-01 | Database integrity | Not audited | Migration upgrade/downgrade, constraints, backup/restore |
-| QA-01 | End-to-end verification | Unit test files added, not executed | Builds, unit/integration/E2E, security, performance, recovery |
+| DB-01 | Database integrity | Additive migration `0079_website_cms_pages.py` | Upgrade/downgrade on PostgreSQL, tenant isolation proof, backup/restore |
+| QA-01 | End-to-end verification | API integration tests added; branch CI workflow added | All tests unverified: GitHub Actions runs failed before exposing job steps/logs; re-run in accessible CI environment |
 
 ## Definition of done for every capability
 1. Frontend owner/public journey is usable, accessible and responsive.
@@ -52,3 +52,12 @@ The owner explicitly requests no deferred blueprint features. Implement all docu
 Implement a real CMS page create/edit/preview/publish workflow with migrations,
 admin authorization, immutable revisions, public read model and end-to-end tests.
 Do not claim it is complete until frontend, backend and database all work together.
+
+## Implementation checkpoint — 2026-10-10
+- Browser-accessible CMS route: `/site-cms` inside existing authenticated React workspace.
+- New API family: `/api/v1/site-cms` with tenant-scoped page creation and updating, private revision history, restore, admin preview and public published revision.
+- New durable tables: `website_cms_pages`, `website_cms_revisions`, `website_cms_audit`.
+- Publication emits `website.page.published` via the existing outbox in the database transaction.
+- New frontend page editor supports approved blocks and keyboard-operable reorder controls. It is **not** an advanced drag-and-drop editor yet.
+- No new CRM provider credentials or live ad/payment activity have been configured. All remain requested in scope but are not verified.
+- Automated branch-check workflows exist but current GitHub runs have no executable job step records; no passing tests or release certification can be claimed.
