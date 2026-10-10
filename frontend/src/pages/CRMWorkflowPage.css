@@ -362,3 +362,24 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Explainable scoring uses the existing CRM dashboard shell and workspace context. */
+.crm-lead-scoring{min-width:0}
+.crm-lead-scoring__meta{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:12px 0;color:#475569}
+.crm-lead-scoring__settings{display:flex;flex-wrap:wrap;gap:16px;padding:15px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px}
+.crm-lead-scoring__settings label,.crm-lead-scoring__rule label,.crm-lead-scoring__preview label{display:grid;gap:6px;font-weight:650;font-size:.88rem}
+.crm-lead-scoring__enabled{display:flex!important;align-items:center;gap:8px;flex-basis:100%;cursor:pointer}
+.crm-lead-scoring__enabled input{width:20px;height:20px;accent-color:#2563eb}
+.crm-lead-scoring input:not([type="checkbox"]),.crm-lead-scoring select{display:block;width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;color:#172033;background:#fff;min-width:0;font:inherit}
+.crm-lead-scoring__rules,.crm-lead-scoring__preview{padding-top:15px;margin-top:14px;border-top:1px solid #e2e8f0}
+.crm-lead-scoring__rule{display:grid;grid-template-columns:minmax(120px,1fr) minmax(160px,1.5fr) minmax(85px,.6fr) auto;align-items:end;gap:12px;padding:12px 0;border-bottom:1px solid #e2e8f0}
+.crm-lead-scoring__rule>button{padding:10px;background:white;border:1px solid #cbd5e1;border-radius:8px;color:#b91c1c;cursor:pointer}
+.crm-lead-scoring__actions{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+.crm-lead-scoring__preview>label{max-width:540px;margin:10px 0}
+.crm-lead-scoring__result{margin-top:18px;padding:16px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
+.crm-lead-scoring__result ul{padding-left:20px;line-height:1.7}
+.crm-lead-scoring__notice{display:flex;align-items:center;gap:8px;color:#166534;font-weight:650}
+.crm-lead-scoring__disclaimer{font-size:.88rem;color:#475569;margin:18px 0 0}
+.crm-lead-scoring :is(input,select,button):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+@media(max-width:680px){.crm-lead-scoring__rule{grid-template-columns:1fr 1fr}.crm-lead-scoring__rule>label:nth-child(2){grid-column:1/-1}}
+@media(max-width:430px){.crm-lead-scoring__settings,.crm-lead-scoring__rule{display:grid;grid-template-columns:1fr}.crm-lead-scoring__rule>label:nth-child(2){grid-column:auto}}
