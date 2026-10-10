@@ -327,7 +327,7 @@ export function CRMOneClickPanel({
       <div>
         <Badge tone="purple"><PlugZap /> One-click CRM</Badge>
         <h3>Connect once. Every eligible Lead flows automatically.</h3>
-        <p>Northstar completes authorization, health validation, schema discovery, field mapping, workspace routing and auto-sync. A live test then proves provider ACK, external record ID and read-back verification.</p>
+        <p>talktobot completes authorization, health validation, schema discovery, field mapping, workspace routing and auto-sync. A live test then proves provider ACK, external record ID and read-back verification.</p>
       </div>
       <Badge tone={managedConnections.some((item) => readiness[item.id]?.liveCertified) ? 'success' : 'neutral'}>
         <ShieldCheck /> {managedConnections.some((item) => readiness[item.id]?.liveCertified) ? 'Live certified' : 'Certification required'}
@@ -356,7 +356,7 @@ export function CRMOneClickPanel({
     </div>
 
     {selected ? <section className="crm-one-click__setup" aria-label={`Connect ${selected.name}`}>
-      <div><h4>Connect {selected.name}</h4><p>{selected.mode === 'oauth' ? 'Northstar will open the provider consent screen. No CRM client secret is entered by the customer.' : 'The credential is encrypted server-side, tested once and never returned.'}</p></div>
+      <div><h4>Connect {selected.name}</h4><p>{selected.mode === 'oauth' ? 'talktobot will open the provider consent screen. No CRM client secret is entered by the customer.' : 'The credential is encrypted server-side, tested once and never returned.'}</p></div>
       <div className="crm-one-click__form">
         <label>Connection name<input value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} /></label>
         {selected.id === 'zoho' ? <label>Zoho data center<select value={form.region} onChange={(event) => setForm((value) => ({ ...value, region: event.target.value }))}><option value="us">United States</option><option value="in">India</option><option value="eu">Europe</option><option value="au">Australia</option><option value="jp">Japan</option><option value="ca">Canada</option><option value="sa">Saudi Arabia</option><option value="cn">China</option></select></label> : null}

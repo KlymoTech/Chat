@@ -42,8 +42,8 @@ export function HelpSearchBox({ initialQuery = '', autoFocus = false }: { initia
 
   return <div className="help-search-wrap">
     <form className="help-search" role="search" onSubmit={submit}>
-      <Search aria-hidden="true" /><label className="sr-only" htmlFor="help-search-input">Search Northstar Help</label>
-      <input id="help-search-input" autoFocus={autoFocus} value={query} onChange={(event) => setQuery(event.target.value)} onFocus={() => { if (suggestions.length) setOpen(true); }} onKeyDown={onKeyDown} placeholder="Search Northstar Help…" autoComplete="off" aria-autocomplete="list" aria-expanded={open} aria-controls="help-search-suggestions" />
+      <Search aria-hidden="true" /><label className="sr-only" htmlFor="help-search-input">Search talktobot Help</label>
+      <input id="help-search-input" autoFocus={autoFocus} value={query} onChange={(event) => setQuery(event.target.value)} onFocus={() => { if (suggestions.length) setOpen(true); }} onKeyDown={onKeyDown} placeholder="Search talktobot Help…" autoComplete="off" aria-autocomplete="list" aria-expanded={open} aria-controls="help-search-suggestions" />
       {loading ? <span className="help-search__loading" aria-label="Searching" /> : query ? <button type="button" className="icon-button" aria-label="Clear search" onClick={() => { setQuery(''); setSuggestions([]); setOpen(false); }}><X /></button> : null}
       <button type="submit" className="button button--primary button--md">Search</button>
     </form>

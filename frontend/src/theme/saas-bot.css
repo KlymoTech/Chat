@@ -79,6 +79,12 @@
 .saas-bot-shell .button--secondary { background: var(--sb-paper); color: var(--ink); border: 1px solid var(--line); }
 .saas-bot-shell .button svg { width: 16px; height: 16px; }
 .saas-bot-shell :is(.field input,.field textarea,.field select) { border-radius: 8px; background: var(--sb-paper); min-height: 44px; }
+.modal:has(.knowledge-modal__body) { font-family: var(--sb-body); }
+.modal:has(.knowledge-modal__body) :is(.modal__header h2, .modal__body h1, .modal__body h2, .modal__body h3) { font-family: var(--sb-heading); }
+.modal:has(.knowledge-modal__body) :is(.modal__header p, .field label, .field small, .source-tabs button, .modal__footer .button, .switch-row) { font-family: var(--sb-body); }
+.modal:has(.knowledge-modal__body) .switch-row { margin: 14px 0 4px; padding: 12px 0; border-top: 1px solid var(--line); }
+.modal:has(.knowledge-modal__body) .switch-row strong { color: var(--ink); font-size: 14px; }
+.modal:has(.knowledge-modal__body) .switch-row small { font-size: 12px; }
 .saas-bot-shell :is(.mm-sidebar,.mm-drawer) :focus-visible { outline: 3px solid #63635c; outline-offset: 2px; }
 .saas-bot-shell .mm-drawer { background: var(--sb-paper); color: var(--ink); }
 .saas-bot-shell .mm-drawer__header .brand, .saas-bot-shell .mm-drawer__header button { color: var(--ink); }

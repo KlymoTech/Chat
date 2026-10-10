@@ -107,7 +107,7 @@ export function VerifyEmailPage() {
           <span className="eyebrow-pill"><MailCheck /> Secure account activation</span>
           <h1>{state === 'success' ? 'Email verified' : state === 'checking' ? 'Verifying your email' : 'Check your email'}</h1>
           <p>{state === 'success'
-            ? 'Your Northstar account can now access its workspace.'
+            ? 'Your talktobot account can now access its workspace.'
             : 'Verify your business email before entering your workspace.'}</p>
         </div>
 

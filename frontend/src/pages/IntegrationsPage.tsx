@@ -176,7 +176,7 @@ export function IntegrationsPage() {
 
   if (result.loading || crmProviders.loading || crmConnections.loading || channelConnections.loading) return <PageLoader />;
   return <div className="page integrations-page">
-    <div className="page-heading"><h2>Integrations</h2><p>Connect messaging sources to Northstar and route qualified leads to any CRM through durable, monitored deliveries.</p></div>
+    <div className="page-heading"><h2>Integrations</h2><p>Connect messaging sources to talktobot and route qualified leads to any CRM through durable, monitored deliveries.</p></div>
 
     <Card>
       <div className="page-heading page-heading--split"><div><h3>Messaging channels</h3><p>Webhook connections feed one canonical contact/lead pipeline. Existing WhatsApp Embedded Signup remains available below.</p></div><Badge tone="purple">Omnichannel ingress</Badge></div>

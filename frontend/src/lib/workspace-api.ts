@@ -31,13 +31,13 @@ export class WorkspaceRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'WorkspaceRequestError'; }
 }
 const defaults: WorkspaceSettings = {
-  id: 'workspace-demo', name: 'Northstar Workspace', slug: 'northstar', plan: 'business', memberCount: 1,
+  id: 'workspace-demo', name: 'talktobot Workspace', slug: 'talktobot', plan: 'business', memberCount: 1,
   educationCreateUpsellLeads: false, brandingPublished: false,
   preferences: { timezone: 'Asia/Calcutta', defaultLanguage: 'English', dateFormat: 'DD/MM/YYYY' },
   security: { sensitiveDataMasking: true, securityContact: null },
-  whiteLabel: { companyName: 'Northstar AI', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
+  whiteLabel: { companyName: 'talktobot', logoDataUrl: '', faviconDataUrl: '', appIconDataUrl: '',
     primaryColor: '#0c0b0b', secondaryColor: '#6b6b70', supportEmail: null, supportUrl: '',
-    browserTitle: 'Northstar AI', customDomain: '', dnsStatus: 'not-configured', brandedLogin: false,
+    browserTitle: 'talktobot', customDomain: '', dnsStatus: 'not-configured', brandedLogin: false,
     brandedDashboard: true, brandedWidget: false, brandedEmails: false, removePlatformBranding: false },
 };
 function localWorkspace(): WorkspaceSettings {

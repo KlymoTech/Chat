@@ -383,13 +383,13 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
         </div>
         {bulkMode ? <div className="enrollment-bulk">
           <Field label="Education Agent" htmlFor="bulk-enrollment-agent" hint="All selected simplified Courses must be assigned to this Agent.">
-            <select id="bulk-enrollment-agent" value={bulkAgentId} onChange={(event) => { setBulkAgentId(event.target.value); setBulkAssignments([]); }}>
+            <select className="enrollment-select" id="bulk-enrollment-agent" value={bulkAgentId} onChange={(event) => { setBulkAgentId(event.target.value); setBulkAssignments([]); }}>
               <option value="">Select Education Agent</option>
               {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}
             </select>
           </Field>
           <Field label="Initial status" htmlFor="bulk-enrollment-status">
-            <select id="bulk-enrollment-status" value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as 'pending' | 'active')}><option value="pending">Pending</option><option value="active">Active</option></select>
+            <select className="enrollment-select" id="bulk-enrollment-status" value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as 'pending' | 'active')}><option value="pending">Pending</option><option value="active">Active</option></select>
           </Field>
           <div className="enrollment-bulk__courses">
             {activeCourses.map((course) => {
@@ -407,27 +407,27 @@ export function StudentEnrollmentsModal({ student, open, onClose, defaultAgentId
               </div>;
             })}
           </div>
-        </div> : <div className="enrollment-editor__grid">
+        </div> : <div className={`enrollment-editor__grid${selectedCourseIsSimplified ? ' enrollment-editor__grid--simplified' : ''}`}>
           <Field label="Course" htmlFor="enrollment-course">
-            <select id="enrollment-course" value={form.courseId} onChange={(event) => setCourse(event.target.value)}>
+            <select className="enrollment-select" id="enrollment-course" value={form.courseId} onChange={(event) => setCourse(event.target.value)}>
               <option value="">Select Course</option>
               {activeCourses.map((course) => <option value={course.id} key={course.id}>{course.code} · {course.name}</option>)}
             </select>
           </Field>
           <Field label="Batch" htmlFor="enrollment-batch" hint={form.courseId ? 'Only active batches for the selected Course.' : 'Select a Course first.'}>
-            <select id="enrollment-batch" value={form.batchId} disabled={!form.courseId} onChange={(event) => setBatch(event.target.value)}>
+            <select className="enrollment-select" id="enrollment-batch" value={form.batchId} disabled={!form.courseId} onChange={(event) => setBatch(event.target.value)}>
               <option value="">Select Batch</option>
               {selectableBatches.map((batch) => <option value={batch.id} key={batch.id}>{batch.code} · {batch.name}</option>)}
             </select>
           </Field>
-          {selectedCourseIsSimplified ? <div className="enrollment-prerequisite-note"><ShieldCheck /><p>This simplified Course uses <strong>{agentById.get(selectedCourse?.assignedAgentId ?? '')?.name ?? 'its assigned Education Agent'}</strong>. Papers and manual access are not required.</p></div> : <Field label="Education Agent" htmlFor="enrollment-agent" hint="Only Agents with Education purpose are eligible.">
-            <select id="enrollment-agent" value={form.agentId} onChange={(event) => setForm((current) => ({ ...current, agentId: event.target.value }))}>
+          {!selectedCourseIsSimplified ? <Field label="Education Agent" htmlFor="enrollment-agent" hint="Only Agents with Education purpose are eligible.">
+            <select className="enrollment-select" id="enrollment-agent" value={form.agentId} onChange={(event) => setForm((current) => ({ ...current, agentId: event.target.value }))}>
               <option value="">Select Education Agent</option>
               {educationAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name} · {agent.status}{agent.whatsappNumber ? ` - WhatsApp ${agent.whatsappNumber}` : ''}</option>)}
             </select>
-          </Field>}
+          </Field> : null}
           {!editing ? <Field label="Initial status" htmlFor="enrollment-status">
-            <select id="enrollment-status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as 'pending' | 'active' }))}>
+            <select className="enrollment-select" id="enrollment-status" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as 'pending' | 'active' }))}>
               <option value="pending">Pending</option>
               <option value="active">Active</option>
             </select>

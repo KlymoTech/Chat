@@ -108,7 +108,7 @@ export function AppShell() {
   };
   return <div className={`app-shell ${expanded ? 'app-shell--expanded' : ''}`}>
     <aside className="rail" aria-label="Primary navigation">
-      <Link to="/" className="rail__brand" aria-label="Northstar AI home"><Brand compact /></Link>
+      <Link to="/" className="rail__brand" aria-label="talktobot home"><Brand compact /></Link>
       <nav className="rail__nav">
         {visibleNavigation.map(({ to, label, icon: Icon, end }) => <NavLink key={to} to={to} end={end} className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`} title={label}><Icon /><span>{label}</span></NavLink>)}
       </nav>

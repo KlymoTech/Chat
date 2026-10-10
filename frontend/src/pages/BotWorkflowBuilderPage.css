@@ -4,7 +4,8 @@
 .workflow-scope-card > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .workflow-scope-card label, .workflow-fields label, .workflow-message, .workflow-template-picker label, .workflow-subeditor label { position: relative; display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
 .workflow-scope-card input, .workflow-scope-card select, .workflow-step-editor input, .workflow-step-editor select, .workflow-step-editor textarea { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; box-sizing: border-box; }
-.workflow-scope-card label > svg { position: absolute; right: 10px; bottom: 10px; width: 15px; pointer-events: none; }
+.saas-bot-shell .workflow-scope-card select { appearance: none; cursor: pointer; padding-right: 38px; background-color: #fff !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23171717' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; background-position: right 12px center !important; background-repeat: no-repeat !important; background-size: 16px 16px !important; }
+.saas-bot-shell .workflow-scope-card select:disabled { cursor: not-allowed; }
 .workflow-scope-card > p { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 9px; background: #f3f0ff; color: #6544d5; font-size: 12px; }
 .workflow-scope-card > p svg { width: 16px; }
 .workflow-template-library { display:grid;gap:16px;padding:20px;border:1px solid #b9d6ff;border-radius:16px;background:linear-gradient(135deg,#f7fbff 0%,#f7fff9 100%);box-shadow:0 10px 30px rgb(30 90 150 / .08);scroll-margin-top:20px; }

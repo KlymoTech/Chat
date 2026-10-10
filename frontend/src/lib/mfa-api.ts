@@ -131,7 +131,7 @@ function demoLogin(email: string, password: string): Session {
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
     user: {
       id: 'user-demo',
-      name: email.split('@')[0]?.replace(/[._-]/g, ' ') || 'Northstar User',
+      name: email.split('@')[0]?.replace(/[._-]/g, ' ') || 'talktobot User',
       email: email.trim().toLowerCase(),
       role: 'owner',
       emailVerified: true,
@@ -182,7 +182,7 @@ export const mfaApi = {
       });
     } catch (error) {
       if (canUseDemoFallback(error)) {
-        throw new ApiError('MFA setup requires a connected Northstar API.', 503, error);
+        throw new ApiError('MFA setup requires a connected talktobot API.', 503, error);
       }
       throw error;
     }

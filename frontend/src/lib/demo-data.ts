@@ -7,9 +7,9 @@ export const demoAgents: Agent[] = [
   {
     id: 'agent-northstar',
     publicId: 'northstar-guide',
-    name: 'Northstar Guide',
+    name: 'talktobot Guide',
     description: 'Customer support and product expert',
-    instructions: `You are Northstar Guide, a precise and approachable AI support agent. Answer using the connected knowledge base before relying on general knowledge.\n\nStart with the direct answer, then add helpful context. Keep responses concise, friendly, and professional. If the evidence is incomplete, say so clearly and offer to connect the visitor with a person. Never invent policies, pricing, or product capabilities.\n\nCite the relevant source whenever one is available.`,
+    instructions: `You are talktobot Guide, a precise and approachable AI support agent. Answer using the connected knowledge base before relying on general knowledge.\n\nStart with the direct answer, then add helpful context. Keep responses concise, friendly, and professional. If the evidence is incomplete, say so clearly and offer to connect the visitor with a person. Never invent policies, pricing, or product capabilities.\n\nCite the relevant source whenever one is available.`,
     status: 'active', purpose: 'support', tone: 'friendly', language: 'English', avatar: 'N', conversations: 1284,
     resolutionRate: 87, knowledgeCount: 12, lastUpdated: isoAgo(0, 2), createdAt: isoAgo(48),
     appearance: {
@@ -85,7 +85,7 @@ export const demoAnalytics: AnalyticsSummary = {
 };
 
 export const demoIntegrations: Integration[] = [
-  { id: 'website', name: 'Website widget', description: 'Add Northstar AI to any site with one snippet.', category: 'channel', icon: 'code', connected: true },
+  { id: 'website', name: 'Website widget', description: 'Add talktobot to any site with one snippet.', category: 'channel', icon: 'code', connected: true },
   { id: 'slack', name: 'Slack', description: 'Answer questions where your team already works.', category: 'channel', icon: 'hash', connected: false },
   { id: 'whatsapp', name: 'WhatsApp', description: 'Support customers through WhatsApp Business.', category: 'channel', icon: 'message', connected: false },
   { id: 'facebook', name: 'Facebook Messenger', description: 'Deploy the agent to a Facebook Page inbox.', category: 'channel', icon: 'facebook', connected: false },

@@ -321,7 +321,7 @@ export function CoursesPage() {
         <label className="course-simplified-toggle"><input type="checkbox" checked={form.simplifiedWorkflow} onChange={(event) => setForm((current) => ({ ...current, simplifiedWorkflow: event.target.checked, assignedAgentId: event.target.checked ? current.assignedAgentId : '' }))} /> Choose your Agent and bot</label>
         {form.simplifiedWorkflow ? <>
           <Field label="Assigned Education Agent" htmlFor="course-assigned-agent" hint="Students inherit this Agent through the Course.">
-            <select id="course-assigned-agent" value={form.assignedAgentId} onChange={(event) => setForm((current) => ({ ...current, assignedAgentId: event.target.value }))}>
+            <select className="education-picker-select" id="course-assigned-agent" value={form.assignedAgentId} onChange={(event) => setForm((current) => ({ ...current, assignedAgentId: event.target.value }))} disabled={agents.loading}>
               <option value="">Select an Education Agent</option>
               {(agents.data ?? []).filter((agent) => agent.purpose === 'education' && ['active', 'draft'].includes(agent.status)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}{agent.status === 'draft' ? ' (draft — activate after enrollment)' : ''}</option>)}
             </select>

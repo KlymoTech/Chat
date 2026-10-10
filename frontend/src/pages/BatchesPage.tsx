@@ -336,6 +336,7 @@ export function BatchesPage() {
         <div className="ed-form-section-heading"><h3>Batch Baseline Details</h3><p>Primary identity, academic course, and cohort description.</p></div>
         <Field label="Course" htmlFor="batch-course" hint={editing ? 'Course cannot be changed after creation.' : 'Only active courses can receive new batches.'}>
           <select
+            className="education-picker-select"
             id="batch-course"
             value={form.courseId}
             disabled={Boolean(editing)}

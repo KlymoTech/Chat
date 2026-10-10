@@ -9,7 +9,7 @@ export function Brand({ compact = false, light = false }: { compact?: boolean; l
   const workspace = useOptionalWorkspace()?.activeWorkspace;
   const workspaceBrand = workspace?.brandingPublished && workspace.whiteLabel.brandedDashboard ? workspace.whiteLabel : null;
   const brand = workspaceBrand ?? (publicBrand ? { companyName: publicBrand.companyName, logoDataUrl: publicBrand.logoDataUrl } : null);
-  if (!brand) return <div className={`brand ${light ? 'brand--light' : ''}`}><BrandMark />{compact ? null : <span>northstar<span>ai</span></span>}</div>;
+  if (!brand) return <div className={`brand ${light ? 'brand--light' : ''}`}><BrandMark />{compact ? null : <span>talktobot</span>}</div>;
   return <div className={`brand ${light ? 'brand--light' : ''}`}>
     {brand.logoDataUrl ? <img src={brand.logoDataUrl} alt="" style={{ maxWidth: compact ? 38 : 80, height: 38, objectFit: 'contain' }} /> : <BrandMark />}
     {compact ? <span className="sr-only">{brand.companyName}</span> : <span>{brand.companyName}</span>}

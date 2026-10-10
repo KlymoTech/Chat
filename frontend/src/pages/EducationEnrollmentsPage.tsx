@@ -205,7 +205,7 @@ export function EducationEnrollmentsPage() {
       <Button icon={Plus} onClick={openPicker}>Add enrollment</Button>
     </div>
 
-    <Card className="bot-enrollment-panel"><Field label="Enrollment bot" htmlFor="enrollment-bot-picker"><select id="enrollment-bot-picker" value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="all">All education bots</option>{educationAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} - {agent.whatsappNumber || 'No WhatsApp number'} - {agent.status}</option>)}</select></Field></Card>
+    <Card className="bot-enrollment-panel"><Field label="Enrollment bot" htmlFor="enrollment-bot-picker"><select className="education-picker-select" id="enrollment-bot-picker" value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={agents.loading}><option value="all">{agents.loading ? 'Loading education bots…' : 'All education bots'}</option>{educationAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} - {agent.whatsappNumber || 'No WhatsApp number'} - {agent.status}</option>)}</select></Field></Card>
     {educationAgents.filter((agent) => agent.id === agentId).map((agent) => <BotEnrollmentPanel key={agent.id} agent={agent} courses={courses.data ?? []} batches={batches.data ?? []} onSaved={reloadAll} />)}
     <div className="education-enrollment-stats" aria-label="Enrollment summary">
       <Card><ClipboardList /><div><strong>{summary.total}</strong><small>Total enrollments</small></div></Card>

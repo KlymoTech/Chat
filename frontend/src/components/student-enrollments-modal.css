@@ -63,6 +63,36 @@
   gap: 14px;
 }
 
+/* A single, consistent arrow for the four enrollment selectors. */
+.enrollment-editor .enrollment-select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 38px;
+  background-color: #fff !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23171717' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-position: right 12px center !important;
+  background-repeat: no-repeat !important;
+  background-size: 16px 16px !important;
+}
+
+.enrollment-editor .enrollment-select:disabled {
+  cursor: not-allowed;
+}
+
+/* Simplified Courses do not need the removed prerequisite note. Use the
+   reclaimed column so the five remaining fields stay balanced. */
+.enrollment-editor__grid--simplified {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.enrollment-editor__grid--simplified > .field:nth-child(-n + 3) {
+  grid-column: span 2;
+}
+
+.enrollment-editor__grid--simplified > .field:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
 .enrollment-bulk {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(160px, .6fr);
@@ -97,6 +127,18 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+/* Each bulk-course detail row has one select: Batch. */
+.enrollment-bulk__details select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 38px;
+  background-color: #fff !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23171717' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-position: right 12px center !important;
+  background-repeat: no-repeat !important;
+  background-size: 16px 16px !important;
 }
 
 .enrollment-prerequisite-note,
@@ -213,6 +255,10 @@
 @media (max-width: 900px) {
   .enrollment-editor__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .enrollment-editor__grid--simplified > .field {
+    grid-column: auto;
   }
 
   .enrollment-bulk__details {

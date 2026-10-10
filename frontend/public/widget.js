@@ -6,7 +6,7 @@
 
   const agentId = script.dataset.agentId;
   if (!agentId || !/^[A-Za-z0-9_-]{3,80}$/.test(agentId)) {
-    console.error('[Northstar AI] A valid data-agent-id is required.');
+    console.error('[talktobot] A valid data-agent-id is required.');
     return;
   }
 
@@ -183,6 +183,6 @@
   };
 
   void load().catch((error) => {
-    console.error('[Northstar AI] Unable to initialize the widget.', error instanceof Error ? error.message : 'Unknown error');
+    console.error('[talktobot] Unable to initialize the widget.', error instanceof Error ? error.message : 'Unknown error');
   });
 })();

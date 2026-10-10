@@ -124,7 +124,7 @@ export function ZohoOneClickIntegration() {
         <small>Recommended CRM integration</small>
         <h2>Zoho CRM — one-click connection</h2>
         <p>
-          Authorize once. Northstar creates the workspace connection, enables lead sync,
+          Authorize once. talktobot creates the workspace connection, enables lead sync,
           discovers the live Leads schema, activates mapping and routing, sends a real
           certification lead, and verifies it by reading it back from Zoho.
         </p>

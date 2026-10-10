@@ -525,7 +525,7 @@ export function ChatWidget({
             {widgetLogo ? <img src={widgetLogo} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <Sparkles />}
           </span>
 
-          {brandedWidgetName ? <strong>{brandedWidgetName}</strong> : <strong>northstar<span>ai</span></strong>}
+          {brandedWidgetName ? <strong>{brandedWidgetName}</strong> : <strong>talktobot</strong>}
         </div>
 
         <div className="widget-header-actions">
@@ -834,7 +834,7 @@ export function ChatWidget({
 
         {agent.appearance.showBranding ? (
           <small>
-            {poweredByLabel || <>{locale.poweredBy}{' '}<strong><Sparkles /> Northstar AI</strong></>}
+            {poweredByLabel || <>{locale.poweredBy}{' '}<strong><Sparkles /> talktobot</strong></>}
           </small>
         ) : null}
       </footer>

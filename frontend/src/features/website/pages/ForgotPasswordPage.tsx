@@ -42,7 +42,7 @@ export function ForgotPasswordPage() {
           <span className="eyebrow-pill"><ShieldCheck /> Secure account recovery</span>
           <h1>{sent ? 'Check your email' : (authBrand?.forgotPasswordTitle || 'Forgot your password?')}</h1>
           <p>{sent
-            ? `If an active ${brand?.companyName || 'Northstar'} account matches that email, we sent a secure password reset link.`
+            ? `If an active ${brand?.companyName || 'talktobot'} account matches that email, we sent a secure password reset link.`
             : 'Enter your work email and we’ll send recovery instructions if the account is eligible.'}</p>
         </div>
 
