@@ -187,5 +187,14 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_encoded_placeholder_database_password_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:replace%2Dpassword@db.internal/app?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+    def test_encoded_database_password_allowed(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:strong%40pass%21word@db.internal/app?sslmode=require"
+        self.assertEqual(validate(self.valid), [])
+
+
 if __name__ == "__main__":
     unittest.main()
