@@ -265,3 +265,30 @@ The blueprint's owner acceptance exercise includes creating a redirect. This sli
 Migration `019_content_redirects.sql` adds a site-scoped redirect registry, checked internal destinations, a security-barrier view, and a page-collision trigger. The page-collision trigger and the approval transaction lock the same site row to prevent concurrent route reuse. No public reader is granted access to the private registry. The administrator must grant only the new public redirect view, with private site-specific editor privileges and tenant isolation separately reviewed. Writer and public-reader features are **off by default** using `WEBSITE_REDIRECT_EDITOR_ENABLED` and `WEBSITE_REDIRECT_PUBLIC_ENABLED`; verified DB-grant flags and distinct credentials are required. The existing public content route applies approved redirects only when the live published page is missing. The 308 status intentionally preserves the destination path but does not preserve UTM or click query strings; policy-specific attribution-preserving redirects require separate testing and approval.
 
 This is an additive isolated implementation. Full redirect inventory, bulk import/export, multisite/locale handling, arbitrary legacy URLs, owner navigation-edit flows, canonical SEO migration, sitemap audits, performance tests and release approval are still outstanding. Unit tests and the isolated migration acceptance script through **001–019** are committed but **not confirmed executed**. CRM integration remains deferred. No changes to `main`.
+
+
+## Privacy-rights dual review and redacted audit timeline
+
+The private Chapter 59 workflow now explicitly blocks a reviewer from making two
+consecutive sensitive case decisions: the case creator remains excluded from
+sensitive approvals, and the actor of the immediately preceding history entry
+must differ from the new sensitive reviewer. This is enforced inside the
+transaction holding the case lock, and includes a regression test. Operators
+still need actual independent reviewers provisioned in the IdP; no legal
+compliance is inferred from the transition log.
+
+Added `GET /api/owner/privacy/rights/:id/history` and a status timeline in
+the owner rights case screen. The handler requires verified `cms:privacy`
+claims and returns only site-scoped revision, status, reason, time and an
+evidence-present Boolean. It does **not** return actor identity, evidence UUID,
+requester details, or source records. A service regression test checks scope
+and response field exclusion. The evidence-entry form now requires a valid
+UUID before enabling sensitive actions. This is not an automated erasure
+or data-access fulfilment path.
+
+Production blockers remain: functioning GitHub CI runners, a passing Next.js
+build, 001–018 PostgreSQL migration and tenant RLS/grants verification,
+a configured real identity provider with independent reviewers, privacy policy
+and processor mapping, advanced builder orchestration, and production
+automation plus browser E2E. Real CRM integration remains deferred. Changes
+are committed only to `feature/website-blueprint-v1-3`; do not merge main.
