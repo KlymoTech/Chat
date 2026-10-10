@@ -135,6 +135,8 @@ def valid_postgres_url(value: str) -> bool:
             and 1 <= len(unquote(parsed.username)) <= 128
             and 12 <= len(unquote(parsed.password)) <= 1024
             and bool(parsed.path.strip("/"))
+            and "/" not in parsed.path.strip("/")
+            and len(unquote(parsed.path.strip("/"))) <= 128
             and parsed.port != 0
             and not parsed.fragment
             and not PLACEHOLDER.search(parsed.hostname)
