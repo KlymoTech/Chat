@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -12,7 +13,13 @@ from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.crm_workflow_schemas import CRMWorkflowOut
-from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile
+from northstar_api.lead_crm.models import LeadActivityEvent, LeadConsent, LeadProfile
+from northstar_api.lead_crm.website_segments import (
+    SegmentRegister,
+    SegmentRegisterUpdate,
+    WebsiteSegment,
+    matches_segment,
+)
 from northstar_api.lead_crm.website_lead_scoring import (
     ScorePolicy,
     ScorePolicyUpdate,
@@ -251,3 +258,159 @@ async def apply_lead_score(
         )
     await session.commit()
     return preview.model_copy(update={"current_score": preview.proposed_score})
+
+
+SEGMENT_SETTINGS_KEY = "website_lead_segments"
+SEGMENT_PREVIEW_LIMIT = 1000
+
+
+def _segments(workspace: Workspace) -> SegmentRegister:
+    stored = (workspace.settings_json or {}).get(SEGMENT_SETTINGS_KEY)
+    if not isinstance(stored, dict):
+        return SegmentRegister()
+    return SegmentRegister.model_validate(stored)
+
+
+@router.get("/workflow/segments", response_model=SegmentRegister)
+async def list_lead_segments(
+    principal: CRMWorkflowPrincipal, session: DB,
+) -> SegmentRegister:
+    """Read only the selected active workspace's versioned segment definitions."""
+    return _segments(await _scoring_workspace(session, principal))
+
+
+@router.put("/workflow/segments", response_model=SegmentRegister)
+async def save_lead_segments(
+    payload: SegmentRegisterUpdate,
+    principal: CRMManagePrincipal, session: DB,
+) -> SegmentRegister:
+    """Reuse existing workspace settings and audit, with no parallel Lead table."""
+    workspace = await _scoring_workspace(session, principal, lock=True)
+    previous = _segments(workspace)
+    if payload.expected_version != previous.version:
+        raise HTTPException(409, "Segments changed; reload before saving")
+    updated = SegmentRegister(
+        version=previous.version + 1,
+        segments=payload.segments,
+    )
+    workspace.settings_json = {
+        **dict(workspace.settings_json or {}),
+        SEGMENT_SETTINGS_KEY: updated.model_dump(mode="json"),
+    }
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        actor_user_id=principal.user_id,
+        action="website.segments.updated",
+        entity_type="workspace",
+        entity_id=str(workspace.id),
+        category="lead",
+        before={"version": previous.version, "segmentIds": [str(item.id) for item in previous.segments]},
+        after={"version": updated.version, "segmentIds": [str(item.id) for item in updated.segments]},
+    )
+    await session.commit()
+    return updated
+
+
+@router.get("/workflow/segments/{segment_id}/preview")
+async def preview_lead_segment(
+    segment_id: UUID,
+    principal: CRMWorkflowPrincipal, session: DB,
+) -> dict[str, object]:
+    """Bounded, read-only segment evaluation; no exports or messaging actions."""
+    workspace = await _scoring_workspace(session, principal)
+    policy = _segments(workspace)
+    segment: WebsiteSegment | None = next(
+        (item for item in policy.segments if item.id == segment_id), None,
+    )
+    if segment is None:
+        raise HTTPException(404, "Segment not found in this workspace")
+    if principal.workspace_id is None:
+        raise HTTPException(400, "Select a workspace")
+
+    query = (
+        select(Lead, LeadProfile)
+        .join(LeadProfile, (
+            (LeadProfile.lead_id == Lead.id)
+            & (LeadProfile.tenant_id == Lead.tenant_id)
+        ))
+        .where(
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+        )
+        .order_by(Lead.created_at.desc(), Lead.id.desc())
+        .limit(SEGMENT_PREVIEW_LIMIT + 1)
+    )
+    if principal.agent_ids is not None:
+        query = query.where(Lead.agent_id.in_(principal.agent_ids))
+    entries = (await session.execute(query)).all()
+    incomplete = len(entries) > SEGMENT_PREVIEW_LIMIT
+    entries = entries[:SEGMENT_PREVIEW_LIMIT]
+
+    latest_marketing_consent: dict[UUID, str] = {}
+    if segment.purpose == "marketing" and entries:
+        candidate_ids = [lead.id for lead, _ in entries]
+        consent_rows = (await session.scalars(
+            select(LeadConsent).where(
+                LeadConsent.tenant_id == principal.tenant_id,
+                LeadConsent.lead_id.in_(candidate_ids),
+                LeadConsent.consent_type == "marketing",
+            ).order_by(LeadConsent.created_at.desc(), LeadConsent.id.desc())
+        )).all()
+        for receipt in consent_rows:
+            # First row for each lead is the latest signed marketing decision.
+            latest_marketing_consent.setdefault(receipt.lead_id, receipt.status)
+
+    matched_count = 0
+    missing_count = 0
+    blocked_count = 0
+    for lead, profile in entries:
+        if lead.status in {"archived", "lost", "spam"}:
+            blocked_count += 1
+            continue
+        if (
+            not lead.consent
+            or str(profile.consent_status or "").strip().lower()
+            not in {"granted", "consented", "accepted", "opted_in"}
+        ):
+            blocked_count += 1
+            continue
+        if (
+            segment.purpose == "marketing"
+            and latest_marketing_consent.get(lead.id) != "granted"
+        ):
+            blocked_count += 1
+            continue
+        values = {
+            "source_channel": profile.source_channel,
+            "utm_source": profile.utm_source,
+            "utm_medium": profile.utm_medium,
+            "utm_campaign": profile.utm_campaign,
+            "lifecycle_status": lead.status,
+            "qualification_status": profile.qualification_status,
+        }
+        included, missing = matches_segment(segment, values)
+        if missing:
+            missing_count += 1
+        if included:
+            matched_count += 1
+
+    return {
+        "segmentId": str(segment.id),
+        "policyVersion": policy.version,
+        "purpose": segment.purpose,
+        "enabled": segment.enabled,
+        "matchedLeads": matched_count,
+        "blockedByEligibility": blocked_count,
+        "unknownInputLeads": missing_count,
+        "examinedLeads": len(entries),
+        "truncated": incomplete,
+        "exactCount": not incomplete,
+        "evaluatedAt": datetime.now(UTC).isoformat(),
+        "note": (
+            "Read-only source-system estimate. No contacts were exported or messaged. "
+            "Marketing requires explicit latest marketing consent; processing consent alone is insufficient. "
+            "Truncated previews are not complete population totals."
+        ),
+    }
