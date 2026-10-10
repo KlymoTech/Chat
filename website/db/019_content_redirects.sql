@@ -52,8 +52,12 @@ CREATE OR REPLACE VIEW website_cms.public_approved_content_redirects
    );
 -- Page creation must not silently reclaim an actively redirected URL.
 CREATE OR REPLACE FUNCTION website_cms.reject_active_redirect_page_collision()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql AS $
 BEGIN
+ -- Redirect approvals lock this same site row before checking route occupancy.
+ -- Serializing both paths closes the page-create/redirect-approval race.
+ PERFORM 1 FROM website_cms.sites
+  WHERE id=NEW.site_id FOR UPDATE;
  IF EXISTS (
    SELECT 1 FROM website_cms.content_redirects d
     WHERE d.site_id=NEW.site_id AND d.source_path=NEW.path
