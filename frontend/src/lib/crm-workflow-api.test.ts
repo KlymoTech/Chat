@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { crmWorkflowApi } from '@/lib/crm-workflow-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -18,14 +19,12 @@ describe('crm workflow API', () => {
         role: 'owner',
       },
     }));
-    localStorage.setItem(
-      'northstar.active-workspace-id',
-      JSON.stringify('workspace-crm-1'),
-    );
+    persistActiveWorkspace('workspace-crm-1');
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearActiveWorkspaceSelection();
     vi.clearAllMocks();
   });
 

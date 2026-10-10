@@ -846,3 +846,12 @@ do not merge without explicit instruction.
   false-negative tests. All four focused team-panel tests pass, including the
   read-only member-viewer scenario. Authorization behavior was not weakened.
 - Full-suite and deployment qualification remain outstanding.
+
+## Increment: authenticated API test workspace scope (2026-10-10)
+
+- Analytics, audit, CRM workflow, and CRM one-click API tests now use the
+  existing session-scoped workspace selector, preserving their assertions that
+  authenticated requests carry the workspace header. A targeted batch of five
+  API test files now passes all 34 tests (including billing). This removes
+  obsolete test setup, not any production feature or authorization check.
+- Full-suite, repo-wide lint, live provider, and deployment checks remain open.
