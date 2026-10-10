@@ -101,6 +101,28 @@ jobs:
               raise SystemExit("Education migration is disconnected from all migration heads")
           print(f"Education migration {revision.revision} is reachable; current heads: {sorted(heads)}")
           PY
+      - name: Capture Python environment diagnostics
+        if: always()
+        run: |
+          uv run python -VV
+          uv run python -m pip --version || true
+          uv run python - <<'PY'
+          from pathlib import Path
+          from importlib.util import find_spec
+
+          modules = ("fastapi", "sqlalchemy", "alembic", "pytest", "northstar_api")
+          lines = [f"{module}: {'present' if find_spec(module) else 'missing'}" for module in modules]
+          Path("education-ci-diagnostics.txt").write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+          print("\\n".join(lines))
+          PY
+      - name: Upload education validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0
+        with:
+          name: education-validation-diagnostics
+          path: backend/education-ci-diagnostics.txt
+          if-no-files-found: warn
+          retention-days: 7
       - name: Run Education runtime authorization regressions
         run: >-
           uv run pytest
