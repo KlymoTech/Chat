@@ -51,5 +51,18 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_missing_database_credentials_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://db.internal/app"
+        self.assertTrue(validate(self.valid))
+
+    def test_invalid_database_port_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:invalid/app"
+        self.assertTrue(validate(self.valid))
+
+    def test_placeholder_database_password_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:replace-password@db.internal/app"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
