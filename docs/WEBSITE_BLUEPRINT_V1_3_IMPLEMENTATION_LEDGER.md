@@ -160,3 +160,18 @@ Source requirements: Chapter 04.1 (task-oriented routes and working navigation),
 - Redirect creation, updates and disabling now append existing transactional outbox messages, with tests asserting audit/outbox evidence.
 - Tests use the existing **session-scoped** backend workspace fixture. Navigation tests derive their expected versions from the live fixture and check publication retries against previous side-effect counts instead of assuming an empty database.
 - The isolated branch workflow now includes Python source and migration syntax checks plus `alembic heads`, and explicitly includes the menu/redirect API test files. These checks remain configured but **not executed successfully** due to the GitHub runner issue.
+
+
+## CAP-041 lead scoring implementation increment — 2026-10-10
+
+- Repository audit found existing CRM Workflow APIs/UI, Lead/LeadProfile, attribution metadata, qualification status/score, LeadActivityEvent and a deduplicated workspace notification service. None was copied into a competing CRM/lead pipeline.
+- Added allowlisted rule validation and a bounded, explainable scoring policy in `lead_crm/website_lead_scoring.py`; rules use only source channel and UTM source/medium/campaign with casefolded exact matching.
+- Existing `/api/v1/crm/workflow` router now also exposes `GET/PUT /scoring-policy`, `GET /leads/{id}/score-preview` and `POST /leads/{id}/apply-score`.
+- Policy is stored in the **existing Workspace.settings_json**, version checked under a workspace row lock. No new lead, CRM, event, queue or settings table was introduced. The existing integration audit records policy changes.
+- Scoring is disabled by default, rejects unknown/withdrawn purpose consent and archived leads, and cannot initiate automatic customer messaging or CRM delivery.
+- Preview reports matched rules, bounded proposed score and **human review** recommendation without changing any lead data.
+- Explicit apply revalidates current tenant/workspace/agent access, policy version, processing consent and expected lead score, then changes only the existing LeadProfile qualification_score. Human qualification status and explanation/reason are preserved; the scoring explanation is appended to existing LeadActivityEvent.
+- Threshold-crossing scores reuse `notify_workspace_admins` to create an idempotent in-app **human review** notification. No outbound emails, WhatsApp messages, CRM upserts or spend are triggered.
+- Existing CRM Workflow page now includes the scoring policy editor, rule configuration, preview, and confirmed apply button. The existing CRM API client was extended rather than replaced.
+- Committed `test_website_lead_scoring.py`, `test_website_lead_scoring_api.py`, and `LeadScoringPanel.test.tsx`, and updated existing `CRMWorkflowPage.test.tsx` and branch CI gates.
+- **Verification is incomplete.** The GitHub Actions branch jobs have been failing without running on a runner; these tests cannot be marked passed. CAP-040 automation timers/simulations and CAP-041 batch scoring/manual overrides remain open.
