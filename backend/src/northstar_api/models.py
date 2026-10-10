@@ -1024,3 +1024,6 @@ from northstar_api.website_cms_models import WebsiteAudit, WebsitePage, WebsiteR
 
 # Include anonymous site consent receipts in ORM metadata/schema creation.
 from northstar_api.website_consent_models import WebsiteConsentReceipt  # noqa: E402,F401
+
+# Register consent-gated page events in shared model metadata.
+from northstar_api.website_event_models import WebsitePageEvent  # noqa: E402,F401
