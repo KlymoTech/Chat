@@ -26,7 +26,8 @@ def _token(key, plan, at, **changes):
     )
     body.update(changes)
     payload = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
-    enc = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+    def enc(value):
+        return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
     return enc(payload) + "." + enc(key.sign(payload))
 
 
@@ -91,12 +92,13 @@ def test_wrong_key_and_expired_authorization_fail():
 def test_duplicate_json_fields_and_noncanonical_tokens_fail():
     key, at, plan, public = _fixture()
     valid = _token(key, plan, at)
-    payload_segment, signature_segment = valid.split(".")
+    payload_segment, _ = valid.split(".")
     payload = base64.urlsafe_b64decode(payload_segment + "=" * (-len(payload_segment) % 4))
     tampered = payload[:-1] + b',"environment":"production"}'
     # The duplicate key is inside a signed, syntactically valid JSON object.
     assert json.loads(tampered)["environment"] == "production"
-    encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+    def encode(value):
+        return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
     malformed = encode(tampered) + "." + encode(key.sign(tampered))
     for token in (malformed, valid + "=", valid + ".suffix", "invalid"):
         with pytest.raises(SigningAuthorizationRejected):
