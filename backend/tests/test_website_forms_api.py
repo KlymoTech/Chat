@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
+from northstar_api.lead_crm.audit_models import IntegrationAuditEvent
 from northstar_api.lead_crm.models import LeadConsent, LeadProfile
 from northstar_api.models import Lead, OutboxEvent
 from northstar_api.website_form_models import WebsiteFormRevision, WebsiteFormSubmission
@@ -135,6 +136,16 @@ async def test_published_form_writes_exactly_one_existing_lead_with_consents_and
             OutboxEvent.aggregate_type == "lead",
             OutboxEvent.aggregate_id == str(lead.id),
         ))).all()
+        audit = await session.scalar(select(IntegrationAuditEvent).where(
+            IntegrationAuditEvent.entity_type == "website_form_submission",
+            IntegrationAuditEvent.entity_id == str(submission.id),
+            IntegrationAuditEvent.action == "site.form.submission.accepted",
+        ))
+        assert audit is not None
+        assert audit.after_json["receiptId"] == str(submission.id)
+        assert audit.actor_user_id is None
+        assert "hanako@example.com" not in str(audit.after_json)
+
     assert conversions == 1
     assert {"lead.created.v1", "lead.captured.v1", "lead.crm.sync.requested.v1"} <= {
         event.event_type for event in lead_events
