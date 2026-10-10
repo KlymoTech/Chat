@@ -119,5 +119,14 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_internal_hostname_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://admin.internal"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_local_hostname_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://service.local"]'
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
