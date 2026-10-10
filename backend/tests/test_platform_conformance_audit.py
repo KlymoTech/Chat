@@ -101,7 +101,10 @@ def test_undeclared_event_topic_fails_closed(tmp_path: Path) -> None:
         "    image: api\n"
         "    topic: missing\n"
         "    handler: northstar_api.handlers.job:handle\n",
-    ).replace("resources: {queues: []}", "resources: {queues: [], topics: [{name: approved}]}")
+    ).replace(
+        "resources: {queues: []}",
+        "resources: {queues: [], topics: [{name: approved}]}",
+    )
     manifest.write_text(updated, encoding="utf-8")
     result = run_audit(root)
     assert "event topic resource is undeclared" in result.stdout
@@ -109,23 +112,30 @@ def test_undeclared_event_topic_fails_closed(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("invalid_timeout", ["-1", "0", "true", "901"])
-def test_invalid_lambda_timeout_fails_closed(tmp_path: Path, invalid_timeout: str) -> None:
+def test_invalid_lambda_timeout_fails_closed(
+    tmp_path: Path, invalid_timeout: str
+) -> None:
     root = fixture_root(tmp_path)
     manifest = root / "platform.yaml"
     original = manifest.read_text(encoding="utf-8")
     manifest.write_text(
         original.replace(
             "    kind: schedule\n",
-            f"    kind: schedule\n    runtime: lambda\n    timeout_s: {invalid_timeout}\n",
+            "    kind: schedule\n"
+            "    runtime: lambda\n"
+            f"    timeout_s: {invalid_timeout}\n",
         ),
         encoding="utf-8",
     )
     result = run_audit(root)
-    assert "Lambda timeout must be an integer between 1 and 900 seconds" in result.stdout
+    assert (
+        "Lambda timeout must be an integer between 1 and 900 seconds"
+        in result.stdout
+    )
     assert "Traceback" not in result.stderr
 
 
-def test_non_scalar_image_platform_is_reported_instead_of_crashing(tmp_path: Path) -> None:
+def test_non_scalar_image_platform_is_rejected(tmp_path: Path) -> None:
     root = fixture_root(tmp_path)
     manifest = root / "platform.yaml"
     manifest.write_text(
@@ -143,7 +153,10 @@ def test_non_scalar_image_platform_is_reported_instead_of_crashing(tmp_path: Pat
 def test_dockerfile_outside_repository_is_rejected(tmp_path: Path) -> None:
     root = fixture_root(tmp_path)
     outside = tmp_path.parent / f"{tmp_path.name}.Dockerfile"
-    outside.write_text("FROM python:3.12 AS builder\nFROM python:3.12\nUSER app\n", encoding="utf-8")
+    outside.write_text(
+        "FROM python:3.12 AS builder\nFROM python:3.12\nUSER app\n",
+        encoding="utf-8",
+    )
     manifest = root / "platform.yaml"
     manifest.write_text(
         manifest.read_text(encoding="utf-8").replace(
