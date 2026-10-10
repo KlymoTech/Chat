@@ -1,10 +1,6 @@
-/* Leads export: native responsive components, not screenshots or sample records. */
-.saas-bot-shell.mm-shell--leads { --ld-ink:#13243a; --ld-muted:#63656d; background:#e3e3e3; }
-.saas-bot-shell.mm-shell--leads .mm-sidebar { background:#fff; }
-.saas-bot-shell.mm-shell--leads .mm-content { padding:28px; }
-.saas-bot-shell.mm-shell--leads .mm-main { min-height:calc(100vh - 42px); }
-.saas-bot-shell .mm-content > .page.ld-page { padding:0; }
-.ld-page { --ld-ink:#13243a; --ld-muted:#63656d; --ld-line:#e4e4e2; --ld-surface:#f6f6f4; display:block; color:var(--ld-ink); padding:0; font-family:var(--sb-body,'Plus Jakarta Sans Variable',sans-serif); }
+/* Leads uses the same authenticated workspace shell as CRM Workflow. */
+.saas-bot-shell .mm-content > .page.ld-page { padding:24px; }
+.ld-page { --ld-ink:var(--ink); --ld-muted:var(--muted); --ld-line:var(--line); --ld-surface:var(--sb-paper); display:block; color:var(--ld-ink); padding:0; font-family:var(--sb-body,'Plus Jakarta Sans Variable',sans-serif); }
 .ld-page .ld-heading { margin:0 0 20px; }
 .ld-heading__top { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:22px; }
 .ld-heading__top>div { display:flex; gap:20px; }
@@ -13,13 +9,13 @@
 .ld-page .button--ghost,.ld-drawer .button--ghost { color:var(--ld-ink); background:transparent; border-color:transparent; }
 .ld-page .button:disabled,.ld-drawer .button:disabled,.modal:has(.ld-dialog) .button:disabled { opacity:.45; cursor:not-allowed; }
 .ld-page .button svg,.ld-drawer .button svg,.modal:has(.ld-dialog) .button svg { width:16px; height:16px; }
-.ld-eyebrow { font:500 10px var(--sb-mono,'JetBrains Mono Variable',monospace); color:#595964; }
-.ld-page .ld-heading h2 { margin:0; font:700 36px/1.2 var(--sb-body,'Plus Jakarta Sans Variable',sans-serif); letter-spacing:-1px; color:#606069; }
-.ld-page .ld-heading p,.ld-list-heading p { margin:3px 0 0; font:400 12px/1.7 var(--sb-mono,'JetBrains Mono Variable',monospace); color:var(--ld-muted); }
+.ld-eyebrow { font:500 11px/1.5 var(--sb-body,'Plus Jakarta Sans Variable',sans-serif); color:var(--ld-muted); }
+.ld-page .ld-heading h2 { margin:0; font:700 32px/1.2 var(--sb-heading,'Space Grotesk Variable',sans-serif); letter-spacing:-1px; color:var(--ld-ink); }
+.ld-page .ld-heading p,.ld-list-heading p { margin:5px 0 0; font:400 13px/1.6 var(--sb-body,'Plus Jakarta Sans Variable',sans-serif); color:var(--ld-muted); }
 .ld-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin-bottom:22px; }
-.ld-metric { background:var(--ld-surface); border:1px solid var(--ld-line); border-radius:13px; padding:15px; display:grid; justify-items:start; gap:8px; min-width:0; }
+.ld-metric { background:var(--ld-surface); border:1px solid var(--ld-line); border-radius:24px; padding:15px; display:grid; justify-items:start; gap:8px; min-width:0; }
 .ld-metric h3 { margin:0; font:500 9px/1.5 var(--sb-mono,'JetBrains Mono Variable',monospace); text-transform:uppercase; color:#626671; }
-.ld-metric>strong { font-size:28px; line-height:1.3; color:#606069; }
+.ld-metric>strong { font-size:28px; line-height:1.3; color:var(--ld-ink); }
 .ld-metric__hint { font:500 10px/1.6 var(--sb-mono,'JetBrains Mono Variable',monospace); background:#edf3fc; color:#16283c; padding:0 5px; border-radius:3px; }
 .ld-metric__hint--0 { background:#d5f4e4; color:#00634c; }
 .ld-metric__hint--3 { color:#006d53; }

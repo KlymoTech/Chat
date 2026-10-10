@@ -49,6 +49,7 @@ svg { width: 20px; height: 20px; stroke-width: 1.9; }
 .brand-mark { flex: 0 0 auto; display: inline-grid; place-items: center; border-radius: 12px; background: var(--blue); box-shadow: 0 8px 18px rgb(20 108 246 / .22); }
 .brand-mark svg { width: 72%; height: 72%; fill: #fff; stroke: none; }
 .brand-mark svg circle { fill: #77e1c6; }
+.talktobot-animated-logo{position:relative;display:inline-grid;place-items:center;flex:0 0 auto;overflow:hidden;border-radius:inherit;isolation:isolate;background:transparent}.talktobot-animated-logo video,.talktobot-animated-logo__fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity .22s ease}.talktobot-animated-logo video{mix-blend-mode:multiply;filter:contrast(1.06) saturate(1.12) drop-shadow(0 8px 12px rgb(15 23 42 / .18))}.talktobot-animated-logo video.is-visible{opacity:1}.talktobot-animated-logo__fallback{display:grid;place-items:center;border-radius:inherit;background:var(--blue)}.talktobot-animated-logo__fallback.is-visible{opacity:1}.talktobot-animated-logo__fallback svg{width:72%;height:72%;fill:#fff}.talktobot-animated-logo__fallback circle{fill:#77e1c6}@media (prefers-reduced-motion:reduce){.talktobot-animated-logo video{display:none}.talktobot-animated-logo__fallback{opacity:1}}
 
 .button { min-height: 42px; border: 1px solid transparent; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; font-weight: 700; font-size: 14px; transition: background .16s, border .16s, transform .16s, box-shadow .16s; white-space: nowrap; }
 .button svg { width: 17px; height: 17px; }
@@ -90,6 +91,8 @@ svg { width: 20px; height: 20px; stroke-width: 1.9; }
 .field textarea { resize: vertical; line-height: 1.55; }
 .field input:focus, .field select:focus, .field textarea:focus, .editor-card textarea:focus, .human-composer textarea:focus { border-color: #77aaff; box-shadow: 0 0 0 3px rgb(20 108 246 / .1); }
 .field select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, #758094 50%), linear-gradient(135deg, #758094 50%, transparent 50%); background-position: calc(100% - 17px) 18px, calc(100% - 12px) 18px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 34px; }
+.field select.telegram-picker-select { cursor: pointer; padding-right: 38px; background-color: #fff !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23171717' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; background-position: right 12px center !important; background-size: 16px 16px !important; background-repeat: no-repeat !important; }
+.field select.telegram-picker-select:disabled { cursor: not-allowed; }
 .saas-bot-shell .field select.education-picker-select { cursor: pointer; padding-right: 38px; background-color: #fff !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23171717' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; background-position: right 12px center !important; background-size: 16px 16px !important; background-repeat: no-repeat !important; }
 .field select.education-picker-select:disabled { cursor: not-allowed; }
 .two-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
@@ -920,3 +923,9 @@ kbd { padding: 2px 6px; border: 1px solid #d8dee8; border-radius: 5px; backgroun
 .knowledge-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
 @media (max-width: 640px) { .knowledge-review-queue li { flex-wrap: wrap; } .knowledge-review-queue li .button { margin-left: 44px; } }
 .knowledge-review-queue__actions { display: inline-flex; gap: 6px; }
+
+/* The supplied MP4s have a light baked backdrop. Blend it into the surrounding
+   surface so the shaded character reads as a floating 3D logo. */
+.widget-welcome { padding-top: 30px; }
+.widget-orb { width: 110px; height: 110px; margin-bottom: 14px; border-radius: 0; background: transparent; box-shadow: none; }
+.widget-expression { min-height: 118px; margin: 0 0 10px; display: grid; place-items: center; background: transparent; }

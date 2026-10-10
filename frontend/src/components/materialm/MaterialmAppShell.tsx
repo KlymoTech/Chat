@@ -111,11 +111,11 @@ export function MaterialmAppShell() {
     catch (error) { pushToast(error instanceof Error ? error.message : 'Sign out failed', 'error'); }
   }
 
-  return <div className={`mm-shell academy-shell saas-bot-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}${location.pathname === '/leads' ? ' mm-shell--leads' : ''}`} style={theme}>
+  return <div className={`mm-shell academy-shell saas-bot-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
     <a className="mm-skip" href="#mm-main-content">Skip to content</a>
     {session?.impersonation ? <div role="status" className="support-impersonation-banner"><ShieldCheck aria-hidden="true" /><span><strong>Support session active</strong> · You are acting as {session.user.email}. This session expires automatically.</span><button type="button" onClick={() => void signOut()}>Exit support session</button></div> : null}
     <aside className="mm-sidebar" aria-label="Primary navigation">
-      <Link to="/" className="mm-sidebar__brand" aria-label="talktobot home"><Brand compact={collapsed} /></Link>
+      <Link to="/" className="mm-sidebar__brand" aria-label="talktobot home"><Brand compact={collapsed} animated /></Link>
       <MaterialmSidebarLinks items={items} educationItems={educationNavigation.filter((item) => canUseDashboardCapability(scope, item.permission))} />
       <button type="button" className="mm-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
         {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse sidebar'}</span>
@@ -147,7 +147,7 @@ export function MaterialmAppShell() {
     </div>
     <dialog ref={drawer} id="mm-mobile-navigation" className="mm-drawer" aria-label="Main navigation" onCancel={() => setMobileOpen(false)} onClose={() => { setMobileOpen(false); menuTrigger.current?.focus(); }} onClick={(event) => { if (event.target === event.currentTarget) setMobileOpen(false); }}>
       <div className="mm-drawer__inner">
-        <div className="mm-drawer__header"><Brand /><button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X aria-hidden="true" /></button></div>
+        <div className="mm-drawer__header"><Brand animated /><button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X aria-hidden="true" /></button></div>
         <MaterialmSidebarLinks items={items} educationItems={educationNavigation.filter((item) => canUseDashboardCapability(scope, item.permission))} onNavigate={() => setMobileOpen(false)} />
       </div>
     </dialog>

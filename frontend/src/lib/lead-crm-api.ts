@@ -276,5 +276,7 @@ export const leadCrmApi = {
   testChannelConnection: (id: string) => call<Record<string, string>>(`/channels/connections/${id}/test`, { method: 'POST' }),
   updateChannelConnection: (id: string, value: { provider: string; name: string; agentId?: string; configuration?: Record<string, unknown>; credentials?: Record<string, unknown> }) =>
     call<ChannelConnectionView>(`/channels/connections/${id}`, { method: 'PATCH', body: JSON.stringify(value) }),
+  assignChannelConnectionAgent: (id: string, agentId: string) =>
+    call<ChannelConnectionView>(`/channels/connections/${id}/agent`, { method: 'PATCH', body: JSON.stringify({ agentId }) }),
   disableChannelConnection: (id: string) => call<void>(`/channels/connections/${id}`, { method: 'DELETE' }),
 };

@@ -88,6 +88,7 @@ async def test_agent_knowledge_and_grounded_sse(client: AsyncClient, auth_header
     )
     assert created.status_code == 201, created.text
     agent = created.json()
+    assert agent["avatar"] == "S"
     assert agent["model"] == {
         "provider": "nvidia",
         "model": "nvidia/nemotron-3-ultra-550b-a55b",

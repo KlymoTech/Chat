@@ -45,6 +45,14 @@ class ChannelConnectionCreate(BaseModel):
     credentials: dict[str, Any] = Field(default_factory=dict)
 
 
+class ChannelConnectionAgentAssignment(BaseModel):
+    """Assign an existing channel connection without replacing its credentials."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    agent_id: UUID = Field(alias="agentId")
+
+
 class ChannelConnectionOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -311,6 +319,31 @@ async def update_channel_connection(
     value.last_event_at = None
     await session.commit()
     await session.refresh(value)
+    return _out(value, scope)
+
+
+@router.patch("/channels/connections/{connection_id}/agent", response_model=ChannelConnectionOut)
+async def assign_channel_connection_agent(
+    connection_id: UUID,
+    payload: ChannelConnectionAgentAssignment,
+    principal: ChannelsManagePrincipal,
+    session: DB,
+) -> ChannelConnectionOut:
+    """Reassign a saved connection while preserving its encrypted credentials and webhook."""
+    scoped = await _scoped_connection(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.workspace_id,
+        connection_id=connection_id,
+    )
+    if not scoped:
+        raise HTTPException(status_code=404, detail="Channel connection not found in this workspace")
+    value, scope = scoped
+    await _validate_agent_channel(session, principal, ChannelProvider(value.provider), payload.agent_id)
+    scope.agent_id = payload.agent_id
+    await session.commit()
+    await session.refresh(value)
+    await session.refresh(scope)
     return _out(value, scope)
 
 
