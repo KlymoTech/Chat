@@ -102,7 +102,7 @@ describe('marketing consent and suppression panel', () => {
     fireEvent.change(screen.getByLabelText('Lead'), { target: { value: leadId } });
     fireEvent.click(screen.getByRole('button', { name: 'Check permission' }));
     expect(await screen.findByText('unknown')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Withdraw marketing permission' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Withdraw marketing permission' })).toBeEnabled();
     expect(mocks.withdraw).not.toHaveBeenCalled();
   });
 });
