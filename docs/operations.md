@@ -15,6 +15,15 @@
 | `worker` | Celery background jobs | Required stores/broker healthy |
 | `job-dispatcher` | Publishes persisted queued-ingestion jobs to RabbitMQ | Database migration and RabbitMQ ready |
 | `outbox-relay` | Publishes committed outbox events | Database migration and Kafka ready |
+
+The planned scale-to-zero queue handler is `northstar_api.handlers.outbox_relay:lambda_handler`.
+It processes at most 100 committed rows per invocation, performs no idle polling,
+and preserves the existing polling worker for current deployments. It is **not a
+completed cutover**: outbox writers do not yet send an `outbox-nudge` message after
+commit, a recovery sweep for lost nudges is not deployed, and consumers must
+deduplicate by `eventId` because broker acknowledgement can precede the database
+commit. Keep the existing relay active until those pieces are deployed and
+qualified; do not run both relays simultaneously for the same outbox.
 | `analytics-consumer` | Consumes Kafka and updates projections | Database migration and Kafka ready |
 | `object-cleaner` | Purges deleted knowledge-object versions from storage | Database migration, Kafka, and bucket initialization ready |
 | `web` | Nginx + React application | API healthy and `/healthz` succeeds |

@@ -50,8 +50,8 @@ processes:
     kind: queue
     image: api
     queue: outbox-nudge
-    runtime: local-worker
-    handler: northstar_api.workers.outbox_publisher:main
+    runtime: lambda
+    handler: northstar_api.handlers.outbox_relay:lambda_handler
     timeout_s: 60
   - name: events
     kind: event
