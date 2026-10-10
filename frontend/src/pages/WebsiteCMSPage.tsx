@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Check, Copy, ExternalLink, FilePlus2, GripVertical, Plus, RefreshCw, Save, Send, ShieldCheck, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type SetStateAction } from 'react';
+import { ArrowDown, ArrowUp, Check, Copy, ExternalLink, FilePlus2, GripVertical, Plus, Redo2, RefreshCw, Save, Send, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
 import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
-import { apiConfig, request } from '@/lib/api';
-import { duplicateSibling, moveBlockBetweenSections, removeChild, reorderNodes, type BuilderNode } from './websiteBuilderOperations';
+import { ApiError, apiConfig, request } from '@/lib/api';
+import { duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
 import './WebsiteCMSPage.css';
 
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
@@ -56,6 +56,21 @@ function message(reason: unknown): string {
   return reason instanceof Error ? reason.message : 'The request could not be completed.';
 }
 
+function downloadJson(manifest: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export function WebsiteCMSPage() {
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
@@ -63,7 +78,18 @@ export function WebsiteCMSPage() {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [metrics, setMetrics] = useState<WebsiteMetrics | null>(null);
   const [selected, setSelected] = useState<CMSPage | null>(null);
-  const [draft, setDraft] = useState<PageDocument | null>(null);
+  const [editing, setEditing] = useState(() => startDraftHistory<PageDocument>(null));
+  const draft = editing.present;
+  const resetDraft = useCallback((document: PageDocument | null) => {
+    setEditing(startDraftHistory(document));
+  }, []);
+  const setDraft = useCallback((change: SetStateAction<PageDocument | null>) => {
+    setEditing((history) => reviseDraftHistory(history, change));
+  }, []);
+  const [saveBlocked, setSaveBlocked] = useState(false);
+  const [saveConflict, setSaveConflict] = useState(false);
+  const [saveNote, setSaveNote] = useState('');
+  const saveRef = useRef<() => Promise<void>>(async () => {});
   const [sectionId, setSectionId] = useState<string | null>(null);
   const [draggedItem, setDraggedItem] = useState<{ id: string; type: 'section' | 'block' } | null>(null);
   const [name, setName] = useState('New page');
@@ -87,18 +113,20 @@ export function WebsiteCMSPage() {
       const saved = await request<CMSPage[]>('/site-cms/pages');
       setPages(saved);
       setMetrics(await request<WebsiteMetrics>('/site-analytics/summary?days=30').catch(() => null));
-      setSelected((current) => current ? saved.find((page) => page.id === current.id) ?? null : null);
+      setSelected((current) => current && saved.some((page) => page.id === current.id) ? current : null);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   }, [workspaceId]);
-  useEffect(() => { setPages([]); setSelected(null); setDraft(null); void load(); }, [load]);
+  useEffect(() => { setPages([]); setSelected(null); resetDraft(null); void load(); }, [load, resetDraft]);
   const refreshRevisions = async (pageId: string) => {
     try { setRevisions(await request<Revision[]>('/site-cms/pages/' + pageId + '/revisions')); }
     catch (reason) { setError(message(reason)); }
   };
   const open = (page: CMSPage, force = false) => {
+    if (!force && busy) return;
     if (!force && dirty && !window.confirm('Discard unsaved content changes?')) return;
-    setSelected(page); setDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
+    setSelected(page); resetDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
+    setSaveBlocked(false); setSaveConflict(false); setSaveNote('Loaded the latest acknowledged page revision.');
     setCopyTitle('Copy of ' + page.title);
     setCopySlug((page.slug + '-copy').slice(0, 160));
     void refreshRevisions(page.id);
@@ -131,18 +159,7 @@ export function WebsiteCMSPage() {
       const manifest = await request<{
         format: 'northstar.site-page'; version: 1; page: PageDocument;
       }>('/site-cms/pages/' + selected.id + '/export');
-      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
-      const downloadUrl = URL.createObjectURL(blob);
-      try {
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = selected.slug + '.site-page.json';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      } finally {
-        URL.revokeObjectURL(downloadUrl);
-      }
+      downloadJson(manifest, selected.slug + '.site-page.json');
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   };
@@ -236,18 +253,90 @@ export function WebsiteCMSPage() {
 
   const dirty = !!selected && !!draft && JSON.stringify(draft) !== JSON.stringify(selected.document);
   const replace = (page: CMSPage) => {
-    setSelected(page); setDraft(page.document); setPages((items) => items.map((item) => item.id === page.id ? page : item));
+    setSelected(page);
+    resetDraft(page.document);
+    setSaveBlocked(false); setSaveConflict(false);
+    setSaveNote('Saved as server revision ' + page.draftVersion + '.');
+    setPages((items) => items.map((item) => item.id === page.id ? page : item));
     void refreshRevisions(page.id);
   };
   const save = async () => {
-    if (!selected || !draft) return;
+    if (!selected || !draft || busy || saveConflict) return;
+    const snapshot = JSON.stringify(draft);
+    const pageId = selected.id;
+    setBusy(true); setError(''); setSaveNote('Saving to the server…');
+    try {
+      const saved = await request<CMSPage>('/site-cms/pages/' + pageId, {
+        method: 'PUT',
+        body: JSON.stringify({ expected_version: selected.draftVersion, document: draft }),
+      });
+      // Never replace edits made while this request was in flight.
+      setSelected((current) => current?.id === pageId ? saved : current);
+      setPages((items) => items.map((page) => page.id === pageId ? saved : page));
+      setEditing((history) => JSON.stringify(history.present) === snapshot
+        ? { ...history, present: saved.document }
+        : history);
+      setSaveBlocked(false);
+      setSaveNote('Saved as server revision ' + saved.draftVersion + '.');
+      void refreshRevisions(saved.id);
+    } catch (reason) {
+      setSaveBlocked(true);
+      if (reason instanceof ApiError && reason.status === 409) {
+        setSaveConflict(true);
+        setSaveNote('Another editor changed this page. Autosave stopped. Export your local draft before reloading.');
+      } else {
+        setSaveNote('Autosave paused after a failed request. Changes remain in this tab; use Retry save.');
+      }
+      setError(message(reason));
+    } finally { setBusy(false); }
+  };
+  saveRef.current = save;
+  // Debounced database autosave uses the same optimistic-version API as manual Save.
+  useEffect(() => {
+    if (!dirty || !draft || !selected || busy || saveBlocked || saveConflict) return;
+    const timer = window.setTimeout(() => { void saveRef.current(); }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [selected?.id, selected?.draftVersion, draft, dirty, busy, saveBlocked, saveConflict]);
+  useEffect(() => {
+    if (!dirty && !busy) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [dirty, busy]);
+  useEffect(() => {
+    const onHistoryShortcut = (event: KeyboardEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== 'z') return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.closest('.site-cms-page')) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      event.preventDefault();
+      setSaveBlocked(false);
+      setEditing(event.shiftKey ? redoDraftHistory : undoDraftHistory);
+    };
+    window.addEventListener('keydown', onHistoryShortcut);
+    return () => window.removeEventListener('keydown', onHistoryShortcut);
+  }, []);
+  const reloadServerPage = async () => {
+    if (!selected || busy || !window.confirm('Discard local unsaved changes and load the latest server revision?')) return;
     setBusy(true); setError('');
     try {
-      replace(await request<CMSPage>('/site-cms/pages/' + selected.id, {
-        method: 'PUT', body: JSON.stringify({ expected_version: selected.draftVersion, document: draft }),
-      }));
+      const latest = await request<CMSPage[]>('/site-cms/pages');
+      setPages(latest);
+      const server = latest.find((page) => page.id === selected.id);
+      if (!server) throw new Error('This page is no longer available in your workspace.');
+      open(server, true);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
+  };
+  const exportLocalDraft = () => {
+    if (!selected || !draft) return;
+    downloadJson({
+      format: 'northstar.site-page', version: 1, page: draft,
+    }, selected.slug + '-unsaved.site-page.json');
+    setSaveNote('Unsaved draft exported for recovery; nothing was sent to the server.');
   };
   const transition = async (action: Action) => {
     if (!selected || dirty) return;
@@ -355,7 +444,12 @@ export function WebsiteCMSPage() {
             <Card><div className="site-cms-toolbar"><div><strong>{selected.title}</strong> <Badge tone={selected.status === 'published' ? 'success' : 'warning'}>{selected.status}</Badge>
               <small>{draft.content_type === 'article' ? 'Article' : 'Page'} · Draft revision {selected.draftVersion} · Published {selected.publishedVersion ?? 'never'}</small></div>
               <div className="site-cms-actions">
-                <Button icon={Save} disabled={busy || !dirty} onClick={() => void save()}>Save draft</Button>
+                <Button icon={Undo2} variant="secondary" disabled={busy || editing.past.length === 0}
+                  onClick={() => { setSaveBlocked(false); setEditing(undoDraftHistory); }}>Undo</Button>
+                <Button icon={Redo2} variant="secondary" disabled={busy || editing.future.length === 0}
+                  onClick={() => { setSaveBlocked(false); setEditing(redoDraftHistory); }}>Redo</Button>
+                <Button icon={Save} disabled={busy || !dirty || saveConflict}
+                  onClick={() => { setSaveBlocked(false); void save(); }}>Save now</Button>
                 <Button variant="secondary" icon={Send} disabled={busy || dirty || selected.status !== 'draft'} onClick={() => void transition('submit')}>Submit review</Button>
                 <Button variant="secondary" icon={Check} disabled={busy || dirty || selected.status !== 'in_review'} onClick={() => void transition('approve')}>Approve</Button>
                 <Button variant="secondary" icon={ShieldCheck} disabled={busy || dirty || selected.status !== 'approved'} onClick={() => void transition('publish')}>Publish</Button>
@@ -366,7 +460,19 @@ export function WebsiteCMSPage() {
                 <Button variant="secondary" icon={RefreshCw} disabled={busy || dirty || selected.status !== 'archived'}
                   onClick={() => void transition('restore_draft')}>Restore draft</Button>
               </div></div>
-              {dirty ? <p className="site-cms-unsaved">Unsaved changes. Save before publishing.</p> : null}
+              {dirty ? <p className="site-cms-unsaved" role="status">Unsaved edits. {saveBlocked ? 'Autosave is paused.' : 'Autosave will run after a short pause.'}</p> : null}
+              {saveNote ? <p role="status" className="site-cms-save-note">{saveNote}</p> : null}
+              {saveBlocked && !saveConflict && dirty ? <Button variant="secondary" disabled={busy}
+                onClick={() => { setSaveBlocked(false); void save(); }}>Retry save</Button> : null}
+              {saveConflict ? <div className="site-cms-conflict" role="alert">
+                <strong>Version conflict — no changes have been overwritten.</strong>
+                <p>Keep this tab open. Export your unsaved draft before replacing it with the current server version.</p>
+                <div className="site-cms-actions">
+                  <Button icon={Copy} variant="secondary" onClick={exportLocalDraft}>Export unsaved draft</Button>
+                  <Button icon={RefreshCw} variant="secondary" disabled={busy}
+                    onClick={() => { void reloadServerPage(); }}>Reload server version</Button>
+                </div>
+              </div> : null}
               {selected.publishedVersion ? <a className="site-cms-public-link" target="_blank" rel="noreferrer" href={publicUrl}>Open published page <ExternalLink size={15}/></a> : null}
             </Card>
             <Card>
