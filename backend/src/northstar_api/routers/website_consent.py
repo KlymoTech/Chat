@@ -199,6 +199,8 @@ async def save_choices(
         key=name, value=token, max_age=MAX_AGE_DAYS * 86400,
         httponly=True, secure=get_settings().is_production,
         samesite="lax",
-        path=get_settings().app_api_prefix.rstrip("/") + "/site-consent",
+        # Consent and events share a first-party API prefix. The cookie must
+        # reach both endpoint families without being exposed to page JavaScript.
+        path=get_settings().app_api_prefix.rstrip("/") or "/",
     )
     return _effective(record, gpc=gpc)
