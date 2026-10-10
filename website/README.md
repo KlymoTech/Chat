@@ -272,3 +272,21 @@ a configured real identity provider with independent reviewers, privacy policy
 and processor mapping, advanced builder orchestration, and production
 automation plus browser E2E. Real CRM integration remains deferred. Changes
 are committed only to `feature/website-blueprint-v1-3`; do not merge main.
+
+
+## Owner authentication: recent MFA evidence gate
+
+The owner JWT verification path now offers a fail-closed optional
+`WEBSITE_CMS_REQUIRE_MFA=true` setting. When enabled, the **verified**
+RS256 access token must contain a recent (within 12 hours) `auth_time`
+and a strong MFA `amr` value (`mfa`, `otp`, `hwk`, `swk`,
+`fido`, or `webauthn`), or an exact operator-approved
+`WEBSITE_CMS_MFA_ACCEPTED_ACR` value. The policy is evaluated before
+creating a trusted CMS actor context, including privileged privacy,
+publishing, redirects and automation routes. Bad or missing proofs fail closed.
+The gate defaults OFF for backward compatibility until the external IdP
+claim semantics and enforced MFA enrollment are verified.
+
+This is **not** a substitute for real provider-side MFA enforcement,
+role provisioning, key rotation, OIDC integration tests, audited recovery,
+or independent release security sign-off.
