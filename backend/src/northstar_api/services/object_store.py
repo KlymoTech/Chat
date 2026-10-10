@@ -304,7 +304,11 @@ class ObjectStore:
             if not copy_valid:
                 cleanup_copy()
                 raise ObjectStoreUnavailable("Object storage did not preserve the uploaded file")
-            client.delete_object(Bucket=self.settings.s3_bucket, Key=key, **source_version)
+            try:
+                client.delete_object(Bucket=self.settings.s3_bucket, Key=key, **source_version)
+            except (BotoCoreError, ClientError) as exc:
+                cleanup_copy()
+                raise ObjectStoreUnavailable("Object storage could not remove the staged upload") from exc
             return permanent_key, checksum, size
 
         return await asyncio.to_thread(promote)

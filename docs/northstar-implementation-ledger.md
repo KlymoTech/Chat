@@ -688,3 +688,13 @@ do not merge without explicit instruction.
 - This is a process-presence gate, not evidence that every worker consumed a
   message or that live AWS behavior is qualified. No Compose service or
   application feature was removed.
+
+## Increment: failed staging-deletion copy cleanup (2026-10-10)
+
+- After a validated promotion copy, staging-object deletion failure now
+  triggers cleanup of the exact copied version and returns an object-store
+  error. Previously that failure could leave a promoted object behind while
+  the API reported failure. A focused AWS-mode regression covers this path.
+- This does not address unknown outcomes of the copy request itself, missing
+  copied-version receipts, externally overwritten destinations, or periodic
+  orphan reconciliation. Live AWS and full CI remain unverified.

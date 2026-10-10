@@ -8,7 +8,7 @@ from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
-from botocore.exceptions import NoCredentialsError
+from botocore.exceptions import ClientError, NoCredentialsError
 
 from northstar_api.config import Settings, get_settings
 from northstar_api.services.object_store import (
@@ -324,6 +324,38 @@ async def test_aws_promotion_verifies_exact_copied_version(
         assert client.delete_arguments == [{"Key": client.copied_to, "VersionId": "copy-version-1"}]
     assert {"Key": client.copied_to, "VersionId": "copy-version-1"} in client.head_arguments
     assert {"Key": client.copied_to, "VersionId": "copy-version-1"} in client.read_arguments
+
+
+async def test_aws_promotion_cleans_exact_copy_when_staging_delete_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid4()
+    workspace_id = uuid4()
+    staging_key = f"staging/{tenant_id}/{workspace_id}/2026/09/example.txt"
+    client = _FakeS3(b"payload")
+    original_delete = client.delete_object
+
+    def delete_or_deny(*, Bucket: str, Key: str, **kwargs: Any) -> None:  # noqa: N803
+        if Key == staging_key:
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, "DeleteObject")
+        original_delete(Bucket=Bucket, Key=Key, **kwargs)
+
+    client.delete_object = delete_or_deny  # type: ignore[method-assign]
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="could not remove the staged upload"):
+        await store.promote_staged(tenant_id, staging_key, workspace_id=workspace_id)
+
+    assert client.delete_arguments == [{"Key": client.copied_to, "VersionId": "copy-version-1"}]
 
 
 @pytest.mark.parametrize("copied_version_id", [None, "null"])
