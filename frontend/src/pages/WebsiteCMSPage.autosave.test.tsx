@@ -137,6 +137,25 @@ describe('CMS acknowledged autosave and conflict recovery', () => {
     expect(screen.queryByText(/Autosave will run after a short pause/)).not.toBeInTheDocument();
   });
 
+  it('does not send unsaved edits while offline and retries after reconnect', async () => {
+    const input = await openPage();
+    vi.useFakeTimers();
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+      fireEvent.change(input, { target: { value: 'Edited offline' } });
+    });
+    expect(screen.getByText(/Offline — nothing is being sent/)).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3500); });
+    expect(mocks.request.mock.calls.some(([path, opts]) =>
+      path === '/site-cms/pages/' + storedPage.id && opts?.method === 'PUT',
+    )).toBe(false);
+
+    act(() => { window.dispatchEvent(new Event('online')); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3500); });
+    expect(storedPage.document.title).toBe('Edited offline');
+    expect(storedPage.draftVersion).toBe(2);
+  });
+
   it('stops saving after a version conflict and offers safe export before reload', async () => {
     const input = await openPage();
     rejectWrite = true;
