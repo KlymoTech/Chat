@@ -128,6 +128,8 @@ async def test_daily_aggregate_reporting_enforces_authorization_and_date_bounds(
     assert (await client.get(url, headers=auth_headers, params={"days": 91})).status_code == 422
     report = await client.get(url, headers=auth_headers, params={"days": 7})
     assert report.status_code == 200, report.text
+    assert report.headers["cache-control"] == "private, no-store"
+    assert report.headers["x-content-type-options"] == "nosniff"
     data = report.json()
     assert data["days"] == 7
     assert data["timezone"] == "UTC"
