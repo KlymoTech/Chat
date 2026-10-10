@@ -1,7 +1,7 @@
 """Fail-closed ordering for protected signing orchestration."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from unittest.mock import AsyncMock
 
 import pytest
@@ -19,6 +19,11 @@ def public_key():
 
 class Identity:
     async def retrieve_for_isolated_service(self, *, run_id, branch):
+        return None
+
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
         return None
 
 
@@ -164,7 +169,7 @@ async def test_nonfunctional_guard_is_rejected_before_authorization(monkeypatch,
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("clock", [0, False, "", [], {}, datetime(2026, 10, 10)])
+@pytest.mark.parametrize("clock", [0, False, "", [], {}, datetime(2026, 10, 10), datetime(2026, 10, 10, tzinfo=NoOffsetTZ())])
 async def test_invalid_clock_never_consumes_authorization(monkeypatch, clock):
     verify = AsyncMock()
     sign = AsyncMock()
