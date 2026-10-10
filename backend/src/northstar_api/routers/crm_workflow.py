@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -526,6 +527,17 @@ def _automation_correlation(automation: InternalAutomation, version: int) -> str
     return f"site-automation:{automation.id}:{version}"
 
 
+def _candidate_fingerprint(
+    automation: InternalAutomation,
+    candidate_ids: list[UUID],
+) -> str:
+    # Deterministic opaque cohort checksum, never a list of lead identities.
+    # Scope to one automation; inclusion is independently recalculated under
+    # the existing workspace lock and purpose/consent checks.
+    value = "|".join([str(automation.id), *(str(item) for item in sorted(candidate_ids))])
+    return hashlib.sha256(value.encode("ascii")).hexdigest()
+
+
 @router.get("/workflow/internal-automations", response_model=InternalAutomationRegister)
 async def list_internal_automations(
     principal: CRMWorkflowPrincipal, session: DB,
@@ -589,6 +601,7 @@ async def preview_internal_automation(
         "policyVersion": register.version,
         "segmentVersion": _segments(workspace).version,
         "eligibleLeads": len(candidate_ids),
+        "eligibleFingerprint": _candidate_fingerprint(automation, candidate_ids),
         "alreadyQueued": len(previously_queued),
         "remainingEligible": len(candidate_ids) - len(previously_queued),
         "blockedByConsentOrStatus": blocked,
@@ -627,6 +640,11 @@ async def execute_internal_automation(
         raise HTTPException(409, "Lead population exceeds the bounded safety scan; narrow the segment")
     if len(candidate_ids) != payload.expected_eligible_leads:
         raise HTTPException(409, "Eligible Lead count changed; preview again")
+    if (
+        payload.expected_eligible_fingerprint is not None
+        and payload.expected_eligible_fingerprint != _candidate_fingerprint(automation, candidate_ids)
+    ):
+        raise HTTPException(409, "Eligible Lead membership changed; preview again")
     correlation = _automation_correlation(automation, register.version)
     already_queued = await _already_notified(session, principal, candidate_ids, correlation)
     pending = [item for item in candidate_ids if item not in already_queued]
