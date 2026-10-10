@@ -292,3 +292,15 @@ a configured real identity provider with independent reviewers, privacy policy
 and processor mapping, advanced builder orchestration, and production
 automation plus browser E2E. Real CRM integration remains deferred. Changes
 are committed only to `feature/website-blueprint-v1-3`; do not merge main.
+
+
+## Authenticated owner MFA hardening checkpoint
+
+Added `owner-mfa-policy.ts`, OIDC access-token verification integration,
+and unit tests for recent verified `amr`/exact `acr` evidence and
+password-only/stale-auth denial. This is an OFF-by-default security gate:
+real identity-provider claim mapping, MFA enforcement and browser/API
+integration testing remain incomplete. GitHub commit does not constitute
+a passing test run or completed production authentication. Work remains
+only on `feature/website-blueprint-v1-3`, and CRM integrations remain
+deferred.
