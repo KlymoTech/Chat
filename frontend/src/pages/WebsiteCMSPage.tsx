@@ -7,7 +7,7 @@ import { duplicateSibling, moveBlockBetweenSections, removeChild, reorderNodes, 
 import './WebsiteCMSPage.css';
 
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
-type Action = 'submit' | 'approve' | 'publish';
+type Action = 'submit' | 'approve' | 'publish' | 'archive' | 'restore_draft' | 'request_changes';
 type Node = BuilderNode;
 interface PageSEO { description: string; canonical_url: string | null; indexable: boolean }
 interface BlogMetadata { author: string; category: string; summary: string; reviewer: string | null; locale: string }
@@ -251,6 +251,7 @@ export function WebsiteCMSPage() {
   };
   const transition = async (action: Action) => {
     if (!selected || dirty) return;
+    if (action === 'archive' && !window.confirm('Archive this page and remove its public URL? The source revisions will be preserved.')) return;
     setBusy(true); setError('');
     try { replace(await request<CMSPage>('/site-cms/pages/' + selected.id + '/' + action, { method: 'POST' })); }
     catch (reason) { setError(message(reason)); }
@@ -358,6 +359,12 @@ export function WebsiteCMSPage() {
                 <Button variant="secondary" icon={Send} disabled={busy || dirty || selected.status !== 'draft'} onClick={() => void transition('submit')}>Submit review</Button>
                 <Button variant="secondary" icon={Check} disabled={busy || dirty || selected.status !== 'in_review'} onClick={() => void transition('approve')}>Approve</Button>
                 <Button variant="secondary" icon={ShieldCheck} disabled={busy || dirty || selected.status !== 'approved'} onClick={() => void transition('publish')}>Publish</Button>
+                <Button variant="secondary" icon={RefreshCw} disabled={busy || dirty || selected.status !== 'in_review'}
+                  onClick={() => void transition('request_changes')}>Request changes</Button>
+                <Button variant="secondary" icon={Trash2} disabled={busy || dirty || selected.status !== 'published'}
+                  onClick={() => void transition('archive')}>Archive safely</Button>
+                <Button variant="secondary" icon={RefreshCw} disabled={busy || dirty || selected.status !== 'archived'}
+                  onClick={() => void transition('restore_draft')}>Restore draft</Button>
               </div></div>
               {dirty ? <p className="site-cms-unsaved">Unsaved changes. Save before publishing.</p> : null}
               {selected.publishedVersion ? <a className="site-cms-public-link" target="_blank" rel="noreferrer" href={publicUrl}>Open published page <ExternalLink size={15}/></a> : null}
