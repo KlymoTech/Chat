@@ -24,11 +24,15 @@ function readChoices(): ConsentChoices | null {
   }
 }
 
+function browserGpc():boolean {
+  try{return (navigator as Navigator&{globalPrivacyControl?:boolean}).globalPrivacyControl===true;}
+  catch{return false;}
+}
 /** Deny all optional purposes if storage is unavailable or consent is unknown. */
 export function currentConsent(): Pick<ConsentChoices, "analytics" | "marketing"> {
   if (typeof window === "undefined") return { analytics: false, marketing: false };
   const value = readChoices();
-  return { analytics: Boolean(value?.analytics), marketing: Boolean(value?.marketing) };
+  return { analytics: Boolean(value?.analytics), marketing: Boolean(value?.marketing)&&!browserGpc() };
 }
 
 export function ConsentPreferences() {
@@ -37,13 +41,15 @@ export function ConsentPreferences() {
   const [analytics, setAnalytics] = useState(false);
   const [marketing, setMarketing] = useState(false);
   const [notice, setNotice] = useState("");
+  const [gpc,setGpc] = useState(false);
 
   useEffect(() => {
     const sync=()=>{
       const saved=readChoices();
+      const blocked=browserGpc();setGpc(blocked);
       setDecided(Boolean(saved));
       setAnalytics(Boolean(saved?.analytics));
-      setMarketing(Boolean(saved?.marketing));
+      setMarketing(Boolean(saved?.marketing)&&!blocked);
     };
     sync();
     window.addEventListener("storage",sync);
@@ -54,17 +60,27 @@ export function ConsentPreferences() {
 
   async function save(nextAnalytics: boolean, nextMarketing: boolean) {
     let recorded=false;
+    let allowedAnalytics=false;
+    let allowedMarketing=false;
     try {
       const response=await fetch("/api/privacy/choices",{
         method:"POST",cache:"no-store",credentials:"same-origin",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({analytics:nextAnalytics,marketing:nextMarketing}),
+        body:JSON.stringify({analytics:nextAnalytics,marketing:nextMarketing&&!browserGpc()}),
       });
-      recorded=response.ok;
+      if(response.ok){
+        const payload:unknown=await response.json();
+        if(payload&&typeof payload==="object"&&
+           "status" in payload&&payload.status==="recorded"&&
+           "analytics" in payload&&typeof payload.analytics==="boolean"&&
+           "marketing" in payload&&typeof payload.marketing==="boolean"){
+          recorded=true;
+          allowedAnalytics=payload.analytics;
+          allowedMarketing=payload.marketing&&!browserGpc();
+        }
+      }
     }catch{/* Server unreachable: never infer permission. */}
-    // Grant optional local permission only after a durable server receipt.
-    const allowedAnalytics=recorded && nextAnalytics;
-    const allowedMarketing=recorded && nextMarketing;
+    // Use the *effective server-confirmed* optional permissions, not the request.
     const choices:ConsentChoices={
       analytics:allowedAnalytics,marketing:allowedMarketing,
       savedAt:new Date().toISOString(),version:1,
@@ -94,7 +110,7 @@ export function ConsentPreferences() {
       <div className="consent-actions">
         <button type="button" className="button secondary" onClick={() => save(false, false)}>Reject optional</button>
         <button type="button" className="button secondary" onClick={() => setOpen(true)}>Manage choices</button>
-        <button type="button" className="button" onClick={() => save(true, true)}>Accept optional</button>
+        <button type="button" className="button" onClick={() => save(true, !gpc)}>Accept available optional</button>
       </div>
     </section>}
     {open && <section className="consent-notice" role="region" aria-label="Manage privacy choices">
@@ -102,8 +118,9 @@ export function ConsentPreferences() {
       <p>Essential operations are always enabled. Optional tracking is not loaded by this starter website.</p>
       <label className="consent-toggle"><input type="checkbox" checked={analytics}
         onChange={event => setAnalytics(event.target.checked)} /> Analytics (optional)</label>
-      <label className="consent-toggle"><input type="checkbox" checked={marketing}
-        onChange={event => setMarketing(event.target.checked)} /> Marketing measurement (optional)</label>
+      <label className="consent-toggle"><input type="checkbox" checked={marketing&&!gpc}
+        disabled={gpc} onChange={event => setMarketing(event.target.checked)} /> Marketing measurement (optional)</label>
+      {gpc&&<p role="status">Global Privacy Control is active in this browser. Optional marketing measurement remains off.</p>}
       <div className="consent-actions">
         <button type="button" className="button secondary" onClick={() => save(false, false)}>Reject optional</button>
         <button type="button" className="button" onClick={() => save(analytics, marketing)}>Save my choices</button>
