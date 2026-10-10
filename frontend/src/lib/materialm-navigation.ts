@@ -24,6 +24,7 @@ export const primaryNavigation: NavigationItem[] = [
   { to: '/integrations', label: 'Integrations', icon: 'integrations', section: 'Engagement', permission: 'integrations.view' },
   { to: '/education', label: 'Education', icon: 'education', section: 'Learning', permission: 'education.view' },
   { to: '/site-cms', label: 'Website CMS', icon: 'deploy', section: 'Workspace', permission: 'workspace.manage' },
+  { to: '/site-campaigns', label: 'Campaign Links', icon: 'integrations', section: 'Workspace', permission: 'workspace.manage' },
   { to: '/analytics', label: 'Analytics', icon: 'analytics', section: 'Operations', permission: 'analytics.view' },
   { to: '/audit', label: 'Audit', icon: 'audit', section: 'Operations', permission: 'audit.view' },
   { to: '/deploy', label: 'Deploy', icon: 'deploy', section: 'Operations', permission: 'agents.deploy' },
