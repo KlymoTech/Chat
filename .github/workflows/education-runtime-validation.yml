@@ -112,8 +112,8 @@ jobs:
 
           modules = ("fastapi", "sqlalchemy", "alembic", "pytest", "northstar_api")
           lines = [f"{module}: {'present' if find_spec(module) else 'missing'}" for module in modules]
-          Path("education-ci-diagnostics.txt").write_text("\\n".join(lines) + "\\n", encoding="utf-8")
-          print("\\n".join(lines))
+          Path("education-ci-diagnostics.txt").write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
+          print(chr(10).join(lines))
           PY
       - name: Upload education validation diagnostics
         if: always()
