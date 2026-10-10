@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  collectNodeIds, duplicateNode, duplicateSibling, moveBlockBetweenSections,
+  collectNodeIds, compareDraftDocuments, duplicateNode, duplicateSibling, moveBlockBetweenSections,
   removeChild, reorderNodes, redoDraftHistory, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode,
 } from './websiteBuilderOperations';
 
@@ -130,5 +130,48 @@ describe('canonical document content comparison', () => {
     const left = { nodes: [{ id: 'a' }, { id: 'b' }] };
     expect(sameDraftContent(left, { nodes: [{ id: 'b' }, { id: 'a' }] })).toBe(false);
     expect(sameDraftContent(left, { nodes: [{ id: 'a' }, { id: 'c' }] })).toBe(false);
+  });
+});
+
+describe('readable editor conflict comparison', () => {
+  const original = { title: 'First', seo: { indexable: false }, nodes: sample() };
+
+  it('shows title, SEO, and individual changed block contents', () => {
+    const local = { ...original, title: 'Local title',
+      nodes: original.nodes.map((node) => node.id === 'section-one'
+        ? { ...node, children: (node.children ?? []).map((child) => child.id === 'heading-one'
+          ? { ...child, text: 'Local heading' } : child) } : node),
+    };
+    const server = { ...original, title: 'Server title', seo: { indexable: true } };
+    const changes = compareDraftDocuments(local, server);
+    expect(changes.some((entry) => entry.field === 'Page title'
+      && entry.local === 'Local title' && entry.server === 'Server title')).toBe(true);
+    expect(changes.some((entry) => entry.field === 'SEO settings')).toBe(true);
+    expect(changes.some((entry) => entry.field === 'Block heading-one text'
+      && entry.local === 'Local heading' && entry.server === 'First')).toBe(true);
+  });
+
+  it('never fabricates a difference for equivalent property ordering', () => {
+    const document = {
+      title: 'Same', nodes: [{ id: 'hero', kind: 'section' as const, text: 'Hello' }],
+    };
+    const reordered = {
+      nodes: [{ text: 'Hello', kind: 'section' as const, id: 'hero' }], title: 'Same',
+    };
+    expect(compareDraftDocuments(document, reordered)).toEqual([]);
+  });
+
+  it('describes deletions without discarding either document', () => {
+    const local = { title: 'Draft', nodes: [
+      { id: 'a', kind: 'section' as const },
+      { id: 'b', kind: 'section' as const },
+    ] };
+    const server = { title: 'Draft', nodes: [
+      { id: 'a', kind: 'section' as const },
+    ] };
+    expect(compareDraftDocuments(local, server).some((entry) =>
+      entry.field === 'Block b' && entry.server === 'Removed')).toBe(true);
+    expect(local.nodes).toHaveLength(2);
+    expect(server.nodes).toHaveLength(1);
   });
 });
