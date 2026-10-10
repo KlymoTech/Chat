@@ -15,6 +15,11 @@ from urllib.parse import parse_qsl, unquote, urlparse
 
 REQUIRED = ("JWT_SECRET", "MFA_ENCRYPTION_KEY", "DATABASE_URL", "APP_CORS_ORIGINS")
 PLACEHOLDER = re.compile(r"replace|change.me|example|localhost|127\.0\.0\.1", re.I)
+# Match known default passwords as whole values; legitimate secrets may contain ordinary words.
+PLACEHOLDER_DATABASE_PASSWORD = re.compile(
+    r"^(?:replace(?:[-_].*)?|change[-_]?me(?:[-_].*)?|example(?:[-_].*)?|your[-_]password|password|admin|postgres)$",
+    re.I,
+)
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -142,7 +147,7 @@ def valid_postgres_url(value: str) -> bool:
             and not parsed.fragment
             and not PLACEHOLDER.search(parsed.hostname)
             and not PLACEHOLDER.search(unquote(parsed.username))
-            and not PLACEHOLDER.search(unquote(parsed.password))
+            and not PLACEHOLDER_DATABASE_PASSWORD.fullmatch(unquote(parsed.password))
             and bool(unquote(parsed.password).strip())
         )
     except ValueError:
