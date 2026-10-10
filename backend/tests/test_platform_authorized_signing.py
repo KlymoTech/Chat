@@ -127,3 +127,18 @@ async def test_both_guards_required_before_any_grant_is_consumed(monkeypatch, mi
         await subject.sign_with_protected_authorization(None, **parameters)
     verify.assert_not_awaited()
     sign.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_method", ["consume", "claim"])
+async def test_nonfunctional_guard_is_rejected_before_authorization(monkeypatch, missing_method):
+    verify = AsyncMock()
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", verify)
+    parameters = arguments(Consumption([]))
+    if missing_method == "consume":
+        parameters["authorization_consumption"] = object()
+    else:
+        parameters["signing_claims"] = object()
+    with pytest.raises(PermissionError, match="service unavailable"):
+        await subject.sign_with_protected_authorization(None, **parameters)
+    verify.assert_not_awaited()
