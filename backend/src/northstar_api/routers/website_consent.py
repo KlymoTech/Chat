@@ -106,7 +106,7 @@ def _effective(record: WebsiteConsentReceipt | None, *, gpc: bool) -> dict[str, 
                 personalization=record.personalization,
             ),
         )
-    decisions = {}
+    decisions: dict[str, dict[str, object]] = {}
     for purpose in (
         ConsentPurpose.ANALYTICS, ConsentPurpose.MARKETING, ConsentPurpose.PERSONALIZATION,
     ):
@@ -115,7 +115,7 @@ def _effective(record: WebsiteConsentReceipt | None, *, gpc: bool) -> dict[str, 
             at=datetime.now(UTC), max_age_days=MAX_AGE_DAYS,
         )
         allowed = result.allowed
-        reason = result.reason
+        reason: str = result.reason
         if gpc and purpose in {ConsentPurpose.MARKETING, ConsentPurpose.PERSONALIZATION}:
             allowed = False
             reason = "browser_opt_out"
@@ -181,7 +181,7 @@ async def save_choices(
     if subject is None:
         token = secrets.token_hex(32)
         subject = _subject_hash(workspace_id, token)
-    assert subject is not None
+    assert subject is not None and token is not None
     gpc = _global_privacy_control(request)
     record = WebsiteConsentReceipt(
         tenant_id=workspace.tenant_id, workspace_id=workspace.id,
