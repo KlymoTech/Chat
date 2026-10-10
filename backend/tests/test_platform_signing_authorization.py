@@ -86,3 +86,33 @@ def test_wrong_key_and_expired_authorization_fail():
                 expected_issuer="protected-issuer", expected_audience="private-test-signer",
                 plan=plan, now=instant,
             )
+
+
+def test_duplicate_json_fields_and_noncanonical_tokens_fail():
+    key, at, plan, public = _fixture()
+    valid = _token(key, plan, at)
+    payload_segment, signature_segment = valid.split(".")
+    payload = base64.urlsafe_b64decode(payload_segment + "=" * (-len(payload_segment) % 4))
+    tampered = payload[:-1] + b',"environment":"production"}'
+    encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+    malformed = encode(tampered) + "." + encode(key.sign(tampered))
+    for token in (malformed, valid + "=", valid + ".suffix", "invalid"):
+        with pytest.raises(SigningAuthorizationRejected):
+            verify_protected_signing_authorization(
+                token, pinned_issuer_public_key_pem=public,
+                expected_issuer="protected-issuer",
+                expected_audience="private-test-signer",
+                plan=plan, now=at,
+            )
+
+
+def test_missing_expected_issuer_signature_rejected():
+    key, at, plan, public = _fixture()
+    with pytest.raises(SigningAuthorizationRejected):
+        verify_protected_signing_authorization(
+            _token(key, plan, at, issuer="wrong-issuer"),
+            pinned_issuer_public_key_pem=public,
+            expected_issuer="protected-issuer",
+            expected_audience="private-test-signer",
+            plan=plan, now=at,
+        )
