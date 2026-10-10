@@ -91,3 +91,16 @@ def test_search_metadata_is_versioned_with_content_and_defaults_noindex():
         },
     })
     assert indexed.model_dump(mode="json")["seo"]["canonical_url"] == "https://example.org/landing"
+
+
+@pytest.mark.parametrize("unsafe", [
+    "/" + chr(92) + "external.example",
+    "/contact" + chr(10) + "header",
+    "https://example.org/path" + chr(92) + "fragment",
+    "https://example.org/#tracking",
+])
+def test_browser_ambiguous_urls_are_rejected(unsafe):
+    with pytest.raises(ValidationError):
+        page([{"id": "hero", "kind": "section", "children": [
+            {"id": "cta", "kind": "button", "text": "More", "url": unsafe},
+        ]}])
