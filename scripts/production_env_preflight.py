@@ -105,6 +105,8 @@ def valid_postgres_url(value: str) -> bool:
             return False
         if any(ord(character) < 32 or ord(character) == 127 for character in unquote(value)):
             return False
+        if any(character.isspace() for character in unquote(value)):
+            return False
         options = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
         allowed_options = {"sslmode", "ssl"}
         if not options:
