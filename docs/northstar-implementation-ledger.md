@@ -642,3 +642,14 @@ do not merge without explicit instruction.
 - This does not configure private AWS bucket policy, validate live Nginx/MinIO
   behavior, or provide malware scanning, separate quarantine storage or a
   governed download authorization endpoint.
+
+## Increment: workspace-scoped AWS staging keys (2026-10-10)
+
+- AWS-mode presigning now requires the authenticated workspace and stores it
+  between the tenant ID and date in the staging key. Both the generic and
+  Education promotion routes pass their resolved workspace to the object
+  store. Promotion rejects keys from another workspace before contacting S3.
+  Static-key MinIO keeps its existing tenant-only key layout.
+- Focused tests cover missing workspace, key scoping and cross-workspace
+  promotion denial. This is not per-user upload reservation, persisted
+  session ownership, or AWS bucket-policy enforcement.

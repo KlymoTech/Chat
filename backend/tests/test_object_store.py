@@ -82,6 +82,7 @@ async def test_missing_aws_credentials_fails_as_storage_unavailable(
     with pytest.raises(ObjectStoreUnavailable, match="could not sign"):
         await store.presign_post(
             tenant_id=uuid4(),
+            workspace_id=uuid4(),
             filename="note.txt",
             content_type="text/plain",
             size_bytes=4,
@@ -271,6 +272,7 @@ async def test_aws_promotion_requires_versioned_staging_object(
     monkeypatch: pytest.MonkeyPatch, source_version_id: str | None
 ) -> None:
     tenant_id = uuid4()
+    workspace_id = uuid4()
     client = _FakeS3(b"payload", source_version_id=source_version_id)
     store = ObjectStore(
         Settings(
@@ -284,7 +286,9 @@ async def test_aws_promotion_requires_versioned_staging_object(
     monkeypatch.setattr(store, "_client", lambda **_: client)
 
     with pytest.raises(ObjectStoreUnavailable, match="immutable object versions"):
-        await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.txt")
+        await store.promote_staged(
+            tenant_id, f"staging/{tenant_id}/{workspace_id}/2026/09/example.txt", workspace_id=workspace_id
+        )
 
     assert client.copied_to is None
     assert client.deleted == []
@@ -295,6 +299,7 @@ async def test_aws_promotion_verifies_exact_copied_version(
     monkeypatch: pytest.MonkeyPatch, copied_data: bytes | None
 ) -> None:
     tenant_id = uuid4()
+    workspace_id = uuid4()
     client = _FakeS3(b"payload", copied_data=copied_data)
     store = ObjectStore(
         Settings(
@@ -306,14 +311,16 @@ async def test_aws_promotion_verifies_exact_copied_version(
         )
     )
     monkeypatch.setattr(store, "_client", lambda **_: client)
-    staging_key = f"staging/{tenant_id}/2026/09/example.txt"
+    staging_key = f"staging/{tenant_id}/{workspace_id}/2026/09/example.txt"
 
     if copied_data is None:
-        assert (await store.promote_staged(tenant_id, staging_key))[1] == client.checksum
+        assert (await store.promote_staged(tenant_id, staging_key, workspace_id=workspace_id))[
+            1
+        ] == client.checksum
         assert client.deleted == [staging_key]
     else:
         with pytest.raises(ObjectStoreUnavailable, match="did not preserve"):
-            await store.promote_staged(tenant_id, staging_key)
+            await store.promote_staged(tenant_id, staging_key, workspace_id=workspace_id)
         assert client.delete_arguments == [{"Key": client.copied_to, "VersionId": "copy-version-1"}]
     assert {"Key": client.copied_to, "VersionId": "copy-version-1"} in client.head_arguments
     assert {"Key": client.copied_to, "VersionId": "copy-version-1"} in client.read_arguments
@@ -324,6 +331,7 @@ async def test_aws_promotion_rejects_unversioned_destination_and_cleans_copy(
     monkeypatch: pytest.MonkeyPatch, copied_version_id: str | None
 ) -> None:
     tenant_id = uuid4()
+    workspace_id = uuid4()
     client = _FakeS3(b"payload", copied_version_id=copied_version_id)
     store = ObjectStore(
         Settings(
@@ -337,7 +345,9 @@ async def test_aws_promotion_rejects_unversioned_destination_and_cleans_copy(
     monkeypatch.setattr(store, "_client", lambda **_: client)
 
     with pytest.raises(ObjectStoreUnavailable, match="could not promote"):
-        await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.txt")
+        await store.promote_staged(
+            tenant_id, f"staging/{tenant_id}/{workspace_id}/2026/09/example.txt", workspace_id=workspace_id
+        )
 
     assert client.deleted == [client.copied_to]
 
@@ -409,6 +419,62 @@ async def test_aws_download_uses_only_the_head_version(
         with pytest.raises(ObjectStoreUnavailable, match="immutable version"):
             await store.download("knowledge/example.txt")
         assert client.read_arguments == []
+
+
+async def test_aws_workspace_upload_keys_cannot_cross_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid4()
+    workspace_a = uuid4()
+    workspace_b = uuid4()
+    client = _FakeS3(b"payload")
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+    key, _, _, _ = await store.presign_post(
+        tenant_id=tenant_id,
+        workspace_id=workspace_a,
+        filename="note.txt",
+        content_type="text/plain",
+        size_bytes=len(client.data),
+        checksum_sha256=client.checksum,
+    )
+    assert key.startswith(f"staging/{tenant_id}/{workspace_a}/")
+
+    with pytest.raises(InvalidUpload, match="does not belong to this workspace"):
+        await store.promote_staged(tenant_id, key, workspace_id=workspace_b)
+    assert client.copied_to is None
+
+
+async def test_aws_workspace_is_required_for_staging_key_creation_and_promotion() -> None:
+    tenant_id = uuid4()
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+
+    with pytest.raises(InvalidUpload, match="authorized workspace"):
+        await store.presign_post(
+            tenant_id=tenant_id,
+            filename="note.txt",
+            content_type="text/plain",
+            size_bytes=4,
+            checksum_sha256=hashlib.sha256(b"note").hexdigest(),
+        )
+    with pytest.raises(InvalidUpload, match="authorized workspace"):
+        await store.promote_staged(tenant_id, f"staging/{tenant_id}/legacy.txt")
 
 
 async def test_static_download_keeps_unversioned_get(monkeypatch: pytest.MonkeyPatch) -> None:

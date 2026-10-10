@@ -86,11 +86,14 @@ class ObjectStore:
             config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
         )
 
-    def new_key(self, tenant_id: UUID, filename: str, *, prefix: str = "staging") -> str:
+    def new_key(
+        self, tenant_id: UUID, filename: str, *, prefix: str = "staging", workspace_id: UUID | None = None
+    ) -> str:
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", PurePath(filename).name).strip(".-")[:120]
         safe_name = safe_name or "upload"
         today = datetime.now(UTC)
-        return f"{prefix}/{tenant_id}/{today:%Y/%m}/{secrets.token_urlsafe(18)}-{safe_name}"
+        workspace_part = f"{workspace_id}/" if workspace_id is not None else ""
+        return f"{prefix}/{tenant_id}/{workspace_part}{today:%Y/%m}/{secrets.token_urlsafe(18)}-{safe_name}"
 
     async def presign_post(
         self,
@@ -100,12 +103,19 @@ class ObjectStore:
         content_type: str,
         size_bytes: int,
         checksum_sha256: str,
+        workspace_id: UUID | None = None,
     ) -> tuple[str, str, dict[str, str], datetime]:
         if content_type not in ALLOWED_UPLOAD_CONTENT_TYPES:
             raise InvalidUpload("Uploaded file type is not supported")
         if size_bytes <= 0 or size_bytes > self.settings.upload_max_bytes:
             raise InvalidUpload("Uploaded file size is not permitted")
-        key = self.new_key(tenant_id, filename)
+        if self.settings.s3_auth_mode == "aws-default" and workspace_id is None:
+            raise InvalidUpload("AWS uploads require an authorized workspace")
+        key = self.new_key(
+            tenant_id,
+            filename,
+            workspace_id=workspace_id if self.settings.s3_auth_mode == "aws-default" else None,
+        )
         fields = {
             "Content-Type": content_type,
             "x-amz-meta-declared-size": str(size_bytes),
@@ -143,8 +153,14 @@ class ObjectStore:
             datetime.now(UTC) + timedelta(seconds=self.settings.s3_presign_ttl_seconds),
         )
 
-    async def promote_staged(self, tenant_id: UUID, key: str) -> tuple[str, str, int]:
+    async def promote_staged(
+        self, tenant_id: UUID, key: str, *, workspace_id: UUID | None = None
+    ) -> tuple[str, str, int]:
+        if self.settings.s3_auth_mode == "aws-default" and workspace_id is None:
+            raise InvalidUpload("AWS uploads require an authorized workspace")
         expected_prefix = f"staging/{tenant_id}/"
+        if self.settings.s3_auth_mode == "aws-default":
+            expected_prefix += f"{workspace_id}/"
         if not key.startswith(expected_prefix):
             raise InvalidUpload("Uploaded object does not belong to this workspace")
 
