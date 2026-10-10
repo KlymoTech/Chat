@@ -17,8 +17,6 @@ class DependencyGraph:
     edges: tuple[tuple[str, str], ...]
 
 
-
-
 def validate_dependency_graph(graph: DependencyGraph) -> DependencyGraph:
     """Reject undeclared references and cycles in capability dependency wiring.
 
@@ -52,6 +50,7 @@ def validate_dependency_graph(graph: DependencyGraph) -> DependencyGraph:
     for node in sorted(declared):
         visit(node)
     return graph
+
 
 def validate_platform_spec(spec: PlatformSpec) -> PlatformSpec:
     """Validate semantic dependencies after Pydantic schema validation."""
