@@ -2,7 +2,7 @@
 export interface NavigationItem {
   to: string;
   label: string;
-  icon: 'overview' | 'agents' | 'inbox' | 'leads' | 'integrations' | 'education' | 'analytics' | 'audit' | 'deploy' | 'students' | 'courses' | 'batches' | 'enrollments' | 'imports' | 'access' | 'activity';
+  icon: 'overview' | 'agents' | 'inbox' | 'leads' | 'integrations' | 'workflows' | 'crm-workflow' | 'education' | 'analytics' | 'audit' | 'deploy' | 'students' | 'courses' | 'batches' | 'enrollments' | 'imports' | 'access' | 'activity';
   section: 'Workspace' | 'Engagement' | 'Learning' | 'Operations';
   permission: string;
   description?: string;
@@ -18,9 +18,9 @@ export const primaryNavigation: NavigationItem[] = [
   { to: '/', label: 'Overview', icon: 'overview', section: 'Workspace', permission: 'workspace.view', end: true },
   { to: '/agents', label: 'Agents', icon: 'agents', section: 'Workspace', permission: 'agents.view' },
   { to: '/conversations', label: 'Conversations', icon: 'inbox', section: 'Engagement', permission: 'conversations.view' },
-  { to: '/workflows', label: 'Bot Workflows', icon: 'integrations', section: 'Engagement', permission: 'agents.view' },
+  { to: '/workflows', label: 'Bot Workflows', icon: 'workflows', section: 'Engagement', permission: 'agents.view' },
   { to: '/leads', label: 'Leads', icon: 'leads', section: 'Engagement', permission: 'leads.view' },
-  { to: '/crm-workflow', label: 'CRM Workflow', icon: 'integrations', section: 'Engagement', permission: 'crm.view' },
+  { to: '/crm-workflow', label: 'CRM Workflow', icon: 'crm-workflow', section: 'Engagement', permission: 'crm.view' },
   { to: '/integrations', label: 'Integrations', icon: 'integrations', section: 'Engagement', permission: 'integrations.view' },
   { to: '/education', label: 'Education', icon: 'education', section: 'Learning', permission: 'education.view' },
   { to: '/analytics', label: 'Analytics', icon: 'analytics', section: 'Operations', permission: 'analytics.view' },
