@@ -9,6 +9,7 @@ type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
 type Action = 'submit' | 'approve' | 'publish';
 interface Node { id: string; kind: Kind; text?: string | null; url?: string | null; children?: Node[] }
 interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[] }
+interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
 interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
 const id = () => crypto.randomUUID();
@@ -48,6 +49,7 @@ export function WebsiteCMSPage() {
   const { activeWorkspace } = useWorkspace();
   const [pages, setPages] = useState<CMSPage[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [metrics, setMetrics] = useState<WebsiteMetrics | null>(null);
   const [selected, setSelected] = useState<CMSPage | null>(null);
   const [draft, setDraft] = useState<PageDocument | null>(null);
   const [sectionId, setSectionId] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export function WebsiteCMSPage() {
     try {
       const saved = await request<CMSPage[]>('/site-cms/pages');
       setPages(saved);
+      setMetrics(await request<WebsiteMetrics>('/site-analytics/summary?days=30'));
       setSelected((current) => current ? saved.find((page) => page.id === current.id) ?? null : null);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
@@ -149,6 +152,14 @@ export function WebsiteCMSPage() {
           <Button type="submit" icon={FilePlus2} disabled={busy || !name.trim()}>Create draft</Button>
         </form></Card>
         <div className="site-cms-workspace">
+          <Card><h3>Website engagement</h3><p>First-party, consent-eligible events from published pages (last 30 days).</p>
+            <div className="site-cms-metrics">
+              <div><strong>{metrics?.pageViews ?? '—'}</strong><span>Page views</span></div>
+              <div><strong>{metrics?.ctaClicks ?? '—'}</strong><span>CTA clicks</span></div>
+              <div><strong>{metrics?.pages.length ?? '—'}</strong><span>Viewed pages</span></div>
+            </div>
+            {metrics && metrics.pages.length > 0 ? <p>Top page: /{metrics.pages[0]?.slug} · {metrics.pages[0]?.pageViews} views</p> : null}
+          </Card>
           {!draft || !selected ? <Card><h3>Select a page</h3><p>Choose an existing page or create a draft.</p></Card> : <>
             <Card><div className="site-cms-toolbar"><div><strong>{selected.title}</strong> <Badge tone={selected.status === 'published' ? 'success' : 'warning'}>{selected.status}</Badge>
               <small>Draft revision {selected.draftVersion} · Published {selected.publishedVersion ?? 'never'}</small></div>
