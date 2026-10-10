@@ -55,7 +55,12 @@ def public_hostname(hostname: str) -> bool:
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError:
-        return True
+        labels = hostname.split(".")
+        return (
+            len(labels) >= 2
+            and all(label and len(label) <= 63 and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels)
+            and len(hostname) <= 253
+        )
     return address.is_global
 
 
