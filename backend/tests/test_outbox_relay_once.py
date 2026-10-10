@@ -4,8 +4,11 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from northstar_api.handlers.outbox_relay import BATCH_SIZE, event_envelope, publish_batch
+from northstar_api.services import outbox
 
 
 def make_event() -> SimpleNamespace:
@@ -53,3 +56,76 @@ async def test_failed_publish_records_attempt_and_propagates_for_queue_retry() -
     assert event.attempts == 1
     assert event.last_error == "RuntimeError"
     session.commit.assert_awaited_once()
+
+
+def test_outbox_nudge_only_after_commit_and_once_per_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    send = Mock(return_value=True)
+    monkeypatch.setattr(outbox, "send_outbox_nudge", send)
+    session = SimpleNamespace(info={outbox._OUTBOX_NUDGE_PENDING: True})
+
+    outbox._nudge_after_commit(session)
+    outbox._nudge_after_commit(session)
+    send.assert_called_once()
+    assert session.info == {}
+
+
+def test_rollback_clears_outbox_nudge(monkeypatch: pytest.MonkeyPatch) -> None:
+    send = Mock(return_value=True)
+    monkeypatch.setattr(outbox, "send_outbox_nudge", send)
+    session = SimpleNamespace(info={outbox._OUTBOX_NUDGE_PENDING: True})
+
+    outbox._clear_nudge_after_rollback(session)
+    outbox._nudge_after_commit(session)
+    send.assert_not_called()
+
+
+def test_opt_in_nudge_marks_activity_and_sends_one_sqs_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PLATFORM_OUTBOX_NUDGE_QUEUE_URL", "https://sqs.example/queue")
+    monkeypatch.setenv("PLATFORM_ACTIVITY_TABLE", "activity")
+    monkeypatch.setenv("PLATFORM_ACTIVITY_KEY", "northstar:test")
+    dynamo = Mock()
+    sqs = Mock()
+    monkeypatch.setattr(
+        outbox.boto3, "client", lambda kind, **kwargs: {"dynamodb": dynamo, "sqs": sqs}[kind]
+    )
+
+    assert outbox.send_outbox_nudge() is True
+    dynamo.update_item.assert_called_once()
+    sqs.send_message.assert_called_once_with(
+        QueueUrl="https://sqs.example/queue", MessageBody="outbox-nudge"
+    )
+
+
+def test_unconfigured_nudge_never_contacts_aws(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PLATFORM_OUTBOX_NUDGE_QUEUE_URL", raising=False)
+    client = Mock()
+    monkeypatch.setattr(outbox.boto3, "client", client)
+    assert outbox.send_outbox_nudge() is False
+    client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sqlalchemy_hooks_only_nudge_committed_transactions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    nudge = Mock(return_value=True)
+    monkeypatch.setattr(outbox, "send_outbox_nudge", nudge)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    factory = async_sessionmaker(engine)
+    try:
+        async with factory() as session:
+            await session.execute(text("SELECT 1"))
+            session.info[outbox._OUTBOX_NUDGE_PENDING] = True
+            await session.rollback()
+            await session.execute(text("SELECT 1"))
+            await session.commit()
+            nudge.assert_not_called()
+
+            await session.execute(text("SELECT 1"))
+            session.info[outbox._OUTBOX_NUDGE_PENDING] = True
+            await session.commit()
+            nudge.assert_called_once()
+    finally:
+        await engine.dispose()

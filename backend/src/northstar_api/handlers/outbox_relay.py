@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine
 from northstar_api.models import OutboxEvent
+from northstar_api.services.outbox import send_outbox_nudge
 
 BATCH_SIZE = 100
 
@@ -82,15 +83,21 @@ async def run_once() -> int:
         key_serializer=lambda value: value.encode(),
         client_id="northstar-outbox-once",
     )
+    started = False
     try:
         await producer.start()
+        started = True
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             return await publish_batch(session, producer)
     finally:
-        await producer.stop()
+        if started:
+            await producer.stop()
         await engine.dispose()
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, int]:
-    return {"published": asyncio.run(run_once())}
+    published = asyncio.run(run_once())
+    if published == BATCH_SIZE and not send_outbox_nudge():
+        raise RuntimeError("outbox relay could not enqueue continuation")
+    return {"published": published}

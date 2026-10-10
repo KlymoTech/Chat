@@ -67,6 +67,13 @@ processes:
     activity_gate: 2h
     handler: northstar_api.handlers.crm_reconcile:lambda_handler
     timeout_s: 300
+  - name: outbox-recovery
+    kind: schedule
+    image: api
+    rate: 15 minutes
+    activity_gate: 2h
+    handler: northstar_api.handlers.outbox_recovery:lambda_handler
+    timeout_s: 120
   - name: migrate
     kind: job
     image: api

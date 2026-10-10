@@ -18,12 +18,17 @@
 
 The planned scale-to-zero queue handler is `northstar_api.handlers.outbox_relay:lambda_handler`.
 It processes at most 100 committed rows per invocation, performs no idle polling,
-and preserves the existing polling worker for current deployments. It is **not a
-completed cutover**: outbox writers do not yet send an `outbox-nudge` message after
-commit, a recovery sweep for lost nudges is not deployed, and consumers must
-deduplicate by `eventId` because broker acknowledgement can precede the database
-commit. Keep the existing relay active until those pieces are deployed and
-qualified; do not run both relays simultaneously for the same outbox.
+and preserves the existing polling worker for current deployments. Set
+`PLATFORM_OUTBOX_NUDGE_QUEUE_URL`, `PLATFORM_ACTIVITY_TABLE`, and
+`PLATFORM_ACTIVITY_KEY` together on writers. Committed outbox writes emit one
+best-effort SQS nudge per transaction and update the activity marker; the
+scheduled `outbox-recovery` handler checks the marker before opening PostgreSQL.
+Both handlers enqueue a continuation when a full batch may leave more rows.
+The queue must be wired to the relay with a retry/DLQ policy and the schedule
+must be deployed before disabling the legacy worker. Consumers must deduplicate
+by `eventId` because broker acknowledgement can precede the database commit.
+Do not run both relays simultaneously for the same outbox. AWS deployment and
+production qualification of this cutover remain outstanding.
 | `analytics-consumer` | Consumes Kafka and updates projections | Database migration and Kafka ready |
 | `object-cleaner` | Purges deleted knowledge-object versions from storage | Database migration, Kafka, and bucket initialization ready |
 | `web` | Nginx + React application | API healthy and `/healthz` succeeds |
