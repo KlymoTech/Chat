@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:15},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 015 must be contiguous");
+const expected=Array.from({length:16},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 016 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -262,7 +262,51 @@ try {
     "(id,site_id,definition_id,version,definition,created_by_actor_id) "+
     "VALUES($1,$2,$3,2,$4::jsonb,$5)",
     [uuid(),otherSiteId,automationId,JSON.stringify(graph),authorId],"23503");
-  console.log(JSON.stringify({database:"website_test",migrations:15,checks:[
+  // Durable internal-only workflow execution fixture (never real contacts).
+  const runId=uuid(),subjectId=uuid(),eventId=uuid(),taskId=uuid();
+  const internalContext=JSON.stringify({sourceCategory:"form",marketingConsent:false});
+  await client.query(
+    "INSERT INTO website_cms.automation_internal_runs "+
+    "(id,site_id,definition_id,version,subject_type,subject_id,trigger_event_id,"+
+    "context,current_node_id,due_at,expires_at) "+
+    "VALUES($1,$2,$3,1,'synthetic',$4,$5,$6::jsonb,'start',now(),"+
+    "now()+interval '14 days')",
+    [runId,siteId,automationId,subjectId,eventId,internalContext]);
+  await mustReject(
+    "INSERT INTO website_cms.automation_internal_runs "+
+    "(id,site_id,definition_id,version,subject_type,subject_id,trigger_event_id,"+
+    "context,current_node_id,due_at,expires_at) "+
+    "VALUES($1,$2,$3,1,'synthetic',$4,$5,$6::jsonb,'start',now(),"+
+    "now()+interval '14 days')",
+    [uuid(),siteId,automationId,subjectId,eventId,internalContext],"23505");
+  await mustReject(
+    "INSERT INTO website_cms.automation_internal_runs "+
+    "(id,site_id,definition_id,version,subject_type,subject_id,trigger_event_id,"+
+    "context,current_node_id,due_at,expires_at) "+
+    "VALUES($1,$2,$3,1,'synthetic',$4,$5,$6::jsonb,'start',now(),"+
+    "now()+interval '14 days')",
+    [uuid(),otherSiteId,automationId,uuid(),uuid(),internalContext],"23503");
+  await client.query(
+    "INSERT INTO website_cms.automation_internal_tasks "+
+    "(id,site_id,run_id,node_id,action) "+
+    "VALUES($1,$2,$3,'review','review_lead')",
+    [taskId,siteId,runId]);
+  await mustReject(
+    "INSERT INTO website_cms.automation_internal_tasks "+
+    "(id,site_id,run_id,node_id,action) "+
+    "VALUES($1,$2,$3,'review','review_lead')",
+    [uuid(),siteId,runId],"23505");
+  await mustReject(
+    "UPDATE website_cms.automation_internal_runs "+
+    "SET status='completed' WHERE id=$1",[runId],"23514");
+  await client.query(
+    "UPDATE website_cms.automation_internal_runs SET status='completed',"+
+    "finished_at=now(),processed_steps=2 WHERE id=$1",[runId]);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.automation_internal_runs "+
+    "WHERE id=$1 AND status='completed' AND processed_steps=2",[runId]),1,
+    "Completed synthetic run should preserve its state and budget");
+  console.log(JSON.stringify({database:"website_test",migrations:16,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
@@ -270,7 +314,9 @@ try {
     "media-quarantine-initial","media-no-self-approval","media-usage-site-boundary",
     "unpublished-media-default","media-public-view-excludes-quarantine","no-unapproved-media-publication",
     "anonymous-consent-record","analytics-no-form-values","analytics-site-isolation",
-    "consent-withdrawn","automation-immutable-revision","automation-site-isolation"
+    "consent-withdrawn","automation-immutable-revision","automation-site-isolation",
+    "synthetic-run-durable","synthetic-enrollment-deduplicated",
+    "internal-tasks-idempotent","internal-run-site-scope","completed-run-state-consistent"
   ],status:"passed"}));
 } finally {
   client.release();
