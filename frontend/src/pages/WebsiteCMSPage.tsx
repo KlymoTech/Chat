@@ -180,6 +180,14 @@ export function WebsiteCMSPage() {
     } catch (reason) { setMenuError(message(reason)); }
     finally { setMenuBusy(false); }
   };
+  const refreshMenuHistory = async () => {
+    try {
+      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
+    } catch {
+      // A failed history refresh cannot undo an already acknowledged server write.
+      setMenuNote((note) => note + ' Revision history could not refresh; reload to retry.');
+    }
+  };
   const saveSiteMenu = async () => {
     if (!siteMenu || !menuDirty || menuBusy) return;
     setMenuBusy(true); setMenuError(''); setMenuNote('Saving navigation…');
@@ -190,8 +198,8 @@ export function WebsiteCMSPage() {
       });
       setSiteMenu(saved);
       setMenuDraft(saved.document.items);
-      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
       setMenuNote('Navigation draft saved as version ' + saved.draftVersion + '.');
+      void refreshMenuHistory();
     } catch (reason) {
       setMenuError(message(reason) + ' Your unsaved navigation edits remain in this tab.');
       setMenuNote('Navigation save was not acknowledged.');
@@ -207,8 +215,8 @@ export function WebsiteCMSPage() {
       });
       setSiteMenu(published);
       setMenuDraft(published.document.items);
-      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
       setMenuNote('Navigation revision ' + published.publishedVersion + ' is live.');
+      void refreshMenuHistory();
     } catch (reason) {
       setMenuError(message(reason));
       setMenuNote('Navigation publication was not acknowledged.');
@@ -223,8 +231,8 @@ export function WebsiteCMSPage() {
       });
       setSiteMenu(saved);
       setMenuDraft(saved.document.items);
-      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
       setMenuNote('Historical menu copied as draft version ' + saved.draftVersion + '. Review before publishing.');
+      void refreshMenuHistory();
     } catch (reason) { setMenuError(message(reason)); }
     finally { setMenuBusy(false); }
   };
