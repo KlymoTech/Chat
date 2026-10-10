@@ -698,3 +698,16 @@ do not merge without explicit instruction.
 - This does not address unknown outcomes of the copy request itself, missing
   copied-version receipts, externally overwritten destinations, or periodic
   orphan reconciliation. Live AWS and full CI remain unverified.
+
+## Increment: approved AWS knowledge-object version custody (2026-10-10)
+
+- The two knowledge upload routes now persist the exact copied S3 `VersionId`
+  alongside the source key and checksum. File ingestion (including legacy
+  materialization) sends this ID to the object store, which HEADs and GETs
+  the same approved version rather than the current latest version. Migration
+  `0097` adds a nullable field so older records and static-key MinIO retain
+  their existing behavior.
+- Historical AWS rows with no version remain checksum-checked but cannot be
+  retroactively pinned; a controlled backfill or re-upload is still needed.
+  This does not establish IAM write isolation, object-lock retention, malware
+  scanning, or live AWS qualification.

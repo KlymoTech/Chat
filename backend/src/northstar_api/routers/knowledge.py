@@ -172,9 +172,15 @@ async def add_knowledge(
     object_key = payload.object_key
     uploaded_checksum: str | None = None
     uploaded_size: int | None = None
+    uploaded_version: str | None = None
     if object_key:
         try:
-            object_key, uploaded_checksum, uploaded_size = await object_store.promote_staged(
+            (
+                object_key,
+                uploaded_checksum,
+                uploaded_size,
+                uploaded_version,
+            ) = await object_store.promote_staged(
                 principal.tenant_id, object_key, workspace_id=principal.workspace_id
             )
         except InvalidUpload as exc:
@@ -194,6 +200,7 @@ async def add_knowledge(
         url=str(payload.url) if payload.url else None,
         content=payload.content,
         object_key=object_key,
+        object_version_id=uploaded_version,
         checksum=uploaded_checksum or hashlib.sha256(raw_identity.encode()).hexdigest(),
         retrieval_mode=payload.retrieval_mode,
     )

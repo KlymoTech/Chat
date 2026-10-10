@@ -155,7 +155,7 @@ class ObjectStore:
 
     async def promote_staged(
         self, tenant_id: UUID, key: str, *, workspace_id: UUID | None = None
-    ) -> tuple[str, str, int]:
+    ) -> tuple[str, str, int, str | None]:
         if self.settings.s3_auth_mode == "aws-default" and workspace_id is None:
             raise InvalidUpload("AWS uploads require an authorized workspace")
         expected_prefix = f"staging/{tenant_id}/"
@@ -164,7 +164,7 @@ class ObjectStore:
         if not key.startswith(expected_prefix):
             raise InvalidUpload("Uploaded object does not belong to this workspace")
 
-        def promote() -> tuple[str, str, int]:
+        def promote() -> tuple[str, str, int, str | None]:
             try:
                 client = self._client()
                 head = client.head_object(Bucket=self.settings.s3_bucket, Key=key)
@@ -309,7 +309,8 @@ class ObjectStore:
             except (BotoCoreError, ClientError) as exc:
                 cleanup_copy()
                 raise ObjectStoreUnavailable("Object storage could not remove the staged upload") from exc
-            return permanent_key, checksum, size
+            approved_version = copied_version_id if self.settings.s3_auth_mode == "aws-default" else None
+            return permanent_key, checksum, size, approved_version
 
         return await asyncio.to_thread(promote)
 
@@ -405,12 +406,24 @@ class ObjectStore:
 
         return await asyncio.to_thread(purge)
 
-    async def download(self, key: str, *, limit_bytes: int | None = None) -> tuple[bytes, dict[str, Any]]:
+    async def download(
+        self, key: str, *, limit_bytes: int | None = None, expected_version_id: str | None = None
+    ) -> tuple[bytes, dict[str, Any]]:
         limit = limit_bytes or self.settings.upload_max_bytes
 
         def fetch() -> tuple[bytes, dict[str, Any]]:
             client = self._client()
-            head = client.head_object(Bucket=self.settings.s3_bucket, Key=key)
+            if expected_version_id is not None and (
+                self.settings.s3_auth_mode != "aws-default"
+                or not expected_version_id
+                or expected_version_id.lower() == "null"
+            ):
+                raise ObjectStoreUnavailable("Approved object version is invalid for this storage mode")
+            head = client.head_object(
+                Bucket=self.settings.s3_bucket,
+                Key=key,
+                **({"VersionId": expected_version_id} if expected_version_id is not None else {}),
+            )
             size = int(head.get("ContentLength", 0))
             if size <= 0 or size > limit:
                 raise ValueError("Uploaded object is empty or exceeds the configured size limit")
@@ -419,6 +432,8 @@ class ObjectStore:
                 not version_id or version_id.lower() == "null"
             ):
                 raise ObjectStoreUnavailable("AWS object download requires an immutable version")
+            if expected_version_id is not None and version_id != expected_version_id:
+                raise ObjectStoreUnavailable("Object storage returned a different approved version")
             response = client.get_object(
                 Bucket=self.settings.s3_bucket,
                 Key=key,

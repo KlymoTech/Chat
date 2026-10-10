@@ -143,7 +143,7 @@ class _FakeS3:
             ),
             "ContentType": self.content_type,
             "Metadata": {"declared-size": str(self.declared_size), "sha256": self.checksum},
-            "VersionId": self.source_version_id,
+            "VersionId": kwargs.get("VersionId", self.source_version_id),
         }
         if self.etag is not None:
             result["ETag"] = self.etag
@@ -219,10 +219,11 @@ async def test_presigned_post_is_staged_and_size_constrained(monkeypatch: pytest
     assert fields["x-amz-meta-declared-size"] == str(len(client.data))
     assert ["content-length-range", 1, len(client.data)] in client.post_arguments["Conditions"]
 
-    permanent_key, checksum, size = await store.promote_staged(tenant_id, key)
+    permanent_key, checksum, size, version_id = await store.promote_staged(tenant_id, key)
     assert permanent_key == key.replace("staging/", "knowledge/", 1)
     assert checksum == hashlib.sha256(client.data).hexdigest()
     assert size == len(client.data)
+    assert version_id is None
     assert client.copied_to == permanent_key
     assert key in client.deleted
 
@@ -314,9 +315,9 @@ async def test_aws_promotion_verifies_exact_copied_version(
     staging_key = f"staging/{tenant_id}/{workspace_id}/2026/09/example.txt"
 
     if copied_data is None:
-        assert (await store.promote_staged(tenant_id, staging_key, workspace_id=workspace_id))[
-            1
-        ] == client.checksum
+        promoted = await store.promote_staged(tenant_id, staging_key, workspace_id=workspace_id)
+        assert promoted[1] == client.checksum
+        assert promoted[3] == "copy-version-1"
         assert client.deleted == [staging_key]
     else:
         with pytest.raises(ObjectStoreUnavailable, match="did not preserve"):
@@ -451,6 +452,53 @@ async def test_aws_download_uses_only_the_head_version(
         with pytest.raises(ObjectStoreUnavailable, match="immutable version"):
             await store.download("knowledge/example.txt")
         assert client.read_arguments == []
+
+
+async def test_aws_download_reads_the_persisted_approved_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeS3(b"verified object", source_version_id="newer-version")
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    data, _ = await store.download("knowledge/example.txt", expected_version_id="approved-version")
+    assert data == b"verified object"
+    assert client.head_arguments == [{"Key": "knowledge/example.txt", "VersionId": "approved-version"}]
+    assert client.read_arguments == [{"Key": "knowledge/example.txt", "VersionId": "approved-version"}]
+
+
+async def test_aws_download_rejects_mismatched_approved_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeS3(b"verified object")
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    def wrong_head(*, Bucket: str, Key: str, **kwargs: Any) -> dict[str, Any]:  # noqa: N803
+        result = _FakeS3.head_object(client, Bucket=Bucket, Key=Key, **kwargs)
+        result["VersionId"] = "different-version"
+        return result
+
+    client.head_object = wrong_head  # type: ignore[method-assign]
+    with pytest.raises(ObjectStoreUnavailable, match="different approved version"):
+        await store.download("knowledge/example.txt", expected_version_id="approved-version")
+    assert client.read_arguments == []
 
 
 async def test_aws_workspace_upload_keys_cannot_cross_workspace(

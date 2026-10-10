@@ -1243,9 +1243,10 @@ async def create_upload(
             raise KnowledgePolicyError("The upload idempotency key belongs to another request")
         return record_out(old)
     object_key = None
+    object_version_id = None
     checksum = hashlib.sha256((payload.content or "").encode()).hexdigest()
     if payload.object_key:
-        object_key, checksum, _ = await object_store.promote_staged(
+        object_key, checksum, _, object_version_id = await object_store.promote_staged(
             principal.tenant_id, payload.object_key, workspace_id=boundary.workspace_id
         )
     source = KnowledgeSource(
@@ -1255,6 +1256,7 @@ async def create_upload(
         status=KnowledgeStatus.PROCESSING,
         content=payload.content,
         object_key=object_key,
+        object_version_id=object_version_id,
         checksum=checksum,
     )
     try:

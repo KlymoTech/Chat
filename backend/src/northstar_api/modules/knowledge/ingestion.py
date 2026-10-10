@@ -259,7 +259,9 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
     web_crawl: SitemapMaterialization | None = None
     try:
         if source.kind == KnowledgeKind.FILE and source.object_key and source.content is None:
-            data, metadata = await object_store.download(source.object_key)
+            data, metadata = await object_store.download(
+                source.object_key, expected_version_id=source.object_version_id
+            )
             if source.checksum and hashlib.sha256(data).hexdigest() != source.checksum:
                 raise ValueError("Uploaded source checksum does not match the preserved original")
             if job:
@@ -571,7 +573,9 @@ async def _materialize_text(source: KnowledgeSource) -> str:
         source.url = final_url
         return text.strip()
     if source.object_key:
-        data, metadata = await object_store.download(source.object_key)
+        data, metadata = await object_store.download(
+            source.object_key, expected_version_id=source.object_version_id
+        )
         if source.kind == KnowledgeKind.FILE and source.checksum:
             if hashlib.sha256(data).hexdigest() != source.checksum:
                 raise ValueError("Uploaded source checksum does not match the preserved original")
