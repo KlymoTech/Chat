@@ -147,3 +147,97 @@ async def test_unverifiable_latest_message_timestamp_cannot_be_candidate() -> No
     )
     assert report.candidate_ids == ()
     assert report.invalid_policy == 1
+
+@pytest.mark.asyncio
+async def test_paginated_retention_preview_advances_after_last_inspected_row() -> None:
+    tid, wid = uuid4(), uuid4()
+    old = datetime(2025, 1, 1, tzinfo=UTC)
+    as_of = datetime(2026, 10, 11, tzinfo=UTC)
+    first_id, held_id, overflow_id = uuid4(), uuid4(), uuid4()
+    rows = [
+        (first_id, old, old, None, {"retentionDays": 90}),
+        (held_id, old, old, None, {"retentionDays": 90, "legalHold": True}),
+        (overflow_id, old, old, None, {"retentionDays": 90}),
+    ]
+    result = MagicMock()
+    result.all.return_value = rows
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result)
+
+    first = await preview_conversation_retention(
+        db, tenant_id=tid, workspace_id=wid, as_of=as_of, max_rows=2
+    )
+    assert first.truncated is True
+    assert first.candidate_ids == (first_id,)
+    assert first.next_cursor
+
+    continuation_result = MagicMock()
+    continuation_result.all.return_value = [rows[2]]
+    db.execute = AsyncMock(return_value=continuation_result)
+    second = await preview_conversation_retention(
+        db, tenant_id=tid, workspace_id=wid, cursor=first.next_cursor, max_rows=2
+    )
+    assert second.candidate_ids == (overflow_id,)
+    assert second.next_cursor is None
+    assert second.as_of == as_of
+    stmt = db.execute.await_args.args[0]
+    query = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "conversations.updated_at >" in query
+    assert "conversations.updated_at =" in query
+    assert "conversations.id >" in query
+    assert "conversations.tenant_id =" in query
+    assert "conversations.workspace_id =" in query
+
+
+@pytest.mark.asyncio
+async def test_cursor_rejects_other_tenant_and_mismatched_as_of_before_query() -> None:
+    tid, wid = uuid4(), uuid4()
+    old = datetime(2025, 1, 1, tzinfo=UTC)
+    as_of = datetime(2026, 10, 11, tzinfo=UTC)
+    result = MagicMock()
+    result.all.return_value = [
+        (uuid4(), old, old, None, {"retentionDays": 90}),
+        (uuid4(), old, old, None, {"retentionDays": 90}),
+    ]
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result)
+    first = await preview_conversation_retention(
+        db, tenant_id=tid, workspace_id=wid, as_of=as_of, max_rows=1
+    )
+    assert first.next_cursor
+    db.execute.reset_mock()
+    for new_tenant, new_workspace, new_as_of, token in (
+        (uuid4(), wid, None, first.next_cursor),
+        (tid, uuid4(), None, first.next_cursor),
+        (tid, wid, as_of + timedelta(days=1), first.next_cursor),
+        (tid, wid, None, "malformed*cursor"),
+    ):
+        with pytest.raises(ValueError, match="cursor|Continuation"):
+            await preview_conversation_retention(
+                db,
+                tenant_id=new_tenant,
+                workspace_id=new_workspace,
+                as_of=new_as_of,
+                max_rows=1,
+                cursor=token,
+            )
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_truncated_inventory_fails_if_cursor_position_timestamp_is_naive() -> None:
+    tid, wid = uuid4(), uuid4()
+    old = datetime(2025, 1, 1, tzinfo=UTC)
+    bad = datetime(2025, 1, 1)
+    result = MagicMock()
+    result.all.return_value = [
+        (uuid4(), old, bad, None, {"retentionDays": 90}),
+        (uuid4(), old, old, None, {"retentionDays": 90}),
+    ]
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result)
+    with pytest.raises(ValueError, match="invalid timestamp"):
+        await preview_conversation_retention(
+            db, tenant_id=tid, workspace_id=wid,
+            as_of=datetime(2026, 10, 11, tzinfo=UTC), max_rows=1,
+        )
