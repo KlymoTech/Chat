@@ -476,6 +476,9 @@ async def test_marketing_opt_in_records_a_distinct_purpose_and_honors_prior_supp
     assert permission.status_code == 200, permission.text
     assert permission.json()["marketingAllowed"] is True
 
+    # A different Lead with the same email may have granted marketing before
+    # the first withdrawal. Both must become ineligible once either opts out.
+    second_granted = await submit(opted_in=True)
     withdrawn = await client.post(
         f"/api/v1/site-marketing/leads/{opt_in}/withdraw",
         headers=auth_headers,
@@ -483,6 +486,14 @@ async def test_marketing_opt_in_records_a_distinct_purpose_and_honors_prior_supp
     assert withdrawn.status_code == 200, withdrawn.text
     assert withdrawn.json()["processingConsentPreserved"] is True
     assert withdrawn.json()["changed"] is True
+
+    other_status = await client.get(
+        f"/api/v1/site-marketing/leads/{second_granted}/preferences",
+        headers=auth_headers,
+    )
+    assert other_status.status_code == 200, other_status.text
+    assert other_status.json()["marketingAllowed"] is False
+    assert other_status.json()["marketingStatus"] == "suppressed"
 
     reopt = await submit(opted_in=True)
     async with SessionFactory() as session:
