@@ -12,11 +12,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .queue_notification_custody_attestation_signer import sign_custodied_jenkins_test_result
 from .queue_notification_custody_signing_claims import CommittedPostgresSigningClaims
-from .queue_notification_signing_authorization_replay import CommittedAuthorizationConsumption
 from .queue_notification_signing_authorization import (
     ProtectedSigningPlan,
     verify_protected_signing_authorization,
 )
+from .queue_notification_signing_authorization_replay import CommittedAuthorizationConsumption
 
 
 async def sign_with_protected_authorization(
