@@ -619,3 +619,16 @@ do not merge without explicit instruction.
 - This is a narrow format gate, not antivirus, full file validation, safe
   parsing, isolated scanning, quarantine authorization or an upload-session
   quota reservation. Those controls and live object-store tests remain open.
+
+## Increment: version-pinned AWS object reads (2026-10-10)
+
+- In opt-in AWS mode, `ObjectStore.download` now requires a non-null S3
+  `VersionId` from `HEAD` and passes it to `GET`, so concurrent latest-version
+  changes cannot swap the bytes between the two calls. Static-key MinIO reads
+  remain unchanged. The legacy file-materialization path also compares bytes
+  to the persisted source checksum before parsing; the primary ingestion path
+  already did this.
+- Focused storage/extraction tests pass locally. This does not persist the
+  approved destination `VersionId` in the source record or prevent an earlier
+  overwrite before `HEAD`; approved-version custody, IAM write isolation,
+  malware scanning and live AWS qualification are still open.

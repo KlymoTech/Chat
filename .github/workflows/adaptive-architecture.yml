@@ -24,6 +24,9 @@ on:
       - 'backend/tests/test_platform_conformance_audit.py'
       - 'backend/tests/test_object_store.py'
       - 'backend/src/northstar_api/services/object_store.py'
+      - 'backend/src/northstar_api/modules/knowledge/ingestion.py'
+      - 'backend/tests/test_hybrid_extraction.py'
+      - 'backend/tests/test_extraction_api.py'
       - 'backend/tests/test_outbox_relay_sns.py'
       - 'backend/tests/test_domain_event_sqs_handler.py'
       - 'backend/src/northstar_api/handlers/domain_events.py'
@@ -197,7 +200,7 @@ jobs:
       - name: Conformance auditor regression tests
         run: uv run pytest -q tests/test_platform_conformance_audit.py tests/test_release_multiarch_contract.py
       - name: AWS object promotion contracts
-        run: uv run pytest -q tests/test_object_store.py
+        run: uv run pytest -q tests/test_object_store.py tests/test_hybrid_extraction.py tests/test_extraction_api.py
       - name: Bounded outbox relay and recovery contracts
         run: uv run pytest -q tests/test_outbox_relay_once.py tests/test_outbox_relay_sns.py tests/test_outbox_recovery.py tests/test_domain_event_sqs_handler.py
       - run: uv run ruff check src/northstar_api/handlers/domain_events.py tests/test_domain_event_sqs_handler.py

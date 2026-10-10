@@ -385,6 +385,41 @@ async def test_promotion_rejects_misdeclared_bytes_before_copy(
     assert client.copied_to is None
 
 
+@pytest.mark.parametrize("source_version_id", [None, "", "null", "version-1"])
+async def test_aws_download_uses_only_the_head_version(
+    monkeypatch: pytest.MonkeyPatch, source_version_id: str | None
+) -> None:
+    client = _FakeS3(b"verified object", source_version_id=source_version_id)
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    if source_version_id == "version-1":
+        data, _ = await store.download("knowledge/example.txt")
+        assert data == b"verified object"
+        assert client.read_arguments == [{"Key": "knowledge/example.txt", "VersionId": "version-1"}]
+    else:
+        with pytest.raises(ObjectStoreUnavailable, match="immutable version"):
+            await store.download("knowledge/example.txt")
+        assert client.read_arguments == []
+
+
+async def test_static_download_keeps_unversioned_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeS3(b"local object", source_version_id=None)
+    store = ObjectStore(get_settings())
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    assert (await store.download("knowledge/local.txt"))[0] == b"local object"
+    assert client.read_arguments == [{"Key": "knowledge/local.txt"}]
+
+
 @pytest.mark.parametrize("etag", [None, "", "unquoted", '"contains\nnewline"'])
 async def test_promotion_rejects_a_missing_or_malformed_etag(
     monkeypatch: pytest.MonkeyPatch,

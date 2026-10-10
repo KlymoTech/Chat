@@ -55,9 +55,7 @@ class ExtractionYield(Exception):
     """A durable page batch completed; resume in a fresh worker delivery."""
 
 
-def validate_embedding_batch(
-    vectors: list[list[float]], expected_count: int, dimension: int
-) -> None:
+def validate_embedding_batch(vectors: list[list[float]], expected_count: int, dimension: int) -> None:
     """Validate a provider embedding response for legacy callers.
 
     Knowledge publication currently uses the vectorless lexical index, but this
@@ -201,7 +199,11 @@ def approved_extraction_chunks(record: dict) -> list[tuple[str, dict[str, object
             section_ids = [heading[1] for heading in heading_stack]
             section_levels = [heading[0] for heading in heading_stack]
             if block_type in {"table", "equation", "question", "answer_key", "figure", "caption"}:
-                parts = [text] if len(text.split()) <= 440 else semantic_chunks(text, target_words=220, overlap_words=50)
+                parts = (
+                    [text]
+                    if len(text.split()) <= 440
+                    else semantic_chunks(text, target_words=220, overlap_words=50)
+                )
             else:
                 parts = semantic_chunks(text)
             block_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -354,7 +356,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             approved = package
             content = "\n\n".join(
                 f"===PDF_PAGE:{page['number']}===\n{extraction_page_text(page)}"
-                if page.get("source_unit") == "pdf_page" else extraction_page_text(page)
+                if page.get("source_unit") == "pdf_page"
+                else extraction_page_text(page)
                 for page in package.record["pages"]
                 if extraction_page_text(page)
             )
@@ -376,7 +379,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 raise ValueError("File evidence has not passed verified release")
             content = "\n\n".join(
                 f"===PDF_PAGE:{p['number']}===\n{extraction_page_text(p)}"
-                if p.get("source_unit") == "pdf_page" else extraction_page_text(p)
+                if p.get("source_unit") == "pdf_page"
+                else extraction_page_text(p)
                 for p in approved.record["pages"]
                 if extraction_page_text(p)
             )
@@ -392,7 +396,9 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
         settings = get_settings()
         if len(content) > settings.knowledge_max_extracted_characters:
             raise ValueError("Source text exceeds the configured extraction limit")
-        structured_chunks = approved_extraction_chunks(approved.record) if source.kind == KnowledgeKind.FILE else []
+        structured_chunks = (
+            approved_extraction_chunks(approved.record) if source.kind == KnowledgeKind.FILE else []
+        )
         chunks_with_metadata = structured_chunks or [
             (chunk, {"chunk_type": "text"}) for chunk in semantic_chunks(content)
         ]
@@ -423,9 +429,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             job.step = "indexing"
             job.progress = 55
             await session.commit()
-        agent = await session.scalar(
-            select(Agent).where(Agent.id == source.agent_id).with_for_update()
-        )
+        agent = await session.scalar(select(Agent).where(Agent.id == source.agent_id).with_for_update())
         if not agent:
             raise ValueError("Knowledge source agent no longer exists")
         publication_revision = agent.published_knowledge_revision + 1
@@ -539,7 +543,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 failed_source.error = f"PGVector training failed: {str(exc)[:900]}"
             else:
                 failed_source.error = (
-                    str(exc)[:1000] if isinstance(exc, CrawlIncomplete)
+                    str(exc)[:1000]
+                    if isinstance(exc, CrawlIncomplete)
                     else "Ingestion failed; inspect the job log."
                 )
         if failed_job:
@@ -567,6 +572,9 @@ async def _materialize_text(source: KnowledgeSource) -> str:
         return text.strip()
     if source.object_key:
         data, metadata = await object_store.download(source.object_key)
+        if source.kind == KnowledgeKind.FILE and source.checksum:
+            if hashlib.sha256(data).hexdigest() != source.checksum:
+                raise ValueError("Uploaded source checksum does not match the preserved original")
         content_type = str(metadata.get("content_type") or "").lower()
         if content_type == "application/pdf" or source.name.lower().endswith(".pdf"):
             reader = PdfReader(io.BytesIO(data))

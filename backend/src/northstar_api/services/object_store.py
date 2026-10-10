@@ -394,7 +394,16 @@ class ObjectStore:
             size = int(head.get("ContentLength", 0))
             if size <= 0 or size > limit:
                 raise ValueError("Uploaded object is empty or exceeds the configured size limit")
-            response = client.get_object(Bucket=self.settings.s3_bucket, Key=key)
+            version_id = str(head.get("VersionId") or "")
+            if self.settings.s3_auth_mode == "aws-default" and (
+                not version_id or version_id.lower() == "null"
+            ):
+                raise ObjectStoreUnavailable("AWS object download requires an immutable version")
+            response = client.get_object(
+                Bucket=self.settings.s3_bucket,
+                Key=key,
+                **({"VersionId": version_id} if self.settings.s3_auth_mode == "aws-default" else {}),
+            )
             data = response["Body"].read(limit + 1)
             if len(data) != size or len(data) > limit:
                 raise ValueError("Uploaded object size changed or exceeds the configured limit")
