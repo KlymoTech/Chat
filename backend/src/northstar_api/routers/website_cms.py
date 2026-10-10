@@ -43,7 +43,7 @@ def _scope(principal: Principal) -> UUID:
     return principal.workspace_id
 
 
-def _query(principal: Principal):
+def _query(principal: Principal) -> tuple[Any, Any]:
     return (
         WebsitePage.tenant_id == principal.tenant_id,
         WebsitePage.workspace_id == _scope(principal),
@@ -136,7 +136,7 @@ async def save_page(page_id: UUID, payload: PageEdit, principal: CmsAdmin,
             draft_version=next_version, updated_at=datetime.now(UTC),
         )
     )
-    if changed.rowcount != 1:
+    if getattr(changed, "rowcount", 0) != 1:
         await session.rollback()
         raise HTTPException(409, "Page was modified concurrently")
     document = payload.document.model_dump(mode="json")
