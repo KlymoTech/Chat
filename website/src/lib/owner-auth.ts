@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { CmsActor } from "./cms-editor";
 import { actorFromVerifiedClaims } from "./owner-claims";
 import { trustedOwnerJwksEndpoint } from "./owner-endpoint-policy";
+import { ownerMfaSatisfied } from "./owner-mfa-policy";
 import { readOwnerCookie, sessionCookie } from "./owner-session";
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
@@ -36,6 +37,11 @@ export async function authenticateOwner(request: Request): Promise<CmsActor | nu
     const { payload } = await jwtVerify(token, jwks, {
       issuer, audience, algorithms: ["RS256"], clockTolerance: "5s", maxTokenAge: "15m",
     });
+    if(!ownerMfaSatisfied(payload,{
+      required:process.env.WEBSITE_CMS_REQUIRE_MFA==="true",
+      acceptedAcr:process.env.WEBSITE_CMS_MFA_ACCEPTED_ACR||undefined,
+      maxAgeSeconds:43200,
+    }))return null;
     return actorFromVerifiedClaims(payload, process.env.WEBSITE_CMS_OWNER_SITE_ID);
   } catch {
     return null;
