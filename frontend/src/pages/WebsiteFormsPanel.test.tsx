@@ -133,4 +133,40 @@ describe('Website CMS site forms editor', () => {
     expect(mocks.request.mock.calls.some(([path]) =>
       path === '/site-forms/form-1/submissions')).toBe(true);
   });
+
+  it('saves step labels and an authorized conditional choice through the existing form API', async () => {
+    render(<WebsiteFormsPanel workspaceId={workspaceId}/>);
+    const slug = await screen.findByLabelText('Form URL slug');
+    await waitFor(() => expect(slug).toBeEnabled());
+    fireEvent.change(slug, { target: { value: 'conditional-contact' } });
+    fireEvent.change(screen.getByLabelText('Lead Generation Agent'), { target: { value: agentId } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a step' }));
+    fireEvent.change(screen.getByLabelText('Step 2 heading'),
+      { target: { value: 'More details' } });
+
+    // Keep required email and processing consent; turn the earlier name field into a controller.
+    const controlTypes = screen.getAllByLabelText('Control type');
+    fireEvent.change(controlTypes[0]!, { target: { value: 'select' } });
+    fireEvent.change(screen.getByLabelText('Choices (one per line)'),
+      { target: { value: 'Sales\\nSupport' } });
+    const keys = screen.getAllByLabelText('Stable key');
+    const lastKey = keys[keys.length - 1]!;
+    const newFieldKey = (lastKey as HTMLInputElement).value;
+    const conditions = screen.getAllByLabelText('Display condition');
+    fireEvent.change(conditions[conditions.length - 1]!, { target: { value: 'name' } });
+    expect(screen.getByLabelText('Show when choice equals')).toHaveValue('Sales');
+    expect(screen.getByRole('button', { name: 'Create private form' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create private form' }));
+    await waitFor(() => expect(forms).toHaveLength(1));
+    const sent = mocks.request.mock.calls.find(([path, options]) =>
+      path === '/site-forms' && options?.method === 'POST',
+    );
+    const document = JSON.parse(sent![1].body).document;
+    expect(document.steps).toEqual(['Your details', 'More details']);
+    expect(document.fields.find((item: { key: string }) => item.key === newFieldKey))
+      .toMatchObject({ step: 2, condition: { field_key: 'name', equals: 'Sales' } });
+    expect(forms[0]!.publishedVersion).toBeNull();
+  });
+
 });
