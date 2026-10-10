@@ -58,8 +58,14 @@ def public_hostname(hostname: str) -> bool:
         labels = hostname.split(".")
         return (
             len(labels) >= 2
-            and all(label and len(label) <= 63 and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels)
             and len(hostname) <= 253
+            and not labels[-1].isdigit()
+            and all(
+                label
+                and len(label) <= 63
+                and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+                for label in labels
+            )
         )
     return address.is_global
 
