@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Check, Copy, ExternalLink, FilePlus2, GripVertical,
 import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { ApiError, apiConfig, request } from '@/lib/api';
-import { duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
+import { duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
 import './WebsiteCMSPage.css';
 
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
@@ -251,7 +251,7 @@ export function WebsiteCMSPage() {
     setDraggedItem(null);
   };
 
-  const dirty = !!selected && !!draft && JSON.stringify(draft) !== JSON.stringify(selected.document);
+  const dirty = !!selected && !!draft && !sameDraftContent(draft, selected.document);
   const replace = (page: CMSPage) => {
     setSelected(page);
     resetDraft(page.document);
@@ -262,7 +262,7 @@ export function WebsiteCMSPage() {
   };
   const save = async () => {
     if (!selected || !draft || busy || saveConflict) return;
-    const snapshot = JSON.stringify(draft);
+    const snapshot = draft;
     const pageId = selected.id;
     setBusy(true); setError(''); setSaveNote('Saving to the server…');
     try {
@@ -273,7 +273,7 @@ export function WebsiteCMSPage() {
       // Never replace edits made while this request was in flight.
       setSelected((current) => current?.id === pageId ? saved : current);
       setPages((items) => items.map((page) => page.id === pageId ? saved : page));
-      setEditing((history) => JSON.stringify(history.present) === snapshot
+      setEditing((history) => sameDraftContent(history.present, snapshot)
         ? { ...history, present: saved.document }
         : history);
       setSaveBlocked(false);
@@ -290,7 +290,7 @@ export function WebsiteCMSPage() {
       setError(message(reason));
     } finally { setBusy(false); }
   };
-  saveRef.current = save;
+  useEffect(() => { saveRef.current = save; });
   // Debounced database autosave uses the same optimistic-version API as manual Save.
   useEffect(() => {
     if (!dirty || !draft || !selected || busy || saveBlocked || saveConflict) return;
