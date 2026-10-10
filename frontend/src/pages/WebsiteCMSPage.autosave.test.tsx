@@ -52,6 +52,25 @@ describe('CMS acknowledged autosave and conflict recovery', () => {
       if (path.startsWith('/site-analytics/summary')) {
         return { days: 30, pageViews: 0, ctaClicks: 0, pages: [] };
       }
+      if (path === '/site-cms/pages/import' && options?.method === 'POST') {
+        const manifest = JSON.parse(options.body ?? '{}') as {
+          new_slug: string; new_title: string; page: typeof firstDocument;
+        };
+        return {
+          id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          slug: manifest.new_slug,
+          title: manifest.new_title,
+          status: 'draft',
+          draftVersion: 1,
+          publishedVersion: null,
+          document: {
+            ...manifest.page,
+            slug: manifest.new_slug,
+            title: manifest.new_title,
+            seo: { indexable: false, canonical_url: null, description: '' },
+          },
+        };
+      }
       if (path.endsWith('/revisions')) return [
         { version: storedPage.draftVersion, title: storedPage.title, isPublished: false },
       ];
@@ -130,5 +149,22 @@ describe('CMS acknowledged autosave and conflict recovery', () => {
     expect(screen.getByRole('button', { name: 'Reload server version' })).toBeEnabled();
     expect(input.value).toBe('Important local edit');
     expect(screen.getByRole('button', { name: 'Save now' })).toBeDisabled();
+    expect(screen.getByText(/Local draft vs. latest server revision 1/)).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: /Unresolved content differences/ })).toBeInTheDocument();
+    expect(screen.getByText('Important local edit')).toBeInTheDocument();
+
+    const confirmed = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save as new draft' }));
+    });
+    const fork = mocks.request.mock.calls.find(([path, options]) =>
+      path === '/site-cms/pages/import' && options?.method === 'POST',
+    );
+    expect(fork).toBeDefined();
+    const body = JSON.parse(fork![1].body);
+    expect(body.page.title).toBe('Important local edit');
+    expect(body.new_slug).toBe('about-page-recovered');
+    expect(screen.queryByText(/Version conflict — no changes have been overwritten/)).not.toBeInTheDocument();
+    confirmed.mockRestore();
   });
 });
