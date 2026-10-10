@@ -18,6 +18,9 @@ SITE_CSS = (
     ".skip-link{position:absolute;left:-9999px;top:0;padding:12px;background:#fff;z-index:10}"
     ".skip-link:focus{left:12px}"
     "a:focus-visible{outline:3px solid #f59e0b;outline-offset:4px}"
+    ".site-nav{max-width:1100px;margin:0 auto;padding:16px 24px;display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px}"
+    ".site-nav a{display:inline-flex;padding:8px 4px;text-decoration:none;font-weight:650;color:#1d4ed8;border-bottom:2px solid transparent}"
+    ".site-nav a:hover{border-bottom-color:currentColor}"
     ".site-header{padding:clamp(28px,5vw,64px) 24px 18px;max-width:1100px;margin:auto}"
     ".site-header h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.14;letter-spacing:-.03em;margin:0}"
     ".site-eyebrow{color:#475569;font-size:.85rem;text-transform:uppercase;letter-spacing:.13em}"
@@ -76,6 +79,7 @@ def render_page(
     privacy_path: str | None = None,
     analytics_context: tuple[str, str] | None = None,
     analytics_nonce: str | None = None,
+    navigation: tuple[tuple[str, str], ...] = (),
 ) -> str:
     """Render only validated builder data, never arbitrary user-provided markup."""
     if not isinstance(document, BuilderPageDocument):
@@ -124,6 +128,15 @@ def render_page(
             '" data-site-slug="' + _attr(document.slug) +
             '" data-api-prefix="' + _attr(api_prefix) + '"></script>'
         )
+    navigation_html = (
+        '<nav class="site-nav" aria-label="Primary navigation">'
+        + "".join(
+            '<a href="' + _attr(href) + '">' + escape(label) + "</a>"
+            for label, href in navigation
+        )
+        + "</nav>"
+        if navigation else ""
+    )
     return (
         "<!doctype html>\n"
         f'<html lang="{_attr(language)}"><head><meta charset="utf-8">'
@@ -131,6 +144,7 @@ def render_page(
         f"<title>{title}</title>{seo_metadata}<style>{SITE_CSS}</style>"
         "</head><body>"
         '<a class="skip-link" href="#site-main">Skip to content</a>'
+        f"{navigation_html}"
         f'<header class="site-header"><p class="site-eyebrow">{"Article" if document.content_type == "article" else "Welcome"}</p><h1>{title}</h1>{article_header}</header>'
         f'<main id="site-main">{sections}</main>'
         f"{privacy_footer}"
