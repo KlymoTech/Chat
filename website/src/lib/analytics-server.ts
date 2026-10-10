@@ -11,9 +11,9 @@ export async function recordOptionalAnalytics(
 ):Promise<boolean>{
   if(process.env.WEBSITE_ANALYTICS_COLLECTION_ENABLED!=="true" ||
      !receiptId||!uuid.test(receiptId))return false;
-  const db=consentDatabase();
-  const client:PoolClient=await db.connect();
+  let client:PoolClient|undefined;
   try{
+    client=await consentDatabase().connect();
     await client.query("BEGIN");
     // Lock consent so a withdrawal and event cannot race across commits.
     const existing=await client.query<{site_id:string}>(
@@ -45,7 +45,8 @@ export async function recordOptionalAnalytics(
     await client.query("COMMIT");
     return true;
   }catch{
-    try{await client.query("ROLLBACK");}catch{}
+    // Optional tracking never crashes a public route when grants, DNS or DB are missing.
+    if(client)try{await client.query("ROLLBACK");}catch{}
     return false;
-  }finally{client.release();}
+  }finally{client?.release();}
 }
