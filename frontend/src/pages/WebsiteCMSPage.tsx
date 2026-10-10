@@ -165,6 +165,8 @@ export function WebsiteCMSPage() {
   }, [workspaceId]);
   useEffect(() => { setPages([]); setSelected(null); resetDraft(null); setSiteMenu(null); setMenuDraft([]); setMenuHistory([]); void load(); }, [load, resetDraft]);
   const refreshRedirects = async () => {
+    if (Object.keys(redirectEdits).length > 0
+      && !window.confirm('Discard unsaved redirect rule edits and reload server settings?')) return;
     setRedirectBusy(true); setRedirectError('');
     try {
       const rules = await request<SiteRedirect[]>('/site-cms/redirects');
@@ -612,7 +614,12 @@ export function WebsiteCMSPage() {
   return <div className="page site-cms-page">
     <div className="page-heading page-heading--split"><div><h2>Website CMS</h2>
       <p>Create content blocks, review pages, and publish immutable versions.</p></div>
-      <Button variant="secondary" icon={RefreshCw} disabled={busy} onClick={() => void load()}>Refresh</Button></div>
+      <Button variant="secondary" icon={RefreshCw} disabled={busy || menuBusy || redirectBusy}
+        onClick={() => {
+          if ((dirty || menuDirty || Object.keys(redirectEdits).length > 0)
+            && !window.confirm('Discard unsaved page, navigation or redirect changes and reload workspace data?')) return;
+          void load();
+        }}>Refresh</Button></div>
     {error ? <div role="alert" className="form-error">{error}</div> : null}
     {!activeWorkspace ? <Card><p>Select a workspace to manage its site.</p></Card> :
       <div className="site-cms-layout">
