@@ -48,6 +48,10 @@ class SiteFormField(BaseModel):
                 raise ValueError("Choices must be meaningful and short")
         elif self.choices:
             raise ValueError("Only choice controls may have choices")
+        if self.kind == "consent" and self.key != "processing_consent":
+            raise ValueError("Consent evidence must use the dedicated processing_consent key")
+        if self.key == "processing_consent" and self.kind != "consent":
+            raise ValueError("Processing consent requires the consent control type")
         if self.kind == "consent" and not self.required:
             raise ValueError("The processing consent field must be required")
         return self
