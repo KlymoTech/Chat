@@ -21,12 +21,22 @@ from northstar_api.routers.website_consent import (
     _same_origin, _subject_hash, _workspace,
 )
 from northstar_api.security import Principal
+from northstar_api.services.website_analytics_client import SITE_ANALYTICS_CLIENT_JS
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.website_cms_models import WebsitePage
 from northstar_api.website_event_models import WebsitePageEvent
 
 router = APIRouter(prefix="/site-analytics", tags=["site-analytics"])
 CmsAdmin = Annotated[Principal, Depends(require_roles(Role.OWNER, Role.ADMIN))]
+
+
+@router.get("/client.js", include_in_schema=False)
+async def analytics_client() -> Response:
+    return Response(
+        content=SITE_ANALYTICS_CLIENT_JS,
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 class BrowserEvent(BaseModel):
@@ -44,7 +54,7 @@ def _respond(status: str) -> dict[str, str]:
     return {"status": status}
 
 
-@router.post("/{workspace_id}/events")
+@router.post("/{workspace_id}/events", response_model=None)
 async def collect_event(
     workspace_id: UUID, event: BrowserEvent, request: Request, response: Response,
     session: DBSession,
