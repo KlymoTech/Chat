@@ -4,11 +4,29 @@
  */
 export type BuilderKind = 'section' | 'container' | 'heading' | 'paragraph' | 'image' | 'button' | 'form';
 
+export interface NodeAppearance {
+  alignment: 'start' | 'center' | 'end';
+  spacing: 'compact' | 'normal' | 'spacious';
+  tone: 'default' | 'muted' | 'accent';
+}
+
+export const DEFAULT_NODE_APPEARANCE: Readonly<NodeAppearance> = {
+  alignment: 'start', spacing: 'normal', tone: 'default',
+};
+
+/** Corresponds 1:1 to the backend's allowlisted design-token classes. */
+export function appearanceClass(node: BuilderNode): string {
+  if (!node.appearance) return '';
+  const { alignment, spacing, tone } = node.appearance;
+  return ['site-node', 'site-align-' + alignment, 'site-space-' + spacing, 'site-tone-' + tone].join(' ');
+}
+
 export interface BuilderNode {
   id: string;
   kind: BuilderKind;
   text?: string | null;
   url?: string | null;
+  appearance?: NodeAppearance | null;
   children?: BuilderNode[];
 }
 
