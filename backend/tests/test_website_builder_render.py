@@ -139,3 +139,40 @@ def test_public_form_blocks_render_restricted_same_origin_iframe():
     assert 'title="Enquiry &amp; assistance"' in rendered
     assert f'src="/api/v1/site-forms/public/{workspace}/contact"' in rendered
     assert "<script>Enquiry" not in rendered
+
+
+def test_styled_builder_nodes_render_only_allowlisted_classes_with_no_inline_styles():
+    from northstar_api.services.website_builder_render import SITE_CSS
+
+    document = build([{
+        "id": "section", "kind": "section",
+        "appearance": {"alignment": "center", "spacing": "spacious", "tone": "accent"},
+        "children": [
+            {
+                "id": "cta", "kind": "button", "text": "Read more", "url": "/about",
+                "appearance": {"alignment": "end", "spacing": "compact", "tone": "muted"},
+            },
+            {
+                "id": "intro", "kind": "paragraph", "text": "A short intro",
+                "appearance": {"alignment": "start", "spacing": "normal", "tone": "default"},
+            },
+        ],
+    }])
+    html = render_page(document)
+    assert 'data-builder-id="section" class="site-node site-align-center site-space-spacious site-tone-accent"' in html
+    assert 'class="site-action site-node site-align-end site-space-compact site-tone-muted"' in html
+    assert 'data-builder-id="intro" class="site-node site-align-start site-space-normal site-tone-default"' in html
+    assert "style=" not in html
+    assert ".site-node.site-tone-accent" in SITE_CSS
+    assert "main>section.site-node.site-space-spacious" in SITE_CSS
+    assert style_csp_hash().startswith("sha256-")
+
+
+def test_unstyled_legacy_node_output_is_backward_compatible():
+    rendered = render_page(build([{
+        "id": "hero", "kind": "section", "children": [
+            {"id": "simple", "kind": "heading", "text": "Hello"},
+        ],
+    }]))
+    assert '<section data-builder-id="hero"><h2 data-builder-id="simple">Hello</h2></section>' in rendered
+    assert 'class="site-node"' not in rendered
