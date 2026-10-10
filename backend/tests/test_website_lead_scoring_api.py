@@ -8,7 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
-from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile
+from northstar_api.lead_crm.models import LeadActivityEvent, LeadConsent, LeadProfile
 from northstar_api.notifications import Notification
 from northstar_api.models import (
     Lead, OutboxEvent, TenantMembership, User, Workspace, WorkspaceMembership,
@@ -203,3 +203,104 @@ async def test_scoring_rejects_sensitive_fields_and_rule_duplicates(
             "base_points": 0, "review_threshold": 50, "rules": rules,
         })
         assert result.status_code == 422, result.text
+
+
+
+async def test_segment_register_preview_requires_separate_marketing_consent(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    headers, lead_id, workspace_id = await _workspace_and_lead(client, auth_headers)
+    register_url = "/api/v1/crm/workflow/segments"
+    segment_id = uuid.uuid4()
+    registration = {
+        "expected_version": 0,
+        "segments": [{
+            "id": str(segment_id),
+            "name": "Contact-form leads",
+            "enabled": True,
+            "purpose": "marketing",
+            "logic": "all",
+            "include": [{"field": "source_channel", "equals": "widget"}],
+            "exclude": [{"field": "utm_source", "equals": "test"}],
+        }],
+    }
+    assert (await client.get(register_url)).status_code == 401
+    created = await client.put(register_url, headers=headers, json=registration)
+    assert created.status_code == 200, created.text
+    assert created.json()["version"] == 1
+    assert created.json()["segments"][0]["include"][0]["equals"] == "widget"
+    assert (await client.put(register_url, headers=headers, json=registration)).status_code == 409
+    url = f"{register_url}/{segment_id}/preview"
+    assert (await client.get(url)).status_code == 401
+
+    blocked = await client.get(url, headers=headers)
+    assert blocked.status_code == 200, blocked.text
+    assert blocked.json()["matchedLeads"] == 0
+    assert blocked.json()["blockedByEligibility"] == 1
+    assert blocked.json()["examinedLeads"] == 1
+    assert blocked.json()["exactCount"] is True
+    assert blocked.json()["truncated"] is False
+    assert "contacts" in blocked.json()["note"].lower()
+    assert "hanako@example.com" not in blocked.text
+
+    async with SessionFactory() as session:
+        session.add(LeadConsent(
+            tenant_id=(await session.get(Workspace, workspace_id)).tenant_id,
+            lead_id=lead_id, consent_type="marketing",
+            status="granted", source="explicit_request",
+            channel="email", text_version="marketing-v1",
+        ))
+        await session.commit()
+
+    allowed = await client.get(url, headers=headers)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["matchedLeads"] == 1
+    assert allowed.json()["blockedByEligibility"] == 0
+
+    async with SessionFactory() as session:
+        session.add(LeadConsent(
+            tenant_id=(await session.get(Workspace, workspace_id)).tenant_id,
+            lead_id=lead_id, consent_type="marketing",
+            status="withdrawn", source="preference_center",
+            channel="email", text_version="marketing-v1",
+        ))
+        await session.commit()
+    revoked = await client.get(url, headers=headers)
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["matchedLeads"] == 0
+    assert revoked.json()["blockedByEligibility"] == 1
+    assert "email" not in revoked.text
+
+    wrong_scope, _, _ = await _workspace_and_lead(client, auth_headers)
+    inaccessible = await client.get(url, headers=wrong_scope)
+    assert inaccessible.status_code == 404
+
+
+async def test_segment_registration_rejects_sensitive_fields_and_preserves_settings(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    headers, _, workspace_id = await _workspace_and_lead(client, auth_headers)
+    url = "/api/v1/crm/workflow/segments"
+    illegal = await client.put(url, headers=headers, json={
+        "expected_version": 0,
+        "segments": [{
+            "id": str(uuid.uuid4()), "name": "Forbidden query",
+            "purpose": "operations",
+            "include": [{"field": "email", "equals": "someone@example.com"}],
+        }],
+    })
+    assert illegal.status_code == 422
+    good = await client.put(url, headers=headers, json={
+        "expected_version": 0,
+        "segments": [{
+            "id": str(uuid.uuid4()), "name": "Internal ops",
+            "purpose": "operations",
+            "include": [{"field": "source_channel", "equals": "widget"}],
+        }],
+    })
+    assert good.status_code == 200, good.text
+    async with SessionFactory() as session:
+        workspace = await session.get(Workspace, workspace_id)
+        assert workspace is not None
+        assert workspace.settings_json["untouched"] == "preserve"
+        assert workspace.settings_json["website_lead_segments"]["version"] == 1
