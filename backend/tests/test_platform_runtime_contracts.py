@@ -3,8 +3,6 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from northstar_api.modules.platform_runtime import registry as capability_registry
-
 from northstar_api.modules.platform_runtime import (
     ChangeLifecycleError,
     DependencyGraph,
@@ -16,6 +14,7 @@ from northstar_api.modules.platform_runtime import (
     build_change_plan,
     build_dependency_graph,
     classify_provider_change,
+    registry as capability_registry,
     transition_change,
     validate_dependency_graph,
     validate_platform_spec,
@@ -150,7 +149,6 @@ def test_change_lifecycle_requires_approval_separation_and_safe_transitions() ->
         transition_change("waiting_approval", "deploying")
 
 
-
 def test_dependency_graph_declares_all_consumers_and_providers() -> None:
     graph = build_dependency_graph(
         PlatformSpec(
@@ -178,7 +176,6 @@ def test_dependency_graph_declares_all_consumers_and_providers() -> None:
 def test_dependency_graph_fitness_fails_closed(graph: DependencyGraph) -> None:
     with pytest.raises(PlatformSpecError, match="dependency graph"):
         validate_dependency_graph(graph)
-
 
 
 def test_capability_catalog_rejects_cycle_before_exposing_state(monkeypatch) -> None:
