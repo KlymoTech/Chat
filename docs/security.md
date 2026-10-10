@@ -106,7 +106,7 @@ Retrieved documents and user messages can contain prompt injection. They are dat
 
 Structured logs use request/correlation IDs and service names. They redact authorization headers, cookies, credentials, raw prompts, document content, and visitor PII by default. Logs and metrics must not use tenant IDs, user IDs, or conversation IDs as unbounded metric labels.
 
-Agent configuration records a retention period, but this repository does not include a scheduled age-based retention worker. Explicit source deletion cascades indexed database derivatives and drives an idempotent, version-aware object purge through Kafka. Before production, implement and verify age-based retention across PostgreSQL, objects, Kafka, quarantine records, and backups—not only in the UI. Monitor cleanup lag and audit access to exports and administrative changes.
+Agent configuration records a retention period, but this repository does not include a scheduled age-based retention worker. A read-only, explicitly tenant/workspace-scoped conversation inventory is available at `northstar_api.workers.retention_preview`; it never deletes records, and external privacy-rights holds still require reconciliation. Explicit source deletion cascades indexed database derivatives and drives an idempotent, version-aware object purge through Kafka. Before production, implement and verify age-based retention across PostgreSQL, objects, Kafka, quarantine records, and backups—not only in the UI. Monitor cleanup lag and audit access to exports and administrative changes.
 
 ## Container and network baseline
 

@@ -972,3 +972,21 @@ do not merge without explicit instruction.
   was exercised. GitHub Actions remains blocked before runner execution (#141).
 - Production image digests, real scan/timeout tests, health monitoring,
   rollout, retention, and release approval remain outstanding.
+
+## Increment: tenant-scoped read-only conversation retention preview (2026-10-11)
+
+- Added a bounded, tenant-and-workspace-scoped retention inventory using
+  existing `Agent.security.retentionDays`, `Conversation` timestamps and the
+  latest `Message.created_at`. No conversation/message content or visitor
+  identifiers are fetched. Invalid policy, unknown timestamps and explicit
+  local hold flags fail closed.
+- An operator-only CLI uses a PostgreSQL READ ONLY transaction and tenant
+  context, limits the inspected rows and emits provisional UUID identifiers
+  and summary counts. External website privacy-rights `legal_hold` cases are
+  **not integrated**; every preview requires external hold review.
+- Added read-only policy/query regression tests and an operating guide.
+  A standalone PostgreSQL SQLAlchemy SELECT compilation passed locally, but
+  the actual repository test suite and real PostgreSQL/RLS behavior remain
+  **unverified** while Actions fails before running jobs (issue #141).
+- This is **not scheduled retention**, not a deletion executor, not a legal
+  hold registry, not S3/Kafka/backup erasure, and not release authorization.
