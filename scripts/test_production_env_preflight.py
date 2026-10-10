@@ -238,5 +238,14 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_encoded_database_path_separator_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:strongpassword123@db.internal/app%2Fextra?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+    def test_database_dot_segment_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:strongpassword123@db.internal/%2E%2E?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
