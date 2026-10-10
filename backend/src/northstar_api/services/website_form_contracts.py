@@ -64,6 +64,13 @@ class SiteFormField(BaseModel):
             raise ValueError("Processing consent requires the consent control type")
         if self.kind == "consent" and not self.required:
             raise ValueError("The processing consent field must be required")
+        if self.key == "marketing_opt_in":
+            if self.kind != "checkbox" or self.required or self.condition is not None:
+                raise ValueError("Marketing opt-in must be a separate optional, unconditional checkbox")
+            if "marketing" not in self.label.casefold() or "marketing" not in self.purpose.casefold():
+                raise ValueError("Marketing opt-in must explicitly identify its marketing purpose")
+        if self.kind == "checkbox" and self.key != "marketing_opt_in" and "marketing" in self.purpose.casefold():
+            raise ValueError("Use the dedicated marketing_opt_in field for marketing permission")
         return self
 
 
@@ -112,10 +119,10 @@ class SiteFormDocument(BaseModel):
                         raise ValueError("Checkbox conditions use true or false")
                 elif condition.equals not in controller.choices:
                     raise ValueError("Condition must use a configured controller choice")
-                if field.kind == "consent" or (
+                if field.kind == "consent" or field.key == "marketing_opt_in" or (
                     field.required and field.kind in {"email", "phone"}
                 ):
-                    raise ValueError("Consent and required contact methods cannot be conditional")
+                    raise ValueError("Purpose consents and required contact methods cannot be conditional")
             earlier[field.key] = field
         return self
 
