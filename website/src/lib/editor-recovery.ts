@@ -65,6 +65,6 @@ export function parseRecovery(raw:string|null,scope:{
        x.ownerId!==scope.ownerId||x.pageId!==scope.pageId||
        !Number.isSafeInteger(x.expectedVersion)||Number(x.expectedVersion)<0||
        !validDraft(x.document))return null;
-    return x as DraftRecovery;
+    return x as unknown as DraftRecovery;
   }catch{return null;}
 }
