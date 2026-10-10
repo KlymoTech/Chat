@@ -42,6 +42,8 @@ describe('CMS primary navigation editor', () => {
       if (path.startsWith('/site-analytics/summary')) {
         return { days: 30, pageViews: 0, ctaClicks: 0, pages: [] };
       }
+      if (path === '/site-forms' && !options) return [];
+      if (path === '/agents' && !options) return [];
       if (path === '/site-cms/redirects' && !options) return [];
       if (path === '/site-cms/menu' && !options) {
         return structuredClone(menu);
