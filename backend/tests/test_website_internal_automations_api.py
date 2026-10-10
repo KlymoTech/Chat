@@ -147,6 +147,48 @@ async def test_internal_review_preview_execute_and_idempotent_replay(
         json={**payload, "expected_eligible_fingerprint": "0" * 64},
     )
     assert stale_same_count.status_code == 409
+
+    # Regression: exactly one eligible Lead before AND after a concurrent
+    # reclassification is not enough to approve a different set of people.
+    async with SessionFactory() as session:
+        allowed_lead = await session.get(Lead, eligible)
+        denied_lead = await session.get(Lead, blocked)
+        allowed_profile = await session.scalar(select(LeadProfile).where(
+            LeadProfile.lead_id == eligible,
+        ))
+        denied_profile = await session.scalar(select(LeadProfile).where(
+            LeadProfile.lead_id == blocked,
+        ))
+        assert allowed_lead and denied_lead and allowed_profile and denied_profile
+        allowed_lead.consent = False
+        allowed_profile.consent_status = "withdrawn"
+        denied_lead.consent = True
+        denied_profile.consent_status = "granted"
+        await session.commit()
+    swapped = await client.get(preview_link, headers=headers)
+    assert swapped.status_code == 200
+    assert swapped.json()["eligibleLeads"] == info["eligibleLeads"]
+    assert swapped.json()["eligibleFingerprint"] != info["eligibleFingerprint"]
+    blocked_swap = await client.post(execute_link, headers=headers, json=payload)
+    assert blocked_swap.status_code == 409
+
+    # Restore the fixture's authorized cohort and execute that exact preview.
+    async with SessionFactory() as session:
+        allowed_lead = await session.get(Lead, eligible)
+        denied_lead = await session.get(Lead, blocked)
+        allowed_profile = await session.scalar(select(LeadProfile).where(
+            LeadProfile.lead_id == eligible,
+        ))
+        denied_profile = await session.scalar(select(LeadProfile).where(
+            LeadProfile.lead_id == blocked,
+        ))
+        assert allowed_lead and denied_lead and allowed_profile and denied_profile
+        allowed_lead.consent = True
+        allowed_profile.consent_status = "granted"
+        denied_lead.consent = False
+        denied_profile.consent_status = "withdrawn"
+        await session.commit()
+
     assert (await client.post(execute_link, json=payload)).status_code == 401
     executed = await client.post(execute_link, headers=headers, json=payload)
     assert executed.status_code == 200, executed.text
