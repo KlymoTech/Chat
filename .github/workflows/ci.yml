@@ -77,6 +77,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
+      - name: Verify production preflight Python syntax
+        run: python3 -m compileall -q scripts/production_env_preflight.py scripts/test_production_env_preflight.py
+      - name: Test production environment validation rules
+        run: python3 -m unittest discover -s scripts -p 'test_production_env_preflight.py' -v
       - name: Validate repository architecture
         run: bash scripts/validate-architecture.sh
       - name: Maintainability size audit (informational)
