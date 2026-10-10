@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { auditApi } from '@/lib/audit-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -37,12 +38,13 @@ describe('auditApi', () => {
       user: { id: 'u', name: 'User', email: 'user@example.com', role: 'owner' },
       expiresAt: '2099-01-01T00:00:00Z',
     }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     vi.stubGlobal('fetch', fetchMock);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearActiveWorkspaceSelection();
     vi.clearAllMocks();
     localStorage.clear();
   });

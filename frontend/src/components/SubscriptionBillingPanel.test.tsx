@@ -156,7 +156,7 @@ describe('SubscriptionBillingPanel', () => {
     expect(screen.getByText('1,200 / 3,000')).toBeInTheDocument();
     expect(screen.getByText('4 / 5')).toBeInTheDocument();
     expect(screen.getByText('8 / 10 (1 pending)')).toBeInTheDocument();
-    expect(screen.getByText('450,000 / 2,000,000')).toBeInTheDocument();
+    expect(screen.getByText(`${(450_000).toLocaleString()} / ${(2_000_000).toLocaleString()}`)).toBeInTheDocument();
     expect(screen.getByText('1.0 GB / 5.0 GB')).toBeInTheDocument();
     expect(screen.getByText(/CRM: Included/)).toBeInTheDocument();
     expect(screen.getByText(/White-label: Upgrade required/)).toBeInTheDocument();

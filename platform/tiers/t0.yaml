@@ -1,0 +1,22 @@
+apiVersion: platform/v1
+kind: TierProfile
+metadata:
+  name: T0
+  displayName: Starter
+  topology: single-deployable
+runtime:
+  orchestrator: docker
+  api_min_replicas: 1
+  worker_min_replicas: 0
+  scale_to_zero: true
+providers:
+  database: postgres
+  jobs: postgres
+  events: transactional-outbox
+  storage: minio
+  cache: none
+  search: postgres
+  orchestration: docker
+governance:
+  automatic_architectural_switches: false
+  required_evidence: [health_snapshot, backup_restore_proof, rollback_or_forward_repair]

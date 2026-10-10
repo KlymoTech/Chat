@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { crmOneClickApi } from '@/lib/crm-one-click-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -18,13 +19,14 @@ describe('crmOneClickApi', () => {
       expiresAt: '2099-01-01T00:00:00Z',
       user: { id: 'user-1', name: 'Owner', email: 'owner@example.com', role: 'owner' },
     }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearActiveWorkspaceSelection();
   });
 
   it('starts managed OAuth with authentication and workspace isolation', async () => {

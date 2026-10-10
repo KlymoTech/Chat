@@ -15,6 +15,7 @@ from northstar_api.lead_crm.domain import CRMDeliveryStatus, NormalizedCRMErrorC
 from northstar_api.lead_crm.models import CRMConnection, CRMDelivery, CRMDeliveryAttempt, LeadActivityEvent
 from northstar_api.lead_crm.verification import verify_delivery
 from northstar_api.logging import configure_logging
+from northstar_api.modules.platform_runtime.activity_gate import ActivityMarker, run_if_recently_active
 from northstar_api.workers.crm_delivery_worker import _mark_failure
 
 settings = get_settings()
@@ -116,6 +117,23 @@ async def run_once(session: AsyncSession) -> dict[str, int]:
     verified, deferred = await reconcile_verified_records(session)
     await session.commit()
     return {"recovered": recovered, "verified": verified, "deferred": deferred}
+
+
+async def run_scheduled_once(
+    marker: ActivityMarker,
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    activity_key: str,
+    now: datetime,
+) -> dict[str, int] | None:
+    """Scheduled entry point that opens PostgreSQL only after recent activity."""
+
+    async def operation() -> dict[str, int]:
+        async with factory() as session:
+            return await run_once(session)
+
+    ran, result = await run_if_recently_active(marker, activity_key, operation, now=now)
+    return result if ran else None
 
 
 async def run_forever() -> None:

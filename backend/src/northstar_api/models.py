@@ -527,6 +527,7 @@ class KnowledgeSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     url: Mapped[str | None] = mapped_column(String(2048))
     content: Mapped[str | None] = mapped_column(Text)
     object_key: Mapped[str | None] = mapped_column(String(1000))
+    object_version_id: Mapped[str | None] = mapped_column(String(1024))
     checksum: Mapped[str | None] = mapped_column(String(64), index=True)
     extraction_key: Mapped[str | None] = mapped_column(String(1000))
     extraction_issue_count: Mapped[int] = mapped_column(Integer, default=0)

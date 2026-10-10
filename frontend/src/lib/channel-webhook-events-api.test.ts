@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { channelWebhookEventsApi } from '@/lib/channel-webhook-events-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearActiveWorkspaceSelection();
   localStorage.clear();
 });
 
 describe('channel webhook activity API client', () => {
   it('loads filtered Workspace-scoped webhook evidence with auth context', async () => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     const event = {
       id: 'event-1',
       connection_id: 'channel-1',
@@ -56,7 +58,7 @@ describe('channel webhook activity API client', () => {
 
   it('requeues one server-approved failed webhook through the managed endpoint', async () => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     const requeued = {
       id: 'event/1',
       connection_id: 'channel-1',

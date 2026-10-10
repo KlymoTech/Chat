@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from northstar_api.modules.platform_runtime import (
     ChangeLifecycleError,
+    DependencyGraph,
     PlatformSpec,
     PlatformSpecError,
     analyze_capability_change,
@@ -14,7 +15,11 @@ from northstar_api.modules.platform_runtime import (
     build_dependency_graph,
     classify_provider_change,
     transition_change,
+    validate_dependency_graph,
     validate_platform_spec,
+)
+from northstar_api.modules.platform_runtime import (
+    registry as capability_registry,
 )
 
 
@@ -52,7 +57,7 @@ def test_provider_change_classification() -> None:
     assert classify_provider_change(
         base,
         PlatformSpec(providers={"events": "kafka"}, resources={"kafka_provisioned": True}),
-    ) == "restart"
+    ) == "migration"
     assert classify_provider_change(
         base,
         PlatformSpec(
@@ -86,6 +91,26 @@ def test_change_plan_requires_migration_steps_for_storage_cutover() -> None:
     assert plan.requires_approval is True
     assert "copy_and_verify_authoritative_state" in plan.steps
     assert plan.destructive is False
+
+
+def test_event_provider_cutover_requires_migration_and_reconciliation() -> None:
+    current = PlatformSpec(metadata={"revision": 1})
+    desired = PlatformSpec(
+        metadata={"revision": 2},
+        providers={"events": "kafka"},
+        resources={"kafka_provisioned": True},
+    )
+    plan = build_change_plan(current, desired)
+    assert plan.action == "migrate"
+    assert plan.requires_approval
+    assert "copy_and_verify_authoritative_state" in plan.steps
+    assert "reconcile_pending_work_and_indeterminate_effects" in plan.steps
+
+
+def test_search_provider_cutover_requires_migration() -> None:
+    current = PlatformSpec(metadata={"revision": 1})
+    desired = PlatformSpec(metadata={"revision": 2}, providers={"search": "opensearch"})
+    assert build_change_plan(current, desired).action == "migrate"
 
 
 def test_prohibited_profile_change_never_becomes_an_apply_plan() -> None:
@@ -133,7 +158,7 @@ def test_capability_change_analysis_includes_dependents() -> None:
         providers={"ai": "nvidia", "vector": "pgvector"},
     )
     analysis = analyze_capability_change(current, desired)
-    assert analysis.plan.action == "restart"
+    assert analysis.plan.action == "migrate"
     assert "ai" in analysis.changed_capabilities
     assert "vector" in analysis.changed_capabilities
     assert "ai" in analysis.impacted_capabilities
@@ -144,3 +169,54 @@ def test_change_lifecycle_requires_approval_separation_and_safe_transitions() ->
     assert approver_is_distinct(uuid4(), uuid4()) is True
     with pytest.raises(ChangeLifecycleError, match="cannot transition"):
         transition_change("waiting_approval", "deploying")
+
+
+def test_dependency_graph_declares_all_consumers_and_providers() -> None:
+    graph = build_dependency_graph(
+        PlatformSpec(
+            providers={"cache": "redis", "events": "kafka", "storage": "minio"},
+            resources={"redis_provisioned": True, "kafka_provisioned": True},
+        )
+    )
+    assert graph == validate_dependency_graph(graph)
+    assert {"application", "cache", "events", "storage"} <= set(graph.nodes)
+    assert all(set(edge) <= set(graph.nodes) for edge in graph.edges)
+    assert ("cache", "redis") in graph.edges
+    assert ("events", "kafka") in graph.edges
+
+
+@pytest.mark.parametrize(
+    "graph",
+    [
+        DependencyGraph(("a", "b"), (("a", "missing"),)),
+        DependencyGraph(("a", "b"), (("a", "b"), ("b", "a"))),
+        DependencyGraph(("a",), (("a", "a"),)),
+        DependencyGraph(("a", "a"), ()),
+        DependencyGraph(("",), ()),
+    ],
+)
+def test_dependency_graph_fitness_fails_closed(graph: DependencyGraph) -> None:
+    with pytest.raises(PlatformSpecError, match="dependency graph"):
+        validate_dependency_graph(graph)
+
+
+def test_capability_catalog_rejects_cycle_before_exposing_state(monkeypatch) -> None:
+    definitions = capability_registry.capability_definitions()
+    cyclic = tuple(
+        definition.model_copy(update={"depends_on": ("authentication",)})
+        if definition.capability_id == "database"
+        else definition
+        for definition in definitions
+    )
+    monkeypatch.setattr(capability_registry, "_DEFINITIONS", cyclic)
+    with pytest.raises(PlatformSpecError, match="cycle"):
+        capability_registry.build_capability_catalog(PlatformSpec())
+
+
+def test_capability_catalog_declares_every_dependency_node() -> None:
+    catalog = build_capability_catalog(PlatformSpec())
+    assert catalog.dependencies.nodes
+    assert all(
+        source in catalog.dependencies.nodes and target in catalog.dependencies.nodes
+        for source, target in catalog.dependencies.edges
+    )

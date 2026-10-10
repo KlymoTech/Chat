@@ -1,18 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { crmOperationsApi } from '@/lib/crm-operations-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 const SESSION_KEY = 'northstar.session';
-const ACTIVE_WORKSPACE_KEY = 'northstar.active-workspace-id';
 
 describe('crmOperationsApi', () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem(SESSION_KEY, JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem(ACTIVE_WORKSPACE_KEY, JSON.stringify('workspace-123'));
+    persistActiveWorkspace('workspace-123');
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearActiveWorkspaceSelection();
     localStorage.clear();
   });
 

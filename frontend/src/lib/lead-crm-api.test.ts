@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { leadCrmApi } from '@/lib/lead-crm-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearActiveWorkspaceSelection();
   localStorage.clear();
 });
 
@@ -48,7 +50,7 @@ describe('lead CRM API client', () => {
 
   it('runs and reads workspace-scoped CRM health history endpoints with the active auth context', async () => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     const snapshot = {
       id: 'snapshot-1',
       connection_id: 'crm-1',

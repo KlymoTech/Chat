@@ -75,6 +75,8 @@ logger = structlog.get_logger(__name__)
 async def presign_upload(
     payload: UploadPresignRequest, principal: KnowledgeManagePrincipal
 ) -> UploadPresignOut:
+    if principal.workspace_id is None:
+        raise HTTPException(status_code=403, detail="Select an authorized workspace")
     settings = get_settings()
     if payload.size_bytes > settings.upload_max_bytes:
         limit_mb = settings.upload_max_bytes / (1024 * 1024)
@@ -86,6 +88,7 @@ async def presign_upload(
             content_type=payload.content_type,
             size_bytes=payload.size_bytes,
             checksum_sha256=payload.checksum_sha256,
+            workspace_id=principal.workspace_id,
         )
     except InvalidUpload as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -105,8 +108,11 @@ async def list_knowledge(
     agent_id: UUID, principal: KnowledgeViewPrincipal, session: DB
 ) -> list[KnowledgeOut]:
     await scoped_agent(
-        session, principal.tenant_id, agent_id,
-        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+        session,
+        principal.tenant_id,
+        agent_id,
+        workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
     )
     sources = (
         await session.scalars(
@@ -127,8 +133,11 @@ async def add_knowledge(
     agent_id: UUID, payload: KnowledgeCreate, principal: KnowledgeManagePrincipal, session: DB
 ) -> KnowledgeOut:
     agent = await scoped_agent(
-        session, principal.tenant_id, agent_id,
-        workspace_id=principal.workspace_id, allowed_agent_ids=principal.agent_ids,
+        session,
+        principal.tenant_id,
+        agent_id,
+        workspace_id=principal.workspace_id,
+        allowed_agent_ids=principal.agent_ids,
     )
     if payload.kind == KnowledgeKind.TEXT and not payload.content:
         raise HTTPException(status_code=422, detail="Text sources require content")
@@ -163,10 +172,16 @@ async def add_knowledge(
     object_key = payload.object_key
     uploaded_checksum: str | None = None
     uploaded_size: int | None = None
+    uploaded_version: str | None = None
     if object_key:
         try:
-            object_key, uploaded_checksum, uploaded_size = await object_store.promote_staged(
-                principal.tenant_id, object_key
+            (
+                object_key,
+                uploaded_checksum,
+                uploaded_size,
+                uploaded_version,
+            ) = await object_store.promote_staged(
+                principal.tenant_id, object_key, workspace_id=principal.workspace_id
             )
         except InvalidUpload as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -185,6 +200,7 @@ async def add_knowledge(
         url=str(payload.url) if payload.url else None,
         content=payload.content,
         object_key=object_key,
+        object_version_id=uploaded_version,
         checksum=uploaded_checksum or hashlib.sha256(raw_identity.encode()).hexdigest(),
         retrieval_mode=payload.retrieval_mode,
     )
@@ -219,6 +235,7 @@ async def add_knowledge(
         )
         selected = normalized[0]
         from northstar_api.education import EducationCourse
+
         course = await session.scalar(
             select(EducationCourse).where(
                 EducationCourse.id == selected.course_id,
@@ -229,7 +246,10 @@ async def add_knowledge(
         if course is None:
             raise HTTPException(status_code=422, detail="Education destination Course no longer exists")
         if course.simplified_workflow and course.assigned_agent_id != agent.id:
-            raise HTTPException(status_code=422, detail="A simplified Course can only receive training from its assigned Education Agent")
+            raise HTTPException(
+                status_code=422,
+                detail="A simplified Course can only receive training from its assigned Education Agent",
+            )
         # One active Course deliberately uses one retrieval mode. This prevents
         # one answer from combining lexical and vector candidates while still
         # letting the same Agent serve different Courses in different modes.
@@ -252,8 +272,10 @@ async def add_knowledge(
             existing_label = "PGVector" if "pgvector" in normalized_modes else "lexical"
             raise HTTPException(
                 status_code=422,
-                detail=(f"This Course already has {existing_label} retrieval documents. "
-                        "Use the same mode for every document in this Course."),
+                detail=(
+                    f"This Course already has {existing_label} retrieval documents. "
+                    "Use the same mode for every document in this Course."
+                ),
             )
         direct_simplified_course = bool(course.simplified_workflow and course.assigned_agent_id == agent.id)
         now = datetime.now(UTC)
@@ -297,7 +319,7 @@ async def add_knowledge(
         await session.rollback()
         if object_key:
             try:
-                await object_store.purge_exact(object_key)
+                await object_store.rollback_promoted(object_key, version_id=uploaded_version)
             except Exception as cleanup_error:
                 logger.warning(
                     "promoted_upload_cleanup_failed",
@@ -342,9 +364,7 @@ async def get_extraction_source_pdf(
 
 
 @router.get("/knowledge/{source_id}/extraction/text")
-async def get_extraction_text(
-    source_id: UUID, principal: KnowledgeViewPrincipal, session: DB
-) -> Response:
+async def get_extraction_text(source_id: UUID, principal: KnowledgeViewPrincipal, session: DB) -> Response:
     """Download the canonical extracted text and structured review record."""
     source = await _review_source(source_id, principal, session)
     safe_name = source.name.replace('"', "") or "source"
@@ -365,7 +385,6 @@ async def get_extraction_page(
     if path not in package.images:
         raise HTTPException(status_code=404, detail="Page image not found")
     return Response(content=package.images[path], media_type="image/png")
-
 
 
 @router.get("/knowledge/{source_id}/extraction/regions/{block_id}")
@@ -476,7 +495,9 @@ async def approve_extraction(
     source = await _review_source(source_id, principal, session)
     # A trained file stays editable: saving an edit stores a new reviewed version and retrains it.
     if source.status == KnowledgeStatus.PROCESSING:
-        raise HTTPException(status_code=409, detail="Training is in progress; edit the file when it shows Training complete")
+        raise HTTPException(
+            status_code=409, detail="Training is in progress; edit the file when it shows Training complete"
+        )
     if source.status not in {KnowledgeStatus.NEEDS_REVIEW, KnowledgeStatus.READY}:
         raise HTTPException(status_code=409, detail="Source is not awaiting extraction review")
     package = await _load_extraction(source)
@@ -548,5 +569,3 @@ async def approve_extraction(
         await ingest_source_async(session, source.id)
     await session.refresh(source)
     return source_response(source)
-
-

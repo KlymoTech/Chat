@@ -43,7 +43,7 @@ from northstar_api.services.hybrid_extraction import (
     extract_document,
 )
 from northstar_api.services.llm import nvidia_adapter
-from northstar_api.services.object_store import object_store
+from northstar_api.services.object_store import object_store, validate_docx_archive
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.safe_fetch import fetch_public_text
 from northstar_api.services.vision import extract_vision_text
@@ -55,9 +55,7 @@ class ExtractionYield(Exception):
     """A durable page batch completed; resume in a fresh worker delivery."""
 
 
-def validate_embedding_batch(
-    vectors: list[list[float]], expected_count: int, dimension: int
-) -> None:
+def validate_embedding_batch(vectors: list[list[float]], expected_count: int, dimension: int) -> None:
     """Validate a provider embedding response for legacy callers.
 
     Knowledge publication currently uses the vectorless lexical index, but this
@@ -201,7 +199,11 @@ def approved_extraction_chunks(record: dict) -> list[tuple[str, dict[str, object
             section_ids = [heading[1] for heading in heading_stack]
             section_levels = [heading[0] for heading in heading_stack]
             if block_type in {"table", "equation", "question", "answer_key", "figure", "caption"}:
-                parts = [text] if len(text.split()) <= 440 else semantic_chunks(text, target_words=220, overlap_words=50)
+                parts = (
+                    [text]
+                    if len(text.split()) <= 440
+                    else semantic_chunks(text, target_words=220, overlap_words=50)
+                )
             else:
                 parts = semantic_chunks(text)
             block_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -257,7 +259,9 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
     web_crawl: SitemapMaterialization | None = None
     try:
         if source.kind == KnowledgeKind.FILE and source.object_key and source.content is None:
-            data, metadata = await object_store.download(source.object_key)
+            data, metadata = await object_store.download(
+                source.object_key, expected_version_id=source.object_version_id
+            )
             if source.checksum and hashlib.sha256(data).hexdigest() != source.checksum:
                 raise ValueError("Uploaded source checksum does not match the preserved original")
             if job:
@@ -354,7 +358,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             approved = package
             content = "\n\n".join(
                 f"===PDF_PAGE:{page['number']}===\n{extraction_page_text(page)}"
-                if page.get("source_unit") == "pdf_page" else extraction_page_text(page)
+                if page.get("source_unit") == "pdf_page"
+                else extraction_page_text(page)
                 for page in package.record["pages"]
                 if extraction_page_text(page)
             )
@@ -376,7 +381,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 raise ValueError("File evidence has not passed verified release")
             content = "\n\n".join(
                 f"===PDF_PAGE:{p['number']}===\n{extraction_page_text(p)}"
-                if p.get("source_unit") == "pdf_page" else extraction_page_text(p)
+                if p.get("source_unit") == "pdf_page"
+                else extraction_page_text(p)
                 for p in approved.record["pages"]
                 if extraction_page_text(p)
             )
@@ -392,7 +398,9 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
         settings = get_settings()
         if len(content) > settings.knowledge_max_extracted_characters:
             raise ValueError("Source text exceeds the configured extraction limit")
-        structured_chunks = approved_extraction_chunks(approved.record) if source.kind == KnowledgeKind.FILE else []
+        structured_chunks = (
+            approved_extraction_chunks(approved.record) if source.kind == KnowledgeKind.FILE else []
+        )
         chunks_with_metadata = structured_chunks or [
             (chunk, {"chunk_type": "text"}) for chunk in semantic_chunks(content)
         ]
@@ -423,9 +431,7 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
             job.step = "indexing"
             job.progress = 55
             await session.commit()
-        agent = await session.scalar(
-            select(Agent).where(Agent.id == source.agent_id).with_for_update()
-        )
+        agent = await session.scalar(select(Agent).where(Agent.id == source.agent_id).with_for_update())
         if not agent:
             raise ValueError("Knowledge source agent no longer exists")
         publication_revision = agent.published_knowledge_revision + 1
@@ -539,7 +545,8 @@ async def ingest_source_async(session: AsyncSession, source_id: UUID) -> None:
                 failed_source.error = f"PGVector training failed: {str(exc)[:900]}"
             else:
                 failed_source.error = (
-                    str(exc)[:1000] if isinstance(exc, CrawlIncomplete)
+                    str(exc)[:1000]
+                    if isinstance(exc, CrawlIncomplete)
                     else "Ingestion failed; inspect the job log."
                 )
         if failed_job:
@@ -566,7 +573,12 @@ async def _materialize_text(source: KnowledgeSource) -> str:
         source.url = final_url
         return text.strip()
     if source.object_key:
-        data, metadata = await object_store.download(source.object_key)
+        data, metadata = await object_store.download(
+            source.object_key, expected_version_id=source.object_version_id
+        )
+        if source.kind == KnowledgeKind.FILE and source.checksum:
+            if hashlib.sha256(data).hexdigest() != source.checksum:
+                raise ValueError("Uploaded source checksum does not match the preserved original")
         content_type = str(metadata.get("content_type") or "").lower()
         if content_type == "application/pdf" or source.name.lower().endswith(".pdf"):
             reader = PdfReader(io.BytesIO(data))
@@ -652,19 +664,9 @@ async def _materialize_text(source: KnowledgeSource) -> str:
         if "wordprocessingml.document" in content_type or source.name.lower().endswith(".docx"):
             settings = get_settings()
 
-            try:
-                with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                    members = archive.infolist()
-                    expanded_size = sum(member.file_size for member in members)
-
-                    if len(members) > 5_000:
-                        raise ValueError("DOCX contains too many archive members")
-
-                    if expanded_size > settings.knowledge_max_docx_uncompressed_bytes:
-                        raise ValueError("DOCX exceeds the configured expanded-size limit")
-
-            except zipfile.BadZipFile as exc:
-                raise ValueError("DOCX archive is invalid") from exc
+            validate_docx_archive(
+                data, max_uncompressed_bytes=settings.knowledge_max_docx_uncompressed_bytes
+            )
 
             document = Document(io.BytesIO(data))
 

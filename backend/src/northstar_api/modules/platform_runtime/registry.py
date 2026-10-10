@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import PlatformSpec
 from .control_plane import ChangePlan, build_change_plan
-from .validation import validate_platform_spec
+from .validation import DependencyGraph, validate_dependency_graph, validate_platform_spec
 
 CapabilityId = Literal[
     "database",
@@ -244,10 +244,9 @@ def build_capability_catalog(
         for definition in _DEFINITIONS
         for dependency in definition.depends_on
     )
-    graph = CapabilityDependencyGraph(
-        nodes=tuple(definition.capability_id for definition in _DEFINITIONS),
-        edges=edges,
-    )
+    nodes = tuple(definition.capability_id for definition in _DEFINITIONS)
+    validate_dependency_graph(DependencyGraph(nodes=nodes, edges=edges))
+    graph = CapabilityDependencyGraph(nodes=nodes, edges=edges)
     return CapabilityCatalog(
         generated_at=datetime.now(UTC),
         environment=spec.metadata.environment,

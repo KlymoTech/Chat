@@ -28,6 +28,7 @@ from .validation import (
     PlatformSpecError,
     build_dependency_graph,
     classify_provider_change,
+    validate_dependency_graph,
     validate_platform_spec,
 )
 
@@ -60,5 +61,6 @@ __all__ = [
     "classify_provider_change",
     "spec_digest",
     "transition_change",
+    "validate_dependency_graph",
     "validate_platform_spec",
 ]

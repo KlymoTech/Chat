@@ -1,0 +1,22 @@
+apiVersion: platform/v1
+kind: TierProfile
+metadata:
+  name: T1
+  displayName: Standard
+  topology: multi-availability-zone
+runtime:
+  orchestrator: ecs
+  api_min_replicas: 2
+  worker_min_replicas: 0
+  scale_to_zero: false
+providers:
+  database: postgres
+  jobs: sqs
+  events: sns-sqs
+  storage: s3
+  cache: redis
+  search: postgres
+  orchestration: ecs
+governance:
+  automatic_architectural_switches: false
+  required_evidence: [capacity_qualification, backup_restore_proof, canary_result]

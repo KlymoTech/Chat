@@ -47,6 +47,7 @@ dev = [
   "pytest>=9.0.3,<10",
   "pytest-asyncio>=1.1.0,<2",
   "pytest-cov>=6.2.0,<8",
+  "pyyaml>=6.0.2,<7",
   "ruff>=0.12.0,<1",
 ]
 
@@ -63,6 +64,7 @@ northstar-crm-delivery = "northstar_api.workers.crm_delivery_worker:main"
 northstar-crm-reconciliation = "northstar_api.workers.crm_reconciliation:main"
 northstar-crm-webhooks = "northstar_api.workers.crm_webhook_consumer:main"
 northstar-channel-router = "northstar_api.workers.channel_event_consumer:main"
+northstar-deployment-worker = "northstar_api.modules.platform_runtime.deployment_worker_runtime:run"
 
 [build-system]
 requires = ["hatchling>=1.27"]

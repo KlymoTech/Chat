@@ -17,6 +17,41 @@ class DependencyGraph:
     edges: tuple[tuple[str, str], ...]
 
 
+def validate_dependency_graph(graph: DependencyGraph) -> DependencyGraph:
+    """Reject undeclared references and cycles in capability dependency wiring.
+
+    Edges point from a consumer to the prerequisite that must remain enabled.
+    This pure check does not apply any change or contact a provider.
+    """
+    declared = set(graph.nodes)
+    if len(declared) != len(graph.nodes) or any(
+        not isinstance(node, str) or not node for node in graph.nodes
+    ):
+        raise PlatformSpecError("dependency graph contains invalid or duplicate nodes")
+    adjacency: dict[str, set[str]] = {node: set() for node in graph.nodes}
+    for source, target in graph.edges:
+        if source not in declared or target not in declared:
+            raise PlatformSpecError("dependency graph refers to undeclared capability")
+        adjacency[source].add(target)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(node: str) -> None:
+        if node in visiting:
+            raise PlatformSpecError("dependency graph contains a cycle")
+        if node in visited:
+            return
+        visiting.add(node)
+        for dependency in sorted(adjacency[node]):
+            visit(dependency)
+        visiting.remove(node)
+        visited.add(node)
+
+    for node in sorted(declared):
+        visit(node)
+    return graph
+
+
 def validate_platform_spec(spec: PlatformSpec) -> PlatformSpec:
     """Validate semantic dependencies after Pydantic schema validation."""
     providers = spec.providers
@@ -90,7 +125,9 @@ def build_dependency_graph(spec: PlatformSpec) -> DependencyGraph:
     if providers.vector != "disabled":
         nodes.add(providers.vector)
         edges.add(("vector", providers.vector))
-    return DependencyGraph(tuple(sorted(nodes)), tuple(sorted(edges)))
+    # A graph must declare every consumer and provider appearing in an edge.
+    nodes.update(name for edge in edges for name in edge)
+    return validate_dependency_graph(DependencyGraph(tuple(sorted(nodes)), tuple(sorted(edges))))
 
 
 def classify_provider_change(old: PlatformSpec, new: PlatformSpec) -> ProviderChangeClass:
@@ -99,9 +136,12 @@ def classify_provider_change(old: PlatformSpec, new: PlatformSpec) -> ProviderCh
     validate_platform_spec(new)
     if old == new:
         return "hot-safe"
-    if old.providers.storage != new.providers.storage or old.providers.jobs != new.providers.jobs:
+    if any(
+        getattr(old.providers, field) != getattr(new.providers, field)
+        for field in ("storage", "jobs", "events", "search", "vector")
+    ):
         return "migration"
-    if old.providers.events != new.providers.events or old.providers.vector != new.providers.vector:
+    if old.providers.identity != new.providers.identity or old.providers.secrets != new.providers.secrets:
         return "restart"
     if old.profile != new.profile or old.deployment.orchestrator != new.deployment.orchestrator:
         return "prohibited"

@@ -1,15 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { channelDeliveriesApi } from '@/lib/channel-deliveries-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearActiveWorkspaceSelection();
   localStorage.clear();
 });
 
+function setAuthenticatedWorkspace(): void {
+  localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
+  persistActiveWorkspace('workspace-1');
+}
+
 describe('channel delivery visibility API client', () => {
   it('loads filtered Workspace-scoped delivery evidence with auth context', async () => {
-    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    setAuthenticatedWorkspace();
     const delivery = {
       id: 'delivery-1',
       connection_id: 'channel-1',
@@ -56,8 +62,7 @@ describe('channel delivery visibility API client', () => {
   });
 
   it('loads safe attempt history for one encoded delivery id', async () => {
-    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    setAuthenticatedWorkspace();
     const attempts = [{
       id: 'attempt-1',
       delivery_id: 'delivery/1',
@@ -93,8 +98,7 @@ describe('channel delivery visibility API client', () => {
   });
 
   it('requeues one dispatch-failed delivery through the managed endpoint', async () => {
-    localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    setAuthenticatedWorkspace();
     const requeued = {
       id: 'delivery/1',
       connection_id: 'channel-1',

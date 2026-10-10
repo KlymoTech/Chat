@@ -1,0 +1,47 @@
+name: Northstar independent Jenkins signing identities Terraform gate
+
+on:
+  push:
+    branches:
+      - feature/northstar-adaptive-architecture-20261008
+    paths:
+      - 'infrastructure/terraform/modules/protected_qualification_signers/**'
+      - 'infrastructure/terraform/examples/qualification-signers/**'
+      - '.github/workflows/northstar-terraform-qualification-signers.yml'
+  pull_request:
+    paths:
+      - 'infrastructure/terraform/modules/protected_qualification_signers/**'
+      - 'infrastructure/terraform/examples/qualification-signers/**'
+      - '.github/workflows/northstar-terraform-qualification-signers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signer-role-policy-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: '1.9.8'
+          terraform_wrapper: false
+
+      # This workflow has no AWS secrets, does not assume a signer/publisher
+      # role, and never changes live AWS resources or persistent state.
+      - name: Enforce Terraform formatting
+        run: terraform fmt -check -diff -recursive infrastructure/terraform/modules/protected_qualification_signers infrastructure/terraform/examples/qualification-signers
+      - name: Initialize role module without state backend
+        run: terraform -chdir=infrastructure/terraform/modules/protected_qualification_signers init -backend=false -input=false -no-color
+      - name: Validate signer isolation module
+        run: terraform -chdir=infrastructure/terraform/modules/protected_qualification_signers validate -no-color
+      - name: Run mocked independent signer identity tests
+        run: terraform -chdir=infrastructure/terraform/modules/protected_qualification_signers test -no-color
+      - name: Initialize reference example without state backend
+        run: terraform -chdir=infrastructure/terraform/examples/qualification-signers init -backend=false -input=false -no-color
+      - name: Validate reference signer integration
+        run: terraform -chdir=infrastructure/terraform/examples/qualification-signers validate -no-color

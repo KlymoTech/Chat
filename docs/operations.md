@@ -19,6 +19,42 @@
 | `object-cleaner` | Purges deleted knowledge-object versions from storage | Database migration, Kafka, and bucket initialization ready |
 | `web` | Nginx + React application | API healthy and `/healthz` succeeds |
 
+The planned scale-to-zero queue handler is `northstar_api.handlers.outbox_relay:lambda_handler`.
+It processes at most 100 committed rows per invocation, performs no idle polling,
+and preserves the existing polling worker for current deployments. Set
+`PLATFORM_OUTBOX_NUDGE_QUEUE_URL`, `PLATFORM_ACTIVITY_TABLE`, and
+`PLATFORM_ACTIVITY_KEY` together on writers. Committed outbox writes emit one
+best-effort SQS nudge per transaction and update the activity marker; the
+scheduled `outbox-recovery` handler checks the marker before opening PostgreSQL.
+Both handlers enqueue a continuation when a full batch may leave more rows.
+The queue must be wired to the relay with a retry/DLQ policy and the schedule
+must be deployed before disabling the legacy worker. Consumers must deduplicate
+by `eventId` because broker acknowledgement can precede the database commit.
+For the planned Stage 0 event path, configure `PLATFORM_EVENTS_BACKEND=sns` and
+`PLATFORM_DOMAIN_EVENTS_TOPIC_ARN`, `PLATFORM_DOMAIN_EVENTS_SUBSCRIPTION_ARN`,
+and `PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` to the approved outputs. The relay checks
+the live subscription configuration before opening PostgreSQL or publishing;
+missing or drifted subscriptions fail closed. The existing
+Kafka path remains the default. SNS FIFO deduplication does not remove the need
+for consumer inbox idempotency. The optional
+`northstar_api.handlers.domain_events:lambda_handler` reuses the seven legacy
+Kafka consumers' processing paths behind an SNS-to-SQS FIFO subscription. That
+subscription and its Lambda trigger are disabled by default
+(`activate_domain_event_subscription=false`). Its filter admits only the
+legacy consumer topic set; unexpected messages received by the handler fail
+closed to the queue DLQ. Set `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` and
+`PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` on that Lambda and attach the module's
+consumer IAM policy before a coordinated cutover. The handler has unit tests,
+but no live AWS delivery, retry, idempotency, or load qualification yet.
+The planned Terraform module also requires an approved same-account alert SNS
+topic and creates nonempty alarms for the nudge, domain-event consumer, and
+SNS subscription delivery DLQs. The subscription DLQ is FIFO and uses an
+approved customer-managed KMS key; the key policy must allow SNS delivery. The
+topic's policy, subscribers, and real notification delivery need qualification;
+DLQ replay is reviewed and manual, never automatic.
+Do not run both relays simultaneously for the same outbox. AWS deployment and
+production qualification of this cutover remain outstanding.
+
 `docker compose up --build --detach` starts the entire integration topology. Dependencies use health or successful-completion conditions. The API is gated on migration and Redis, while queue, event, and object-storage processes have their own gates; this preserves the documented degradation boundary when an asynchronous subsystem is unavailable. The worker receives a dedicated non-internal `egress` bridge so URL ingestion and NVIDIA embedding calls work locally; production must replace unrestricted outbound access with DNS/IP-aware proxy or network policy controls.
 
 ## Lifecycle
@@ -124,6 +160,15 @@ Run `docker compose ps` and inspect `migrate`, `postgres`, and API logs. A faile
 Check the `job-dispatcher` and Celery worker logs, RabbitMQ health and queue age/depth, object access, and provider errors. Before retrying manually, identify the persisted job key so duplicate work remains safe.
 
 If the browser cannot upload a newly selected file, confirm it supplied the required SHA-256 of the exact bytes, copied every returned multipart field without converting fields to headers, and appended the file last. Confirm `S3_PUBLIC_ENDPOINT_URL` is reachable from the browser and that its host, scheme, and port match the presigned URL. Promotion rejects changed/mismatched size, type, checksum, ETag, or object version. If ingestion fails after promotion, confirm the worker can reach `S3_ENDPOINT_URL`. Both endpoint settings must address the same bucket and credentials.
+
+For an approved AWS S3 workload, set `S3_AUTH_MODE=aws-default`, the regional
+`S3_REGION` and bucket, and give the workload a least-privilege IAM role. Leave
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT_URL`, and
+`S3_PUBLIC_ENDPOINT_URL` unset. The SDK resolves temporary credentials; this
+mode does not prove an IAM role is attached or that the bucket policy permits
+the operation, so qualify presign, upload, promotion and readback in AWS. A
+presigned POST cannot outlive the credentials that signed it. Local MinIO keeps
+the default `S3_AUTH_MODE=static` path and its existing endpoint/key behavior.
 
 ### Analytics is stale
 

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from northstar_api.database import Base
@@ -116,6 +116,13 @@ class PlatformConfigVersion(Base, UUIDPrimaryKeyMixin):
     __table_args__ = (
         UniqueConstraint("environment", "revision", name="uq_platform_config_versions_environment_revision"),
         Index("ix_platform_config_versions_environment_active", "environment", "active"),
+        Index(
+            "uq_platform_config_versions_one_active_per_environment",
+            "environment",
+            unique=True,
+            postgresql_where=text("active = true"),
+            sqlite_where=text("active = 1"),
+        ),
     )
 
     environment: Mapped[str] = mapped_column(String(32))

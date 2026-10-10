@@ -41,6 +41,14 @@ from northstar_api.config import get_settings
 from northstar_api.database import Base
 from northstar_api.lead_crm import audit_models, channel_models  # noqa: F401
 from northstar_api.modules.platform_runtime import persistence as platform_runtime_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_persistence as platform_queue_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_alert_persistence as platform_queue_alert_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_persistence as platform_queue_notification_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_config_persistence as platform_notification_route_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_qualification_persistence as platform_notification_qualification_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_release_link_persistence as platform_notification_release_link_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_junit_index_custody_persistence as platform_notification_junit_custody_models  # noqa: F401
+from northstar_api.modules.platform_runtime import queue_notification_jenkins_junit_custody_persistence as platform_notification_junit_custody_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
