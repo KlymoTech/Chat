@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import stat
 import zipfile
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -577,6 +578,94 @@ def test_docx_archive_rejects_duplicate_package_members() -> None:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         stream.getvalue(),
     )
+
+
+
+
+@pytest.mark.parametrize(
+    "bad_member",
+    [
+        "../outside.xml",
+        "word/../outside.xml",
+        "/absolute.xml",
+        "C:/windows.xml",
+        "word\\\\other.xml",
+        "word//double.xml",
+        "word/./same.xml",
+    ],
+)
+def test_docx_archive_rejects_unsafe_member_paths(bad_member: str) -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "document")
+        archive.writestr(bad_member, "other")
+
+    with pytest.raises(ValueError, match="unsafe archive member paths"):
+        validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
+
+
+def test_docx_archive_rejects_case_insensitive_duplicate_names() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "first")
+        archive.writestr("word/DOCUMENT.xml", "second")
+
+    with pytest.raises(ValueError, match="duplicate archive members"):
+        validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
+
+
+def test_docx_archive_rejects_unix_symbolic_link() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "document")
+        member = zipfile.ZipInfo("word/media/link")
+        member.create_system = 3
+        member.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(member, "outside.xml")
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
+
+
+def test_docx_archive_rejects_unsupported_zip_compression() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_BZIP2) as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "document")
+
+    with pytest.raises(ValueError, match="unsupported compression"):
+        validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
+
+
+def test_docx_archive_rejects_encrypted_member_flag() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "document")
+    payload = bytearray(stream.getvalue())
+    offset = 0
+    while True:
+        header = payload.find(b"PK\\x01\\x02", offset)
+        if header < 0:
+            break
+        payload[header + 8] |= 0x1
+        offset = header + 4
+
+    with pytest.raises(ValueError, match="encrypted archive members"):
+        validate_docx_archive(bytes(payload), max_uncompressed_bytes=2_048)
+
+
+def test_docx_archive_accepts_normal_directory_entries() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/", b"")
+        archive.writestr("word/document.xml", "document")
+
+    validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
 
 
 async def test_promotion_rejects_misdeclared_bytes_before_copy(
