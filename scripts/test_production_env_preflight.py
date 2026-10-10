@@ -34,5 +34,22 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_origin_with_credentials_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://user:pass@app.company.test"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_origin_with_path_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://app.company.test/admin"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_invalid_port_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://app.company.test:invalid"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_sqlite_rejected_for_production(self):
+        self.valid["DATABASE_URL"] = "sqlite:///./app.db"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()

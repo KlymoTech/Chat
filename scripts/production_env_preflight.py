@@ -29,6 +29,30 @@ def load_env(path: Path) -> dict[str, str]:
     return values
 
 
+
+def valid_https_origin(origin: object) -> bool:
+    """Require a canonical HTTPS origin without credentials, paths or fragments."""
+    if not isinstance(origin, str) or not origin or origin != origin.strip():
+        return False
+    try:
+        parsed = urlparse(origin)
+        return (
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.path
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.port != 0
+            and not PLACEHOLDER.search(parsed.hostname)
+            and parsed.netloc == origin.removeprefix("https://")
+        )
+    except ValueError:
+        return False
+
+
 def validate(values: dict[str, str]) -> list[str]:
     errors: list[str] = []
     if values.get("APP_ENV", "").lower() != "production":
@@ -39,6 +63,9 @@ def validate(values: dict[str, str]) -> list[str]:
             errors.append(f"{key} is required")
         elif PLACEHOLDER.search(value):
             errors.append(f"{key} contains a development placeholder or local endpoint")
+    database_url = values.get("DATABASE_URL", "")
+    if database_url and not database_url.startswith(("postgresql://", "postgresql+asyncpg://")):
+        errors.append("DATABASE_URL must use PostgreSQL in production")
     jwt = values.get("JWT_SECRET", "")
     mfa = values.get("MFA_ENCRYPTION_KEY", "")
     if jwt and len(jwt) < 32:
@@ -57,7 +84,7 @@ def validate(values: dict[str, str]) -> list[str]:
         origins = json.loads(values.get("APP_CORS_ORIGINS", "[]"))
         if not isinstance(origins, list) or not origins:
             errors.append("APP_CORS_ORIGINS must be a nonempty JSON array")
-        elif any(not isinstance(o, str) or urlparse(o).scheme != "https" or not urlparse(o).hostname for o in origins):
+        elif any(not valid_https_origin(origin) for origin in origins):
             errors.append("APP_CORS_ORIGINS must contain only valid HTTPS origins")
     except json.JSONDecodeError:
         errors.append("APP_CORS_ORIGINS must be valid JSON")
