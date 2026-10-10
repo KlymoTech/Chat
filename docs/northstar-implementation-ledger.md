@@ -909,3 +909,14 @@ do not merge without explicit instruction.
   acknowledges the existing pure collector/forecast modules rather than
   listing them as absent. Durable measurements, calibrated forecasts, and
   qualified live autoscaling remain unimplemented.
+
+## Increment: cost-gated autoscale eligibility (2026-10-10)
+
+- The existing recommendation-only autoscaler now uses the existing cost
+  controller before setting `eligible_for_scaling_policy`. A scale-out can
+  remain visible as an advisory target, but missing/incomplete cost evidence,
+  warning-level spend, or a breached budget cannot mark it eligible. Incomplete
+  supplied inputs raise instead of silently bypassing the guard.
+- Eleven focused capacity/safety tests and Ruff pass. No provider API calls,
+  scaling executor, durable metrics or automatic activation were added;
+  production scaling remains unqualified.
