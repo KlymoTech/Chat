@@ -837,3 +837,12 @@ do not merge without explicit instruction.
 - The interrupted broader frontend run also showed failures in the workspace
   team panel suite. The complete frontend suite, repo-wide lint, deployment,
   and live-provider checks remain open; this is not a production sign-off.
+
+## Increment: explicit team-permission test fixture (2026-10-10)
+
+- The workspace team panel test fixture now grants the named membership
+  permissions that its action tests require. The previous wildcard placeholder
+  did not satisfy the component's explicit permission checks and caused three
+  false-negative tests. All four focused team-panel tests pass, including the
+  read-only member-viewer scenario. Authorization behavior was not weakened.
+- Full-suite and deployment qualification remain outstanding.

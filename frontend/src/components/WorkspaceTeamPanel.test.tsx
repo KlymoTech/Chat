@@ -46,7 +46,7 @@ const workspace: WorkspaceSettings = {
   slug: 'admissions',
   status: 'active',
   role: 'workspace_admin',
-  permissions: ['*'],
+  permissions: ['members.view', 'members.manage', 'members.invite'],
   plan: 'business',
   memberCount: 2,
   preferences: {
