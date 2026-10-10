@@ -115,3 +115,16 @@ Scope rule: audit existing routes, components and services before adding anythin
 - Added backend regression tests covering blog validation, copy behavior, draft exclusion, published-revision isolation and pagination, plus a React authoring test. CI was updated to include the new API tests.
 - **Not yet verified passing:** full browser E2E, database migration exercise, production auth, publisher/approval role separation, manual trash/purge controls, SEO edge cases, 120-capability acceptance.
 - GitHub Actions may fail before job steps; a passing release certificate is not available. Existing core website and CRM functionality must continue to be regression-tested before release.
+
+
+## CAP-005 integration increment — 2026-10-10
+
+- Audited Chapter 44 before editing: the existing `WebsiteCMSPage` had manual Save and `site-cms/pages/{page_id}` already implemented optimistic `expected_version` checks. No parallel editor, API, database table or worker was created for autosave.
+- Extended `frontend/src/pages/websiteBuilderOperations.ts` with bounded, pure undo/redo history, content-stable draft comparisons and a readable local/server difference summary.
+- Extended the **same** `WebsiteCMSPage` with a 3-second debounced save, accurate pending/saved/error status, browser-unload guard, keyboard-accessible Undo/Redo and explicit retry.
+- Server acknowledgement updates the saved revision but does not overwrite edits typed while the request was in flight.
+- The existing API returns 409 for a stale editor version; autosave pauses and retains local content. The owner can inspect the latest server revision, export their unsaved JSON, load the server copy only after explicit confirmation, or preserve local edits as a **separate unpublished draft** through the existing validated `site-cms/pages/import` endpoint.
+- Conflict comparison is a review aid, **not** an automatic merge and never claims a stale write succeeded.
+- Existing JSON import/export helper and existing backend transaction are reused, with no duplicate page-persistence subsystem.
+- `websiteBuilderOperations.test.ts` now covers undo/redo, branching, limits, reordered JSON properties and readable diff; `WebsiteCMSPage.autosave.test.tsx` adds debounced save, 409 recovery and independent draft tests.
+- CI still has not produced trusted passing executions, so CAP-005 stays **not verified**. Offline local persistence with a reviewed device-sharing/expiry/logout-clearing policy and browser accessibility acceptance remain missing.
