@@ -26,6 +26,8 @@ def test_offline_mode_does_not_silently_qualify_postgres(monkeypatch, verifier):
     assert calls[0][:2] == ["ruff", "check"]
     assert calls[1][:2] == ["pytest", "-q"]
     assert "tests/test_platform_authorized_signing_integration.py" in calls[1]
+    assert "tests/test_platform_runtime_contracts.py" in calls[1]
+    assert "src/northstar_api/modules/platform_runtime/validation.py" in calls[0]
     assert not any(
         "tests/test_platform_postgres_signing_authorization_replay.py" in args
         for args in calls[1:]
