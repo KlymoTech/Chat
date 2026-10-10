@@ -44,7 +44,9 @@ closed to the queue DLQ. Set `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` and
 consumer IAM policy before a coordinated cutover. The handler has unit tests,
 but no live AWS delivery, retry, idempotency, or load qualification yet.
 The planned Terraform module also requires an approved same-account alert SNS
-topic and creates nonempty alarms for the nudge and domain-event DLQs. The
+topic and creates nonempty alarms for the nudge, domain-event consumer, and
+SNS subscription delivery DLQs. The subscription DLQ is FIFO and uses an
+approved customer-managed KMS key; the key policy must allow SNS delivery. The
 topic's policy, subscribers, and real notification delivery need qualification;
 DLQ replay is reviewed and manual, never automatic.
 Do not run both relays simultaneously for the same outbox. AWS deployment and

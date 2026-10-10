@@ -115,6 +115,20 @@ resource "aws_sqs_queue" "domain_event_dead_letter" {
   }
 }
 
+# SNS delivery failures happen before the consumer queue. AWS requires a
+# customer-managed KMS key when SNS sends to an encrypted subscription DLQ.
+resource "aws_sqs_queue" "domain_event_subscription_dead_letter" {
+  name                      = "${local.name}-subscription-dlq.fifo"
+  fifo_queue                = true
+  message_retention_seconds = 1209600
+  kms_master_key_id         = var.sns_kms_key_arn
+  tags                      = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "aws_sqs_queue" "domain_events" {
   name                       = "${local.name}-events.fifo"
   fifo_queue                 = true
@@ -136,8 +150,9 @@ resource "aws_sqs_queue" "domain_events" {
 # subscriptions are deliberately outside this isolated foundation module.
 resource "aws_cloudwatch_metric_alarm" "dead_letter_nonempty" {
   for_each = {
-    nudge         = aws_sqs_queue.dead_letter.name
-    domain_events = aws_sqs_queue.domain_event_dead_letter.name
+    nudge                   = aws_sqs_queue.dead_letter.name
+    domain_events           = aws_sqs_queue.domain_event_dead_letter.name
+    domain_event_subscriber = aws_sqs_queue.domain_event_subscription_dead_letter.name
   }
 
   alarm_name          = "${local.name}-${each.key}-dlq-nonempty"
@@ -181,6 +196,32 @@ resource "aws_sqs_queue_policy" "domain_event_delivery" {
   policy    = data.aws_iam_policy_document.domain_event_queue_delivery.json
 }
 
+data "aws_iam_policy_document" "domain_event_subscription_dead_letter_delivery" {
+  statement {
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.domain_event_subscription_dead_letter.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["sns.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_sns_topic.domain_events.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.aws_account_id]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "domain_event_subscription_dead_letter_delivery" {
+  queue_url = aws_sqs_queue.domain_event_subscription_dead_letter.id
+  policy    = data.aws_iam_policy_document.domain_event_subscription_dead_letter_delivery.json
+}
+
 # Subscription and trigger are deliberately absent until an explicit reviewed
 # cutover. Applying the foundation alone cannot start a second event path.
 resource "aws_sns_topic_subscription" "domain_events" {
@@ -190,7 +231,13 @@ resource "aws_sns_topic_subscription" "domain_events" {
   endpoint             = aws_sqs_queue.domain_events.arn
   raw_message_delivery = false
   filter_policy        = jsonencode({ eventType = local.domain_event_types })
-  depends_on           = [aws_sqs_queue_policy.domain_event_delivery]
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.domain_event_subscription_dead_letter.arn
+  })
+  depends_on = [
+    aws_sqs_queue_policy.domain_event_delivery,
+    aws_sqs_queue_policy.domain_event_subscription_dead_letter_delivery,
+  ]
 }
 
 resource "aws_lambda_event_source_mapping" "domain_events" {

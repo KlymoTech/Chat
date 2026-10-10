@@ -14,6 +14,14 @@ override_data {
   }
 }
 
+override_resource {
+  target          = aws_sqs_queue.domain_event_subscription_dead_letter
+  override_during = plan
+  values = {
+    arn = "arn:aws:sqs:us-east-1:123456789012:northstar-qualification-outbox-subscription-dlq.fifo"
+  }
+}
+
 variables {
   name_prefix             = "northstar"
   environment             = "qualification"
@@ -71,16 +79,20 @@ run "queue_and_gate_are_low_idle_cost" {
   }
 
   assert {
-    condition     = length(aws_cloudwatch_metric_alarm.dead_letter_nonempty) == 2
-    error_message = "Both DLQs must have alarms."
+    condition     = length(aws_cloudwatch_metric_alarm.dead_letter_nonempty) == 3
+    error_message = "All three DLQs must have alarms."
   }
   assert {
     condition     = alltrue([for alarm in values(aws_cloudwatch_metric_alarm.dead_letter_nonempty) : alarm.namespace == "AWS/SQS" && alarm.metric_name == "ApproximateNumberOfMessagesVisible" && alarm.threshold == 1])
-    error_message = "Both alarms must detect visible DLQ messages."
+    error_message = "All alarms must detect visible DLQ messages."
   }
   assert {
     condition     = alltrue([for alarm in values(aws_cloudwatch_metric_alarm.dead_letter_nonempty) : length(alarm.alarm_actions) == 1 && contains(alarm.alarm_actions, var.alarm_topic_arn)])
-    error_message = "Both alarms must notify the approved topic."
+    error_message = "All alarms must notify the approved topic."
+  }
+  assert {
+    condition     = aws_sqs_queue.domain_event_subscription_dead_letter.fifo_queue && aws_sqs_queue.domain_event_subscription_dead_letter.kms_master_key_id == var.sns_kms_key_arn
+    error_message = "The SNS subscription DLQ must be FIFO and use the approved customer-managed KMS key."
   }
 }
 
@@ -99,6 +111,11 @@ run "explicit_cutover_filters_to_legacy_consumer_topics" {
   assert {
     condition     = jsondecode(aws_sns_topic_subscription.domain_events[0].filter_policy).eventType == local.domain_event_types
     error_message = "Subscription must filter out events without an existing consumer."
+  }
+
+  assert {
+    condition     = jsondecode(aws_sns_topic_subscription.domain_events[0].redrive_policy).deadLetterTargetArn == aws_sqs_queue.domain_event_subscription_dead_letter.arn
+    error_message = "Subscription delivery failures must redrive to their own DLQ."
   }
 
   assert {

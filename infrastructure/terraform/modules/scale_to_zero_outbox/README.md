@@ -10,13 +10,17 @@ guarded.
 
 `alarm_topic_arn` is required and must reference an approved alert SNS topic in
 the same account and region. This module creates a CloudWatch nonempty alarm
-for each DLQ and sends ALARM transitions to that topic. The caller owns the
-topic policy, subscriptions, delivery verification, and on-call response. Do
+for each of the three DLQs and sends ALARM transitions to that topic. The caller
+owns the topic policy, subscriptions, delivery verification, and on-call response. Do
 not treat a passing Terraform plan as proof anyone receives the alert.
 
 The caller must ensure the KMS key policy permits the relay publisher; the
-module's relay policy output grants the exact key ARN. Attach the output
-least-privilege IAM policy documents to the API writer, relay, and recovery
+module's relay policy output grants the exact key ARN.
+The same customer-managed key also encrypts the SNS subscription delivery DLQ;
+its key policy must grant the SNS service principal the required data-key and
+decrypt permissions for delivery to that queue. SQS-managed encryption is not
+sufficient for this SNS DLQ. Validate those permissions in the target account.
+Attach the output least-privilege IAM policy documents to the API writer, relay, and recovery
 execution roles, respectively. The relay role
 also needs its broker/database access and the recovery role its database access;
 this module does not grant those. Set the following environment variables on
@@ -38,7 +42,9 @@ Attach `domain_event_consumer_policy_json` to the latter's execution role.
 The SNS subscription and event source mapping are absent by default;
 `activate_domain_event_subscription=true` creates one filtered FIFO subscription
 for precisely the seven existing Kafka consumers' topic set and a batch-size-one
-Lambda trigger with partial-batch failure reporting. Other outbox event types
+Lambda trigger with partial-batch failure reporting. The subscription has its
+own encrypted FIFO DLQ for SNS-to-SQS delivery failures, distinct from the
+consumer queue's encrypted FIFO DLQ for processing failures. Other outbox event types
 still publish to SNS, but do not enter this queue because they have no legacy
 consumer. Keep the legacy polling worker active until queues, permissions,
 networking, broker connectivity, retry/DLQ behavior, and SNS-to-SQS delivery
