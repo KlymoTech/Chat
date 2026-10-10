@@ -47,6 +47,7 @@ def test_disabled_policy_and_withdrawal_never_score():
     assert score(policy(enabled=False)).recommendation == "disabled"
     assert score(policy(), consent=False).proposed_score is None
     assert score(policy(), consent_status="withdrawn").recommendation == "blocked"
+    assert score(policy(), consent_status="unknown").eligible is False
     assert score(policy(), lead_status="archived").eligible is False
 
 
