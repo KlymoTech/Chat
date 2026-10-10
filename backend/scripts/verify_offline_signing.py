@@ -37,6 +37,7 @@ OFFLINE_TESTS = (
     "tests/test_platform_notification_junit_migration_merge.py",
     "tests/test_platform_jenkins_junit_custody.py",
     "tests/test_platform_jenkins_test_provenance.py",
+    "tests/test_platform_offline_signing_verifier.py",
 )
 
 POSTGRES_TESTS = (
