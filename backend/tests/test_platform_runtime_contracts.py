@@ -3,6 +3,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from northstar_api.modules.platform_runtime import registry as capability_registry
+
 from northstar_api.modules.platform_runtime import (
     ChangeLifecycleError,
     DependencyGraph,
@@ -176,3 +178,26 @@ def test_dependency_graph_declares_all_consumers_and_providers() -> None:
 def test_dependency_graph_fitness_fails_closed(graph: DependencyGraph) -> None:
     with pytest.raises(PlatformSpecError, match="dependency graph"):
         validate_dependency_graph(graph)
+
+
+
+def test_capability_catalog_rejects_cycle_before_exposing_state(monkeypatch) -> None:
+    definitions = capability_registry.capability_definitions()
+    cyclic = tuple(
+        definition.model_copy(update={"depends_on": ("authentication",)})
+        if definition.capability_id == "database"
+        else definition
+        for definition in definitions
+    )
+    monkeypatch.setattr(capability_registry, "_DEFINITIONS", cyclic)
+    with pytest.raises(PlatformSpecError, match="cycle"):
+        capability_registry.build_capability_catalog(PlatformSpec())
+
+
+def test_capability_catalog_declares_every_dependency_node() -> None:
+    catalog = build_capability_catalog(PlatformSpec())
+    assert catalog.dependencies.nodes
+    assert all(
+        source in catalog.dependencies.nodes and target in catalog.dependencies.nodes
+        for source, target in catalog.dependencies.edges
+    )
