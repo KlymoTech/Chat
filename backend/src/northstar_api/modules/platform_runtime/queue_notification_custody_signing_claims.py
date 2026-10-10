@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from sqlalchemy import DateTime, String, insert
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
