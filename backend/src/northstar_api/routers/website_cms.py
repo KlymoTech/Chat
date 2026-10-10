@@ -23,6 +23,7 @@ from northstar_api.models import Role, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.website_builder_document import BuilderPageDocument
+from northstar_api.services.website_builder_duplicate import duplicate_page_document
 from northstar_api.services.website_builder_render import render_page, style_csp_hash
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
 from northstar_api.website_cms_models import WebsiteAudit, WebsitePage, WebsiteRevision
@@ -34,6 +35,12 @@ CmsAdmin = Annotated[Principal, Depends(require_roles(Role.OWNER, Role.ADMIN))]
 class VersionGuard(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
+
+
+class PageDuplicate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    title: str = Field(min_length=1, max_length=180)
 
 
 class PageEdit(VersionGuard):
@@ -119,6 +126,38 @@ async def create_page(payload: BuilderPageDocument, principal: CmsAdmin, session
         await session.rollback()
         raise HTTPException(409, "This workspace already has a page with that URL slug") from None
     return _info(page, document)
+
+
+@router.post("/pages/{page_id}/duplicate", status_code=201)
+async def duplicate_page(
+    page_id: UUID, payload: PageDuplicate, principal: CmsAdmin,
+    session: DBSession, response: Response,
+) -> dict[str, Any]:
+    """Copy any authorized page as an independent private draft with fresh node IDs."""
+    response.headers["Cache-Control"] = "private, no-store"
+    source = await _get_page(session, principal, page_id)
+    original = await _revision(session, source, source.draft_version)
+    document = duplicate_page_document(
+        BuilderPageDocument.model_validate(original.document_json),
+        new_slug=payload.slug, new_title=payload.title,
+    )
+    page = WebsitePage(
+        tenant_id=principal.tenant_id, workspace_id=_scope(principal),
+        slug=document.slug, title=document.title, status="draft", draft_version=1,
+    )
+    session.add(page)
+    try:
+        await session.flush()
+        data = document.model_dump(mode="json")
+        session.add(WebsiteRevision(
+            page_id=page.id, version=1, document_json=data, created_by=principal.user_id,
+        ))
+        session.add(_audit(page, principal, "duplicate"))
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "The destination page URL is already in use") from None
+    return _info(page, data)
 
 
 @router.put("/pages/{page_id}")
