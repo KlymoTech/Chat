@@ -800,3 +800,11 @@ do not merge without explicit instruction.
   cover same-ID rerenders and workspace switches.
 - This resolves one observed frontend test failure, not the other frontend
   lint/test findings or production browser qualification.
+
+## Increment: locale-aware billing usage test (2026-10-10)
+
+- The billing panel test now compares token usage using the same locale-aware
+  number formatting as the existing UI. Its former US-only comma grouping
+  failed on an India-locale development machine despite correct usage data.
+  No billing logic, plan limit or displayed value was changed.
+- The broader frontend suite and billing/provider qualification remain open.
