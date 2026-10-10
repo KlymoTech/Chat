@@ -35,8 +35,12 @@ class FakeSocket:
 @pytest.mark.parametrize(
     ("command", "reply", "expected"),
     [
-        (b"PING", b"PONG\\x00", "PONG"),
-        (b"VERSION", b"ClamAV 1.5.4/12345/Sat Oct 10 2026\\x00", "ClamAV 1.5.4/12345/Sat Oct 10 2026"),
+        (b"PING", b"PONG\x00", "PONG"),
+        (
+            b"VERSION",
+            b"ClamAV 1.5.4/12345/Sat Oct 10 2026\x00",
+            "ClamAV 1.5.4/12345/Sat Oct 10 2026",
+        ),
     ],
 )
 def test_probe_uses_loopback_and_checks_protocol(
@@ -47,10 +51,10 @@ def test_probe_uses_loopback_and_checks_protocol(
     monkeypatch.setattr(qualification.socket, "create_connection", connect)
     assert qualification._probe_command(command, port=3310, timeout=8) == expected
     connect.assert_called_once_with(("127.0.0.1", 3310), timeout=8)
-    assert fake.sent == [b"z" + command + b"\\x00"]
+    assert fake.sent == [b"z" + command + b"\x00"]
 
 
-@pytest.mark.parametrize("reply", [b"PONG", b"BAD\\x00", b"", b"\\xff\\x00"])
+@pytest.mark.parametrize("reply", [b"PONG", b"BAD\x00", b"", b"\xff\x00"])
 def test_ping_never_accepts_invalid_or_incomplete_reply(
     monkeypatch: pytest.MonkeyPatch, reply: bytes
 ) -> None:
