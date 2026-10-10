@@ -20,3 +20,5 @@
 .site-cms-preview img{max-width:100%;height:auto}
 @media(max-width:1050px){.site-cms-editor-grid{grid-template-columns:1fr}}
 @media(max-width:680px){.site-cms-layout{grid-template-columns:1fr}}
+
+.site-cms-history{display:grid;gap:8px}.site-cms-history>div{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #e2e8f0}
