@@ -147,6 +147,16 @@ async def test_published_form_writes_exactly_one_existing_lead_with_consents_and
         assert "hanako@example.com" not in str(audit.after_json)
 
     assert conversions == 1
+    report = await client.get("/api/v1/site-analytics/summary?days=30", headers=auth_headers)
+    assert report.status_code == 200, report.text
+    snapshot = report.json()
+    assert snapshot["formSubmissions"]["total"] >= 1
+    assert any(item["slug"] == slug and item["submissions"] >= 1
+               for item in snapshot["formSubmissions"]["byForm"])
+    pipeline = snapshot["conversionDispatch"]
+    assert pipeline["publishedToEventBus"] + pipeline["queued"] + pipeline["retrying"] >= 1
+    assert pipeline["deliveryConfirmed"] is False
+    assert "hanako@example.com" not in report.text
     assert {"lead.created.v1", "lead.captured.v1", "lead.crm.sync.requested.v1"} <= {
         event.event_type for event in lead_events
     }
