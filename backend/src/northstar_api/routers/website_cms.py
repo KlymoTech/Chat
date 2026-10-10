@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +29,7 @@ from northstar_api.services.website_cms_lifecycle import EditorialAction, Editor
 from northstar_api.website_cms_models import (
     WebsiteAudit, WebsitePage, WebsiteRevision, WebsiteSiteMenu,
     WebsiteSiteMenuAudit, WebsiteSiteMenuRevision,
+    WebsiteRedirect, WebsiteRedirectAudit,
 )
 
 router = APIRouter(prefix="/site-cms", tags=["site-cms"])
@@ -96,6 +97,21 @@ class SiteMenuPublish(VersionGuard):
     pass
 
 
+class RedirectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    target_slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    status_code: Literal[307, 308] = 308
+
+
+class RedirectEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+    target_slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    status_code: Literal[307, 308]
+    enabled: bool
+
+
 class PageEdit(VersionGuard):
     document: BuilderPageDocument
 
@@ -153,6 +169,14 @@ async def _create_draft_page(
     action: Literal["create", "duplicate", "import"],
 ) -> dict[str, Any]:
     """One transactional path for all new drafts, revisions, and actor audit rows."""
+    # The public resolver must never ambiguously choose between a CMS page and a redirect.
+    reserved = await session.scalar(select(WebsiteRedirect.id).where(
+        WebsiteRedirect.tenant_id == principal.tenant_id,
+        WebsiteRedirect.workspace_id == _scope(principal),
+        WebsiteRedirect.source_slug == document.slug,
+    ))
+    if reserved is not None:
+        raise HTTPException(409, "Page URL is reserved by a redirect rule")
     page = WebsitePage(
         tenant_id=principal.tenant_id,
         workspace_id=_scope(principal),
@@ -243,6 +267,141 @@ async def _published_menu_links(
         (item.label, f"{prefix}/site-cms/public/{workspace_id}/{item.slug}")
         for item in doc.items if item.slug in public_slugs
     )
+
+
+def _redirect_info(rule: WebsiteRedirect) -> dict[str, Any]:
+    return {
+        "id": str(rule.id),
+        "sourceSlug": rule.source_slug,
+        "targetSlug": rule.target_slug,
+        "statusCode": rule.status_code,
+        "enabled": rule.enabled,
+        "version": rule.version,
+    }
+
+
+async def _redirect_target_is_public(
+    session: DBSession, workspace_id: UUID, tenant_id: UUID, slug: str,
+) -> bool:
+    target = await session.scalar(select(WebsitePage.id).where(
+        WebsitePage.tenant_id == tenant_id,
+        WebsitePage.workspace_id == workspace_id,
+        WebsitePage.slug == slug,
+        WebsitePage.published_version.is_not(None),
+    ))
+    return target is not None
+
+
+async def _ensure_redirect_target(
+    session: DBSession, tenant_id: UUID, workspace_id: UUID,
+    source: str, target: str,
+) -> None:
+    if source == target:
+        raise HTTPException(422, "Redirect target must differ from the source URL")
+    if not await _redirect_target_is_public(session, workspace_id, tenant_id, target):
+        raise HTTPException(409, "Redirect destination must be a published site page")
+
+
+@router.get("/redirects")
+async def list_site_redirects(
+    principal: CmsAdmin, session: DBSession, response: Response,
+) -> list[dict[str, Any]]:
+    response.headers["Cache-Control"] = "private, no-store"
+    rows = (await session.scalars(select(WebsiteRedirect).where(
+        WebsiteRedirect.tenant_id == principal.tenant_id,
+        WebsiteRedirect.workspace_id == _scope(principal),
+    ).order_by(WebsiteRedirect.source_slug))).all()
+    return [_redirect_info(row) for row in rows]
+
+
+@router.post("/redirects", status_code=201)
+async def create_site_redirect(
+    payload: RedirectCreate, principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    workspace_id = _scope(principal)
+    await _ensure_redirect_target(
+        session, principal.tenant_id, workspace_id,
+        payload.source_slug, payload.target_slug,
+    )
+    existing_page = await session.scalar(select(WebsitePage.id).where(
+        WebsitePage.tenant_id == principal.tenant_id,
+        WebsitePage.workspace_id == workspace_id,
+        WebsitePage.slug == payload.source_slug,
+    ))
+    if existing_page is not None:
+        raise HTTPException(409, "A site page already owns the redirect source URL")
+    row = WebsiteRedirect(
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace_id,
+        source_slug=payload.source_slug,
+        target_slug=payload.target_slug,
+        status_code=payload.status_code,
+        enabled=True,
+        version=1,
+    )
+    session.add(row)
+    try:
+        await session.flush()
+        session.add(WebsiteRedirectAudit(
+            redirect_id=row.id, actor_id=principal.user_id,
+            action="create", version=1,
+            details_json=_redirect_info(row),
+        ))
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "Redirect source is already reserved") from None
+    return _redirect_info(row)
+
+
+@router.put("/redirects/{redirect_id}")
+async def update_site_redirect(
+    redirect_id: UUID, payload: RedirectEdit,
+    principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    workspace_id = _scope(principal)
+    rule = await session.scalar(select(WebsiteRedirect).where(
+        WebsiteRedirect.id == redirect_id,
+        WebsiteRedirect.tenant_id == principal.tenant_id,
+        WebsiteRedirect.workspace_id == workspace_id,
+    ))
+    if rule is None:
+        raise HTTPException(404, "Redirect rule not found")
+    if payload.expected_version != rule.version:
+        raise HTTPException(409, "Redirect version changed; reload before saving")
+    if payload.enabled:
+        await _ensure_redirect_target(
+            session, principal.tenant_id, workspace_id,
+            rule.source_slug, payload.target_slug,
+        )
+    changed = await session.execute(update(WebsiteRedirect).where(
+        WebsiteRedirect.id == rule.id,
+        WebsiteRedirect.tenant_id == principal.tenant_id,
+        WebsiteRedirect.workspace_id == workspace_id,
+        WebsiteRedirect.version == payload.expected_version,
+    ).values(
+        target_slug=payload.target_slug,
+        status_code=payload.status_code,
+        enabled=payload.enabled,
+        version=payload.expected_version + 1,
+        updated_at=datetime.now(UTC),
+    ))
+    if changed.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(409, "Redirect rule changed concurrently")
+    rule.target_slug = payload.target_slug
+    rule.status_code = payload.status_code
+    rule.enabled = payload.enabled
+    rule.version = payload.expected_version + 1
+    session.add(WebsiteRedirectAudit(
+        redirect_id=rule.id, actor_id=principal.user_id,
+        action="update" if payload.enabled else "disable",
+        version=rule.version, details_json=_redirect_info(rule),
+    ))
+    await session.commit()
+    return _redirect_info(rule)
 
 
 @router.get("/menu")
@@ -572,7 +731,7 @@ async def transition_page(page_id: UUID, action: EditorialAction, principal: Cms
 
 
 @router.get("/public/{workspace_id}/{slug}", response_class=HTMLResponse)
-async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTMLResponse:
+async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> Response:
     # Never trust a tenant/workspace identifier or page slug as authorization.
     workspace = await session.scalar(
         select(Workspace).where(Workspace.id == workspace_id, Workspace.status == WorkspaceStatus.ACTIVE)
@@ -586,6 +745,21 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
         )
     )
     if page is None or page.published_version is None:
+        rule = await session.scalar(select(WebsiteRedirect).where(
+            WebsiteRedirect.tenant_id == workspace.tenant_id,
+            WebsiteRedirect.workspace_id == workspace_id,
+            WebsiteRedirect.source_slug == slug,
+            WebsiteRedirect.enabled.is_(True),
+        ))
+        if rule is not None and await _redirect_target_is_public(
+            session, workspace_id, workspace.tenant_id, rule.target_slug,
+        ):
+            prefix = get_settings().app_api_prefix.rstrip("/")
+            return RedirectResponse(
+                url=f"{prefix}/site-cms/public/{workspace_id}/{rule.target_slug}",
+                status_code=rule.status_code,
+                headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+            )
         raise HTTPException(404, "Published page not found")
     revision = await _revision(session, page, page.published_version)
     validated = BuilderPageDocument.model_validate(revision.document_json)
