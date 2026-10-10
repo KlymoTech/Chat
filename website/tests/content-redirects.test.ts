@@ -55,6 +55,18 @@ describe("dual-controlled SEO content redirects",()=>{
    expect(commands.some(x=>x.includes("cms.redirect_approved"))).toBe(true);
    expect(commands).toContain("COMMIT");
  });
+ it("rejects chains even when the requested target is otherwise valid",async()=>{
+   fake.query.mockImplementation(async(sql:string)=>{
+     if(String(sql).includes("AND (source_path=$2 OR target_path=$3)"))
+       return {rowCount:1,rows:[{id:"previous-redirect"}]};
+     return response(sql);
+   });
+   await expect(reviewRedirect(reviewer,id,"approve"))
+     .rejects.toThrow(/chains and loops/);
+   expect(fake.query.mock.calls.map(c=>String(c[0]))).toContain("ROLLBACK");
+   expect(fake.query.mock.calls.some(c=>String(c[0])
+     .includes("SET status='approved'"))).toBe(false);
+ });
  it("rejects a missing published destination and rolls back",async()=>{
    fake.query.mockImplementation(async(sql:string)=>
      sql.includes("JOIN website_cms.page_revisions")?
