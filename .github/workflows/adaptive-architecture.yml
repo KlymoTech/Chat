@@ -22,6 +22,8 @@ on:
       - 'scripts/validate-platform-manifest.ps1'
       - 'scripts/audit-platform-conformance.py'
       - 'backend/tests/test_platform_conformance_audit.py'
+      - 'backend/tests/test_object_store.py'
+      - 'backend/src/northstar_api/services/object_store.py'
       - 'backend/tests/test_outbox_relay_sns.py'
       - 'backend/tests/test_domain_event_sqs_handler.py'
       - 'backend/src/northstar_api/handlers/domain_events.py'
@@ -194,6 +196,8 @@ jobs:
         run: ./scripts/validate-platform-manifest.ps1
       - name: Conformance auditor regression tests
         run: uv run pytest -q tests/test_platform_conformance_audit.py tests/test_release_multiarch_contract.py
+      - name: AWS object promotion contracts
+        run: uv run pytest -q tests/test_object_store.py
       - name: Bounded outbox relay and recovery contracts
         run: uv run pytest -q tests/test_outbox_relay_once.py tests/test_outbox_relay_sns.py tests/test_outbox_recovery.py tests/test_domain_event_sqs_handler.py
       - run: uv run ruff check src/northstar_api/handlers/domain_events.py tests/test_domain_event_sqs_handler.py

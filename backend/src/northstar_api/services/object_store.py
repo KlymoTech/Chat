@@ -174,9 +174,32 @@ class ObjectStore:
             checksum = hashlib.sha256(data).hexdigest()
             if not secrets.compare_digest(expected_checksum, checksum):
                 raise InvalidUpload("Uploaded object checksum does not match")
+            del data
 
             permanent_key = key.replace("staging/", "knowledge/", 1)
             copied_version_id: str | None = None
+            copy_created = False
+
+            def cleanup_copy() -> None:
+                if not copy_created:
+                    return
+                try:
+                    if copied_version_id is not None and copied_version_id.lower() != "null":
+                        client.delete_object(
+                            Bucket=self.settings.s3_bucket,
+                            Key=permanent_key,
+                            VersionId=copied_version_id,
+                        )
+                    else:
+                        if self.settings.s3_auth_mode == "aws-default":
+                            client.delete_object(Bucket=self.settings.s3_bucket, Key=permanent_key)
+                        else:
+                            self._purge_exact_sync(client, permanent_key)
+                except (BotoCoreError, ClientError, ObjectStoreUnavailable) as exc:
+                    raise ObjectStoreUnavailable(
+                        "Object storage could not clean up an invalid promoted upload"
+                    ) from exc
+
             try:
                 copy_source = {"Bucket": self.settings.s3_bucket, "Key": key, **source_version}
                 copy_result = client.copy_object(
@@ -186,30 +209,57 @@ class ObjectStore:
                     CopySourceIfMatch=etag,
                     MetadataDirective="COPY",
                 )
+                copy_created = True
                 version_value = copy_result.get("VersionId")
                 if isinstance(version_value, str) and version_value:
                     copied_version_id = version_value
-                copied = client.head_object(Bucket=self.settings.s3_bucket, Key=permanent_key)
-            except (BotoCoreError, ClientError, AttributeError) as exc:
+                if self.settings.s3_auth_mode == "aws-default" and (
+                    not copied_version_id or copied_version_id.lower() == "null"
+                ):
+                    raise ObjectStoreUnavailable("AWS upload copy must return an immutable object version")
+                copied = client.head_object(
+                    Bucket=self.settings.s3_bucket,
+                    Key=permanent_key,
+                    **(
+                        {"VersionId": copied_version_id}
+                        if self.settings.s3_auth_mode == "aws-default"
+                        else {}
+                    ),
+                )
+            except (BotoCoreError, ClientError, AttributeError, ObjectStoreUnavailable) as exc:
+                cleanup_copy()
                 raise ObjectStoreUnavailable("Object storage could not promote the upload") from exc
             try:
                 copied_size = int(copied.get("ContentLength", -1))
             except (TypeError, ValueError):
                 copied_size = -1
-            if copied_size != size:
+            copy_valid = copied_size == size
+            if copy_valid and self.settings.s3_auth_mode == "aws-default":
                 try:
-                    if copied_version_id is not None:
-                        client.delete_object(
-                            Bucket=self.settings.s3_bucket,
-                            Key=permanent_key,
-                            VersionId=copied_version_id,
-                        )
-                    else:
-                        self._purge_exact_sync(client, permanent_key)
-                except (BotoCoreError, ClientError, ObjectStoreUnavailable) as exc:
+                    promoted = client.get_object(
+                        Bucket=self.settings.s3_bucket,
+                        Key=permanent_key,
+                        VersionId=copied_version_id,
+                    )
+                    body = promoted["Body"]
+                    copied_digest = hashlib.sha256()
+                    copied_bytes = 0
+                    while copied_bytes <= size:
+                        chunk = body.read(min(1024 * 1024, size - copied_bytes + 1))
+                        if not chunk:
+                            break
+                        copied_bytes += len(chunk)
+                        copied_digest.update(chunk)
+                    copy_valid = copied_bytes == size and secrets.compare_digest(
+                        copied_digest.hexdigest(), checksum
+                    )
+                except (BotoCoreError, ClientError, KeyError, TypeError) as exc:
+                    cleanup_copy()
                     raise ObjectStoreUnavailable(
-                        "Object storage could not clean up an invalid promoted upload"
+                        "Object storage could not verify the promoted version"
                     ) from exc
+            if not copy_valid:
+                cleanup_copy()
                 raise ObjectStoreUnavailable("Object storage did not preserve the uploaded file")
             client.delete_object(Bucket=self.settings.s3_bucket, Key=key, **source_version)
             return permanent_key, checksum, size

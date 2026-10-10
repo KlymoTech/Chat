@@ -74,17 +74,23 @@ async def test_missing_aws_credentials_fails_as_storage_unavailable(
     monkeypatch.setattr(store, "_client", Mock(return_value=client))
     with pytest.raises(ObjectStoreUnavailable, match="could not sign"):
         await store.presign_post(
-            tenant_id=uuid4(), filename="note.txt", content_type="text/plain",
-            size_bytes=4, checksum_sha256=hashlib.sha256(b"note").hexdigest(),
+            tenant_id=uuid4(),
+            filename="note.txt",
+            content_type="text/plain",
+            size_bytes=4,
+            checksum_sha256=hashlib.sha256(b"note").hexdigest(),
         )
 
 
 class _Body:
     def __init__(self, data: bytes) -> None:
         self.data = data
+        self.position = 0
 
-    def read(self, _: int) -> bytes:
-        return self.data
+    def read(self, size: int) -> bytes:
+        result = self.data[self.position : self.position + size]
+        self.position += len(result)
+        return result
 
 
 class _FakeS3:
@@ -97,6 +103,7 @@ class _FakeS3:
         copied_size: int | None = None,
         copied_version_id: str | None = "copy-version-1",
         source_version_id: str | None = "version-1",
+        copied_data: bytes | None = None,
     ) -> None:
         self.data = data
         self.declared_size = len(data) if declared_size is None else declared_size
@@ -104,6 +111,9 @@ class _FakeS3:
         self.copied_size = copied_size
         self.copied_version_id = copied_version_id
         self.source_version_id = source_version_id
+        self.copied_data = copied_data
+        self.read_arguments: list[dict[str, Any]] = []
+        self.head_arguments: list[dict[str, Any]] = []
         self.copied_to: str | None = None
         self.deleted: list[str] = []
         self.delete_arguments: list[dict[str, Any]] = []
@@ -114,8 +124,9 @@ class _FakeS3:
         self.post_arguments = kwargs
         return {"url": "https://storage.example/upload", "fields": {"key": kwargs["Key"], **kwargs["Fields"]}}
 
-    def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+    def head_object(self, *, Bucket: str, Key: str, **kwargs: Any) -> dict[str, Any]:  # noqa: N803
         del Bucket
+        self.head_arguments.append({"Key": Key, **kwargs})
         result: dict[str, Any] = {
             "ContentLength": (
                 self.copied_size if Key == self.copied_to and self.copied_size is not None else len(self.data)
@@ -129,8 +140,10 @@ class _FakeS3:
         return result
 
     def get_object(self, *, Bucket: str, Key: str, **_: Any) -> dict[str, Any]:  # noqa: N803
-        del Bucket, Key
-        return {"Body": _Body(self.data)}
+        del Bucket
+        self.read_arguments.append({"Key": Key, **_})
+        data = self.copied_data if Key == self.copied_to and self.copied_data is not None else self.data
+        return {"Body": _Body(data)}
 
     def copy_object(self, *, Bucket: str, Key: str, **_: Any) -> dict[str, str]:  # noqa: N803
         del Bucket
@@ -204,21 +217,29 @@ async def test_presigned_post_is_staged_and_size_constrained(monkeypatch: pytest
     assert key in client.deleted
 
 
-async def test_document_upload_allows_500_mb_and_rejects_one_byte_over(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_document_upload_allows_500_mb_and_rejects_one_byte_over(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = _FakeS3(b"metadata-only size boundary test")
     store = ObjectStore(get_settings())
     monkeypatch.setattr(store, "_client", lambda **_: client)
     limit = 500 * 1024 * 1024
     assert store.settings.upload_max_bytes == limit
     await store.presign_post(
-        tenant_id=uuid4(), filename="large.pdf", content_type="application/pdf",
-        size_bytes=limit, checksum_sha256=client.checksum,
+        tenant_id=uuid4(),
+        filename="large.pdf",
+        content_type="application/pdf",
+        size_bytes=limit,
+        checksum_sha256=client.checksum,
     )
     assert ["content-length-range", 1, limit] in client.post_arguments["Conditions"]
     with pytest.raises(InvalidUpload, match="file size"):
         await store.presign_post(
-            tenant_id=uuid4(), filename="too-large.pdf", content_type="application/pdf",
-            size_bytes=limit + 1, checksum_sha256=client.checksum,
+            tenant_id=uuid4(),
+            filename="too-large.pdf",
+            content_type="application/pdf",
+            size_bytes=limit + 1,
+            checksum_sha256=client.checksum,
         )
 
 
@@ -258,6 +279,58 @@ async def test_aws_promotion_requires_versioned_staging_object(
 
     assert client.copied_to is None
     assert client.deleted == []
+
+
+@pytest.mark.parametrize("copied_data", [None, b"payloax"])
+async def test_aws_promotion_verifies_exact_copied_version(
+    monkeypatch: pytest.MonkeyPatch, copied_data: bytes | None
+) -> None:
+    tenant_id = uuid4()
+    client = _FakeS3(b"payload", copied_data=copied_data)
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+    staging_key = f"staging/{tenant_id}/2026/09/example.txt"
+
+    if copied_data is None:
+        assert (await store.promote_staged(tenant_id, staging_key))[1] == client.checksum
+        assert client.deleted == [staging_key]
+    else:
+        with pytest.raises(ObjectStoreUnavailable, match="did not preserve"):
+            await store.promote_staged(tenant_id, staging_key)
+        assert client.delete_arguments == [{"Key": client.copied_to, "VersionId": "copy-version-1"}]
+    assert {"Key": client.copied_to, "VersionId": "copy-version-1"} in client.head_arguments
+    assert {"Key": client.copied_to, "VersionId": "copy-version-1"} in client.read_arguments
+
+
+@pytest.mark.parametrize("copied_version_id", [None, "null"])
+async def test_aws_promotion_rejects_unversioned_destination_and_cleans_copy(
+    monkeypatch: pytest.MonkeyPatch, copied_version_id: str | None
+) -> None:
+    tenant_id = uuid4()
+    client = _FakeS3(b"payload", copied_version_id=copied_version_id)
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="could not promote"):
+        await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.txt")
+
+    assert client.deleted == [client.copied_to]
 
 
 @pytest.mark.parametrize("etag", [None, "", "unquoted", '"contains\nnewline"'])

@@ -592,6 +592,19 @@ do not merge without explicit instruction.
   from a staging object if S3 does not return a real `VersionId`. This ensures
   the already-present checksum read and conditional copy are pinned to an
   immutable source version. The default static-key MinIO path is unchanged.
-- This is only a source-version preflight. Destination version/digest custody,
-  malware scanning, quarantine isolation, quota reservation, orphan cleanup,
-  retention, AWS bucket policy and live qualification remain missing.
+- Source-version preflight alone is not a complete upload lifecycle; see the
+  destination-copy verification increment below.
+
+## Increment: verified AWS promoted-copy version (2026-10-10)
+
+- In opt-in AWS mode, the copied object must return a real destination
+  `VersionId`. Promotion reads that exact version and hashes it in bounded
+  chunks before deleting the staging object or returning success. A missing
+  version, size mismatch, digest mismatch or read failure removes the copied
+  version where possible and fails closed. The static-key MinIO path retains
+  its previous behavior.
+- Focused mocked tests cover success, equal-length tampering, absent/null
+  destination versions and cleanup. Live AWS versioning, destination-version
+  custody across subsequent reads, malware scanning, quarantine isolation,
+  quota reservation, orphan reconciliation, retention and bucket policy
+  remain outstanding.
