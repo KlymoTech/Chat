@@ -97,6 +97,18 @@ export async function advanceRightsCase(actor:CmsActor,id:string,
     // No self-review for verification, denials, approvals or purported fulfilment.
     if(secondReview.has(to)&&row.created_by_actor_id===actor.id)
       throw new Error("Independent privacy reviewer required");
+    // Never allow the same reviewer to verify and then approve, deny,
+    // declare execution or attest fulfilment of their own prior decision.
+    // A row lock on the case serializes both the history read and append.
+    if(secondReview.has(to)){
+      const prior=await client.query<{actor_id:string}>(
+        `SELECT actor_id::text FROM website_cms.privacy_rights_history
+          WHERE site_id=$1 AND case_id=$2
+          ORDER BY revision DESC LIMIT 1`,[actor.siteId,id]);
+      if(prior.rowCount!==1)throw new Error("Rights case history missing");
+      if(prior.rows[0].actor_id===actor.id)
+        throw new Error("A second independent reviewer must approve this transition");
+    }
     const next=row.revision+1;
     await client.query(
       `UPDATE website_cms.privacy_rights_cases
