@@ -22,3 +22,9 @@
 @media(max-width:680px){.site-cms-layout{grid-template-columns:1fr}}
 
 .site-cms-history{display:grid;gap:8px}.site-cms-history>div{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #e2e8f0}
+
+.site-cms-seo{display:grid;gap:12px;margin:10px 0;padding:16px;border:1px solid #d7e0ef;border-radius:12px;background:#f8fafc}
+.site-cms-seo legend{padding:0 8px;font-weight:750}
+.site-cms-seo small{display:block;color:#475569}
+.site-cms-page .site-cms-indexable{display:flex;align-items:center;gap:10px;cursor:pointer}
+.site-cms-indexable input[type=checkbox]{width:19px;height:19px;min-width:19px;accent-color:#2563eb}
