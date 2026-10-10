@@ -11,7 +11,9 @@ def test_signing_claim_revision_follows_merged_custody_heads():
     revision = script.get_revision("0095_notification_custody_signing_claims")
     assert revision is not None
     assert revision.down_revision == "0094_merge_notification_junit_custody_heads"
-    assert "0095_notification_custody_signing_claims" in script.get_heads()
+    # A non-head ancestor is still required; the one-use grant migration follows it.
+    assert script.get_revision("0096_signing_authorization_replay").down_revision == revision.revision
+    assert "0096_signing_authorization_replay" in script.get_heads()
 
 
 def test_signing_claim_schema_requires_uniqueness_and_immutability():
