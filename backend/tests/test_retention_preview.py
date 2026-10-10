@@ -148,6 +148,7 @@ async def test_unverifiable_latest_message_timestamp_cannot_be_candidate() -> No
     assert report.candidate_ids == ()
     assert report.invalid_policy == 1
 
+
 @pytest.mark.asyncio
 async def test_paginated_retention_preview_advances_after_last_inspected_row() -> None:
     tid, wid = uuid4(), uuid4()
@@ -187,6 +188,7 @@ async def test_paginated_retention_preview_advances_after_last_inspected_row() -
     assert "conversations.id >" in query
     assert "conversations.tenant_id =" in query
     assert "conversations.workspace_id =" in query
+    assert "conversations.updated_at <=" in query
 
 
 @pytest.mark.asyncio
@@ -225,7 +227,7 @@ async def test_cursor_rejects_other_tenant_and_mismatched_as_of_before_query() -
 
 
 @pytest.mark.asyncio
-async def test_truncated_inventory_fails_if_cursor_position_timestamp_is_naive() -> None:
+async def test_bad_page_boundary_timestamp_blocks_continuation() -> None:
     tid, wid = uuid4(), uuid4()
     old = datetime(2025, 1, 1, tzinfo=UTC)
     bad = datetime(2025, 1, 1)
