@@ -667,8 +667,6 @@ def test_docx_archive_accepts_normal_directory_entries() -> None:
     validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
 
 
-
-
 class _FakeClamSocket:
     def __init__(self, reply: bytes) -> None:
         self.reply = reply
