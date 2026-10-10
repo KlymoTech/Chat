@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0082_website_site_navigation"
 down_revision = "0081_website_page_events"
@@ -33,7 +34,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), primary_key=True, nullable=False),
         sa.Column("menu_id", sa.Uuid(), sa.ForeignKey("website_site_menus.id", ondelete="RESTRICT"), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
-        sa.Column("document_json", sa.JSON().with_variant(sa.dialects.postgresql.JSONB, "postgresql"), nullable=False),
+        sa.Column("document_json", sa.JSON().with_variant(JSONB, "postgresql"), nullable=False),
         sa.Column("created_by", sa.Uuid(), sa.ForeignKey("users.id", ondelete="RESTRICT"), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("menu_id", "version", name="uq_website_site_menu_revision_version"),
