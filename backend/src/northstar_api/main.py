@@ -32,6 +32,7 @@ from northstar_api.middleware import RequestContextMiddleware
 from northstar_api.routers import api_router
 from northstar_api.security import Principal
 from northstar_api.services.help_content import sync_help_content
+from northstar_api.services.platform_activity import mark_platform_activity
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.seed import seed_from_environment
 
@@ -222,6 +223,8 @@ async def authenticated_mutation_audit(request: Request, call_next: RequestRespo
         )
     finally:
         tenant_context.reset(context_token)
+    if response.status_code < 400:
+        await mark_platform_activity()
     return response
 
 

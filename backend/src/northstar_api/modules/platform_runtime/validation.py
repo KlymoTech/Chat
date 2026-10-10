@@ -136,9 +136,12 @@ def classify_provider_change(old: PlatformSpec, new: PlatformSpec) -> ProviderCh
     validate_platform_spec(new)
     if old == new:
         return "hot-safe"
-    if old.providers.storage != new.providers.storage or old.providers.jobs != new.providers.jobs:
+    if any(
+        getattr(old.providers, field) != getattr(new.providers, field)
+        for field in ("storage", "jobs", "events", "search", "vector")
+    ):
         return "migration"
-    if old.providers.events != new.providers.events or old.providers.vector != new.providers.vector:
+    if old.providers.identity != new.providers.identity or old.providers.secrets != new.providers.secrets:
         return "restart"
     if old.profile != new.profile or old.deployment.orchestrator != new.deployment.orchestrator:
         return "prohibited"

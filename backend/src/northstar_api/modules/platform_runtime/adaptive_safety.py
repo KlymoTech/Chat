@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from math import isfinite
 
 
 class CapacityAction(str, Enum):
@@ -26,9 +27,12 @@ class CapacitySignals:
     def __post_init__(self) -> None:
         for name in ("cpu_utilization", "memory_utilization", "request_error_rate"):
             value = getattr(self, name)
-            if not 0 <= value <= 1:
+            if not isfinite(value) or not 0 <= value <= 1:
                 raise ValueError(f"{name} must be between zero and one")
-        if self.queue_oldest_age_seconds < 0 or self.samples_age_seconds < 0:
+        if any(
+            not isfinite(value) or value < 0
+            for value in (self.queue_oldest_age_seconds, self.samples_age_seconds)
+        ):
             raise ValueError("sample age and queue age must be nonnegative")
 
 
@@ -59,8 +63,10 @@ def advise_capacity(
         raise ValueError("invalid replica bounds")
     if replicas < min_replicas or replicas > max_replicas:
         raise ValueError("replicas outside configured bounds")
-    if not 0 < low_utilization < high_utilization < 1:
+    if not isfinite(low_utilization) or not isfinite(high_utilization) or not 0 < low_utilization < high_utilization < 1:
         raise ValueError("invalid utilization thresholds")
+    if not isfinite(max_sample_age_seconds) or max_sample_age_seconds < 0:
+        raise ValueError("invalid maximum sample age")
     if signals.samples_age_seconds > max_sample_age_seconds:
         return CapacityDecision(CapacityAction.INVESTIGATE, "stale_telemetry", False)
     if signals.incident_active:

@@ -1,0 +1,24 @@
+apiVersion: platform/v1
+kind: LockedCapabilities
+capabilities:
+  - id: authentication
+    providers: [local, oidc]
+    reason: security boundary
+  - id: tenant-isolation
+    providers: [application]
+    reason: data boundary
+  - id: encryption
+    providers: [env, aws-secrets-manager]
+    reason: secret protection
+  - id: audit
+    providers: [postgres, transactional-outbox]
+    reason: accountability
+  - id: metrics
+    providers: [opentelemetry]
+    reason: operational safety
+  - id: database
+    providers: [postgres]
+    reason: authoritative data
+  - id: secrets
+    providers: [env, aws-secrets-manager]
+    reason: credential custody

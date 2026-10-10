@@ -14,10 +14,12 @@ from northstar_api.modules.platform_runtime import (
     build_change_plan,
     build_dependency_graph,
     classify_provider_change,
-    registry as capability_registry,
     transition_change,
     validate_dependency_graph,
     validate_platform_spec,
+)
+from northstar_api.modules.platform_runtime import (
+    registry as capability_registry,
 )
 
 
@@ -55,7 +57,7 @@ def test_provider_change_classification() -> None:
     assert classify_provider_change(
         base,
         PlatformSpec(providers={"events": "kafka"}, resources={"kafka_provisioned": True}),
-    ) == "restart"
+    ) == "migration"
     assert classify_provider_change(
         base,
         PlatformSpec(
@@ -89,6 +91,26 @@ def test_change_plan_requires_migration_steps_for_storage_cutover() -> None:
     assert plan.requires_approval is True
     assert "copy_and_verify_authoritative_state" in plan.steps
     assert plan.destructive is False
+
+
+def test_event_provider_cutover_requires_migration_and_reconciliation() -> None:
+    current = PlatformSpec(metadata={"revision": 1})
+    desired = PlatformSpec(
+        metadata={"revision": 2},
+        providers={"events": "kafka"},
+        resources={"kafka_provisioned": True},
+    )
+    plan = build_change_plan(current, desired)
+    assert plan.action == "migrate"
+    assert plan.requires_approval
+    assert "copy_and_verify_authoritative_state" in plan.steps
+    assert "reconcile_pending_work_and_indeterminate_effects" in plan.steps
+
+
+def test_search_provider_cutover_requires_migration() -> None:
+    current = PlatformSpec(metadata={"revision": 1})
+    desired = PlatformSpec(metadata={"revision": 2}, providers={"search": "opensearch"})
+    assert build_change_plan(current, desired).action == "migrate"
 
 
 def test_prohibited_profile_change_never_becomes_an_apply_plan() -> None:
@@ -136,7 +158,7 @@ def test_capability_change_analysis_includes_dependents() -> None:
         providers={"ai": "nvidia", "vector": "pgvector"},
     )
     analysis = analyze_capability_change(current, desired)
-    assert analysis.plan.action == "restart"
+    assert analysis.plan.action == "migrate"
     assert "ai" in analysis.changed_capabilities
     assert "vector" in analysis.changed_capabilities
     assert "ai" in analysis.impacted_capabilities

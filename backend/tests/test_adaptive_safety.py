@@ -2,7 +2,9 @@
 import pytest
 
 from northstar_api.modules.platform_runtime.adaptive_safety import (
-    CapacityAction, CapacitySignals, advise_capacity,
+    CapacityAction,
+    CapacitySignals,
+    advise_capacity,
 )
 
 
@@ -45,3 +47,7 @@ def test_replica_limit_fails_closed() -> None:
 def test_invalid_signal_rejected() -> None:
     with pytest.raises(ValueError):
         signals(cpu_utilization=1.5)
+    with pytest.raises(ValueError):
+        signals(cpu_utilization=float("nan"))
+    with pytest.raises(ValueError):
+        signals(samples_age_seconds=float("inf"))

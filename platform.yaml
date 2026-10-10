@@ -1,0 +1,97 @@
+apiVersion: platform/v1
+app: northstar
+deployment_status: planned
+owner: ananta
+region: ap-south-1
+stage: 0
+tier: T0
+budget_usd_month: 60
+capability_registry: backend/src/northstar_api/modules/platform_runtime/registry.py
+
+images:
+  api:
+    dockerfile: backend/Dockerfile
+    platforms: [linux/arm64]
+
+web:
+  build: npm run build
+  out: frontend/dist
+
+processes:
+  - name: api
+    kind: http
+    image: api
+    routes: [/api/*]
+    streaming_routes: [/api/v1/chat/*, /api/v1/widget/*]
+    memory_mb: 1024
+    timeout_s: 900
+  - name: channels
+    kind: queue
+    image: api
+    queue: channels
+    runtime: local-worker
+    handler: northstar_api.workers.channel_event_consumer:main
+    timeout_s: 300
+  - name: ingestion
+    kind: queue
+    image: api
+    queue: ingest
+    runtime: local-worker
+    handler: northstar_api.workers.celery_app:main
+    timeout_s: 1500
+  - name: crm-delivery
+    kind: queue
+    image: api
+    queue: crm-delivery
+    runtime: local-worker
+    handler: northstar_api.workers.crm_delivery_worker:main
+    timeout_s: 120
+  - name: outbox-relay
+    kind: queue
+    image: api
+    queue: outbox-nudge
+    runtime: local-worker
+    handler: northstar_api.workers.outbox_publisher:main
+    timeout_s: 60
+  - name: events
+    kind: event
+    image: api
+    topic: domain-events
+    ordered: true
+    handler: northstar_api.workers.analytics_consumer:main
+    timeout_s: 120
+  - name: crm-reconcile
+    kind: schedule
+    image: api
+    rate: 15 minutes
+    activity_gate: 2h
+    handler: northstar_api.handlers.crm_reconcile:lambda_handler
+    timeout_s: 300
+  - name: migrate
+    kind: job
+    image: api
+    command: [alembic, upgrade, head]
+    when: pre-deploy
+
+resources:
+  database:
+    engine: postgres-compatible
+    extensions: [vector]
+  cache:
+    engine: valkey
+  queues: [channels, ingest, crm-delivery, outbox-nudge]
+  topics: [{name: domain-events, fifo: true}]
+  mailer: ses
+
+secrets:
+  - JWT_SECRET
+  - MFA_ENCRYPTION_KEY
+  - META_APP_SECRET
+  - META_WHATSAPP_TOKEN_ENCRYPTION_KEY
+  - META_WHATSAPP_WEBHOOK_VERIFY_TOKEN
+  - CRM_CREDENTIAL_ENCRYPTION_KEY
+  - ZOHO_CLIENT_SECRET
+
+slo:
+  first_answer_p95_s: 20
+  availability_pct: 99.5

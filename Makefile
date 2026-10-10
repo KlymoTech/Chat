@@ -1,4 +1,4 @@
-.PHONY: bootstrap dev test lint typecheck build config architecture up down logs ps migrate smoke smoke-powershell clean reset-data
+.PHONY: bootstrap dev test lint typecheck conformance build config architecture up down logs ps migrate smoke smoke-powershell clean reset-data
 
 .env:
 	cp .env.example .env
@@ -22,6 +22,10 @@ lint:
 typecheck:
 	npm run typecheck
 	uv run --project backend mypy --config-file backend/pyproject.toml backend/src
+
+conformance:
+	pwsh -NoProfile -File scripts/validate-platform-manifest.ps1
+	@echo "conformance: manifest checks passed"
 
 build:
 	npm run build
