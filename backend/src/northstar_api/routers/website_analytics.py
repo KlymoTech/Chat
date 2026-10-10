@@ -5,7 +5,7 @@ schema stores no URLs with query strings, contact data or free-form properties.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -234,4 +234,137 @@ async def site_analytics_summary(
             for slug, count in sorted(by_slug.items(), key=lambda item: (-item[1], item[0]))
         ][:50],
         "note": "Only browser events submitted under valid analytics consent are counted.",
+    }
+
+
+@router.get("/report")
+async def site_analytics_daily_report(
+    principal: CmsAdmin, session: DBSession,
+    days: Annotated[int, Query(ge=1, le=90)] = 30,
+) -> dict[str, object]:
+    """UTC daily trends from existing consent-gated browser and committed receipt ledgers.
+
+    The report is a bounded, workspace-scoped *aggregate*. It intentionally
+    excludes visitor hashes, event IDs, leads, contact details and any provider
+    acknowledgement claims. No new analytics or CRM tables are created.
+    """
+    if principal.workspace_id is None:
+        raise HTTPException(400, "Select a workspace")
+    now = datetime.now(UTC)
+    first_date = now.date() - timedelta(days=days - 1)
+    start = datetime.combine(first_date, time.min, tzinfo=UTC)
+    scope = (
+        WebsitePageEvent.tenant_id == principal.tenant_id,
+        WebsitePageEvent.workspace_id == principal.workspace_id,
+        WebsitePageEvent.occurred_at >= start,
+        WebsitePageEvent.occurred_at <= now,
+    )
+    raw_events = (await session.execute(
+        select(
+            func.date(WebsitePageEvent.occurred_at),
+            WebsitePageEvent.event_type,
+            func.count(WebsitePageEvent.id),
+        ).where(*scope)
+        .group_by(
+            func.date(WebsitePageEvent.occurred_at),
+            WebsitePageEvent.event_type,
+        )
+    )).all()
+    raw_forms = (await session.execute(
+        select(
+            func.date(WebsiteFormSubmission.created_at),
+            func.count(WebsiteFormSubmission.id),
+        )
+        .where(
+            WebsiteFormSubmission.tenant_id == principal.tenant_id,
+            WebsiteFormSubmission.workspace_id == principal.workspace_id,
+            WebsiteFormSubmission.created_at >= start,
+            WebsiteFormSubmission.created_at <= now,
+        )
+        .group_by(func.date(WebsiteFormSubmission.created_at))
+    )).all()
+    raw_outbox = (await session.execute(
+        select(
+            func.date(OutboxEvent.occurred_at),
+            OutboxEvent.published_at.is_not(None),
+            OutboxEvent.last_error.is_not(None),
+            func.count(OutboxEvent.id),
+        )
+        .where(
+            OutboxEvent.tenant_id == principal.tenant_id,
+            OutboxEvent.workspace_id == principal.workspace_id,
+            OutboxEvent.aggregate_type == "website_form",
+            OutboxEvent.event_type == "website.form.submitted.v1",
+            OutboxEvent.occurred_at >= start,
+            OutboxEvent.occurred_at <= now,
+        )
+        .group_by(
+            func.date(OutboxEvent.occurred_at),
+            OutboxEvent.published_at.is_not(None),
+            OutboxEvent.last_error.is_not(None),
+        )
+    )).all()
+
+    fields = (
+        "pageViews", "ctaClicks", "acceptedForms",
+        "eventsPublishedToBroker", "eventsQueued", "eventsRetrying",
+    )
+    daily: dict[str, dict[str, int | str]] = {}
+    for offset in range(days):
+        day = (first_date + timedelta(days=offset)).isoformat()
+        daily[day] = {"date": day, **{field: 0 for field in fields}}
+
+    for day, event_type, amount in raw_events:
+        key = str(day)
+        if key not in daily:
+            continue
+        if event_type == "page_view":
+            daily[key]["pageViews"] += int(amount)
+        elif event_type == "cta_click":
+            daily[key]["ctaClicks"] += int(amount)
+    for day, amount in raw_forms:
+        key = str(day)
+        if key in daily:
+            daily[key]["acceptedForms"] += int(amount)
+    for day, published, errored, amount in raw_outbox:
+        key = str(day)
+        if key not in daily:
+            continue
+        column = (
+            "eventsPublishedToBroker" if published else
+            "eventsRetrying" if errored else "eventsQueued"
+        )
+        daily[key][column] += int(amount)
+    trend = []
+    totals = {field: 0 for field in fields}
+    totals["missingOutboxEvents"] = 0
+    for row in daily.values():
+        missing = max(
+            0, int(row["acceptedForms"])
+            - int(row["eventsPublishedToBroker"])
+            - int(row["eventsQueued"])
+            - int(row["eventsRetrying"]),
+        )
+        row["missingOutboxEvents"] = missing
+        trend.append(row)
+        for field in fields:
+            totals[field] += int(row[field])
+        totals["missingOutboxEvents"] += missing
+    return {
+        "days": days,
+        "timezone": "UTC",
+        "windowStart": start.isoformat(),
+        "windowEnd": now.isoformat(),
+        "daily": trend,
+        "totals": totals,
+        "deliveryConfirmed": False,
+        "reconciliationNote": (
+            "A committed form receipt is not a qualified lead. Event-bus "
+            "publication does not confirm external CRM or advertising delivery. "
+            "Missing events require investigation, not lead re-creation."
+        ),
+        "privacyNote": (
+            "Browser counts require analytics consent. Report aggregates omit "
+            "visitor identifiers, email addresses, IPs and lead details."
+        ),
     }
