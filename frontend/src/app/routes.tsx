@@ -45,6 +45,7 @@ const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => 
 const VerifyEmailPageView = lazy(() => import('@/features/website/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
 const WorkspaceInvitationPageView = lazy(() => import('@/features/website/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
 const WorkspaceSettingsPageView = lazy(() => import('@/features/admin').then((module) => ({ default: module.WorkspaceSettingsPage })));
+const SitePrivacyPageView = lazy(() => import('@/features/website/pages/SitePrivacyPage').then((module) => ({ default: module.SitePrivacyPage })));
 const WebsiteCMSPageView = lazy(() => import('@/pages/WebsiteCMSPage').then((module) => ({ default: module.WebsiteCMSPage })));
 const WidgetDemoPageView = lazy(() => import('@/features/website/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
@@ -53,6 +54,7 @@ const OrganizationBillingPage = lazy(() => import('@/pages/OrganizationBillingPa
 
 export function AppRoutes() {
   return <Routes>
+    <Route path="privacy/site/:workspaceId" element={<SitePrivacyPageView />} />
     <Route path="/login" element={<LoginPageView />} />
     <Route path="/signup" element={<SignupPageView />} />
     <Route path="/verify-email" element={<VerifyEmailPageView />} />
