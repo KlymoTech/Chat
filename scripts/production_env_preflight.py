@@ -60,6 +60,7 @@ def public_hostname(hostname: str) -> bool:
             len(labels) >= 2
             and len(hostname) <= 253
             and not labels[-1].isdigit()
+            and not all(label.isdigit() for label in labels)
             and all(
                 label
                 and len(label) <= 63
