@@ -49,6 +49,9 @@ describe('CMS acknowledged autosave and conflict recovery', () => {
     rejectWrite = false;
     mocks.request.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
       if (path === '/site-cms/pages' && !options) return [structuredClone(storedPage)];
+      if (path === '/site-cms/menu') return {
+        draftVersion: 0, publishedVersion: null, document: { items: [] },
+      };
       if (path.startsWith('/site-analytics/summary')) {
         return { days: 30, pageViews: 0, ctaClicks: 0, pages: [] };
       }
