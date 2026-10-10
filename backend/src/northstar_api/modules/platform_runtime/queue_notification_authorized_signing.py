@@ -42,6 +42,8 @@ async def sign_with_protected_authorization(
 ):
     """Verify authorization, burn its one-time grant, then verify custody."""
     instant = datetime.now(UTC) if now is None else now
+    if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
+        raise PermissionError("timezone-aware signing time required")
     if authorization_consumption is None or signing_claims is None:
         raise PermissionError("committed authorization and signing replay guards are required")
     if not callable(getattr(authorization_consumption, "consume", None)):
