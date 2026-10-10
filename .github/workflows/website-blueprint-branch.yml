@@ -1,0 +1,54 @@
+name: Website Blueprint Branch Checks
+
+on:
+  push:
+    branches:
+      - feature/website-blueprint-v1-3-20261010
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  backend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: test
+      DATABASE_URL: sqlite+aiosqlite:///./northstar-test.db
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      ALLOW_DETERMINISTIC_EMBEDDINGS: "true"
+      RATE_LIMIT_FAIL_OPEN: "true"
+      CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv sync --all-groups --locked
+      - run: uv run ruff check src/northstar_api/routers/website_cms.py src/northstar_api/website_cms_models.py src/northstar_api/services/website_builder_document.py src/northstar_api/services/website_builder_render.py
+      - run: uv run pytest -q tests/test_website_cms_api.py tests/test_website_builder_document.py tests/test_website_builder_render.py tests/test_website_cms_lifecycle.py
