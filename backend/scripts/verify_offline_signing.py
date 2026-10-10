@@ -16,6 +16,8 @@ from urllib.parse import urlsplit
 BACKEND = Path(__file__).resolve().parents[1]
 
 LINT_PATHS = (
+    "src/northstar_api/modules/platform_runtime/validation.py",
+    "src/northstar_api/modules/platform_runtime/registry.py",
     "src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py",
     "src/northstar_api/modules/platform_runtime/queue_notification_custody_attestation_signer.py",
     "src/northstar_api/modules/platform_runtime/queue_notification_custody_signing_claims.py",
@@ -26,6 +28,7 @@ LINT_PATHS = (
 )
 
 OFFLINE_TESTS = (
+    "tests/test_platform_runtime_contracts.py",
     "tests/test_platform_authorized_signing.py",
     "tests/test_platform_authorized_signing_integration.py",
     "tests/test_platform_custody_attestation_signer.py",
