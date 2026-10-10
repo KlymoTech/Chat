@@ -1016,3 +1016,8 @@ class EventQuarantine(Base, UUIDPrimaryKeyMixin):
     payload_excerpt: Mapped[str] = mapped_column(Text)
     error: Mapped[str] = mapped_column(String(500))
     quarantined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# Import the additive website CMS tables into the shared ORM metadata so
+# schema creation/tests observe the same database model set.
+from northstar_api.website_cms_models import WebsiteAudit, WebsitePage, WebsiteRevision  # noqa: E402,F401
