@@ -53,6 +53,28 @@ def valid_https_origin(origin: object) -> bool:
         return False
 
 
+
+def valid_postgres_url(value: str) -> bool:
+    """Require a usable PostgreSQL URL without embedded placeholder credentials."""
+    try:
+        parsed = urlparse(value)
+        return (
+            parsed.scheme in {"postgresql", "postgresql+asyncpg"}
+            and bool(parsed.hostname)
+            and bool(parsed.username)
+            and bool(parsed.password)
+            and bool(parsed.path.strip("/"))
+            and parsed.port != 0
+            and not parsed.query
+            and not parsed.fragment
+            and not PLACEHOLDER.search(parsed.hostname)
+            and not PLACEHOLDER.search(parsed.username)
+            and not PLACEHOLDER.search(parsed.password)
+        )
+    except ValueError:
+        return False
+
+
 def validate(values: dict[str, str]) -> list[str]:
     errors: list[str] = []
     if values.get("APP_ENV", "").lower() != "production":
@@ -64,8 +86,8 @@ def validate(values: dict[str, str]) -> list[str]:
         elif PLACEHOLDER.search(value):
             errors.append(f"{key} contains a development placeholder or local endpoint")
     database_url = values.get("DATABASE_URL", "")
-    if database_url and not database_url.startswith(("postgresql://", "postgresql+asyncpg://")):
-        errors.append("DATABASE_URL must use PostgreSQL in production")
+    if database_url and not valid_postgres_url(database_url):
+        errors.append("DATABASE_URL must be a valid PostgreSQL URL with non-placeholder credentials")
     jwt = values.get("JWT_SECRET", "")
     mfa = values.get("MFA_ENCRYPTION_KEY", "")
     if jwt and len(jwt) < 32:
