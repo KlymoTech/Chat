@@ -145,3 +145,39 @@ def test_first_party_form_blocks_require_same_origin_bounded_published_paths():
             {"id":"form","kind":"form","text":"Contact","url":href,
              "children":[{"id":"unsafe","kind":"paragraph","text":"Wrong child"}]},
         ]}])
+
+
+def test_builder_persists_allowed_appearance_tokens_without_changing_old_revisions():
+    legacy = page([{"id": "hero", "kind": "section", "children": [
+        {"id": "text", "kind": "paragraph", "text": "Original copy"},
+    ]}])
+    assert legacy.nodes[0].appearance is None
+    assert legacy.nodes[0].children[0].appearance is None
+    styled = page([{"id": "hero", "kind": "section",
+        "appearance": {"alignment": "center", "spacing": "spacious", "tone": "accent"},
+        "children": [
+            {"id": "text", "kind": "paragraph", "text": "Original copy",
+             "appearance": {"alignment": "end", "spacing": "compact", "tone": "muted"}},
+        ],
+    }])
+    serialized = styled.model_dump(mode="json")
+    assert serialized["nodes"][0]["appearance"] == {
+        "alignment": "center", "spacing": "spacious", "tone": "accent",
+    }
+    assert serialized["nodes"][0]["children"][0]["appearance"]["alignment"] == "end"
+    assert page(serialized["nodes"]).nodes[0].appearance == styled.nodes[0].appearance
+
+
+@pytest.mark.parametrize("unsafe", [
+    {"alignment": "justify", "spacing": "normal", "tone": "accent"},
+    {"alignment": "start", "spacing": "100vh", "tone": "accent"},
+    {"alignment": "center", "spacing": "compact", "tone": "url(javascript:alert(1))"},
+    {"alignment": "start", "spacing": "normal", "tone": "default", "css": "display:none"},
+    {"alignment": "start", "spacing": "normal", "tone": "default", "onmouseover": "evil()"},
+])
+def test_node_appearance_rejects_unsafe_values_and_unknown_style_properties(unsafe):
+    with pytest.raises(ValidationError):
+        page([{"id": "hero", "kind": "section", "children": [
+            {"id": "heading", "kind": "heading", "text": "Important",
+             "appearance": unsafe},
+        ]}])
