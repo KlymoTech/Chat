@@ -44,7 +44,8 @@ class SignedCustodyAttestation:
     signature: bytes
 
     def token(self) -> str:
-        encode = lambda data: base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+        def encode(data):
+            return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
         return encode(self.payload) + "." + encode(self.signature)
 
 
