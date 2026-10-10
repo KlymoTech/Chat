@@ -111,3 +111,24 @@
 .site-cms-form-health>p{font-size:.9rem;color:#475569;max-width:70ch}
 .site-cms-form-health .site-cms-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px}
 .site-cms-reconciliation-warning{color:#9a3412!important;border-left:4px solid #c2410c;background:#fff7ed;padding:9px 12px}
+
+/* Existing editor: bounded appearance controls, mirrored in CSP-safe public CSS. */
+.site-cms-style-editor{border:1px solid #cbd5e1;border-radius:10px;padding:12px 14px;margin:16px 0;background:#f8fafc}
+.site-cms-style-editor legend{padding:0 7px;font-weight:700;color:#334155}
+.site-cms-style-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:12px}
+.site-cms-style-fields label{display:grid;gap:6px;min-width:0;font-size:.875rem;font-weight:600}
+.site-cms-style-fields select{display:block;width:100%;min-width:0;padding:10px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;font:inherit}
+.site-cms-style-reset{border:1px solid #94a3b8;background:white;color:#1e40af;border-radius:7px;padding:8px 12px;margin-top:12px;cursor:pointer}
+.site-cms-style-editor small{display:block;margin-top:8px;color:#475569}
+.site-cms-style-editor :is(button,select):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+.site-cms-preview .site-node.site-align-center{text-align:center}
+.site-cms-preview .site-node.site-align-end{text-align:right}
+.site-cms-preview .site-node.site-space-compact{margin-block:8px}
+.site-cms-preview .site-node.site-space-spacious{margin-block:30px}
+.site-cms-preview .site-node.site-tone-muted{color:#475569}
+.site-cms-preview .site-node.site-tone-accent{color:#1d4ed8}
+.site-cms-preview section.site-node.site-space-compact{padding:16px}
+.site-cms-preview section.site-node.site-space-spacious{padding:clamp(48px,6vw,76px)}
+.site-cms-preview section.site-node.site-tone-accent{background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe}
+.site-cms-preview .button.site-node.site-tone-accent{background:#1e40af;color:#fff}
+@media(max-width:560px){.site-cms-style-fields{grid-template-columns:1fr}}
