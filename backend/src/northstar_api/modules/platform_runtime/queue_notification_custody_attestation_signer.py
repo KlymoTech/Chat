@@ -18,12 +18,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .queue_notification_custody_signing_claims import SigningClaimStore
 from .queue_notification_jenkins_junit_custody import (
     JunitEvidenceIndexReconciler,
     load_and_reconcile_witnessed_junit_custody,
 )
 from .queue_notification_jenkins_test_provenance import VerifiedJenkinsProvenance
-from .queue_notification_custody_signing_claims import SigningClaimStore
 
 _REQUIRED_SUITES = frozenset({"notification_worker", "notification_egress", "notification_secrets"})
 
