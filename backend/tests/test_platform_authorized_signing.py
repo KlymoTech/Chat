@@ -5,8 +5,21 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from northstar_api.modules.platform_runtime import queue_notification_authorized_signing as subject
+
+
+def public_key():
+    return Ed25519PrivateKey.generate().public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+
+class Identity:
+    async def retrieve_for_isolated_service(self, *, run_id, branch):
+        return None
 
 
 class SigningClaims:
@@ -40,7 +53,7 @@ def arguments(consumption):
         authorization_consumption=consumption,
         index_reconciler=object(),
         report_reconciler=object(),
-        signing_identity=object(),
+        signing_identity=Identity(),
         signing_claims=SigningClaims(),
         release_id="release-12345678",
         run_id="run-12345678",
@@ -49,8 +62,8 @@ def arguments(consumption):
         source_commit="a" * 40,
         source_digest="b" * 64,
         target_digest="c" * 64,
-        witness_public_key_pem=b"witness",
-        test_signer_public_key_pem=b"signer",
+        witness_public_key_pem=public_key(),
+        test_signer_public_key_pem=public_key(),
         witness_issuer="issuer",
         controller_id="controller",
         job_full_name="job",
@@ -161,6 +174,33 @@ async def test_invalid_clock_never_consumes_authorization(monkeypatch, clock):
     parameters = arguments(Consumption(events))
     parameters["now"] = clock
     with pytest.raises(PermissionError, match="timezone-aware"):
+        await subject.sign_with_protected_authorization(None, **parameters)
+    assert events == []
+    verify.assert_not_awaited()
+    sign.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("signing_identity", None),
+        ("signing_identity", object()),
+        ("witness_public_key_pem", b"invalid"),
+        ("test_signer_public_key_pem", b"invalid"),
+    ],
+)
+async def test_invalid_signing_configuration_never_burns_grant(
+    monkeypatch, field, replacement
+):
+    verify = AsyncMock()
+    sign = AsyncMock()
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", verify)
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    events = []
+    parameters = arguments(Consumption(events))
+    parameters[field] = replacement
+    with pytest.raises(PermissionError):
         await subject.sign_with_protected_authorization(None, **parameters)
     assert events == []
     verify.assert_not_awaited()
