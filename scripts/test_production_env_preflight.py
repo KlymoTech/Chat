@@ -102,5 +102,14 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_private_ipv4_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://192.168.1.5"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_private_ipv6_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://[fc00::1]"]'
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()

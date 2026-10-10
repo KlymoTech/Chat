@@ -7,6 +7,7 @@ configuration validation or integration testing.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import re
 from pathlib import Path
@@ -41,6 +42,18 @@ def load_env(path: Path) -> dict[str, str]:
 
 
 
+
+def public_hostname(hostname: str) -> bool:
+    """Reject local, loopback and private IP literals as public CORS origins."""
+    if PLACEHOLDER.search(hostname) or hostname.endswith((".local", ".localhost")):
+        return False
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True
+    return address.is_global
+
+
 def valid_https_origin(origin: object) -> bool:
     """Require a canonical HTTPS origin without credentials, paths or fragments."""
     if not isinstance(origin, str) or not origin or origin != origin.strip():
@@ -57,7 +70,7 @@ def valid_https_origin(origin: object) -> bool:
             and not parsed.query
             and not parsed.fragment
             and parsed.port != 0
-            and not PLACEHOLDER.search(parsed.hostname)
+            and public_hostname(parsed.hostname)
             and parsed.netloc == origin.removeprefix("https://")
             and parsed.hostname == parsed.hostname.lower()
             and parsed.hostname not in {"0.0.0.0", "::1"}
