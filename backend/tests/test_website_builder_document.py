@@ -58,3 +58,36 @@ def test_node_count_limit():
     nodes = [{"id": f"section-{i}", "kind": "section"} for i in range(501)]
     with pytest.raises(ValidationError, match="limits"):
         page(nodes)
+
+
+def test_indexing_requires_an_approved_https_canonical_url():
+    with pytest.raises(ValidationError):
+        BuilderPageDocument.model_validate({
+            "slug": "search-landing", "title": "Search page",
+            "seo": {"indexable": True},
+        })
+    with pytest.raises(ValidationError):
+        BuilderPageDocument.model_validate({
+            "slug": "search-landing", "title": "Search page",
+            "seo": {"indexable": True, "canonical_url": "http://unsecured.example"},
+        })
+    with pytest.raises(ValidationError):
+        BuilderPageDocument.model_validate({
+            "slug": "search-landing", "title": "Search page",
+            "seo": {"indexable": True, "canonical_url": "https://example.org/page?secret=1"},
+        })
+
+
+def test_search_metadata_is_versioned_with_content_and_defaults_noindex():
+    doc = BuilderPageDocument.model_validate({"slug": "home", "title": "Home"})
+    assert not doc.seo.indexable
+    assert doc.seo.canonical_url is None
+    indexed = BuilderPageDocument.model_validate({
+        "slug": "landing", "title": "Landing",
+        "seo": {
+            "description": "Helpful products and pricing.",
+            "canonical_url": "https://example.org/landing",
+            "indexable": True,
+        },
+    })
+    assert indexed.model_dump(mode="json")["seo"]["canonical_url"] == "https://example.org/landing"
