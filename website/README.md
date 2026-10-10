@@ -213,3 +213,26 @@ These additions still require real PostgreSQL, IdP/session, CI/Playwright and se
 - `npm run test:imports` now checks relative imports across the app, scripts and unit tests without network access; it runs before Vitest in the dedicated website CI workflow. Isolated fixture tests verify that missing imports cause a non-zero exit. These checks are additive, not a substitute for TypeScript, Next build, PostgreSQL or Playwright verification.
   
 **Not production-ready:** the last GitHub Actions jobs failed before executing any steps; no successful automated build or integration tests can currently be asserted. Complete visual-builder releases and collections, approved campaign runtime, consent/data rights, accountable marketing analytics, actual OIDC provider, least-privilege RLS and end-to-end/load/security acceptance still need completion. External CRM integration remains explicitly deferred. All commits are on `feature/website-blueprint-v1-3`; no merge into `main`.
+
+
+## Private privacy-rights case workflow — blueprint Chapter 59 (partial)
+
+Added a **disabled-by-default** owner workspace at `/owner/privacy/rights`
+with authenticated `cms:privacy` role, owner-only intake and controlled
+status transitions, revision-conflict handling and immutable evidence-minimal
+history (migration `018_privacy_rights_cases.sql`). Owner agents may record
+only opaque request identifiers and types. Sensitive decisions require a
+separate reviewer and an external evidence-reference UUID when appropriate.
+All mutations remain site-bound, transactional and audited. Public reading is
+not granted; private rights-case grant and tenant-RLS preflight coverage is
+added to the security script.
+
+**No deletion or data export is performed by the workflow.** The website does
+not yet provide verified requester identity matching, lawful processing
+assessments, approved deadline calculation, processor suppression/notification,
+data download packages, deletion across data stores, hold execution or evidence
+of legal completion. A status change is an operator assertion, **not proof**
+that requested access/erasure has actually been fulfilled. Do not enable
+`WEBSITE_PRIVACY_RIGHTS_ENABLED` or issue production promises until real
+IdP, DB-grants/RLS, legal review, operational evidence links, security tests and
+external processor mapping have passed.
