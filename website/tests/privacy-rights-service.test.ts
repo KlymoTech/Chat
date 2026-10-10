@@ -5,7 +5,7 @@ vi.mock("pg",()=>({Pool:class{
  connect(){return fake.connect();}
  query(...args:unknown[]){return fake.query(...args);}
 }}));
-import {openRightsCase,advanceRightsCase,listRightsCases}
+import {openRightsCase,advanceRightsCase,listRightsCases,readRightsCaseHistory}
   from "../src/lib/privacy-rights-service";
 import type {CmsActor} from "../src/lib/cms-editor";
 const actor:CmsActor={id:"550e8400-e29b-41d4-a716-446655440000",
@@ -80,6 +80,23 @@ describe("private rights ledger controls",()=>{
       .toBe(true);
     expect(commands.some(x=>x.includes("DELETE FROM"))).toBe(false);
     expect(commands).toContain("COMMIT");
+  });
+  it("retrieves a site-scoped history without leaking reviewer or evidence identifiers",async()=>{
+    fake.query.mockImplementation(async(sql:string)=>{
+      if(String(sql).includes("FROM website_cms.privacy_rights_cases"))
+        return {rowCount:1,rows:[{id:caseId}]};
+      return {rowCount:1,rows:[{
+        revision:2,fromStatus:"intake",toStatus:"verified",
+        reasonCode:"identity_confirmed",recordedAt:"2026-10-10T12:00:00Z",
+        evidenceLinked:true,
+      }]};
+    });
+    const history=await readRightsCaseHistory(actor,caseId);
+    expect(history).toHaveLength(1);
+    const statement=String(fake.query.mock.calls[1][0]);
+    expect(statement).toContain("site_id=$1 AND case_id=$2");
+    expect(statement).not.toContain("actor_id");
+    expect(statement).not.toContain("evidence_ref AS");
   });
   it("limits case listing by site and owner permission",async()=>{
     await listRightsCases(actor);
