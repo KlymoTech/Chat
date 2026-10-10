@@ -14,6 +14,13 @@ from northstar_api.dependencies import require_permissions
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.crm_workflow_schemas import CRMWorkflowOut
 from northstar_api.lead_crm.models import LeadActivityEvent, LeadConsent, LeadProfile
+from northstar_api.lead_crm.website_internal_automations import (
+    InternalAutomation,
+    InternalAutomationExecute,
+    InternalAutomationRegister,
+    InternalAutomationRegisterUpdate,
+    operationally_eligible,
+)
 from northstar_api.lead_crm.website_segments import (
     SegmentRegister,
     SegmentRegisterUpdate,
@@ -413,4 +420,279 @@ async def preview_lead_segment(
             "Marketing requires explicit latest marketing consent; processing consent alone is insufficient. "
             "Truncated previews are not complete population totals."
         ),
+    }
+
+
+INTERNAL_AUTOMATION_SETTINGS_KEY = "website_internal_automations"
+INTERNAL_AUTOMATION_SCAN_LIMIT = 500
+
+
+def _internal_automations(workspace: Workspace) -> InternalAutomationRegister:
+    stored = (workspace.settings_json or {}).get(INTERNAL_AUTOMATION_SETTINGS_KEY)
+    if not isinstance(stored, dict):
+        return InternalAutomationRegister()
+    return InternalAutomationRegister.model_validate(stored)
+
+
+def _automation_and_segment(
+    workspace: Workspace, automation_id: UUID,
+) -> tuple[InternalAutomationRegister, InternalAutomation, WebsiteSegment]:
+    register = _internal_automations(workspace)
+    automation = next(
+        (item for item in register.automations if item.id == automation_id), None,
+    )
+    if automation is None:
+        raise HTTPException(404, "Internal automation not found in this workspace")
+    if not automation.enabled:
+        raise HTTPException(409, "Internal automation is disabled")
+    segment = next(
+        (item for item in _segments(workspace).segments if item.id == automation.segment_id),
+        None,
+    )
+    if segment is None or not segment.enabled or segment.purpose != "operations":
+        raise HTTPException(409, "Enable an internal operations segment before running this automation")
+    return register, automation, segment
+
+
+async def _internal_automation_candidates(
+    session: AsyncSession, principal: Principal, segment: WebsiteSegment,
+) -> tuple[list[UUID], int, int, bool, int]:
+    """Bounded scan against existing tenant/workspace/agent-scoped CRM leads."""
+    if principal.workspace_id is None:
+        raise HTTPException(400, "Select a workspace")
+    query = (
+        select(Lead, LeadProfile)
+        .join(LeadProfile, (
+            (LeadProfile.lead_id == Lead.id)
+            & (LeadProfile.tenant_id == Lead.tenant_id)
+        ))
+        .where(
+            Lead.tenant_id == principal.tenant_id,
+            Lead.workspace_id == principal.workspace_id,
+        )
+        .order_by(Lead.created_at.asc(), Lead.id.asc())
+        .limit(INTERNAL_AUTOMATION_SCAN_LIMIT + 1)
+    )
+    if principal.agent_ids is not None:
+        query = query.where(Lead.agent_id.in_(principal.agent_ids))
+    rows = (await session.execute(query)).all()
+    truncated = len(rows) > INTERNAL_AUTOMATION_SCAN_LIMIT
+    candidate_ids: list[UUID] = []
+    blocked = 0
+    missing = 0
+    for lead, profile in rows[:INTERNAL_AUTOMATION_SCAN_LIMIT]:
+        if not operationally_eligible(
+            lead_status=lead.status,
+            lead_consent=bool(lead.consent),
+            processing_consent=profile.consent_status,
+        ):
+            blocked += 1
+            continue
+        included, incomplete = matches_segment(segment, {
+            "source_channel": profile.source_channel,
+            "utm_source": profile.utm_source,
+            "utm_medium": profile.utm_medium,
+            "utm_campaign": profile.utm_campaign,
+            "lifecycle_status": lead.status,
+            "qualification_status": profile.qualification_status,
+        })
+        if incomplete:
+            missing += 1
+        if included:
+            candidate_ids.append(lead.id)
+    return candidate_ids, blocked, missing, truncated, min(
+        len(rows), INTERNAL_AUTOMATION_SCAN_LIMIT,
+    )
+
+
+async def _already_notified(
+    session: AsyncSession, principal: Principal,
+    candidate_ids: list[UUID], correlation: str,
+) -> set[UUID]:
+    if not candidate_ids:
+        return set()
+    return set((await session.scalars(select(LeadActivityEvent.lead_id).where(
+        LeadActivityEvent.tenant_id == principal.tenant_id,
+        LeadActivityEvent.lead_id.in_(candidate_ids),
+        LeadActivityEvent.event_type == "website.internal_automation.review_queued",
+        LeadActivityEvent.correlation_id == correlation,
+    ))).all())
+
+
+def _automation_correlation(automation: InternalAutomation, version: int) -> str:
+    return f"site-automation:{automation.id}:{version}"
+
+
+@router.get("/workflow/internal-automations", response_model=InternalAutomationRegister)
+async def list_internal_automations(
+    principal: CRMWorkflowPrincipal, session: DB,
+) -> InternalAutomationRegister:
+    return _internal_automations(await _scoring_workspace(session, principal))
+
+
+@router.put("/workflow/internal-automations", response_model=InternalAutomationRegister)
+async def save_internal_automations(
+    payload: InternalAutomationRegisterUpdate,
+    principal: CRMManagePrincipal, session: DB,
+) -> InternalAutomationRegister:
+    workspace = await _scoring_workspace(session, principal, lock=True)
+    previous = _internal_automations(workspace)
+    if payload.expected_version != previous.version:
+        raise HTTPException(409, "Automations changed; reload before saving")
+    segments = {
+        item.id: item for item in _segments(workspace).segments
+        if item.enabled and item.purpose == "operations"
+    }
+    for item in payload.automations:
+        if item.enabled and item.segment_id not in segments:
+            raise HTTPException(422, "Active review automations require an enabled operations segment")
+    updated = InternalAutomationRegister(
+        version=previous.version + 1, automations=payload.automations,
+    )
+    workspace.settings_json = {
+        **dict(workspace.settings_json or {}),
+        INTERNAL_AUTOMATION_SETTINGS_KEY: updated.model_dump(mode="json"),
+    }
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace.id,
+        actor_user_id=principal.user_id,
+        action="website.internal_automations.updated",
+        entity_type="workspace",
+        entity_id=str(workspace.id),
+        category="lead",
+        before={"version":previous.version,"automationIds":[str(item.id) for item in previous.automations]},
+        after={"version":updated.version,"automationIds":[str(item.id) for item in updated.automations]},
+    )
+    await session.commit()
+    return updated
+
+
+@router.get("/workflow/internal-automations/{automation_id}/preview")
+async def preview_internal_automation(
+    automation_id: UUID,
+    principal: CRMWorkflowPrincipal, session: DB,
+) -> dict[str, object]:
+    workspace = await _scoring_workspace(session, principal)
+    register, automation, segment = _automation_and_segment(workspace, automation_id)
+    candidate_ids, blocked, missing, truncated, examined = (
+        await _internal_automation_candidates(session, principal, segment)
+    )
+    correlation = _automation_correlation(automation, register.version)
+    previously_queued = await _already_notified(session, principal, candidate_ids, correlation)
+    return {
+        "automationId": str(automation.id),
+        "policyVersion": register.version,
+        "segmentVersion": _segments(workspace).version,
+        "eligibleLeads": len(candidate_ids),
+        "alreadyQueued": len(previously_queued),
+        "remainingEligible": len(candidate_ids) - len(previously_queued),
+        "blockedByConsentOrStatus": blocked,
+        "unknownInputLeads": missing,
+        "examinedLeads": examined,
+        "truncated": truncated,
+        "maxPerRun": automation.max_per_run,
+        "action": "notify_admins",
+        "externalDelivery": False,
+        "note": (
+            "Simulation only. No lead was contacted or changed. "
+            "Execute is blocked for truncated scans. "
+            "Internal review never authorizes customer marketing."
+        ),
+    }
+
+
+@router.post("/workflow/internal-automations/{automation_id}/execute")
+async def execute_internal_automation(
+    automation_id: UUID,
+    payload: InternalAutomationExecute,
+    principal: CRMManagePrincipal, session: DB,
+) -> dict[str, object]:
+    """Explicit idempotent internal-only review actions, serialized by workspace lock."""
+    workspace = await _scoring_workspace(session, principal, lock=True)
+    register, automation, segment = _automation_and_segment(workspace, automation_id)
+    if register.version != payload.expected_policy_version:
+        raise HTTPException(409, "Automation policy changed; preview again")
+    segment_register = _segments(workspace)
+    if segment_register.version != payload.expected_segment_version:
+        raise HTTPException(409, "Segment rules changed; preview again")
+    candidate_ids, blocked, _, truncated, _ = await _internal_automation_candidates(
+        session, principal, segment,
+    )
+    if truncated:
+        raise HTTPException(409, "Lead population exceeds the bounded safety scan; narrow the segment")
+    if len(candidate_ids) != payload.expected_eligible_leads:
+        raise HTTPException(409, "Eligible Lead count changed; preview again")
+    correlation = _automation_correlation(automation, register.version)
+    already_queued = await _already_notified(session, principal, candidate_ids, correlation)
+    pending = [item for item in candidate_ids if item not in already_queued]
+    queued = 0
+    no_recipient = 0
+    for lead_id in pending[:automation.max_per_run]:
+        recipients = await notify_workspace_admins(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace.id,
+            title="Internal Lead review requested",
+            body="An eligible Lead matched an approved internal operations segment. Review the record manually.",
+            dedupe_key=f"internal-review:{automation.id}:{register.version}:{lead_id}",
+            category="lead",
+            severity="info",
+            action_url="/leads",
+            action_label="Review Lead",
+            metadata={
+                "leadId":str(lead_id),
+                "automationId":str(automation.id),
+                "policyVersion":register.version,
+            },
+        )
+        if recipients == 0:
+            no_recipient += 1
+            continue
+        session.add(LeadActivityEvent(
+            tenant_id=principal.tenant_id,
+            lead_id=lead_id,
+            event_type="website.internal_automation.review_queued",
+            actor_type="user",
+            actor_id=str(principal.user_id),
+            correlation_id=correlation,
+            details_json={
+                "automationId":str(automation.id),
+                "policyVersion":register.version,
+                "action":"notify_admins",
+                "recipientCount":recipients,
+                "externalDelivery":False,
+            },
+        ))
+        queued += 1
+    record_audit_event(
+        session,
+        tenant_id=principal.tenant_id,
+        workspace_id=workspace.id,
+        actor_user_id=principal.user_id,
+        action="website.internal_automation.executed",
+        entity_type="workspace",
+        entity_id=str(workspace.id),
+        category="lead",
+        after={
+            "automationId":str(automation.id),
+            "policyVersion":register.version,
+            "eligibleLeads":len(candidate_ids),
+            "queuedReviews":queued,
+            "blockedByConsentOrStatus":blocked,
+            "noRecipients":no_recipient,
+            "externalDelivery":False,
+        },
+    )
+    await session.commit()
+    return {
+        "automationId":str(automation.id),
+        "policyVersion":register.version,
+        "queuedReviews":queued,
+        "previouslyQueued":len(already_queued),
+        "noRecipients":no_recipient,
+        "remainingEligible":len(pending) - queued,
+        "externalDelivery":False,
+        "note":"Internal in-app human review only. No Lead was qualified or contacted.",
     }
