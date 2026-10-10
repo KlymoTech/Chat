@@ -57,6 +57,8 @@ export function WebsiteCMSPage() {
   const [draggedItem, setDraggedItem] = useState<{ id: string; type: 'section' | 'block' } | null>(null);
   const [name, setName] = useState('New page');
   const [slug, setSlug] = useState('new-page');
+  const [copyTitle, setCopyTitle] = useState('');
+  const [copySlug, setCopySlug] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -79,6 +81,8 @@ export function WebsiteCMSPage() {
   const open = (page: CMSPage, force = false) => {
     if (!force && dirty && !window.confirm('Discard unsaved content changes?')) return;
     setSelected(page); setDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
+    setCopyTitle('Copy of ' + page.title);
+    setCopySlug((page.slug + '-copy').slice(0, 160));
     void refreshRevisions(page.id);
   };
   const create = async () => {
@@ -86,6 +90,19 @@ export function WebsiteCMSPage() {
     try {
       const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim())) });
       setPages((items) => [page, ...items]); open(page, true);
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const duplicatePage = async () => {
+    if (!selected || busy || dirty) return;
+    setBusy(true); setError('');
+    try {
+      const copied = await request<CMSPage>('/site-cms/pages/' + selected.id + '/duplicate', {
+        method: 'POST',
+        body: JSON.stringify({ slug: copySlug.trim(), title: copyTitle.trim() }),
+      });
+      setPages((items) => [copied, ...items]);
+      open(copied, true);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   };
@@ -225,6 +242,24 @@ export function WebsiteCMSPage() {
               </div></div>
               {dirty ? <p className="site-cms-unsaved">Unsaved changes. Save before publishing.</p> : null}
               {selected.publishedVersion ? <a className="site-cms-public-link" target="_blank" rel="noreferrer" href={publicUrl}>Open published page <ExternalLink size={15}/></a> : null}
+            </Card>
+            <Card>
+              <h3>Duplicate this page</h3>
+              <p>Create an independent private draft. Block IDs are regenerated and search indexing must be approved again.</p>
+              <form className="site-cms-copy" onSubmit={(event) => { event.preventDefault(); void duplicatePage(); }}>
+                <label>New page title
+                  <input required value={copyTitle} maxLength={180}
+                    onChange={(event) => setCopyTitle(event.target.value)} />
+                </label>
+                <label>New URL slug
+                  <input required value={copySlug} pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={160}
+                    onChange={(event) => setCopySlug(event.target.value)} />
+                </label>
+                <Button variant="secondary" icon={Copy} type="submit"
+                  disabled={busy || dirty || !copyTitle.trim() || !copySlug.trim()}>
+                  Duplicate as draft
+                </Button>
+              </form>
             </Card>
             <div className="site-cms-editor-grid"><Card>
               <h3>Visual page builder</h3>
