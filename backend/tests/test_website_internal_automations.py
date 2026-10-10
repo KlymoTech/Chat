@@ -62,6 +62,19 @@ def test_duplicate_automation_ids_and_excessive_policies_are_denied():
             expected_segment_version=1,
             expected_eligible_leads=501,
         )
+    with pytest.raises(ValidationError):
+        InternalAutomationExecute(
+            expected_policy_version=1,
+            expected_segment_version=1,
+            expected_eligible_leads=1,
+            expected_eligible_fingerprint="not-a-checksum",
+        )
+    # The optional proof remains backward-compatible with older clients.
+    legacy = InternalAutomationExecute(
+        expected_policy_version=1, expected_segment_version=1,
+        expected_eligible_leads=1,
+    )
+    assert legacy.expected_eligible_fingerprint is None
 
 
 @pytest.mark.parametrize(("lead_status", "consent", "processing", "expected"), [
