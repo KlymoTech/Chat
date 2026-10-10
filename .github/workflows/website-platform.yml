@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/website-master-blueprint-v1-3-20261009
+      - feature/website-consolidated-20261010
     paths:
       - 'website-platform/**'
       - '.github/workflows/website-platform.yml'
