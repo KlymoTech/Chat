@@ -31,6 +31,14 @@ test("owner APIs stay closed until identity and DB grants are activated",async({
   await expect(page.getByRole("heading",{name:"Owner CMS"})).toBeVisible();
   await expect(page.getByText(/activation is blocked/i)).toBeVisible();
 });
+test("privacy rights remain owner-only and disabled by default",async({request})=>{
+  const rights=await request.get("/api/owner/privacy/rights");
+  expect(rights.status()).toBe(503);
+  const denied=await request.post("/api/owner/privacy/rights",{
+    data:{kind:"erasure"},headers:{"Origin":"http://127.0.0.1:3817"},
+  });
+  expect(denied.status()).toBe(503);
+});
 test("unconfigured private analytics and automation endpoints reveal no data",async({request})=>{
   const [analytics,automations]=await Promise.all([
     request.get("/api/owner/analytics"),request.get("/api/owner/automations"),
