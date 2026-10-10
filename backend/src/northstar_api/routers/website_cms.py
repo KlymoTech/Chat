@@ -13,7 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -26,7 +26,10 @@ from northstar_api.services.website_builder_document import BuilderPageDocument
 from northstar_api.services.website_builder_duplicate import duplicate_page_document
 from northstar_api.services.website_builder_render import render_page, style_csp_hash
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
-from northstar_api.website_cms_models import WebsiteAudit, WebsitePage, WebsiteRevision
+from northstar_api.website_cms_models import (
+    WebsiteAudit, WebsitePage, WebsiteRevision, WebsiteSiteMenu,
+    WebsiteSiteMenuAudit, WebsiteSiteMenuRevision,
+)
 
 router = APIRouter(prefix="/site-cms", tags=["site-cms"])
 CmsAdmin = Annotated[Principal, Depends(require_roles(Role.OWNER, Role.ADMIN))]
@@ -52,6 +55,45 @@ class SiteImportManifest(BaseModel):
     page: BuilderPageDocument
     new_slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     new_title: str = Field(min_length=1, max_length=180)
+
+
+class SiteMenuItem(BaseModel):
+    """Stable, text-only navigation item targeting another published CMS page."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    label: str = Field(min_length=1, max_length=80)
+    slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, label: str) -> str:
+        if not label.strip():
+            raise ValueError("Navigation label cannot be blank")
+        return label.strip()
+
+
+class SiteMenuDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    items: tuple[SiteMenuItem, ...] = Field(default=(), max_length=20)
+
+    @model_validator(mode="after")
+    def enforce_unique_items(self) -> "SiteMenuDocument":
+        if len({item.id for item in self.items}) != len(self.items):
+            raise ValueError("Navigation item IDs must be unique")
+        if len({item.slug for item in self.items}) != len(self.items):
+            raise ValueError("Each page may appear only once in the primary menu")
+        return self
+
+
+class SiteMenuSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=0)
+    document: SiteMenuDocument
+
+
+class SiteMenuPublish(VersionGuard):
+    pass
 
 
 class PageEdit(VersionGuard):
@@ -148,6 +190,228 @@ async def list_pages(principal: CmsAdmin, session: DBSession, response: Response
         revision = await _revision(session, page, page.draft_version)
         result.append(_info(page, revision.document_json))
     return result
+
+
+def _menu_info(menu: WebsiteSiteMenu | None, document: SiteMenuDocument) -> dict[str, Any]:
+    return {
+        "draftVersion": menu.draft_version if menu is not None else 0,
+        "publishedVersion": menu.published_version if menu is not None else None,
+        "document": document.model_dump(mode="json"),
+    }
+
+
+async def _workspace_menu(session: DBSession, workspace_id: UUID, tenant_id: UUID) -> WebsiteSiteMenu | None:
+    return await session.scalar(select(WebsiteSiteMenu).where(
+        WebsiteSiteMenu.workspace_id == workspace_id,
+        WebsiteSiteMenu.tenant_id == tenant_id,
+    ))
+
+
+async def _menu_revision(
+    session: DBSession, menu: WebsiteSiteMenu, version: int,
+) -> WebsiteSiteMenuRevision:
+    revision = await session.scalar(
+        select(WebsiteSiteMenuRevision).where(
+            WebsiteSiteMenuRevision.menu_id == menu.id,
+            WebsiteSiteMenuRevision.version == version,
+        )
+    )
+    if revision is None:
+        raise HTTPException(409, "Menu revision unavailable")
+    return revision
+
+
+async def _published_menu_links(
+    session: DBSession, workspace_id: UUID, tenant_id: UUID,
+) -> tuple[tuple[str, str], ...]:
+    menu = await _workspace_menu(session, workspace_id, tenant_id)
+    if menu is None or menu.published_version is None:
+        return ()
+    revision = await _menu_revision(session, menu, menu.published_version)
+    doc = SiteMenuDocument.model_validate(revision.document_json)
+    if not doc.items:
+        return ()
+    slugs = [item.slug for item in doc.items]
+    public_slugs = set((await session.scalars(select(WebsitePage.slug).where(
+        WebsitePage.tenant_id == tenant_id,
+        WebsitePage.workspace_id == workspace_id,
+        WebsitePage.slug.in_(slugs),
+        WebsitePage.published_version.is_not(None),
+    ))).all())
+    prefix = get_settings().app_api_prefix.rstrip("/")
+    return tuple(
+        (item.label, f"{prefix}/site-cms/public/{workspace_id}/{item.slug}")
+        for item in doc.items if item.slug in public_slugs
+    )
+
+
+@router.get("/menu")
+async def get_site_menu(
+    principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    menu = await _workspace_menu(session, _scope(principal), principal.tenant_id)
+    if menu is None:
+        return _menu_info(None, SiteMenuDocument())
+    revision = await _menu_revision(session, menu, menu.draft_version)
+    return _menu_info(menu, SiteMenuDocument.model_validate(revision.document_json))
+
+
+@router.put("/menu")
+async def save_site_menu(
+    payload: SiteMenuSave, principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    workspace_id = _scope(principal)
+    menu = await _workspace_menu(session, workspace_id, principal.tenant_id)
+    document = payload.document.model_dump(mode="json")
+    if menu is None:
+        if payload.expected_version != 0:
+            raise HTTPException(409, "Site menu was created by another editor")
+        menu = WebsiteSiteMenu(
+            tenant_id=principal.tenant_id, workspace_id=workspace_id,
+            draft_version=1, published_version=None,
+        )
+        session.add(menu)
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(409, "Site menu was created concurrently") from None
+        action = "create"
+    else:
+        if payload.expected_version != menu.draft_version:
+            raise HTTPException(409, "Site menu was modified by another editor")
+        changed = await session.execute(
+            update(WebsiteSiteMenu).where(
+                WebsiteSiteMenu.id == menu.id,
+                WebsiteSiteMenu.tenant_id == principal.tenant_id,
+                WebsiteSiteMenu.workspace_id == workspace_id,
+                WebsiteSiteMenu.draft_version == payload.expected_version,
+            ).values(
+                draft_version=payload.expected_version + 1,
+                updated_at=datetime.now(UTC),
+            )
+        )
+        if changed.rowcount != 1:
+            await session.rollback()
+            raise HTTPException(409, "Site menu was modified concurrently")
+        menu.draft_version = payload.expected_version + 1
+        action = "edit"
+    session.add(WebsiteSiteMenuRevision(
+        menu_id=menu.id, version=menu.draft_version,
+        document_json=document, created_by=principal.user_id,
+    ))
+    session.add(WebsiteSiteMenuAudit(
+        menu_id=menu.id, actor_id=principal.user_id,
+        action=action, revision_version=menu.draft_version,
+    ))
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "Menu version conflict") from None
+    return _menu_info(menu, payload.document)
+
+
+@router.post("/menu/publish")
+async def publish_site_menu(
+    payload: SiteMenuPublish, principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    workspace_id = _scope(principal)
+    menu = await _workspace_menu(session, workspace_id, principal.tenant_id)
+    if menu is None or menu.draft_version != payload.expected_version:
+        raise HTTPException(409, "Menu version changed; reload before publishing")
+    revision = await _menu_revision(session, menu, menu.draft_version)
+    document = SiteMenuDocument.model_validate(revision.document_json)
+    slugs = {item.slug for item in document.items}
+    if slugs:
+        published_slugs = set((await session.scalars(select(WebsitePage.slug).where(
+            WebsitePage.tenant_id == principal.tenant_id,
+            WebsitePage.workspace_id == workspace_id,
+            WebsitePage.slug.in_(slugs),
+            WebsitePage.published_version.is_not(None),
+        ))).all())
+        missing = sorted(slugs - published_slugs)
+        if missing:
+            raise HTTPException(
+                409, "Publish the linked pages first: " + ", ".join(missing[:10]),
+            )
+    if menu.published_version == menu.draft_version:
+        return _menu_info(menu, document)  # Idempotent, without duplicate audit or outbox effects.
+    updated = await session.execute(
+        update(WebsiteSiteMenu).where(
+            WebsiteSiteMenu.id == menu.id,
+            WebsiteSiteMenu.draft_version == payload.expected_version,
+            WebsiteSiteMenu.published_version.is_distinct_from(payload.expected_version),
+        ).values(published_version=menu.draft_version, updated_at=datetime.now(UTC))
+    )
+    if updated.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(409, "Menu publication changed concurrently")
+    menu.published_version = menu.draft_version
+    session.add(WebsiteSiteMenuAudit(
+        menu_id=menu.id, actor_id=principal.user_id,
+        action="publish", revision_version=menu.draft_version,
+    ))
+    event = enqueue_event(
+        session, tenant_id=principal.tenant_id,
+        aggregate_type="website_menu", aggregate_id=menu.id,
+        event_type="website.menu.published",
+        payload={"workspaceId": str(workspace_id), "version": menu.draft_version},
+    )
+    event.workspace_id = workspace_id
+    await session.commit()
+    return _menu_info(menu, document)
+
+
+@router.get("/menu/revisions")
+async def site_menu_revision_history(
+    principal: CmsAdmin, session: DBSession, response: Response,
+) -> list[dict[str, Any]]:
+    response.headers["Cache-Control"] = "private, no-store"
+    menu = await _workspace_menu(session, _scope(principal), principal.tenant_id)
+    if menu is None:
+        return []
+    rows = (await session.scalars(select(WebsiteSiteMenuRevision).where(
+        WebsiteSiteMenuRevision.menu_id == menu.id,
+    ).order_by(WebsiteSiteMenuRevision.version.desc()))).all()
+    return [{
+        "version": row.version, "createdAt": row.created_at.isoformat(),
+        "isPublished": row.version == menu.published_version,
+    } for row in rows]
+
+
+@router.post("/menu/restore/{version}")
+async def restore_site_menu(
+    version: int, payload: SiteMenuPublish,
+    principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    menu = await _workspace_menu(session, _scope(principal), principal.tenant_id)
+    if menu is None or menu.draft_version != payload.expected_version or version < 1:
+        raise HTTPException(409, "Menu version changed; reload before restoring")
+    original = await _menu_revision(session, menu, version)
+    copied = SiteMenuDocument.model_validate(original.document_json)
+    changed = await session.execute(update(WebsiteSiteMenu).where(
+        WebsiteSiteMenu.id == menu.id,
+        WebsiteSiteMenu.draft_version == payload.expected_version,
+    ).values(draft_version=payload.expected_version + 1, updated_at=datetime.now(UTC)))
+    if changed.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(409, "Menu version changed concurrently")
+    menu.draft_version = payload.expected_version + 1
+    session.add(WebsiteSiteMenuRevision(
+        menu_id=menu.id, version=menu.draft_version,
+        document_json=copied.model_dump(mode="json"), created_by=principal.user_id,
+    ))
+    session.add(WebsiteSiteMenuAudit(
+        menu_id=menu.id, actor_id=principal.user_id,
+        action="restore", revision_version=menu.draft_version,
+    ))
+    await session.commit()
+    return _menu_info(menu, copied)
 
 
 @router.post("/pages", status_code=201)
@@ -338,6 +602,7 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
             ),
             analytics_context=(str(workspace_id), get_settings().app_api_prefix),
             analytics_nonce=nonce,
+            navigation=await _published_menu_links(session, workspace_id, workspace.tenant_id),
         ),
         headers={
             "Cache-Control": "no-store",
