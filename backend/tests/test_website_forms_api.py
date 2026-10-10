@@ -349,3 +349,44 @@ async def test_site_page_form_blocks_require_published_same_workspace_form(
         f"/api/v1/site-cms/pages/{foreign_page_id}/publish",
         headers=auth_headers,
     )).status_code == 409
+
+
+async def test_owner_preflight_counts_only_published_forms_and_never_certifies_release(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    endpoint = "/api/v1/site-cms/preflight"
+    assert (await client.get(endpoint)).status_code == 401
+    initial = await client.get(endpoint, headers=auth_headers)
+    assert initial.status_code == 200, initial.text
+    original = initial.json()
+    assert original["scope"] == "cms-content-only"
+    assert original["releaseCertified"] is False
+    assert original["summary"]["blockers"] >= 0
+    assert "verificationLimits" in original
+    assert initial.headers["cache-control"] == "private, no-store"
+
+    form_id, _, slug = await _create_form(client, auth_headers)
+    draft_only = await client.get(endpoint, headers=auth_headers)
+    assert draft_only.status_code == 200
+    assert draft_only.json()["summary"]["publishedForms"] == original["summary"]["publishedForms"]
+    assert all(issue.get("slug") != slug for issue in draft_only.json()["issues"])
+
+    published = await client.post(
+        f"/api/v1/site-forms/{form_id}/publish",
+        headers=auth_headers, json={"expected_version": 1},
+    )
+    assert published.status_code == 200, published.text
+    preflight = await client.get(endpoint, headers=auth_headers)
+    assert preflight.status_code == 200, preflight.text
+    assert preflight.json()["summary"]["publishedForms"] == original["summary"]["publishedForms"] + 1
+    assert not any(issue["code"] == "INACTIVE_FORM_AGENT" and issue["slug"] == slug
+                   for issue in preflight.json()["issues"])
+    assert preflight.json()["releaseCertified"] is False
+
+    closed = await client.post(
+        f"/api/v1/site-forms/{form_id}/unpublish",
+        headers=auth_headers, json={"expected_version": 1},
+    )
+    assert closed.status_code == 200, closed.text
+    after = await client.get(endpoint, headers=auth_headers)
+    assert after.json()["summary"]["publishedForms"] == original["summary"]["publishedForms"]
