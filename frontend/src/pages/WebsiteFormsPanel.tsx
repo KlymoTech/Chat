@@ -287,12 +287,38 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
             onChange={(event) => setDraft({ ...draft, privacy_notice: event.target.value })} />
         </label>
       </div>
+      <div className="site-forms-steps">
+        <h4>Form steps</h4>
+        <p>Every step needs a heading and at least one field. Move fields by choosing a step below.</p>
+        <div className="site-forms-step-labels">
+          {stepNames.map((heading, index) => <label key={index}>Step {index + 1} heading
+            <input maxLength={90} value={heading}
+              onChange={(event) => setDraft((current) => ({
+                ...current, steps: (current.steps ?? ['Your details']).map((name, i) =>
+                  i === index ? event.target.value : name),
+              }))}/>
+          </label>)}
+        </div>
+        <div className="site-forms-actions">
+          <Button variant="secondary" size="sm" icon={Plus}
+            disabled={busy || stepNames.length >= 5 || draft.fields.length >= 30}
+            onClick={addStep}>Add a step</Button>
+          <Button variant="secondary" size="sm" disabled={busy || stepNames.length === 1}
+            onClick={removeLastStep}>Remove last step</Button>
+        </div>
+      </div>
       <h4>Form fields</h4>
       <p className="site-forms-subtitle">Fields require a stable key, explicit purpose, retention period and sensitivity. Sensitive and file fields require separate verified activation.</p>
       <div className="site-forms-fields">
         {draft.fields.map((item, index) => <fieldset className="site-forms-field" key={index}>
           <legend>Field {index + 1}: {item.label || item.key}</legend>
           <div className="site-forms-field-grid">
+            <label>Form step
+              <select value={item.step ?? 1}
+                onChange={(event) => changeField(index, { step: Number(event.target.value) })}>
+                {stepNames.map((heading, i) => <option key={i} value={i + 1}>{i + 1}. {heading}</option>)}
+              </select>
+            </label>
             <label>Stable key
               <input maxLength={60} pattern="[a-z][a-z0-9_]*" value={item.key}
                 onChange={(event) => changeField(index, { key: event.target.value })}/>
@@ -306,12 +332,42 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
                 const kind = event.target.value as FieldKind;
                 changeField(index, {
                   kind, required: kind === 'consent' ? true : item.required,
+                  key: kind === 'consent' ? 'processing_consent' : item.key,
+                  condition: kind === 'consent' ? null : item.condition,
                   choices: kind === 'select' || kind === 'radio' ? ['Option A', 'Option B'] : [],
                 });
               }}>
                 {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
               </select>
             </label>
+            {item.kind !== 'consent' && !(item.required && (item.kind === 'email' || item.kind === 'phone')) &&
+              <label>Display condition
+                <select value={item.condition?.field_key ?? ''}
+                  onChange={(event) => {
+                    const source = draft.fields.slice(0, index).find((candidate) =>
+                      candidate.key === event.target.value);
+                    const equals = source?.kind === 'checkbox' ? 'true' : source?.choices[0] ?? '';
+                    changeField(index, { condition: source
+                      ? { field_key: source.key, equals } : null });
+                  }}>
+                  <option value="">Always visible</option>
+                  {draft.fields.slice(0, index).filter((candidate) =>
+                    !candidate.condition && (candidate.step ?? 1) <= (item.step ?? 1) &&
+                    ['select', 'radio', 'checkbox'].includes(candidate.kind)
+                  ).map((candidate) => <option key={candidate.key} value={candidate.key}>
+                    {candidate.label} ({candidate.key})
+                  </option>)}
+                </select>
+              </label>}
+            {item.condition && <label>Show when choice equals
+              <select value={item.condition.equals}
+                onChange={(event) => changeField(index, {
+                  condition: { ...item.condition!, equals: event.target.value },
+                })}>
+                {(draft.fields.find((candidate) => candidate.key === item.condition?.field_key)?.choices ??
+                  ['true', 'false']).map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+              </select>
+            </label>}
             <label>Purpose
               <input maxLength={180} value={item.purpose}
                 onChange={(event) => changeField(index, { purpose: event.target.value })}/>
@@ -344,7 +400,7 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
               </label>}
           </div>
           <Button variant="secondary" size="sm" icon={Trash2}
-            disabled={draft.fields.length <= 2 || busy}
+            disabled={draft.fields.length <= 2 || busy || item.kind === 'consent'}
             onClick={() => setDraft((current) => ({
               ...current, fields: current.fields.filter((_, i) => i !== index),
             }))}>Remove field</Button>
@@ -375,7 +431,8 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
           </>}
       </div>
       {!draftValid ? <p role="status" className="site-forms-warning">
-        A form needs unique field keys, a required email or phone field, required processing consent and meaningful privacy text.
+        A form needs valid step labels and ordering, unique field keys, a required email or phone,
+        required processing consent and valid references to prior unconditional choices.
       </p> : null}
       {url && <>
         <div className="site-forms-public">
