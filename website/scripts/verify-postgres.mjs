@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:18},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 018 must be contiguous");
+const expected=Array.from({length:19},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 019 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -355,7 +355,44 @@ try {
     "(id,site_id,case_id,revision,actor_id,from_status,to_status,reason_code) "+
     "VALUES($1,$2,$3,2,$4,'intake','pending_verification','identity_requested')",
     [uuid(),siteId,rightsCaseId,reviewerId]);
-  console.log(JSON.stringify({database:"website_test",migrations:18,checks:[
+  // Chapter 10/SEO: a retired slug must be approved by an independent editor.
+  const redirectId=uuid();
+  const oldPath="/content/retired-handbook";
+  await client.query(
+    "INSERT INTO website_cms.content_redirects "+
+    "(id,site_id,source_path,target_path,reason_code,requested_by) "+
+    "VALUES($1,$2,$3,'/services','replaced_content',$4)",
+    [redirectId,siteId,oldPath,authorId]);
+  await mustReject(
+    "UPDATE website_cms.content_redirects "+
+    "SET status='approved',reviewed_by=$2,reviewed_at=now() WHERE id=$1",
+    [redirectId,authorId],"23514");
+  await mustReject(
+    "INSERT INTO website_cms.content_redirects "+
+    "(id,site_id,source_path,target_path,reason_code,requested_by) "+
+    "VALUES($1,$2,'/content/external','https://untrusted.invalid',"+
+    "'slug_change',$3)",
+    [uuid(),siteId,authorId],"23514");
+  await client.query(
+    "UPDATE website_cms.content_redirects "+
+    "SET status='approved',reviewed_by=$2,reviewed_at=now() WHERE id=$1",
+    [redirectId,reviewerId]);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.public_approved_content_redirects "+
+    "WHERE site_slug=$1 AND source_path=$2 AND target_path='/services'",
+    [siteSlug,oldPath]),1,"Approved safe redirect must be publicly visible");
+  await mustReject(
+    "INSERT INTO website_cms.pages (id,site_id,path) VALUES($1,$2,$3)",
+    [uuid(),siteId,oldPath],"23514");
+  await client.query(
+    "UPDATE website_cms.content_redirects "+
+    "SET status='suspended',suspended_at=now() WHERE id=$1",[redirectId]);
+  assert.equal(await count(
+    "SELECT COUNT(*) AS total FROM website_cms.public_approved_content_redirects "+
+    "WHERE site_slug=$1 AND source_path=$2",
+    [siteSlug,oldPath]),0,
+    "Suspended redirect must be hidden from public lookups");
+  console.log(JSON.stringify({database:"website_test",migrations:19,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
@@ -368,7 +405,10 @@ try {
     "synthetic-run-durable","synthetic-enrollment-deduplicated",
     "internal-tasks-idempotent","internal-run-site-scope","completed-run-state-consistent",
     "privacy-rights-immutable-history","privacy-rights-evidence-gate",
-    "privacy-rights-cross-tenant-denied","privacy-rights-state-preserved"
+    "privacy-rights-cross-tenant-denied","privacy-rights-state-preserved",
+    "redirect-self-review-denied","redirect-external-destination-blocked",
+    "redirect-approved-visible","redirect-source-reuse-denied",
+    "redirect-suspension-hides-public"
   ],status:"passed"}));
 } finally {
   client.release();
