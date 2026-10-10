@@ -5,6 +5,7 @@ import hashlib
 import io
 import re
 import secrets
+import stat
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -53,10 +54,33 @@ def validate_docx_archive(data: bytes, *, max_uncompressed_bytes: int) -> None:
             if len(members) > 5_000:
                 raise ValueError("DOCX contains too many archive members")
             names = [member.filename for member in members]
-            if len(names) != len(set(names)):
+            # Open Packaging Convention part names are case-insensitive.
+            # Reject ambiguous members before a downstream parser chooses one.
+            if len(names) != len({name.casefold() for name in names}):
                 raise ValueError("DOCX contains duplicate archive members")
             if sum(member.file_size for member in members) > max_uncompressed_bytes:
                 raise ValueError("DOCX exceeds the configured expanded-size limit")
+            for member in members:
+                name = member.filename
+                # Validate POSIX-style OPC member names without extracting
+                # archives. Backslashes, dot segments and drive/absolute paths
+                # cannot be interpreted differently by downstream tooling.
+                parts = name.rstrip("/").split("/")
+                if (
+                    not name
+                    or name.startswith("/")
+                    or "\\" in name
+                    or ":" in name
+                    or any(not part or part in {".", ".."} for part in parts)
+                    or any(ord(char) < 32 or ord(char) == 127 for char in name)
+                ):
+                    raise ValueError("DOCX contains unsafe archive member paths")
+                if member.flag_bits & 0x1:
+                    raise ValueError("DOCX contains encrypted archive members")
+                if member.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+                    raise ValueError("DOCX uses an unsupported compression method")
+                if member.create_system == 3 and stat.S_ISLNK(member.external_attr >> 16):
+                    raise ValueError("DOCX contains a symbolic link")
             if not {"[Content_Types].xml", "word/document.xml"}.issubset(
                 set(names)
             ):
