@@ -10,10 +10,11 @@ on:
       - 'backend/migrations/versions/0093_notification_junit_index_custody.py'
       - 'backend/migrations/versions/0094_merge_notification_junit_custody_heads.py'
       - 'backend/migrations/versions/0095_notification_custody_signing_claims.py'
+      - 'backend/migrations/versions/0096_signing_authorization_replay.py'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
-      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization.py'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization*.py'
       - 'backend/tests/test_platform_custody*'
-      - 'backend/tests/test_platform_signing_authorization.py'
+      - 'backend/tests/test_platform_signing_authorization*.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/uv.lock'
       - 'backend/pyproject.toml'
@@ -24,9 +25,10 @@ on:
       - 'backend/migrations/versions/0093_notification_junit_index_custody.py'
       - 'backend/migrations/versions/0094_merge_notification_junit_custody_heads.py'
       - 'backend/migrations/versions/0095_notification_custody_signing_claims.py'
+      - 'backend/migrations/versions/0096_signing_authorization_replay.py'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
       - 'backend/tests/test_platform_custody*'
-      - 'backend/tests/test_platform_signing_authorization.py'
+      - 'backend/tests/test_platform_signing_authorization*.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/uv.lock'
       - 'backend/pyproject.toml'
@@ -68,7 +70,9 @@ jobs:
           src/northstar_api/modules/platform_runtime/queue_notification_custody_attestation_signer.py
           src/northstar_api/modules/platform_runtime/queue_notification_custody_signing_claims.py
           src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization.py
+          src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization_replay.py
           tests/test_platform_signing_authorization.py
+          tests/test_platform_signing_authorization_replay.py
           tests/test_platform_custody_attestation_signer.py
           tests/test_platform_custody_signing_claims.py
           tests/test_platform_custody_signing_claim_migration.py
@@ -76,8 +80,8 @@ jobs:
       - name: Verify signer and migration regression contracts
         run: >-
           uv run pytest -q
-          src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization.py
           tests/test_platform_signing_authorization.py
+          tests/test_platform_signing_authorization_replay.py
           tests/test_platform_custody_attestation_signer.py
           tests/test_platform_custody_signing_claims.py
           tests/test_platform_custody_signing_claim_migration.py
