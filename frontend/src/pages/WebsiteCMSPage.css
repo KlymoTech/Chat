@@ -28,3 +28,18 @@
 .site-cms-seo small{display:block;color:#475569}
 .site-cms-page .site-cms-indexable{display:flex;align-items:center;gap:10px;cursor:pointer}
 .site-cms-indexable input[type=checkbox]{width:19px;height:19px;min-width:19px;accent-color:#2563eb}
+
+
+/* Safe visual editing surfaces; native drag handles are optional to keyboard controls. */
+.site-cms-section-row{display:flex;gap:6px;align-items:stretch;border:1px solid #dbe3ee;border-radius:10px;padding:5px;background:#fff}
+.site-cms-section-row>button{border:none;flex:1;min-width:0;display:flex;align-items:center;gap:7px}
+.site-cms-section-row>button.is-selected{background:#eff6ff;color:#1e40af}
+.site-cms-row-actions{display:flex;flex-wrap:wrap;align-items:center;gap:2px}
+.site-cms-row-actions button,.site-cms-block-head button{min-width:34px;min-height:34px;display:inline-flex;justify-content:center;align-items:center;background:#fff;border:1px solid #cbd5e1;border-radius:6px;color:#334155;cursor:pointer}
+.site-cms-row-actions button:disabled{opacity:.4;cursor:not-allowed}
+.site-cms-section-row:focus-within,.site-cms-block:focus-within{outline:2px solid #93c5fd;outline-offset:2px}
+.site-cms-section-row[draggable=true],.site-cms-block[draggable=true]{cursor:grab}
+.site-cms-block-head strong{display:inline-flex;align-items:center;gap:5px}
+.site-cms-page select{padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:white;color:#17202b;font:inherit}
+.site-cms-page :is(button,input,textarea,select):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+@media(max-width:740px){.site-cms-section-row{flex-wrap:wrap}.site-cms-section-row>button{flex-basis:100%}.site-cms-row-actions{justify-content:flex-start}}
