@@ -92,6 +92,10 @@ def _field_html(field: Any) -> str:
         )
         return (f'<div><label for="{key}">{label}{star}</label>'
                 f'<select id="{key}" name="{key}"{required}>{options}</select>{purpose}</div>')
+    if field.kind == "text" and field.max_length > 240:
+        return (f'<div><label for="{key}">{label}{star}</label>'
+                f'<textarea id="{key}" name="{key}" maxlength="{field.max_length}"'
+                f' rows="5"{required}></textarea>{purpose}</div>')
     input_kind = "tel" if field.kind == "phone" else field.kind if field.kind in {"email", "date"} else "text"
     return (f'<div><label for="{key}">{label}{star}</label>'
             f'<input id="{key}" name="{key}" type="{input_kind}" maxlength="{field.max_length}"'
@@ -189,11 +193,11 @@ async def create_form(payload: FormCreate, principal: Owner, session: DBSession)
     await _agent(
         session, tenant_id=principal.tenant_id,
         workspace_id=principal.workspace_id,
-        agent_id=UUID(payload.agent_id), active=False,
+        agent_id=payload.agent_id, active=False,
     )
     form = WebsiteForm(
         tenant_id=principal.tenant_id, workspace_id=principal.workspace_id,
-        agent_id=UUID(payload.agent_id), slug=payload.slug,
+        agent_id=payload.agent_id, slug=payload.slug,
         draft_version=1,
     )
     session.add(form)
