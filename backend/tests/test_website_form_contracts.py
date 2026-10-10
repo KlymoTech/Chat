@@ -21,7 +21,7 @@ def document() -> SiteFormDocument:
              "choices":["Sales", "Support"], "purpose":"Route the enquiry"},
             {"key":"date", "label":"Preferred date", "kind":"date",
              "purpose":"Suggest a contact time"},
-            {"key":"consent", "label":"I consent", "kind":"consent", "required":True,
+            {"key":"processing_consent", "label":"I consent", "kind":"consent", "required":True,
              "purpose":"Process this enquiry"},
         ],
     })
@@ -30,28 +30,28 @@ def document() -> SiteFormDocument:
 def test_unicode_names_normalization_and_pinned_choices():
     values, errors = validate_answers(document(), {
         "name": "  山田 花子  ", "email": " Test@Example.org ",
-        "topic": "Sales", "date": "2026-11-05", "consent": "on",
+        "topic": "Sales", "date": "2026-11-05", "processing_consent": "on",
     })
     assert errors == {}
     assert values["name"] == "山田 花子"
     assert values["email"].lower() == "test@example.org"
-    assert values["consent"] is True
+    assert values["processing_consent"] is True
     assert values["date"] == "2026-11-05"
 
 
 def test_unknown_fields_missing_permission_invalid_phone_and_choices_are_rejected():
     answers, errors = validate_answers(document(), {
         "name": "Jane", "email": "not-email", "topic": "Unknown",
-        "unexpected": "<script>", "consent": "",
+        "unexpected": "<script>", "processing_consent": "",
     })
     assert answers["consent"] is False
     assert "email" in errors
     assert "topic" in errors
-    assert "consent" in errors
+    assert "processing_consent" in errors
     assert "unexpected" in errors
     _, date_errors = validate_answers(document(), {
         "name": "Jane", "email": "jane@example.com", "topic": "Sales",
-        "date": "2026-W01-1", "consent": "on",
+        "date": "2026-W01-1", "processing_consent": "on",
     })
     assert "date" in date_errors
 
@@ -69,7 +69,7 @@ def test_unknown_fields_missing_permission_invalid_phone_and_choices_are_rejecte
     {"fields":[
         {"key":"email", "label":"Email", "kind":"email", "required":True,
          "purpose":"Reply to enquiry"},
-        {"key":"consent", "label":"Consent", "kind":"consent", "required":False,
+        {"key":"processing_consent", "label":"Consent", "kind":"consent", "required":False,
          "purpose":"Process enquiry"},
     ]},
 ])
@@ -89,3 +89,12 @@ def test_sensitive_and_unbounded_upload_types_are_not_silently_activated():
     base["fields"][0]["kind"] = "file"
     with pytest.raises(ValidationError):
         SiteFormDocument.model_validate(base)
+
+
+def test_processing_consent_must_have_dedicated_key():
+    form = document().model_dump(mode="json")
+    for field in form["fields"]:
+        if field["kind"] == "consent":
+            field["key"] = "marketing_consent"
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
