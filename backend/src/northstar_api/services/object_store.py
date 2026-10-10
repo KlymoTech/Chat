@@ -6,6 +6,7 @@ import io
 import re
 import secrets
 import zipfile
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePath
 from typing import Any
@@ -35,6 +36,13 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {
     "image/jpeg",
     "image/tiff",
 }
+
+
+@dataclass(frozen=True)
+class StagingInventory:
+    keys: tuple[str, ...]
+    examined: int
+    truncated: bool
 
 
 def _matches_upload_signature(content_type: str, data: bytes) -> bool:
@@ -152,6 +160,52 @@ class ObjectStore:
             signed_fields,
             datetime.now(UTC) + timedelta(seconds=self.settings.s3_presign_ttl_seconds),
         )
+
+    async def stale_staging_inventory(
+        self,
+        tenant_id: UUID,
+        *,
+        workspace_id: UUID | None = None,
+        min_age_seconds: int,
+        max_examined: int = 1_000,
+    ) -> StagingInventory:
+        """Discover old staged keys only; never infer that they are safe to delete."""
+        if min_age_seconds <= self.settings.s3_presign_ttl_seconds:
+            raise ValueError("Staging inventory age must exceed presigned upload lifetime")
+        if max_examined < 1 or max_examined > 10_000:
+            raise ValueError("Staging inventory scan limit is invalid")
+        if self.settings.s3_auth_mode == "aws-default" and workspace_id is None:
+            raise ValueError("AWS staging inventory requires a workspace")
+        prefix = f"staging/{tenant_id}/"
+        if self.settings.s3_auth_mode == "aws-default":
+            prefix += f"{workspace_id}/"
+        cutoff = datetime.now(UTC) - timedelta(seconds=min_age_seconds)
+
+        def scan() -> StagingInventory:
+            try:
+                client = self._client()
+                keys: list[str] = []
+                examined = 0
+                for page in client.get_paginator("list_objects_v2").paginate(
+                    Bucket=self.settings.s3_bucket, Prefix=prefix
+                ):
+                    for item in page.get("Contents", []):
+                        if examined >= max_examined:
+                            return StagingInventory(tuple(keys), examined, True)
+                        key = item.get("Key")
+                        modified = item.get("LastModified")
+                        if not isinstance(key, str) or not key.startswith(prefix):
+                            raise ObjectStoreUnavailable("Object storage returned an invalid staging key")
+                        if not isinstance(modified, datetime) or modified.tzinfo is None:
+                            raise ObjectStoreUnavailable("Object storage omitted staging modification time")
+                        examined += 1
+                        if modified.astimezone(UTC) <= cutoff:
+                            keys.append(key)
+                return StagingInventory(tuple(keys), examined, False)
+            except (BotoCoreError, ClientError) as exc:
+                raise ObjectStoreUnavailable("Object storage could not inventory staged uploads") from exc
+
+        return await asyncio.to_thread(scan)
 
     async def promote_staged(
         self, tenant_id: UUID, key: str, *, workspace_id: UUID | None = None

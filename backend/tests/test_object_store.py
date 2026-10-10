@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import zipfile
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import Mock
 from uuid import uuid4
@@ -236,6 +237,86 @@ async def test_presigned_post_is_staged_and_size_constrained(monkeypatch: pytest
     assert version_id is None
     assert client.copied_to == permanent_key
     assert key in client.deleted
+
+
+async def test_staging_inventory_is_scoped_aged_and_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid4()
+    workspace_id = uuid4()
+    prefix = f"staging/{tenant_id}/{workspace_id}/"
+    paginator = _FakeVersionPaginator(
+        [
+            {
+                "Contents": [
+                    {"Key": f"{prefix}old.txt", "LastModified": datetime.now(UTC) - timedelta(hours=2)},
+                    {"Key": f"{prefix}new.txt", "LastModified": datetime.now(UTC)},
+                ]
+            }
+        ]
+    )
+    client = Mock()
+    client.get_paginator.return_value = paginator
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    inventory = await store.stale_staging_inventory(
+        tenant_id, workspace_id=workspace_id, min_age_seconds=3600
+    )
+    assert inventory.keys == (f"{prefix}old.txt",)
+    assert inventory.examined == 2
+    assert not inventory.truncated
+    assert paginator.arguments == {"Bucket": store.settings.s3_bucket, "Prefix": prefix}
+    client.delete_object.assert_not_called()
+    client.delete_objects.assert_not_called()
+
+
+async def test_staging_inventory_caps_examined_objects(monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant_id = uuid4()
+    prefix = f"staging/{tenant_id}/"
+    paginator = _FakeVersionPaginator(
+        [
+            {
+                "Contents": [
+                    {"Key": f"{prefix}{index}.txt", "LastModified": datetime.now(UTC) - timedelta(days=2)}
+                    for index in range(3)
+                ]
+            }
+        ]
+    )
+    client = Mock()
+    client.get_paginator.return_value = paginator
+    store = ObjectStore(get_settings())
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    inventory = await store.stale_staging_inventory(tenant_id, min_age_seconds=3600, max_examined=2)
+    assert inventory.examined == 2
+    assert inventory.truncated
+    assert len(inventory.keys) == 2
+
+
+async def test_aws_staging_inventory_requires_workspace_and_expired_capability() -> None:
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    with pytest.raises(ValueError, match="requires a workspace"):
+        await store.stale_staging_inventory(uuid4(), min_age_seconds=3600)
+    with pytest.raises(ValueError, match="must exceed presigned upload lifetime"):
+        await store.stale_staging_inventory(uuid4(), workspace_id=uuid4(), min_age_seconds=900)
 
 
 async def test_document_upload_allows_500_mb_and_rejects_one_byte_over(

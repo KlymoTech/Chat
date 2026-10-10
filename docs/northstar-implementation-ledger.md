@@ -760,3 +760,13 @@ do not merge without explicit instruction.
 - This avoids broad AWS key deletion on a commit failure. It does not solve
   unknown S3 outcomes, concurrent writes, legal holds or periodic orphan
   reconciliation. Live AWS and repository-wide CI remain unverified.
+
+## Increment: bounded stale-staging discovery (2026-10-10)
+
+- An internal read-only staging inventory now lists aged objects under an
+  explicit tenant prefix and, for AWS, an explicit workspace prefix. It
+  requires an age beyond the presigned capability lifetime and caps examined
+  objects, reporting truncation instead of implying a complete scan.
+- This is discovery only. It does not authorize deletion: upload-session
+  ownership, version receipts, legal holds, quota release, retry policy and
+  supervised orphan reconciliation remain unimplemented and require review.
