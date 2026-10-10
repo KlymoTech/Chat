@@ -38,7 +38,11 @@ def cleanup_extraction_prefix(event: EventEnvelope) -> str | None:
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("event payload is missing a valid sourceId") from exc
     expected_prefix = f"extractions/{event.tenant_id}/{source_id}/"
-    if not isinstance(key, str) or not key.startswith(expected_prefix) or len(key) == len(expected_prefix):
+    if (
+        not isinstance(key, str)
+        or not key.startswith(expected_prefix)
+        or len(key) == len(expected_prefix)
+    ):
         raise ValueError("event payload extractionKey is outside its source prefix")
     if len(key.encode("utf-8")) > MAX_OBJECT_KEY_BYTES or any(
         ord(character) < 32 or ord(character) == 127 for character in key
