@@ -123,13 +123,13 @@ def scan_with_clamav_instream(data: bytes, *, port: int, timeout_seconds: float)
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout_seconds) as conn:
             conn.settimeout(timeout_seconds)
-            conn.sendall(b"zINSTREAM\\x00")
+            conn.sendall(b"zINSTREAM\x00")
             view = memoryview(data)
             for offset in range(0, len(view), 64 * 1024):
                 block = view[offset : offset + 64 * 1024]
                 conn.sendall(len(block).to_bytes(4, "big"))
                 conn.sendall(block)
-            conn.sendall(b"\\x00\\x00\\x00\\x00")
+            conn.sendall(b"\x00\x00\x00\x00")
 
             response = bytearray()
             terminated = False
@@ -138,14 +138,14 @@ def scan_with_clamav_instream(data: bytes, *, port: int, timeout_seconds: float)
                 if not chunk:
                     break
                 response.extend(chunk)
-                if b"\\x00" in response or b"\\n" in response:
+                if b"\x00" in response or b"\n" in response:
                     terminated = True
                     break
     except (OSError, TimeoutError) as exc:
         raise ObjectStoreUnavailable("Malware scanner is unavailable") from exc
     if not terminated:
         raise ObjectStoreUnavailable("Malware scanner did not return a complete verdict")
-    verdict = bytes(response).split(b"\\x00", 1)[0].split(b"\\n", 1)[0].strip()
+    verdict = bytes(response).split(b"\x00", 1)[0].split(b"\n", 1)[0].strip()
     if verdict == b"stream: OK":
         return
     if verdict.startswith(b"stream: ") and verdict.endswith(b" FOUND"):
