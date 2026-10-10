@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import secrets
 from datetime import UTC, datetime
-from urllib.parse import quote
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -27,13 +27,18 @@ from northstar_api.services.website_builder_document import BuilderPageDocument
 from northstar_api.services.website_builder_duplicate import duplicate_page_document
 from northstar_api.services.website_builder_render import render_page, style_csp_hash
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
-from northstar_api.website_form_models import WebsiteForm, WebsiteFormRevision
 from northstar_api.services.website_form_contracts import SiteFormDocument
 from northstar_api.website_cms_models import (
-    WebsiteAudit, WebsitePage, WebsiteRevision, WebsiteSiteMenu,
-    WebsiteSiteMenuAudit, WebsiteSiteMenuRevision,
-    WebsiteRedirect, WebsiteRedirectAudit,
+    WebsiteAudit,
+    WebsitePage,
+    WebsiteRedirect,
+    WebsiteRedirectAudit,
+    WebsiteRevision,
+    WebsiteSiteMenu,
+    WebsiteSiteMenuAudit,
+    WebsiteSiteMenuRevision,
 )
+from northstar_api.website_form_models import WebsiteForm, WebsiteFormRevision
 
 router = APIRouter(prefix="/site-cms", tags=["site-cms"])
 CmsAdmin = Annotated[Principal, Depends(require_roles(Role.OWNER, Role.ADMIN))]
