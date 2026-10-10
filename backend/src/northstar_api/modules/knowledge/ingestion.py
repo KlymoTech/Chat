@@ -43,7 +43,7 @@ from northstar_api.services.hybrid_extraction import (
     extract_document,
 )
 from northstar_api.services.llm import nvidia_adapter
-from northstar_api.services.object_store import object_store
+from northstar_api.services.object_store import object_store, validate_docx_archive
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.safe_fetch import fetch_public_text
 from northstar_api.services.vision import extract_vision_text
@@ -664,19 +664,9 @@ async def _materialize_text(source: KnowledgeSource) -> str:
         if "wordprocessingml.document" in content_type or source.name.lower().endswith(".docx"):
             settings = get_settings()
 
-            try:
-                with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                    members = archive.infolist()
-                    expanded_size = sum(member.file_size for member in members)
-
-                    if len(members) > 5_000:
-                        raise ValueError("DOCX contains too many archive members")
-
-                    if expanded_size > settings.knowledge_max_docx_uncompressed_bytes:
-                        raise ValueError("DOCX exceeds the configured expanded-size limit")
-
-            except zipfile.BadZipFile as exc:
-                raise ValueError("DOCX archive is invalid") from exc
+            validate_docx_archive(
+                data, max_uncompressed_bytes=settings.knowledge_max_docx_uncompressed_bytes
+            )
 
             document = Document(io.BytesIO(data))
 

@@ -866,3 +866,13 @@ do not merge without explicit instruction.
   malformed-checksum cases, and Ruff passes on the changed Python files.
   Malware scanning, upload quotas, live object-store qualification and broader
   release gates remain open.
+
+## Increment: shared bounded DOCX archive gate (2026-10-10)
+
+- DOCX package validation now has one shared validator for required members,
+  at most 5,000 archive entries, and the configured expanded-byte limit.
+  Promotion uses it before copying staged bytes to the knowledge prefix;
+  ingestion reuses it rather than maintaining a second limit implementation.
+- Focused checks pass: 63 object-store tests, 4 ingestion tests, and Ruff on
+  the changed Python files. This does not prove full DOCX safety, malware
+  screening, upload quota reservation, or live S3 behavior.

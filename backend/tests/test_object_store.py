@@ -17,6 +17,7 @@ from northstar_api.services.object_store import (
     ObjectStore,
     ObjectStoreUnavailable,
     _matches_upload_signature,
+    validate_docx_archive,
 )
 
 
@@ -529,6 +530,37 @@ def test_docx_signature_requires_package_members() -> None:
     docx_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     assert _matches_upload_signature(docx_type, stream.getvalue())
     assert not _matches_upload_signature(docx_type, b"PK\x03\x04fake zip")
+
+
+def test_docx_archive_limits_are_shared_by_promotion_and_ingestion() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "x" * 1_024)
+    data = stream.getvalue()
+    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    validate_docx_archive(data, max_uncompressed_bytes=2_048)
+    with pytest.raises(ValueError, match="expanded-size limit"):
+        validate_docx_archive(data, max_uncompressed_bytes=100)
+
+    assert _matches_upload_signature(content_type, data)
+
+
+def test_docx_archive_rejects_excessive_member_count() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "document")
+        for index in range(4_999):
+            archive.writestr(f"word/media/{index}", b"")
+
+    with pytest.raises(ValueError, match="too many archive members"):
+        validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=1024)
+    assert not _matches_upload_signature(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        stream.getvalue(),
+    )
 
 
 async def test_promotion_rejects_misdeclared_bytes_before_copy(

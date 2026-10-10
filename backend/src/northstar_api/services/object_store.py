@@ -45,6 +45,23 @@ class StagingInventory:
     truncated: bool
 
 
+def validate_docx_archive(data: bytes, *, max_uncompressed_bytes: int) -> None:
+    """Check package structure and bounded expansion without extracting members."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            if len(members) > 5_000:
+                raise ValueError("DOCX contains too many archive members")
+            if sum(member.file_size for member in members) > max_uncompressed_bytes:
+                raise ValueError("DOCX exceeds the configured expanded-size limit")
+            if not {"[Content_Types].xml", "word/document.xml"}.issubset(
+                {member.filename for member in members}
+            ):
+                raise ValueError("DOCX is missing required package members")
+    except zipfile.BadZipFile as exc:
+        raise ValueError("DOCX archive is invalid") from exc
+
+
 def _matches_upload_signature(content_type: str, data: bytes) -> bool:
     if content_type == "application/pdf":
         return data.startswith(b"%PDF-")
@@ -58,10 +75,12 @@ def _matches_upload_signature(content_type: str, data: bytes) -> bool:
         if not data.startswith(b"PK\x03\x04"):
             return False
         try:
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                names = set(archive.namelist())
-                return {"[Content_Types].xml", "word/document.xml"}.issubset(names)
-        except (OSError, ValueError, zipfile.BadZipFile):
+            validate_docx_archive(
+                data,
+                max_uncompressed_bytes=get_settings().knowledge_max_docx_uncompressed_bytes,
+            )
+            return True
+        except (OSError, ValueError):
             return False
     if content_type in {"text/plain", "text/markdown"}:
         return b"\x00" not in data
