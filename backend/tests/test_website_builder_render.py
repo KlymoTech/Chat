@@ -81,3 +81,24 @@ def test_approved_search_metadata_is_escaped_and_rendered():
     assert '<meta name="robots" content="index, follow">' in html
     assert '<meta name="description" content="Great products &amp; &quot;clear&quot; pricing">' in html
     assert '<link rel="canonical" href="https://example.org/products">' in html
+
+def test_blog_page_renders_escaped_author_summary_and_locale():
+    document = BuilderPageDocument.model_validate({
+        "slug": "editorial", "title": "Our editorial",
+        "content_type": "article",
+        "blog": {
+            "author": 'Author <script>alert(1)</script>',
+            "category": 'Research & guides',
+            "summary": 'Visible summary & reliable evidence',
+            "locale": "en-IN",
+        },
+        "nodes": [],
+    })
+    html = render_page(document)
+    assert '<html lang="en-IN">' in html
+    assert 'By Author &lt;script&gt;alert(1)&lt;/script&gt;' in html
+    assert '<script>alert(1)</script>' not in html
+    assert 'Research &amp; guides' in html
+    assert 'Visible summary &amp; reliable evidence' in html
+    assert '<meta name="description" content="Visible summary &amp; reliable evidence">' in html
+    assert '<meta name="robots" content="noindex, nofollow">' in html
