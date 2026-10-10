@@ -573,7 +573,7 @@ async def submit_public_form(
         "leadId":str(lead.id), "workspaceId":str(workspace_id),
         "agentId":str(form.agent_id), "formId":str(form.id),
         "formVersion":version, "submissionId":str(submission.id),
-        "sourceChannel":"website_form",
+        "sourceChannel":"website_form", "reason":"lead_created",
     }
     for event_type in ("lead.captured.v1", "lead.created.v1", "lead.crm.sync.requested.v1"):
         event = enqueue_event(
