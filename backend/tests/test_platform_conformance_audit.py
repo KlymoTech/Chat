@@ -89,7 +89,8 @@ def test_duplicate_yaml_keys_fail_closed(tmp_path: Path) -> None:
     assert "duplicate YAML key" in result.stdout
 
 
-def test_undeclared_event_topic_fails_closed(tmp_path: Path) -> None:
+@pytest.mark.parametrize("topic", ["missing", "[invalid]"])
+def test_undeclared_event_topic_fails_closed(tmp_path: Path, topic: str) -> None:
     root = fixture_root(tmp_path)
     manifest = root / "platform.yaml"
     original = manifest.read_text(encoding="utf-8")
@@ -99,7 +100,7 @@ def test_undeclared_event_topic_fails_closed(tmp_path: Path) -> None:
         "  - name: event\n"
         "    kind: event\n"
         "    image: api\n"
-        "    topic: missing\n"
+        f"    topic: {topic}\n"
         "    handler: northstar_api.handlers.job:handle\n",
     ).replace(
         "resources: {queues: []}",
