@@ -229,5 +229,14 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_nested_database_path_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:strongpassword123@db.internal/app/extra?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+    def test_oversized_database_name_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:strongpassword123@db.internal/" + "d" * 129 + "?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
