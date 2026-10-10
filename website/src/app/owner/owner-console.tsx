@@ -73,6 +73,7 @@ export default function OwnerConsole(){
   const [blogCategory,setBlogCategory]=useState("general");
   const [blogTags,setBlogTags]=useState("");
   const [blogClassified,setBlogClassified]=useState(false);
+  const [previewMode,setPreviewMode]=useState<"desktop"|"tablet"|"mobile">("desktop");
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState("");
   const [problem,setProblem]=useState("");
@@ -531,10 +532,27 @@ export default function OwnerConsole(){
                 Save new draft revision</button>
             </>}
           </div>
-          <div className="owner-preview" aria-label="Local unpublished preview">
-            <h3>Local preview — unpublished</h3><h2>{doc.title||"Untitled"}</h2>
-            <p>{doc.description}</p><PublishedBlocks blocks={doc.blocks}/>
-          </div>
+          <section className="owner-preview" aria-label="Local unpublished preview">
+            <h3>Local preview — unpublished</h3>
+            <p className="owner-hint">Viewport widths are layout aids, not evidence of an actual
+              browser or device accessibility test. Nothing here is published.</p>
+            <div role="group" aria-label="Preview viewport width" className="owner-preview-modes">
+              {(["desktop","tablet","mobile"] as const).map(mode=>
+                <button type="button" key={mode} aria-pressed={previewMode===mode}
+                  onClick={()=>setPreviewMode(mode)}>
+                  {mode==="desktop"?"Desktop (1200px)":mode==="tablet"?"Tablet (768px)":"Mobile (390px)"}
+                </button>)}
+            </div>
+            <p role="status" className="owner-hint">Preview: {previewMode}</p>
+            <div className="owner-preview-scroll">
+              <div className={"owner-preview-device owner-preview-device-"+previewMode}
+                aria-label={previewMode+" unpublished page preview"}>
+                <h2>{doc.title||"Untitled"}</h2>
+                <p>{doc.description}</p>
+                <PublishedBlocks blocks={doc.blocks}/>
+              </div>
+            </div>
+          </section>
         </section>
       </div>
     </div>
