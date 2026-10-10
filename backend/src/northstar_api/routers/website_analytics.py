@@ -136,22 +136,6 @@ async def site_analytics_summary(
     if principal.workspace_id is None:
         raise HTTPException(400, "Select a workspace")
     period_start = datetime.now(UTC) - timedelta(days=days)
-    # PostgreSQL timestamptz -> date uses the connection timezone by default.
-    # Convert to a UTC wall-clock timestamp before grouping; SQLite fixtures
-    # already store UTC timestamps and use their built-in date() function.
-    pg = session.get_bind().dialect.name == "postgresql"
-    event_day = (
-        func.date(func.timezone("UTC", WebsitePageEvent.occurred_at))
-        if pg else func.date(WebsitePageEvent.occurred_at)
-    )
-    form_day = (
-        func.date(func.timezone("UTC", WebsiteFormSubmission.created_at))
-        if pg else func.date(WebsiteFormSubmission.created_at)
-    )
-    outbox_day = (
-        func.date(func.timezone("UTC", OutboxEvent.occurred_at))
-        if pg else func.date(OutboxEvent.occurred_at)
-    )
     scope = (
         WebsitePageEvent.tenant_id == principal.tenant_id,
         WebsitePageEvent.workspace_id == principal.workspace_id,
@@ -269,6 +253,22 @@ async def site_analytics_daily_report(
     now = datetime.now(UTC)
     first_date = now.date() - timedelta(days=days - 1)
     start = datetime.combine(first_date, time.min, tzinfo=UTC)
+    # PostgreSQL timestamptz -> date uses the connection timezone by default.
+    # Convert to a UTC wall-clock timestamp before grouping; SQLite fixtures
+    # already store UTC timestamps and use their built-in date() function.
+    pg = session.get_bind().dialect.name == "postgresql"
+    event_day = (
+        func.date(func.timezone("UTC", WebsitePageEvent.occurred_at))
+        if pg else func.date(WebsitePageEvent.occurred_at)
+    )
+    form_day = (
+        func.date(func.timezone("UTC", WebsiteFormSubmission.created_at))
+        if pg else func.date(WebsiteFormSubmission.created_at)
+    )
+    outbox_day = (
+        func.date(func.timezone("UTC", OutboxEvent.occurred_at))
+        if pg else func.date(OutboxEvent.occurred_at)
+    )
     scope = (
         WebsitePageEvent.tenant_id == principal.tenant_id,
         WebsitePageEvent.workspace_id == principal.workspace_id,
