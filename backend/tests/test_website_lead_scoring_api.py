@@ -62,6 +62,7 @@ async def _workspace_and_lead(
             source_channel="widget", utm_source="google",
             consent_status="granted" if consent else "withdrawn",
             qualification_score=0, qualification_status="pending",
+            qualification_reason="Existing manual assessment — preserve",
         ))
         await session.commit()
         return authorized, lead.id, scope
@@ -128,7 +129,7 @@ async def test_scoring_policy_preview_apply_audit_and_idempotent_noop(
         assert profile is not None
         assert profile.qualification_score == 50
         assert profile.qualification_status == "pending"  # Score does not qualify the lead.
-        assert profile.qualification_reason is not None
+        assert profile.qualification_reason == "Existing manual assessment — preserve"
         stored_workspace = await session.get(Workspace, workspace_id)
         assert stored_workspace is not None
         assert stored_workspace.settings_json["untouched"] == "preserve"
@@ -136,6 +137,12 @@ async def test_scoring_policy_preview_apply_audit_and_idempotent_noop(
             LeadActivityEvent.lead_id == lead_id,
             LeadActivityEvent.event_type == "website.lead.score_applied",
         ))
+        event = await session.scalar(select(LeadActivityEvent).where(
+            LeadActivityEvent.lead_id == lead_id,
+            LeadActivityEvent.event_type == "website.lead.score_applied",
+        ))
+        assert event is not None
+        assert "source_channel" in event.details_json["explanation"]
         deliveries = await session.scalar(select(func.count()).select_from(OutboxEvent).where(
             OutboxEvent.aggregate_type == "lead", OutboxEvent.aggregate_id == str(lead_id),
             OutboxEvent.event_type == "lead.crm.sync.requested.v1",
