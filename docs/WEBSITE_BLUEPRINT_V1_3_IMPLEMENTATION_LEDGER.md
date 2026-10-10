@@ -1,0 +1,51 @@
+# Website v1.3 implementation and acceptance ledger
+
+Source: Website Master Blueprint v1.3, 7 October 2026 (273 pages).
+This ledger records only **verified** implementation evidence; presence of a
+domain contract does not imply that the UI, API, persistence or end-to-end flow works.
+
+## Branch and scope
+- Development branch: `feature/website-blueprint-v1-3-20261010`
+- Do not merge into `main` without explicit user instruction.
+- Preserve existing CMS, CRM, auth, routing and integrations.
+- New real CRM provider integration: deferred. Website-owned forms/leads: in scope.
+- Keep the existing Python/FastAPI backend unless an approved architecture
+  decision replaces it; blueprint NestJS is a reference default, not evidence
+  of a migration being necessary.
+
+## Work packages (implementation evidence required for each)
+
+| ID | Capability | Current verified evidence | Missing acceptance evidence |
+|---|---|---|---|
+| CMS-01 | Visual builder page contract | `website_builder_document.py` | UI editor, persistence, revisions, accessible keyboard controls |
+| CMS-02 | Safe public rendering | `website_builder_render.py` | Route integration, cache/preview policy, publishing smoke test |
+| CMS-03 | Editorial state machine | `website_cms_lifecycle.py` | DB transactions, owner UI, RBAC, schedule/rollback, audit/outbox |
+| WEB-01 | Public pages and navigation | Not audited | Responsive routes, links, content, SEO and accessibility checks |
+| CMS-04 | Blog, media and preservation | Not audited | Manual-only deletion, restore, rights, authoring, export |
+| MKT-01 | Campaign link builder | `website_campaign_links.py` | Campaign UI, automation worker, scheduling, delivery and analytics |
+| EVT-01 | Analytics and attribution | Not audited | Event ingestion, consent gating, idempotency, report reconciliation |
+| PRIV-01 | Consent decision policy | `website_consent_policy.py` | Banner, preference center, receipts DB, rights, enforcement |
+| SEC-01 | Production admin auth | Existing auth routes identified | Admin UI, RBAC, MFA, cookie/CSRF/session E2E security |
+| DB-01 | Database integrity | Not audited | Migration upgrade/downgrade, constraints, backup/restore |
+| QA-01 | End-to-end verification | Unit test files added, not executed | Builds, unit/integration/E2E, security, performance, recovery |
+
+## Definition of done for every capability
+1. Frontend owner/public journey is usable, accessible and responsive.
+2. Backend API validates requests and enforces authorization server-side.
+3. Durable database migrations, consistency and rollback behavior are tested.
+4. Audit and background delivery are implemented where the blueprint requires.
+5. Unit, integration and browser end-to-end tests pass in CI with evidence links.
+6. Operational instructions, errors, recovery and monitoring are documented.
+7. Mark as verified only when evidence exists; never count a stub as complete.
+
+## Blueprint release blockers
+- No falsely acknowledged or lost leads.
+- No unauthorized admin access, secret leaks or prohibited tracking.
+- No broken primary journeys or untested recovery.
+- No automatic deletion of blog/source/trash content.
+- No green release sign-off without passing acceptance evidence.
+
+## Next integration milestone
+Implement a real CMS page create/edit/preview/publish workflow with migrations,
+admin authorization, immutable revisions, public read model and end-to-end tests.
+Do not claim it is complete until frontend, backend and database all work together.
