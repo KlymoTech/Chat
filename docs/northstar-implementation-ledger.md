@@ -990,3 +990,17 @@ do not merge without explicit instruction.
   **unverified** while Actions fails before running jobs (issue #141).
 - This is **not scheduled retention**, not a deletion executor, not a legal
   hold registry, not S3/Kafka/backup erasure, and not release authorization.
+
+## Increment: read-only retention inventory continuation (2026-10-11)
+
+- Extended the existing tenant/workspace retention preview with an encoded,
+  strictly validated, scope-bound keyset cursor based on `updated_at` and
+  conversation UUID. It pins the original age cutoff while paging over
+  batches up to 1,000 rows and exposes `next_cursor` for repeatable operator
+  invocations rather than stopping at the first page.
+- Malformed or wrong-scope cursors and untrustworthy boundary timestamps
+  fail closed. No external privacy hold decisions are overridden, and no
+  retention deletion/scheduling is performed.
+- Added cursor scope, continuation, cutoff pinning, and boundary-failure
+  regression cases. Full PostgreSQL/RLS integration, concurrent-write
+  snapshot behavior, and exact-commit CI remain unverified (issue #141).

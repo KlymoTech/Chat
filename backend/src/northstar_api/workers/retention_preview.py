@@ -16,7 +16,9 @@ from northstar_api.database import build_engine
 from northstar_api.services.retention_preview import preview_conversation_retention
 
 
-async def run(*, tenant_id: UUID, workspace_id: UUID, limit: int) -> None:
+async def run(
+    *, tenant_id: UUID, workspace_id: UUID, limit: int, cursor: str | None = None
+) -> None:
     # Use a fresh DB transaction and deny writes inside PostgreSQL itself.
     engine = build_engine(get_settings())
     try:
@@ -31,8 +33,9 @@ async def run(*, tenant_id: UUID, workspace_id: UUID, limit: int) -> None:
                 connection,
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
-                as_of=datetime.now(UTC),
+                as_of=None if cursor else datetime.now(UTC),
                 max_rows=limit,
+                cursor=cursor,
             )
             print(json.dumps(asdict(preview), default=str, sort_keys=True))
     finally:
@@ -44,10 +47,18 @@ def main() -> None:
     parser.add_argument("--tenant-id", type=UUID, required=True)
     parser.add_argument("--workspace-id", type=UUID, required=True)
     parser.add_argument("--limit", type=int, default=500)
+    parser.add_argument("--cursor", type=str, default=None)
     args = parser.parse_args()
     if not 1 <= args.limit <= 1_000:
         parser.error("--limit must be in 1..1000")
-    asyncio.run(run(tenant_id=args.tenant_id, workspace_id=args.workspace_id, limit=args.limit))
+    asyncio.run(
+        run(
+            tenant_id=args.tenant_id,
+            workspace_id=args.workspace_id,
+            limit=args.limit,
+            cursor=args.cursor,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -34,3 +34,28 @@ and full end-to-end tests.
 
 This implementation intentionally does not claim to satisfy regulatory
 retention/deletion obligations by itself.
+
+## Inspecting more than one page
+
+The first invocation returns `next_cursor` when additional rows may remain.
+Pass it to the next invocation for the same tenant and workspace:
+
+```bash
+uv run python -m northstar_api.workers.retention_preview \
+  --tenant-id <tenant-uuid> --workspace-id <workspace-uuid> \
+  --limit 500 --cursor '<next_cursor>'
+```
+
+The cursor is a bounded, **non-secret** position token that embeds the original
+tenant, workspace, `as_of` time, last inspected update timestamp, and row ID.
+It is not an authorization credential. The CLI pins the age-policy cutoff across
+pages and uses keyset pagination instead of repeatedly rescanning page one.
+A cursor from a different scope is rejected before SQL is executed. An invalid
+timestamp at the page boundary fails rather than silently skipping rows.
+
+Pagination is **not a database snapshot across CLI invocations**. Concurrent
+conversations may change timestamps or legal-hold status while the inventory is
+being read. A completed preview is neither stable deletion authorization nor a
+proof of exhaustive retention compliance. A future executor must revalidate
+the latest policy, holds, revision/fencing, custody and current record contents
+inside an audited transaction.
