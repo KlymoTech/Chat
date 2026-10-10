@@ -214,8 +214,8 @@ def test_http_route_declaration_must_be_an_absolute_path_list(
     source = manifest.read_text(encoding="utf-8")
     manifest.write_text(
         source.replace(
-            "    kind: schedule\\n",
-            f"    kind: http\\n    routes: {route_decl}\\n",
+            "    kind: schedule\n",
+            f"    kind: http\n    routes: {route_decl}\n",
         ),
         encoding="utf-8",
     )
@@ -233,8 +233,8 @@ def test_http_streaming_routes_reject_invalid_shapes(
     source = manifest.read_text(encoding="utf-8")
     manifest.write_text(
         source.replace(
-            "    kind: schedule\\n",
-            f"    kind: http\\n    routes: [/api/*]\\n    streaming_routes: {stream_decl}\\n",
+            "    kind: schedule\n",
+            f"    kind: http\n    routes: [/api/*]\n    streaming_routes: {stream_decl}\n",
         ),
         encoding="utf-8",
     )
@@ -270,7 +270,7 @@ def test_nonstandard_yaml_keys_report_findings_without_crashing(
     root = fixture_root(tmp_path)
     manifest = root / "platform.yaml"
     manifest.write_text(
-        manifest.read_text(encoding="utf-8") + invalid_field + "\\n",
+        manifest.read_text(encoding="utf-8") + invalid_field + "\n",
         encoding="utf-8",
     )
     result = run_audit(root)
@@ -283,7 +283,7 @@ def test_numeric_process_field_reports_without_crashing(tmp_path: Path) -> None:
     manifest = root / "platform.yaml"
     manifest.write_text(
         manifest.read_text(encoding="utf-8").replace(
-            "    kind: schedule\\n", "    kind: schedule\\n    2026: unexpected\\n"
+            "    kind: schedule\n", "    kind: schedule\n    2026: unexpected\n"
         ),
         encoding="utf-8",
     )
