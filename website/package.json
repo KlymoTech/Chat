@@ -14,7 +14,8 @@
     "media:inspect:once": "node scripts/media-inspection-once.mjs",
     "test:e2e": "playwright test",
     "test:security-db": "node scripts/verify-security-grants.mjs",
-    "automation:internal:once": "node scripts/automation-internal-once.mjs"
+    "automation:internal:once": "node scripts/automation-internal-once.mjs",
+    "test:imports": "node scripts/verify-imports.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",
