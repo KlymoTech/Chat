@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useState} from "react";
 import Link from "next/link";
+import "../../owner.css";
 import {
  RIGHT_KINDS,validCaseKind,allowedCaseTransition,CASE_STATES,CASE_REASONS,
  type RightKind,type CaseState,type CaseReason,
@@ -59,7 +60,7 @@ export default function PrivacyRightsConsole(){
   }
   async function submit(row:RightsCase){
     if(busy)return;
-    const value=decision[row.id];
+    const value=decision[row.id]??options(row)[0];
     if(!value||!allowedCaseTransition(row.status,value.to,value.reason))return;
     setBusy(true);setError("");
     try{
@@ -108,7 +109,7 @@ export default function PrivacyRightsConsole(){
             <label>Next review decision
               <select value={chosen?.to??""} onChange={e=>{
                 const next=steps.find(x=>x.to===e.target.value);
-                if(next)setDecision(old=>({...old,[row.id], [row.id]:{
+                if(next)setDecision(old=>({...old,[row.id]:{
                   to:next.to,reason:next.reason,
                   evidenceRef:old[row.id]?.evidenceRef??"",
                 }}));
