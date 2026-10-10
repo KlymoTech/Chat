@@ -91,8 +91,10 @@ def evaluate_score(
     consent_status: str | None,
     lead_status: str,
 ) -> ScorePreview:
-    permitted = consent and (consent_status or "").lower() not in {
-        "denied", "withdrawn", "revoked", "opted_out",
+    # A generic Lead.consent boolean alone does not establish processing permission.
+    # Unknown/withdrawn purpose status must fail closed until verified.
+    permitted = consent and (consent_status or "").strip().lower() in {
+        "granted", "consented", "accepted", "opted_in",
     }
     reason = None
     if not policy.enabled:
