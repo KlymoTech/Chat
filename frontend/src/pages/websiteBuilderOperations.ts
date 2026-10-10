@@ -2,7 +2,7 @@
  * IDs survive moves; only duplication creates new IDs.
  * Public visitors never receive or execute this editor module.
  */
-export type BuilderKind = 'section' | 'container' | 'heading' | 'paragraph' | 'image' | 'button';
+export type BuilderKind = 'section' | 'container' | 'heading' | 'paragraph' | 'image' | 'button' | 'form';
 
 export interface BuilderNode {
   id: string;
