@@ -123,4 +123,39 @@ describe('CMS published form embed builder', () => {
       }),
     ]));
   });
+
+  it('saves safe block and section appearance in the original page revision', async () => {
+    render(<WebsiteCMSPage />);
+    const pageItem = await screen.findByRole('button', { name: /Home.*home/i });
+    fireEvent.click(pageItem);
+    const blockAlignment = await screen.findByLabelText('Alignment for heading intro');
+    fireEvent.change(blockAlignment, { target: { value: 'center' } });
+    fireEvent.change(screen.getByLabelText('Spacing for heading intro'),
+      { target: { value: 'spacious' } });
+    fireEvent.change(screen.getByLabelText('Color preset for heading intro'),
+      { target: { value: 'accent' } });
+    fireEvent.change(screen.getByLabelText('Color preset for section top'),
+      { target: { value: 'muted' } });
+
+    const previewHeading = screen.getByText('Hello');
+    expect(previewHeading).toHaveClass('site-align-center');
+    expect(previewHeading).toHaveClass('site-space-spacious');
+    expect(previewHeading).toHaveClass('site-tone-accent');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save now' }));
+    await waitFor(() => expect(page.draftVersion).toBe(2));
+    const saved = mocks.request.mock.calls.find(([path, options]) =>
+      path === '/site-cms/pages/' + page.id && options?.method === 'PUT',
+    );
+    expect(saved).toBeDefined();
+    const body = JSON.parse(saved![1].body);
+    expect(body.expected_version).toBe(1);
+    expect(body.document.nodes[0].appearance).toEqual({
+      alignment: 'start', spacing: 'normal', tone: 'muted',
+    });
+    expect(body.document.nodes[0].children[0].appearance).toEqual({
+      alignment: 'center', spacing: 'spacious', tone: 'accent',
+    });
+  });
+
 });
