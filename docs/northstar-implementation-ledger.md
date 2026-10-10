@@ -16,7 +16,7 @@ implementation master plan.
 | 6 | EKS optional profile | Not qualified |
 | 7 | Jenkins qualification | Not implemented |
 | 8 | OpenTelemetry, Grafana and SLOs | Not implemented in this branch |
-| 9 | Capacity scoring and forecasting | Basic advisory resource guard added; collector/forecast and history pending |
+| 9 | Capacity scoring and forecasting | Pure collector, score, forecast, cost and autoscale advisories present; durable history and live integration pending |
 | 10 | Automatic architectural upgrade | Disabled pending signed evidence |
 | 11 | Reversible provider migrations | Not implemented |
 | 12 | Tenant cells and migration | Not implemented |
@@ -898,3 +898,14 @@ do not merge without explicit instruction.
 - Focused tier, switch, preflight, contract and runtime API suites pass (50
   tests), and Ruff passes on the changed Python files. This does not qualify
   automatic switch execution or substitute for signed production evidence.
+
+## Increment: current-spend budget guard (2026-10-10)
+
+- The existing advisory cost controller now uses the higher of current and
+  projected monthly spend for warning and hard-limit decisions. A low forecast
+  cannot mask an already-breached budget. Policy hard fractions may not exceed
+  the declared monthly budget. No second cost-control path was added.
+- Ten focused capacity/safety tests and Ruff pass. The phase-9 ledger now
+  acknowledges the existing pure collector/forecast modules rather than
+  listing them as absent. Durable measurements, calibrated forecasts, and
+  qualified live autoscaling remain unimplemented.

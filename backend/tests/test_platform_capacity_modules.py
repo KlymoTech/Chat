@@ -33,6 +33,15 @@ def test_capacity_modules_are_provider_neutral_and_fail_closed() -> None:
 def test_cost_controller_blocks_over_budget() -> None:
     assert evaluate_cost(current_monthly_cost=10, projected_monthly_cost=101,
                          policy=CostPolicy(monthly_budget=100)) == "blocked_budget"
+    assert evaluate_cost(current_monthly_cost=101, projected_monthly_cost=10,
+                         policy=CostPolicy(monthly_budget=100)) == "blocked_budget"
+    assert evaluate_cost(current_monthly_cost=90, projected_monthly_cost=70,
+                         policy=CostPolicy(monthly_budget=100)) == "warning_budget"
+
+
+def test_cost_policy_cannot_raise_hard_limit_above_monthly_budget() -> None:
+    with pytest.raises(ValueError, match="invalid cost policy"):
+        CostPolicy(monthly_budget=100, hard_fraction=1.5)
 
 
 def test_capacity_inputs_reject_nonfinite_measurements() -> None:
