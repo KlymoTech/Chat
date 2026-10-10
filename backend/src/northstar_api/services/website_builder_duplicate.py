@@ -24,6 +24,8 @@ def duplicate_page_document(
         "slug": new_slug,
         "title": new_title,
         "nodes": [_copy_node(node).model_dump(mode="json") for node in source.nodes],
+        "content_type": source.content_type,
+        "blog": source.blog.model_dump(mode="json") if source.blog is not None else None,
         "seo": PageSEO(
             description=source.seo.description,
             canonical_url=None,
