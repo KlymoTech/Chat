@@ -26,9 +26,12 @@ from northstar_api.lead_crm.models import LeadConsent
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.models import Agent, AgentStatus, Lead, Role, Workspace, WorkspaceStatus
 from northstar_api.routers.website_consent import _same_origin
+from northstar_api.routers.website_cms import _lock_public_route_namespace
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import redis_services
+from northstar_api.services.website_builder_document import BuilderPageDocument
+from northstar_api.website_cms_models import WebsitePage, WebsiteRevision
 from northstar_api.services.website_form_contracts import (
     FormCreate, FormUpdate, FormVersionGuard, SiteFormDocument, validate_answers,
 )
@@ -290,6 +293,37 @@ async def publish_form(
     return _info(form, doc.model_dump(mode="json"))
 
 
+async def _published_pages_embedding_form(
+    session: DBSession, form: WebsiteForm,
+) -> list[str]:
+    """Inspect immutable public page revisions, not editable drafts."""
+    published = (await session.execute(
+        select(WebsitePage.slug, WebsiteRevision.document_json)
+        .join(
+            WebsiteRevision,
+            (WebsiteRevision.page_id == WebsitePage.id)
+            & (WebsiteRevision.version == WebsitePage.published_version),
+        )
+        .where(
+            WebsitePage.tenant_id == form.tenant_id,
+            WebsitePage.workspace_id == form.workspace_id,
+            WebsitePage.published_version.is_not(None),
+        )
+    )).all()
+    exact_url = f"/api/v1/site-forms/public/{form.workspace_id}/{form.slug}"
+    dependent_pages: list[str] = []
+    for slug, content in published:
+        page_document = BuilderPageDocument.model_validate(content)
+        stack = list(page_document.nodes)
+        while stack:
+            node = stack.pop()
+            stack.extend(node.children)
+            if node.kind == "form" and node.url == exact_url:
+                dependent_pages.append(slug)
+                break
+    return dependent_pages
+
+
 @router.post("/{form_id}/unpublish")
 async def unpublish_form(
     form_id: UUID, payload: FormVersionGuard, principal: Owner, session: DBSession,
@@ -298,6 +332,15 @@ async def unpublish_form(
     if form.draft_version != payload.expected_version:
         raise HTTPException(409, "Form changed; reload before unpublishing")
     if form.published_version is not None:
+        # Same lock as page publication: no page may be left publicly embedding
+        # a disabled form. Owner must remove/archive those embeds first.
+        await _lock_public_route_namespace(session, principal)
+        dependent_pages = await _published_pages_embedding_form(session, form)
+        if dependent_pages:
+            raise HTTPException(
+                409, "Remove this form from published pages before unpublishing: "
+                + ", ".join(dependent_pages[:10]),
+            )
         old_publication = form.published_version
         changed = await session.execute(update(WebsiteForm).where(
             WebsiteForm.id == form.id,
@@ -431,10 +474,9 @@ async def submit_public_form(
                 if accept_json else _html(
                     "<h1>Already received</h1><p role=\"status\">Your enquiry was recorded. "
                     "Receipt: " + escape(str(prior.id)) + "</p>"))
-    if form.published_version is None:
-        raise HTTPException(410, "This form is closed and cannot accept new submissions")
-    if version != form.published_version:
-        raise HTTPException(409, "This form changed; reload it before submitting")
+    # The initial public GET is only a snapshot: protect new submissions from
+    # a concurrent unpublish/revision switch by locking and reading the live
+    # publication pointer again within the eventual lead transaction.
     answers, errors = validate_answers(document, values)
     if errors:
         if accept_json:
@@ -449,6 +491,17 @@ async def submit_public_form(
     )
     if not rate.allowed:
         raise HTTPException(429, "Please try later", headers={"Retry-After":str(rate.retry_after)})
+    current_publication = await session.scalar(
+        select(WebsiteForm.published_version).where(
+            WebsiteForm.id == form.id,
+            WebsiteForm.tenant_id == workspace.tenant_id,
+            WebsiteForm.workspace_id == workspace_id,
+        ).with_for_update()
+    )
+    if current_publication is None:
+        raise HTTPException(410, "This form is closed and cannot accept new submissions")
+    if current_publication != version:
+        raise HTTPException(409, "This form changed; reload it before submitting")
     await _agent(
         session, tenant_id=workspace.tenant_id,
         workspace_id=workspace_id, agent_id=form.agent_id, active=True,
