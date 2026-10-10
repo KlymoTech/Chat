@@ -64,7 +64,7 @@ def _matches_upload_signature(content_type: str, data: bytes) -> bool:
         except (OSError, ValueError, zipfile.BadZipFile):
             return False
     if content_type in {"text/plain", "text/markdown"}:
-        return b"\x00" not in data[:8192]
+        return b"\x00" not in data
     return False
 
 

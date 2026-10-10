@@ -495,6 +495,11 @@ def test_upload_signature_matches_declared_type(content_type: str, data: bytes, 
     assert _matches_upload_signature(content_type, data) is accepted
 
 
+@pytest.mark.parametrize("content_type", ["text/plain", "text/markdown"])
+def test_text_upload_rejects_binary_content_after_initial_screen(content_type: str) -> None:
+    assert not _matches_upload_signature(content_type, b"a" * 8192 + b"\x00" + b"tail")
+
+
 def test_docx_signature_requires_package_members() -> None:
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:

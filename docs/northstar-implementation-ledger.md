@@ -770,3 +770,11 @@ do not merge without explicit instruction.
 - This is discovery only. It does not authorize deletion: upload-session
   ownership, version receipts, legal holds, quota release, retry policy and
   supervised orphan reconciliation remain unimplemented and require review.
+
+## Increment: full-payload text upload NUL screening (2026-10-10)
+
+- Promotion now screens the entire already-read text/Markdown payload for NUL
+  bytes rather than only its first 8 KiB. Tests cover binary content after
+  that former boundary. This narrows one mislabeled-binary acceptance gap.
+- This is not malware scanning, text-encoding validation or comprehensive
+  content classification; the rest of the upload lifecycle remains open.
