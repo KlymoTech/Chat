@@ -318,3 +318,88 @@ async def test_owner_export_import_creates_independent_unpublished_page(
         )
     assert saved_revisions == 1
     assert events == 1
+
+
+
+async def test_archiving_hides_published_page_without_deleting_revisions(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    prefix = uuid4().hex[:12]
+    slug = "archive-cms-" + prefix
+    document = page_document(slug, "Preserved published content")
+    document["seo"] = {
+        "description": "Public page subject to manual archival",
+        "canonical_url": "https://example.org/" + slug,
+        "indexable": True,
+    }
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    assert workspace.status_code == 200
+    workspace_id = workspace.json()["id"]
+    public_path = f"/api/v1/site-cms/public/{workspace_id}/{slug}"
+    sitemap_path = f"/api/v1/site-discovery/sitemap/{workspace_id}.xml"
+
+    created = await client.post("/api/v1/site-cms/pages", headers=auth_headers, json=document)
+    assert created.status_code == 201, created.text
+    page_id = created.json()["id"]
+    action_path = f"/api/v1/site-cms/pages/{page_id}/"
+    for action in ("submit", "approve", "publish"):
+        done = await client.post(action_path + action, headers=auth_headers)
+        assert done.status_code == 200, done.text
+
+    assert (await client.get(public_path)).status_code == 200
+    assert "https://example.org/" + slug in (await client.get(sitemap_path)).text
+
+    archive = await client.post(action_path + "archive", headers=auth_headers)
+    assert archive.status_code == 200, archive.text
+    assert archive.json()["status"] == "archived"
+    assert archive.json()["publishedVersion"] is None
+    assert (await client.get(public_path)).status_code == 404
+    assert "https://example.org/" + slug not in (await client.get(sitemap_path)).text
+
+    anonymous_restore = await client.post(action_path + "restore_draft")
+    assert anonymous_restore.status_code == 401
+    restored = await client.post(action_path + "restore_draft", headers=auth_headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["status"] == "draft"
+    assert restored.json()["document"]["nodes"][0]["children"][0]["text"] == "Preserved published content"
+    assert (await client.get(public_path)).status_code == 404
+
+    for action, state in (
+        ("submit", "in_review"), ("request_changes", "draft"),
+        ("submit", "in_review"), ("approve", "approved"), ("publish", "published"),
+    ):
+        response = await client.post(action_path + action, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == state
+    assert (await client.get(public_path)).status_code == 200
+
+    updated = page_document(slug, "Unpublished new draft")
+    saved = await client.put(
+        f"/api/v1/site-cms/pages/{page_id}",
+        headers=auth_headers,
+        json={"expected_version": 1, "document": updated},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "draft"
+    assert saved.json()["publishedVersion"] == 1
+
+    old_live = await client.get(public_path)
+    assert old_live.status_code == 200, old_live.text
+    assert "Preserved published content" in old_live.text
+    assert "Unpublished new draft" not in old_live.text
+
+    async with SessionFactory() as session:
+        revision_count = await session.scalar(
+            select(func.count()).select_from(WebsiteRevision)
+            .where(WebsiteRevision.page_id == UUID(page_id))
+        )
+        unpublished_events = await session.scalar(
+            select(func.count()).select_from(OutboxEvent)
+            .where(
+                OutboxEvent.aggregate_type == "website_page",
+                OutboxEvent.aggregate_id == page_id,
+                OutboxEvent.event_type == "website.page.unpublished",
+            )
+        )
+    assert revision_count == 2
+    assert unpublished_events == 1
