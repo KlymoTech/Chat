@@ -82,3 +82,35 @@ async def test_invalid_parameters_do_not_touch_database(change):
     arguments.update(change)
     with pytest.raises(PermissionError, match="invalid signing authorization"):
         await store.consume(**arguments)
+
+
+@pytest.mark.asyncio
+async def test_database_unavailable_fails_closed():
+    class Offline:
+        def __call__(self):
+            raise ConnectionError("database down")
+
+    store = replay.CommittedAuthorizationConsumption(Offline())
+    with pytest.raises(PermissionError, match="already consumed or unavailable"):
+        await store.consume(
+            authorization_id="unique-auth-id-123456",
+            release_id="release-12345678",
+            run_id="jenkins-run-123456",
+            now=datetime(2026, 10, 10, tzinfo=UTC),
+        )
+
+
+@pytest.mark.asyncio
+async def test_non_session_object_cannot_confirm_authorization():
+    class WrongSession:
+        async def execute(self, statement):
+            raise AssertionError("untrusted session must not execute")
+
+    store = replay.CommittedAuthorizationConsumption(Factory(WrongSession()))
+    with pytest.raises(PermissionError, match="already consumed or unavailable"):
+        await store.consume(
+            authorization_id="unique-auth-id-123456",
+            release_id="release-12345678",
+            run_id="jenkins-run-123456",
+            now=datetime(2026, 10, 10, tzinfo=UTC),
+        )
