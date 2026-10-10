@@ -16,7 +16,15 @@ interface PageDocument {
   schema_version: 1; title: string; slug: string; nodes: Node[]; seo?: PageSEO;
   content_type?: 'page' | 'article'; blog?: BlogMetadata | null;
 }
-interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
+interface WebsiteMetrics {
+  days: number; pageViews: number; ctaClicks: number;
+  pages: Array<{ slug: string; pageViews: number }>;
+  formSubmissions?: { total: number; byForm: Array<{ slug: string; submissions: number }> };
+  conversionDispatch?: {
+    publishedToEventBus: number; queued: number; retrying: number;
+    missingOutboxEvents: number; deliveryConfirmed: boolean; note: string;
+  };
+}
 interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
 interface EmbeddableForm { id: string; slug: string; publishedVersion: number | null; document: { title: string } }
@@ -873,6 +881,26 @@ export function WebsiteCMSPage() {
               <div><strong>{metrics?.pages.length ?? '—'}</strong><span>Viewed pages</span></div>
             </div>
             {metrics && metrics.pages.length > 0 ? <p>Top page: /{metrics.pages[0]?.slug} · {metrics.pages[0]?.pageViews} views</p> : null}
+            {metrics?.formSubmissions && metrics.conversionDispatch ? <section className="site-cms-form-health"
+              aria-label="Lead-capture receipt and event-bus reconciliation">
+              <h4>Committed enquiry receipts</h4>
+              <p>Authoritative database submissions, not optional visitor analytics. A submission is not an automatically qualified lead.</p>
+              <div className="site-cms-metrics">
+                <div><strong>{metrics.formSubmissions.total}</strong><span>Accepted forms</span></div>
+                <div><strong>{metrics.conversionDispatch.publishedToEventBus}</strong><span>Events published to broker</span></div>
+                <div><strong>{metrics.conversionDispatch.queued}</strong><span>Waiting for broker</span></div>
+                <div><strong>{metrics.conversionDispatch.retrying}</strong><span>Broker retries needed</span></div>
+                <div><strong>{metrics.conversionDispatch.missingOutboxEvents}</strong><span>Unmatched receipts</span></div>
+              </div>
+              {(metrics.conversionDispatch.retrying > 0 || metrics.conversionDispatch.missingOutboxEvents > 0)
+                ? <p role="alert" className="site-cms-reconciliation-warning">
+                  Some accepted enquiries require operational review. Do not create duplicate leads to repair them.
+                </p> : null}
+              <p>{metrics.conversionDispatch.note}</p>
+              {metrics.formSubmissions.byForm.length > 0
+                ? <p>Most-used form: /{metrics.formSubmissions.byForm[0]?.slug} ·
+                  {' '}{metrics.formSubmissions.byForm[0]?.submissions} submissions</p> : null}
+            </section> : null}
             <a className="site-cms-public-link" href={apiConfig.baseUrl + '/site-blog/' + activeWorkspace.id}
               target="_blank" rel="noopener noreferrer">View published blog <ExternalLink size={15} aria-hidden="true" /></a>
             <a className="site-cms-public-link" href={apiConfig.baseUrl + '/site-discovery/sitemap/' + activeWorkspace.id + '.xml'}
