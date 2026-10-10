@@ -2,6 +2,7 @@ import "server-only";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { CmsActor } from "./cms-editor";
 import { actorFromVerifiedClaims } from "./owner-claims";
+import { trustedOwnerJwksEndpoint } from "./owner-endpoint-policy";
 import { readOwnerCookie, sessionCookie } from "./owner-session";
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
@@ -26,10 +27,8 @@ export async function authenticateOwner(request: Request): Promise<CmsActor | nu
   if (typeof token !== "string" || token.length > 8192 ||
       !/^[\w.-]+$/.test(token) || token.split(".").length !== 3) return null;
   try {
-    const issuerUrl = new URL(issuer), keyUrl = new URL(jwksUrl);
-    if (issuerUrl.protocol !== "https:" || keyUrl.protocol !== "https:" ||
-        issuerUrl.username || issuerUrl.password || keyUrl.username || keyUrl.password ||
-        keyUrl.hash || keyUrl.search || issuerUrl.hash || issuerUrl.search) return null;
+    if (!trustedOwnerJwksEndpoint(issuer,jwksUrl)) return null;
+    const keyUrl=new URL(jwksUrl);
     if (!jwks || jwksUrlCached !== jwksUrl) {
       jwks = createRemoteJWKSet(keyUrl, { timeoutDuration: 3000, cooldownDuration: 30000 });
       jwksUrlCached = jwksUrl;
