@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     s3_secret_access_key: SecretStr | None = None
     s3_presign_ttl_seconds: int = 900
     upload_max_bytes: int = Field(default=500 * 1024 * 1024, ge=1, le=500 * 1024 * 1024)
+    # Local ClamAV sidecar; untrusted uploads cannot be promoted without its
+    # clean verdict in staging or production. No external scanner egress.
+    knowledge_clamav_enabled: bool = False
+    knowledge_clamav_port: int = Field(default=3310, ge=1024, le=65535)
+    knowledge_clamav_timeout_seconds: int = Field(default=120, ge=10, le=600)
     knowledge_max_extracted_characters: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
     knowledge_max_chunks: int = Field(default=2_000, ge=1, le=20_000)
     knowledge_max_pdf_pages: int = Field(default=500, ge=1, le=5_000)

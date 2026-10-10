@@ -936,3 +936,24 @@ do not merge without explicit instruction.
 - This is a package-structure guard, **not** antivirus/malware scanning,
   complete OPC validation, age-based retention, upload quota reservation,
   or production release authorization.
+
+## Increment: clean-verdict gate before knowledge upload promotion (2026-10-11)
+
+- Extended the existing staged-upload promotion path with a local ClamAV
+  INSTREAM protocol adapter. Once SHA-256, version and MIME/signature checks
+  pass, staging/production require an explicit clean antivirus verdict before
+  copying the object into its permanent knowledge prefix.
+- The connection is loopback-only to a local/private sidecar. Detected malware
+  returns a generic upload rejection; unreachable, error, unknown or incomplete
+  scanner verdicts block promotion. Files remain staged for policy-governed
+  cleanup rather than being silently promoted or erased.
+- KNOWLEDGE_CLAMAV_ENABLED defaults to false for development/test compatibility;
+  staging and production refuse unscanned promotion. Operators must deploy,
+  configure and qualify ClamAV (including signatures, StreamMaxLength, resource
+  budgets and health alerting) before enabling protected uploads.
+- Seven isolated ClamAV protocol cases passed locally. The added repository
+  integration tests, full backend suite, Ruff gate and live ClamAV + S3/MinIO
+  verification have NOT passed during this change; GitHub Actions is
+  failing before step execution (issue #141).
+- This is not proof of zero malware risk, retrospective cleaning of legacy
+  objects, complete quota/retention enforcement or production release approval.

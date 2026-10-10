@@ -5,6 +5,7 @@ import hashlib
 import io
 import re
 import secrets
+import socket
 import stat
 import zipfile
 from dataclasses import dataclass
@@ -114,9 +115,59 @@ def _matches_upload_signature(content_type: str, data: bytes) -> bool:
     return False
 
 
+def scan_with_clamav_instream(data: bytes, *, port: int, timeout_seconds: float) -> None:
+    """Require a clean ClamAV INSTREAM verdict from the local service sidecar."""
+    if not data:
+        raise InvalidUpload("Cannot scan an empty upload")
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout_seconds) as conn:
+            conn.settimeout(timeout_seconds)
+            conn.sendall(b"zINSTREAM\x00")
+            view = memoryview(data)
+            for offset in range(0, len(view), 64 * 1024):
+                block = view[offset : offset + 64 * 1024]
+                conn.sendall(len(block).to_bytes(4, "big"))
+                conn.sendall(block)
+            conn.sendall(b"\x00\x00\x00\x00")
+
+            response = bytearray()
+            terminated = False
+            while len(response) < 512:
+                chunk = conn.recv(min(128, 512 - len(response)))
+                if not chunk:
+                    break
+                response.extend(chunk)
+                if b"\x00" in response or b"\n" in response:
+                    terminated = True
+                    break
+    except (OSError, TimeoutError) as exc:
+        raise ObjectStoreUnavailable("Malware scanner is unavailable") from exc
+    if not terminated:
+        raise ObjectStoreUnavailable("Malware scanner did not return a complete verdict")
+    verdict = bytes(response).split(b"\x00", 1)[0].split(b"\n", 1)[0].strip()
+    if verdict == b"stream: OK":
+        return
+    if verdict.startswith(b"stream: ") and verdict.endswith(b" FOUND"):
+        raise InvalidUpload("Uploaded file failed malware scan")
+    raise ObjectStoreUnavailable("Malware scanner did not approve the upload")
+
+
 class ObjectStore:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+
+    def _require_clean_upload(self, data: bytes) -> None:
+        if not self.settings.knowledge_clamav_enabled:
+            if self.settings.app_env in {"staging", "production"}:
+                raise ObjectStoreUnavailable(
+                    "Malware scanner is required for staged upload promotion"
+                )
+            return
+        scan_with_clamav_instream(
+            data,
+            port=self.settings.knowledge_clamav_port,
+            timeout_seconds=self.settings.knowledge_clamav_timeout_seconds,
+        )
 
     def _client(self, *, public: bool = False) -> Any:
         if self.settings.s3_auth_mode == "aws-default":
@@ -319,6 +370,9 @@ class ObjectStore:
                 raise InvalidUpload("Uploaded object checksum does not match")
             if not _matches_upload_signature(content_type, data):
                 raise InvalidUpload("Uploaded object bytes do not match the declared file type")
+            # The same pinned staged-version bytes validated by SHA-256 must
+            # receive a clean scanner verdict before ANY permanent copy.
+            self._require_clean_upload(data)
             del data
 
             permanent_key = key.replace("staging/", "knowledge/", 1)
