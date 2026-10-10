@@ -239,7 +239,7 @@ async def site_analytics_summary(
 
 @router.get("/report")
 async def site_analytics_daily_report(
-    principal: CmsAdmin, session: DBSession,
+    principal: CmsAdmin, session: DBSession, response: Response,
     days: Annotated[int, Query(ge=1, le=90)] = 30,
 ) -> dict[str, object]:
     """UTC daily trends from existing consent-gated browser and committed receipt ledgers.
@@ -248,6 +248,8 @@ async def site_analytics_daily_report(
     excludes visitor hashes, event IDs, leads, contact details and any provider
     acknowledgement claims. No new analytics or CRM tables are created.
     """
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     if principal.workspace_id is None:
         raise HTTPException(400, "Select a workspace")
     now = datetime.now(UTC)
