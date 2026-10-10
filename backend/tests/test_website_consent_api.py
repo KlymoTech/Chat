@@ -43,6 +43,7 @@ async def test_anonymous_visitor_defaults_to_rejected_and_can_withdraw(
         assert allowed.json()["personalization"] is False
         assert "wsc_" in allowed.headers["set-cookie"]
         assert "httponly" in allowed.headers["set-cookie"].lower()
+        assert "path=/api/v1" in allowed.headers["set-cookie"].lower()
 
         retained = await visitor.get(url)
         assert retained.status_code == 200
