@@ -1,0 +1,339 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Copy, ExternalLink, FilePlus2, Plus, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { Button, Card } from '@/components/ui';
+import { apiConfig, request } from '@/lib/api';
+import './WebsiteFormsPanel.css';
+
+type FieldKind = 'text' | 'email' | 'phone' | 'select' | 'radio' | 'checkbox' | 'date' | 'consent';
+type Sensitivity = 'normal' | 'personal';
+interface FormField {
+  key: string; label: string; kind: FieldKind; required: boolean; purpose: string;
+  sensitivity: Sensitivity; retention_days: number; max_length: number; choices: string[];
+}
+interface FormDocument {
+  title: string; submit_label: string; description: string; privacy_notice: string;
+  fields: FormField[];
+}
+interface SiteForm {
+  id: string; slug: string; agentId: string;
+  draftVersion: number; publishedVersion: number | null; document: FormDocument;
+}
+interface AgentChoice { id: string; name: string; purpose?: string; status?: string }
+interface Receipt { receiptId: string; leadId: string | null; createdAt: string; version: string }
+const kinds: FieldKind[] = ['text', 'email', 'phone', 'select', 'radio', 'checkbox', 'date', 'consent'];
+const field = (key: string, label: string, kind: FieldKind, required: boolean): FormField => ({
+  key, label, kind, required, purpose: kind === 'consent'
+    ? 'Permission to process this enquiry and respond'
+    : 'Process and respond to this enquiry',
+  sensitivity: 'personal', retention_days: 365,
+  max_length: kind === 'text' ? 1000 : 300, choices: [],
+});
+const draftTemplate = (): FormDocument => ({
+  title: 'Contact us', submit_label: 'Send enquiry',
+  description: 'Tell us how we can help.',
+  privacy_notice: 'We will use the details you provide to respond to this enquiry. This does not subscribe you to marketing.',
+  fields: [
+    field('name', 'Full name', 'text', true),
+    field('email', 'Email address', 'email', true),
+    field('message', 'Your message', 'text', true),
+    field('processing_consent', 'I agree to processing of this enquiry', 'consent', true),
+  ],
+});
+const say = (reason: unknown) => reason instanceof Error ? reason.message : 'Request failed. Please retry.';
+const slugOk = (value: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+const fieldKeyOk = (value: string) => /^[a-z][a-z0-9_]*$/.test(value);
+
+export function WebsiteFormsPanel({ workspaceId }: { workspaceId: string }) {
+  const [forms, setForms] = useState<SiteForm[]>([]);
+  const [agents, setAgents] = useState<AgentChoice[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [draft, setDraft] = useState<FormDocument>(draftTemplate);
+  const [newSlug, setNewSlug] = useState('');
+  const [agentId, setAgentId] = useState('');
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const selected = forms.find((form) => form.id === selectedId) ?? null;
+  const dirty = selected !== null && JSON.stringify(draft) !== JSON.stringify(selected.document);
+  const availableAgents = useMemo(
+    () => agents.filter((agent) => agent.purpose === 'lead_generation'),
+    [agents],
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const [loaded, agentList] = await Promise.all([
+        request<SiteForm[]>('/site-forms'),
+        request<AgentChoice[]>('/agents'),
+      ]);
+      setForms(loaded);
+      setAgents(agentList);
+      setSelectedId('');
+      setDraft(draftTemplate());
+      setReceipts([]);
+    } catch (reason) { setError(say(reason)); }
+    finally { setLoading(false); }
+  }, [workspaceId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const select = (form: SiteForm | null) => {
+    if (dirty && !window.confirm('Discard unsaved form changes?')) return;
+    setSelectedId(form?.id ?? '');
+    setDraft(form ? structuredClone(form.document) : draftTemplate());
+    setAgentId(form?.agentId ?? '');
+    setNewSlug(form?.slug ?? '');
+    setReceipts([]);
+    setError(''); setNotice('');
+  };
+  const changeField = (index: number, patch: Partial<FormField>) => {
+    setDraft((current) => ({
+      ...current, fields: current.fields.map((item, i) => i === index ? { ...item, ...patch } : item),
+    }));
+  };
+  const makeField = (kind: FieldKind) => {
+    const key = 'field_' + (draft.fields.length + 1);
+    const created = field(key, 'New field', kind, kind === 'consent');
+    if (kind === 'select' || kind === 'radio') created.choices = ['Option A', 'Option B'];
+    setDraft((current) => ({ ...current, fields: [...current.fields, created] }));
+  };
+  const draftValid = (
+    draft.title.trim().length > 0 && draft.privacy_notice.trim().length >= 10 &&
+    draft.fields.length >= 2 && draft.fields.length <= 30 &&
+    draft.fields.every((item) => fieldKeyOk(item.key)
+      && item.label.trim() && item.purpose.trim().length >= 3
+      && (item.kind === 'consent' ? item.required : true)
+      && (item.kind === 'select' || item.kind === 'radio' ? item.choices.length > 0 : item.choices.length === 0)) &&
+    new Set(draft.fields.map((item) => item.key)).size === draft.fields.length &&
+    draft.fields.some((item) => item.kind === 'consent') &&
+    draft.fields.some((item) => item.required && (item.kind === 'email' || item.kind === 'phone'))
+  );
+  const create = async () => {
+    if (!draftValid || !slugOk(newSlug) || !agentId || busy) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const created = await request<SiteForm>('/site-forms', {
+        method: 'POST', body: JSON.stringify({ slug: newSlug, agent_id: agentId, document: draft }),
+      });
+      setForms((current) => [created, ...current]);
+      setSelectedId(created.id);
+      setDraft(structuredClone(created.document));
+      setNotice('Form saved as a private draft. Publish it when the assigned agent is active.');
+    } catch (reason) { setError(say(reason)); }
+    finally { setBusy(false); }
+  };
+  const save = async () => {
+    if (!selected || !dirty || busy || !draftValid) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const saved = await request<SiteForm>('/site-forms/' + selected.id, {
+        method: 'PUT', body: JSON.stringify({
+          expected_version: selected.draftVersion, document: draft,
+        }),
+      });
+      setForms((current) => current.map((entry) => entry.id === saved.id ? saved : entry));
+      setDraft(structuredClone(saved.document));
+      setNotice('Saved as revision ' + saved.draftVersion + '. The existing public revision remains unchanged.');
+    } catch (reason) {
+      setError(say(reason) + ' Your edits remain in this tab; reload only after preserving them.');
+    } finally { setBusy(false); }
+  };
+  const publish = async (unpublish = false) => {
+    if (!selected || dirty || busy) return;
+    if (unpublish && !window.confirm('Stop accepting submissions on this public form? Historical leads remain stored.')) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const saved = await request<SiteForm>(
+        '/site-forms/' + selected.id + (unpublish ? '/unpublish' : '/publish'),
+        { method: 'POST', body: JSON.stringify({ expected_version: selected.draftVersion }) },
+      );
+      setForms((current) => current.map((entry) => entry.id === saved.id ? saved : entry));
+      setNotice(unpublish ? 'Form is no longer public. Previous submissions remain available.'
+        : 'Published revision ' + saved.publishedVersion + '. The public link is now active.');
+    } catch (reason) { setError(say(reason)); }
+    finally { setBusy(false); }
+  };
+  const receiptsForForm = async () => {
+    if (!selected || busy) return;
+    setBusy(true); setError('');
+    try { setReceipts(await request<Receipt[]>('/site-forms/' + selected.id + '/submissions')); }
+    catch (reason) { setError(say(reason)); }
+    finally { setBusy(false); }
+  };
+  const url = selected && selected.publishedVersion !== null
+    ? apiConfig.baseUrl.replace(/\/$/, '') + '/site-forms/public/' + workspaceId + '/' + selected.slug
+    : '';
+
+  return <Card>
+    <div className="site-forms-heading">
+      <div><h3>Website forms and lead capture</h3>
+        <p>Build accessible enquiry forms linked to your existing Lead Generation Agent and CRM pipeline. Every published schema is pinned to an immutable revision.</p>
+      </div>
+      <Button variant="secondary" icon={RefreshCw} size="sm" disabled={busy || loading}
+        onClick={() => { if (!dirty || window.confirm('Discard unsaved form edits?')) void load(); }}>Reload forms</Button>
+    </div>
+    {error ? <p className="form-error" role="alert">{error}</p> : null}
+    {notice ? <p role="status" className="site-forms-notice">{notice}</p> : null}
+    {loading ? <p>Loading website forms…</p> : <>
+      <label>Choose a form
+        <select value={selectedId} onChange={(event) => {
+          select(forms.find((item) => item.id === event.target.value) ?? null);
+        }}>
+          <option value="">Create a new form…</option>
+          {forms.map((item) => <option key={item.id} value={item.id}>
+            {item.document.title} (/{item.slug}) · {item.publishedVersion ? 'published' : 'draft'}
+          </option>)}
+        </select>
+      </label>
+      {!selected ? <div className="site-forms-new">
+        <label>Form URL slug
+          <input required value={newSlug} placeholder="contact" maxLength={160}
+            pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            onChange={(event) => setNewSlug(event.target.value)} />
+        </label>
+        <label>Lead Generation Agent
+          <select value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+            <option value="">Select an existing agent…</option>
+            {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>
+              {agent.name} · {agent.status === 'active' ? 'active' : 'activate before publishing'}
+            </option>)}
+          </select>
+        </label>
+        {availableAgents.length === 0 ? <p role="status">
+          Create a Lead Generation Agent in Agents before creating this form. Existing agents are reused.
+        </p> : null}
+      </div> : <p className="site-forms-status">
+        Draft v{selected.draftVersion} · Public {selected.publishedVersion ?? 'not published'}.
+        {' '}Assigned agent: {agents.find((agent) => agent.id === selected.agentId)?.name ?? selected.agentId}
+      </p>}
+      <div className="site-forms-details">
+        <label>Form title
+          <input maxLength={180} value={draft.title}
+            onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
+        </label>
+        <label>Submit button text
+          <input maxLength={80} value={draft.submit_label}
+            onChange={(event) => setDraft({ ...draft, submit_label: event.target.value })} />
+        </label>
+        <label>Description
+          <textarea maxLength={1000} rows={2} value={draft.description}
+            onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+        </label>
+        <label>Privacy notice (shown to visitors)
+          <textarea required maxLength={1000} rows={3} value={draft.privacy_notice}
+            onChange={(event) => setDraft({ ...draft, privacy_notice: event.target.value })} />
+        </label>
+      </div>
+      <h4>Form fields</h4>
+      <p className="site-forms-subtitle">Fields require a stable key, explicit purpose, retention period and sensitivity. Sensitive and file fields require separate verified activation.</p>
+      <div className="site-forms-fields">
+        {draft.fields.map((item, index) => <fieldset className="site-forms-field" key={index}>
+          <legend>Field {index + 1}: {item.label || item.key}</legend>
+          <div className="site-forms-field-grid">
+            <label>Stable key
+              <input maxLength={60} pattern="[a-z][a-z0-9_]*" value={item.key}
+                onChange={(event) => changeField(index, { key: event.target.value })}/>
+            </label>
+            <label>Visitor label
+              <input maxLength={120} value={item.label}
+                onChange={(event) => changeField(index, { label: event.target.value })}/>
+            </label>
+            <label>Control type
+              <select value={item.kind} onChange={(event) => {
+                const kind = event.target.value as FieldKind;
+                changeField(index, {
+                  kind, required: kind === 'consent' ? true : item.required,
+                  choices: kind === 'select' || kind === 'radio' ? ['Option A', 'Option B'] : [],
+                });
+              }}>
+                {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+              </select>
+            </label>
+            <label>Purpose
+              <input maxLength={180} value={item.purpose}
+                onChange={(event) => changeField(index, { purpose: event.target.value })}/>
+            </label>
+            <label>Retention (days)
+              <input type="number" min={1} max={3650} value={item.retention_days}
+                onChange={(event) => changeField(index, { retention_days: Number(event.target.value) })}/>
+            </label>
+            <label>Classification
+              <select value={item.sensitivity} onChange={(event) =>
+                changeField(index, { sensitivity: event.target.value as Sensitivity })}>
+                <option value="personal">Personal</option><option value="normal">Non-sensitive</option>
+              </select>
+            </label>
+            <label>Maximum input length
+              <input type="number" min={1} max={2000} value={item.max_length}
+                onChange={(event) => changeField(index, { max_length: Number(event.target.value) })}/>
+            </label>
+            <label className="site-forms-checkbox">
+              <input type="checkbox" checked={item.required} disabled={item.kind === 'consent'}
+                onChange={(event) => changeField(index, { required: event.target.checked })}/>
+              Required
+            </label>
+            {(item.kind === 'select' || item.kind === 'radio') &&
+              <label className="site-forms-wide">Choices (one per line)
+                <textarea rows={3} value={item.choices.join('\n')}
+                  onChange={(event) => changeField(index, {
+                    choices: event.target.value.split('\n').map((value) => value.trim()).filter(Boolean),
+                  })}/>
+              </label>}
+          </div>
+          <Button variant="secondary" size="sm" icon={Trash2}
+            disabled={draft.fields.length <= 2 || busy}
+            onClick={() => setDraft((current) => ({
+              ...current, fields: current.fields.filter((_, i) => i !== index),
+            }))}>Remove field</Button>
+        </fieldset>)}
+      </div>
+      <div className="site-forms-actions">
+        <label>Add a field
+          <select aria-label="New field type" id="site-form-new-kind" defaultValue="text">
+            {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+          </select>
+        </label>
+        <Button variant="secondary" size="sm" icon={Plus}
+          disabled={busy || draft.fields.length >= 30}
+          onClick={() => {
+            const element = document.getElementById('site-form-new-kind') as HTMLSelectElement | null;
+            makeField((element?.value as FieldKind) ?? 'text');
+          }}>Add field</Button>
+        {!selected ? <Button icon={FilePlus2} disabled={busy || !draftValid || !slugOk(newSlug) || !agentId}
+          onClick={() => { void create(); }}>Create private form</Button> :
+          <>
+            <Button icon={Save} disabled={busy || !dirty || !draftValid}
+              onClick={() => { void save(); }}>Save revision</Button>
+            <Button variant="secondary" icon={ShieldCheck} disabled={busy || dirty ||
+              selected.publishedVersion === selected.draftVersion}
+              onClick={() => { void publish(); }}>Publish form</Button>
+            <Button variant="secondary" disabled={busy || dirty || selected.publishedVersion === null}
+              onClick={() => { void publish(true); }}>Unpublish safely</Button>
+          </>}
+      </div>
+      {!draftValid ? <p role="status" className="site-forms-warning">
+        A form needs unique field keys, a required email or phone field, required processing consent and meaningful privacy text.
+      </p> : null}
+      {url && <>
+        <div className="site-forms-public">
+          <strong>Published first-party form</strong>
+          <a href={url} target="_blank" rel="noopener noreferrer">{url} <ExternalLink size={14}/></a>
+          <Button variant="secondary" icon={Copy} size="sm"
+            onClick={() => { void navigator.clipboard?.writeText(url); }}>Copy public URL</Button>
+          <small>Add a button block with this URL in your existing visual page builder to link to the form.</small>
+        </div>
+        <div className="site-forms-receipts">
+          <Button variant="secondary" size="sm" disabled={busy}
+            onClick={() => { void receiptsForForm(); }}>Load submission receipts</Button>
+          {receipts.map((entry) => <p key={entry.receiptId}>
+            Receipt {entry.receiptId} · Form v{entry.version} · {new Date(entry.createdAt).toLocaleString()}.
+            {' '}<a href="/leads">Review lead</a>
+          </p>)}
+        </div>
+      </>}
+    </>}
+  </Card>;
+}
