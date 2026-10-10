@@ -76,7 +76,7 @@ async def sign_custodied_jenkins_test_result(
     start, HTTP endpoint, cloud mutation, or database commit is performed.
     """
     instant = datetime.now(UTC) if now is None else now
-    if not isinstance(instant, datetime) or instant.tzinfo is None:
+    if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
         raise CustodyAttestationRejected("timezone-aware signing time required")
     try:
         trusted = serialization.load_pem_public_key(test_signer_public_key_pem)
