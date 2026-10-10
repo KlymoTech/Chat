@@ -266,3 +266,22 @@ Audit established that `backend/src/northstar_api/routers/crm_workflow.py` alrea
 
 ### Verification limit
 The implementation is committed to `feature/website-consolidated-20261010` only. At the time of writing the consolidated branch has no GitHub Actions execution records, and other website branches have exhibited runner assignment failures. There is no claim that these new tests have run or that all blueprint acceptance gates pass.
+
+
+## CAP-051/052 UTC daily analytics increment — 2026-10-10
+
+**No duplicate subsystem.** After auditing `website_analytics.py`, the existing consent-first browser collector, `WebsitePageEvent`, `WebsiteFormSubmission`, `OutboxEvent` and Website CMS owner dashboard were extended. No new lead, visitor, marketing, warehouse, or reporting tables were created.
+
+### Delivered code
+- Authenticated OWNER/ADMIN `GET /api/v1/site-analytics/report?days={1..90}` produces workspace- and tenant-scoped, UTC-calendar daily counts for consent-eligible page views and CTA clicks, committed form submission receipts, conversion events published to the broker, queued events and retrying events.
+- The PostgreSQL query explicitly converts timestamptz to UTC before per-day grouping; local SQLite fixtures use `date()`. Window boundaries, timezone, and generated timestamp are returned. Requests are bounded to 90 calendar days.
+- Every day's unmatched receipt count is `max(0, accepted forms - published broker events - queued events - retrying events)`. This reports an operational exception, **not proof** of a missing lead; the repair action is investigation, never another lead creation.
+- Response aggregates do not include raw visitor hashes, IP addresses, contact details, leads, individual event IDs or attribution profiles. Owner responses are `private, no-store`; `deliveryConfirmed` is explicitly false, because broker publication is **not** provider acceptance.
+- `WebsiteAnalyticsReport.tsx` mounts inside the **existing WebsiteCMSPage**. Owners select a 7-, 30- or 90-day UTC reporting period, generate a daily trend and table, see reconciliation warnings and download an aggregate CSV manually.
+- `websiteAnalyticsReportCsv.ts` provides stable CSV columns, a totals row, UTC-date file naming and formula-injection escaping. It never serializes contact information, visitor identities, arbitrary segment membership, or generated raw SQL.
+- Added regressions in `test_website_analytics_api.py`, `WebsiteAnalyticsReport.test.tsx` and `websiteAnalyticsReportCsv.test.ts` covering owner access, invalid date ranges, daily totals, privacy, contract mismatch, stale-report clearing and safe CSV serialization.
+
+### Remaining acceptance work
+- Source-of-truth verification has not been completed: the latest GitHub Actions jobs on `feature/website-consolidated-20261010` still fail **before any runner or test step**, so backend integration tests, browser tests and migrations remain unexecuted by CI.
+- Scheduled delivery, a permission-approved export queue, warehouses/advertising spend, external provider acknowledgement, real attribution lift, reconciliation to independently read back CRM records and E2E operational drills remain out of scope for **this increment**, not marked complete in the blueprint.
+- `CAP-051` and `CAP-052` remain **Not verified**. Their traceability rows have been updated with implemented evidence and honest remaining gaps.
