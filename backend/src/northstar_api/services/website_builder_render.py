@@ -1,13 +1,43 @@
-"""Safe, deterministic HTML export for versioned visual-builder documents.
+"""Safe, responsive HTML export for versioned website builder pages.
 
-Exports HTML without scripts, event handlers, inline styles or executable URLs.
-A hosting/publishing layer must separately provide authentication, CSP and caching.
+No visitor-supplied scripts or styles can run. A SHA256 CSP hash allows only
+the exact static stylesheet emitted by this renderer.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 from html import escape
 
 from northstar_api.services.website_builder_document import BuilderNode, BuilderPageDocument
+
+SITE_CSS = (
+    "*,*::before,*::after{box-sizing:border-box}"
+    "html{scroll-behavior:smooth}"
+    "body{margin:0;background:#f8fafc;color:#172033;font:16px/1.7 system-ui,-apple-system,Segoe UI,sans-serif}"
+    ".skip-link{position:absolute;left:-9999px;top:0;padding:12px;background:#fff;z-index:10}"
+    ".skip-link:focus{left:12px}"
+    "a:focus-visible{outline:3px solid #f59e0b;outline-offset:4px}"
+    ".site-header{padding:clamp(28px,5vw,64px) 24px 18px;max-width:1100px;margin:auto}"
+    ".site-header h1{font-size:clamp(2rem,5vw,3.6rem);line-height:1.14;letter-spacing:-.03em;margin:0}"
+    ".site-eyebrow{color:#475569;font-size:.85rem;text-transform:uppercase;letter-spacing:.13em}"
+    "main{max-width:1100px;margin:auto;padding:20px 24px 88px}"
+    "main>section{padding:clamp(24px,4vw,48px);margin:24px 0;background:#fff;border:1px solid #e2e8f0;"
+    "border-radius:22px;box-shadow:0 12px 32px rgba(15,23,42,.04)}"
+    "h2{font-size:clamp(1.45rem,3vw,2.4rem);line-height:1.22;letter-spacing:-.02em}"
+    "p{max-width:72ch} img{display:block;max-width:100%;height:auto;border-radius:12px}"
+    "a.site-action{display:inline-flex;align-items:center;justify-content:center;background:#1d4ed8;"
+    "border-radius:10px;color:#fff;font-weight:650;padding:12px 24px;text-decoration:none;margin:8px 0}"
+    "a.site-action:hover{background:#1e40af}"
+    "@media(max-width:480px){main,.site-header{padding-left:14px;padding-right:14px}"
+    "main>section{margin:14px 0;border-radius:15px}}"
+    "@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}"
+)
+
+
+def style_csp_hash() -> str:
+    digest = hashlib.sha256(SITE_CSS.encode("utf-8")).digest()
+    return "sha256-" + base64.b64encode(digest).decode("ascii")
 
 
 def _attr(value: str) -> str:
@@ -29,7 +59,7 @@ def _render_node(node: BuilderNode) -> str:
         external = url.startswith("https://")
         protection = ' rel="noopener noreferrer"' if external else ""
         return (
-            f'<a data-builder-id="{_attr(node.id)}" href="{_attr(url)}"'
+            f'<a class="site-action" data-builder-id="{_attr(node.id)}" href="{_attr(url)}"'
             f'{protection}>{escape(node.text or "")}</a>'
         )
     tag = "section" if node.kind == "section" else "div"
@@ -42,12 +72,15 @@ def render_page(document: BuilderPageDocument) -> str:
     if not isinstance(document, BuilderPageDocument):
         raise TypeError("Expected validated BuilderPageDocument")
     sections = "".join(_render_node(node) for node in document.nodes)
+    title = escape(document.title)
     return (
         "<!doctype html>\n"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{escape(document.title)}</title>"
+        f"<title>{title}</title><style>{SITE_CSS}</style>"
         "</head><body>"
-        f"<main>{sections}</main>"
+        '<a class="skip-link" href="#site-main">Skip to content</a>'
+        f'<header class="site-header"><p class="site-eyebrow">Welcome</p><h1>{title}</h1></header>'
+        f'<main id="site-main">{sections}</main>'
         "</body></html>"
     )
