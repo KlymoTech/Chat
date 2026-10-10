@@ -102,3 +102,16 @@ Scope rule: audit existing routes, components and services before adding anythin
 - No existing CRM, lead-management, auth or media modules were replaced or removed.
 - CI/runner remains a release blocker. GitHub Actions reported jobs failing without assignment to runners and without execution steps; user/repository Actions policy or billing may need investigation. Do not count this as a passed code or deployment validation.
 - All 120 capability IDs remain in scope and **not verified** until repeatable acceptance evidence exists.
+
+## Implementation checkpoint — blog and visual-builder integration (2026-10-10)
+
+- Audited existing page CRUD, revisions, import/export, duplication, archive/restore, and CMS editor before extending them; no second CMS/page model was introduced.
+- Existing editor now has section/block rearrangement, duplication, removal, and cross-section moves; editor regression tests have been committed. Drag-and-drop is an enhancement to the same page document API, not a new source of truth.
+- Extended versioned `BuilderPageDocument` with `content_type=article` and validated `BlogMetadata` (real author, category, summary, reviewer, locale).
+- Updated the existing CMS owner screen to create/edit article metadata. No fictitious author is silently assigned; the owner must enter author, category, and summary.
+- Updated the existing duplication/import helper to preserve article metadata, while regenerating node IDs and resetting search-indexing approval.
+- Added a public, tenant-isolated blog resource index using the existing published revision table, with server rendering, category-filtered paginated JSON, HTML pagination, and escaped output. This does not invent a separate blogging database.
+- Public CMS renderer now displays article byline, category, summary and locale with escaped metadata; unpublished revisions remain private.
+- Added backend regression tests covering blog validation, copy behavior, draft exclusion, published-revision isolation and pagination, plus a React authoring test. CI was updated to include the new API tests.
+- **Not yet verified passing:** full browser E2E, database migration exercise, production auth, publisher/approval role separation, manual trash/purge controls, SEO edge cases, 120-capability acceptance.
+- GitHub Actions may fail before job steps; a passing release certificate is not available. Existing core website and CRM functionality must continue to be regression-tested before release.
