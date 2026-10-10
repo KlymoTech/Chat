@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -15,7 +14,17 @@ from northstar_api.services.retention_preview import (
 )
 
 
-@pytest.mark.parametrize("policy", [None, {}, {"retentionDays": "90"}, {"retentionDays": True}, {"retentionDays": 0}, {"retentionDays": 3651}])
+@pytest.mark.parametrize(
+    "policy",
+    [
+        None,
+        {},
+        {"retentionDays": "90"},
+        {"retentionDays": True},
+        {"retentionDays": 0},
+        {"retentionDays": 3651},
+    ],
+)
 def test_policy_missing_or_invalid_cannot_generate_expiration(policy: object) -> None:
     assert retention_cutoff(policy, as_of=datetime.now(UTC)) is None
 
@@ -72,10 +81,7 @@ async def test_scoped_read_only_preview_uses_latest_message_activity() -> None:
 async def test_preview_enforces_bounded_batches_and_reports_truncation() -> None:
     tid, wid = uuid4(), uuid4()
     older = datetime(2025, 1, 1, tzinfo=UTC)
-    rows = [
-        (uuid4(), older, older, None, {"retentionDays": 90})
-        for _ in range(3)
-    ]
+    rows = [(uuid4(), older, older, None, {"retentionDays": 90}) for _ in range(3)]
     result = MagicMock()
     result.all.return_value = rows
     db = MagicMock()
