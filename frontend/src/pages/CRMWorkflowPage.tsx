@@ -27,6 +27,7 @@ import {
 import { relativeTime } from '@/lib/format';
 import { LeadScoringPanel } from '@/pages/LeadScoringPanel';
 import { CRMSegmentsPanel } from '@/pages/CRMSegmentsPanel';
+import { CRMInternalAutomationsPanel } from '@/pages/CRMInternalAutomationsPanel';
 import { MarketingPreferencesPanel } from '@/pages/MarketingPreferencesPanel';
 import '@/pages/CRMWorkflowPage.css';
 
@@ -300,6 +301,7 @@ export function CRMWorkflowPage() {
     <LeadScoringPanel key={workflow.workspaceId} journeys={workflow.recentJourneys} onApplied={() => { void load(true); }} />
     <MarketingPreferencesPanel key={workflow.workspaceId + '-marketing'} journeys={workflow.recentJourneys} />
     <CRMSegmentsPanel key={workflow.workspaceId + '-segments'} />
+    <CRMInternalAutomationsPanel key={workflow.workspaceId + '-internal-automations'} />
 
     <Card className="crm-workflow-journeys">
       <div className="crm-workflow-section-heading">
