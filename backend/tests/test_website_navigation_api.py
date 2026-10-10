@@ -56,7 +56,7 @@ async def test_menu_draft_requires_owner_and_published_link_targets(
     })
     assert unauth_save.status_code == 401
     first = await client.put(menu_path, headers=auth_headers, json={
-        "expected_version": 0, "document": menu,
+        "expected_version": starting_version, "document": menu,
     })
     assert first.status_code == 200, first.text
     assert first.json()["draftVersion"] == starting_version + 1
@@ -80,7 +80,7 @@ async def test_menu_draft_requires_owner_and_published_link_targets(
     assert 'About &amp; &lt;script&gt;' not in before.text
 
     published = await client.post(
-        menu_path + "/publish", headers=auth_headers, json={"expected_version": 1},
+        menu_path + "/publish", headers=auth_headers, json={"expected_version": starting_version + 1},
     )
     assert published.status_code == 200, published.text
     assert published.json()["publishedVersion"] == starting_version + 1
@@ -92,9 +92,24 @@ async def test_menu_draft_requires_owner_and_published_link_targets(
     assert '<script>About' not in public.text
     assert f'href="{public_url}"' in public.text
 
+    # Capture post-publication totals: a retry must not duplicate side effects.
+    async with SessionFactory() as session:
+        saved_menu = await session.scalar(select(WebsiteSiteMenu).where(
+            WebsiteSiteMenu.workspace_id == UUID(workspace_id),
+        ))
+        assert saved_menu is not None
+        prior_audits = await session.scalar(select(func.count()).select_from(WebsiteSiteMenuAudit).where(
+            WebsiteSiteMenuAudit.menu_id == saved_menu.id,
+            WebsiteSiteMenuAudit.action == "publish",
+        ))
+        prior_events = await session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.aggregate_type == "website_menu",
+            OutboxEvent.aggregate_id == str(saved_menu.id),
+            OutboxEvent.event_type == "website.menu.published",
+        ))
     # Repeated publish does not generate a second audit/outbox message.
     repeated = await client.post(
-        menu_path + "/publish", headers=auth_headers, json={"expected_version": 1},
+        menu_path + "/publish", headers=auth_headers, json={"expected_version": starting_version + 1},
     )
     assert repeated.status_code == 200
 
@@ -112,8 +127,10 @@ async def test_menu_draft_requires_owner_and_published_link_targets(
             OutboxEvent.aggregate_id == str(menu_row.id),
             OutboxEvent.event_type == "website.menu.published",
         ))
-    assert audit_count >= 1
-    assert event_count >= 1
+    assert prior_audits is not None and prior_audits >= 1
+    assert prior_events is not None and prior_events >= 1
+    assert audit_count == prior_audits
+    assert event_count == prior_events
 
 
 async def test_menu_immutable_public_version_restore_and_archival(
