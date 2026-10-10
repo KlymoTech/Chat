@@ -11,11 +11,13 @@ try{
   const secure=url.protocol==="https:";
   const loopback=url.protocol==="http:" &&
     (url.hostname==="127.0.0.1"||url.hostname==="localhost");
-  if((secure||local&&loopback)&&!url.username&&!url.password&&!url.search&&
-     !url.hash&&url.pathname==="/"&&!url.port||false){
-    allowedOrigin=url.origin;
-  }else if(local&&loopback&&!url.username&&!url.password&&
-    !url.search&&!url.hash&&url.pathname==="/"){
+  const approvedHost=url.hostname.includes(".") &&
+    !url.hostname.endsWith(".internal") &&
+    !url.hostname.endsWith(".localhost") &&
+    !url.hostname.endsWith(".local");
+  if((secure&&approvedHost&&url.port==="" || local&&loopback) &&
+     !url.username&&!url.password&&!url.search&&!url.hash &&
+     url.pathname==="/"){
     allowedOrigin=url.origin;
   }
 }catch{}
