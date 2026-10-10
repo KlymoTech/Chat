@@ -137,5 +137,10 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_numeric_tld_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://app.123"]'
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
