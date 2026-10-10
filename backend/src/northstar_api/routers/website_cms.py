@@ -5,6 +5,7 @@ is a database transaction with an actor-attributed audit record.
 """
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 from urllib.parse import quote
 from typing import Annotated, Any
@@ -220,6 +221,7 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
         raise HTTPException(404, "Published page not found")
     revision = await _revision(session, page, page.published_version)
     validated = BuilderPageDocument.model_validate(revision.document_json)
+    nonce = secrets.token_urlsafe(18)
     return HTMLResponse(
         content=render_page(
             validated,
@@ -230,10 +232,12 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
                     safe="",
                 )
             ),
+            analytics_context=(str(workspace_id), get_settings().app_api_prefix),
+            analytics_nonce=nonce,
         ),
         headers={
             "Cache-Control": "no-store",
-            "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; script-src 'nonce-{nonce}'; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
             "X-Content-Type-Options": "nosniff",
         },
     )
