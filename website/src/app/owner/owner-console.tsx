@@ -6,6 +6,7 @@ import { PublishedBlocks } from "../../components/PublishedBlocks";
 import type { PublicBlock } from "../../lib/cms";
 import { freshBuilderBlock } from "../../lib/builder-contract";
 import {BUILDER_TEMPLATES,instantiateTemplate,type BuilderTemplateId} from "../../lib/builder-templates";
+import {createRecovery,parseRecovery,recoveryStorageKey,type DraftRecovery} from "../../lib/editor-recovery";
 import "./owner.css";
 
 type Page={id:string;path:string;locale:string;publishedRevisionId:string|null;publishedTitle:string|null;trashedAt:string|null};
@@ -52,6 +53,10 @@ export default function OwnerConsole(){
   const [connection,setConnection]=useState<"loading"|"ready"|"signed-out"|"disabled"|"error">("loading");
   const [pages,setPages]=useState<Page[]>([]);
   const [selected,setSelected]=useState("");
+  const [ownerScope,setOwnerScope]=useState<{actorId:string;siteId:string}|null>(null);
+  const [recoveryOptIn,setRecoveryOptIn]=useState(false);
+  const [recoverable,setRecoverable]=useState<DraftRecovery|null>(null);
+  const [recoveryVersion,setRecoveryVersion]=useState<number|null>(null);
   const [revisions,setRevisions]=useState<Revision[]>([]);
   const [revisionId,setRevisionId]=useState("");
   const [history,dispatch]=useReducer(builderHistory,{
@@ -76,7 +81,11 @@ export default function OwnerConsole(){
     try {
       const result=await requestJson("/api/owner/pages");
       if(!hasArray(result,"pages"))throw new Error("Unexpected CMS response");
-      setPages(result.pages as Page[]);setConnection("ready");setProblem("");
+      setPages(result.pages as Page[]);
+      if(typeof result.actorId==="string"&&typeof result.siteId==="string")
+        setOwnerScope({actorId:result.actorId,siteId:result.siteId});
+      else setOwnerScope(null);
+      setConnection("ready");setProblem("");
     }catch(error){
       const status=(error as {status?:number}).status;
       setConnection(status===401?"signed-out":status===503?"disabled":"error");
@@ -94,6 +103,44 @@ export default function OwnerConsole(){
     return ()=>window.removeEventListener("beforeunload",protect);
   },[hasUnsavedChanges]);
 
+  useEffect(()=>{
+    if(!recoveryOptIn||!ownerScope||!selected||!hasUnsavedChanges ||
+       connection!=="ready"||process.env.NEXT_PUBLIC_EDITOR_RECOVERY_ENABLED!=="true")return;
+    const token=window.setTimeout(()=>{
+      const raw=createRecovery({
+        siteId:ownerScope.siteId,ownerId:ownerScope.actorId,pageId:selected,
+        expectedVersion:recoveryVersion??revisions.reduce((m,r)=>Math.max(m,r.revision),0),
+        document:doc,
+      });
+      if(!raw)return;
+      try{window.sessionStorage.setItem(recoveryStorageKey(
+        ownerScope.siteId,ownerScope.actorId,selected),raw);}
+      catch{/* Device storage unavailable; editor remains unsaved. */}
+    },800);
+    return ()=>window.clearTimeout(token);
+  },[doc,hasUnsavedChanges,ownerScope,selected,recoveryOptIn,recoveryVersion,
+     revisions,connection]);
+  function recoveryKey(pageId:string):string|null{
+    if(!ownerScope)return null;
+    try{return recoveryStorageKey(ownerScope.siteId,ownerScope.actorId,pageId);}
+    catch{return null;}
+  }
+  function clearRecovery(pageId:string){
+    const key=recoveryKey(pageId);
+    if(key)try{window.sessionStorage.removeItem(key);}catch{}
+    setRecoverable(null);setRecoveryVersion(null);
+  }
+  function restoreRecovery(){
+    if(!recoverable||!ownerScope||recoverable.pageId!==selected)return;
+    if(hasUnsavedChanges&&!window.confirm(
+      "Restore this earlier session snapshot and replace the current unsaved editor state?"))return;
+    resetDoc(recoverable.document);
+    setRecoveryVersion(recoverable.expectedVersion);
+    setAcknowledgedDoc(JSON.stringify(emptyDoc));
+    setRecoveryOptIn(true);
+    setRecoverable(null);
+    setNotice("Unpublished session snapshot restored. Review the latest server revision before saving.");
+  }
   const loadRevisions=useCallback(async(id:string)=>{
     if(!id){setRevisions([]);setRevisionId("");return;}
     const result=await requestJson("/api/owner/pages/"+encodeURIComponent(id)+"/revisions");
@@ -103,7 +150,20 @@ export default function OwnerConsole(){
   async function choose(id:string){
     if(id!==selected && hasUnsavedChanges &&
        !window.confirm("You have unsaved local edits. Continue without saving them?"))return;
+    // No silent reuse of another page's private editor state.
     setSelected(id);setNotice("");setProblem("");
+    resetDoc(emptyDoc);setAcknowledgedDoc(JSON.stringify(emptyDoc));
+    setRecoverable(null);setRecoveryOptIn(false);setRecoveryVersion(null);
+    const key=recoveryKey(id);
+    if(key&&process.env.NEXT_PUBLIC_EDITOR_RECOVERY_ENABLED==="true"){
+      try{
+        const draft=parseRecovery(window.sessionStorage.getItem(key),{
+          siteId:ownerScope!.siteId,ownerId:ownerScope!.actorId,pageId:id,
+        });
+        if(draft)setRecoverable(draft);
+        else window.sessionStorage.removeItem(key);
+      }catch{}
+    }
     setBlogCategory("general");setBlogTags("");setBlogClassified(false);
     try{await loadRevisions(id);}catch(error){setProblem(error instanceof Error?error.message:"Revision history unavailable");}
     try{
@@ -175,6 +235,7 @@ export default function OwnerConsole(){
       blocks:current.blocks.map(b=>({...b}))};
     resetDoc(restored);
     setAcknowledgedDoc(JSON.stringify(restored));
+    clearRecovery(selected);
   }
   async function act(url:string,body:unknown,success:string,onAcknowledged?:()=>void){
     if(busy)return;
@@ -197,6 +258,16 @@ export default function OwnerConsole(){
     setBusy(true);setNotice("");setProblem("");
     try{
       await requestJson("/api/owner/auth/logout","POST",{});
+      if(ownerScope)try{
+        const prefix=["website","cms-recovery","v1",ownerScope.siteId,
+          ownerScope.actorId].join(":")+":";
+        for(let i=window.sessionStorage.length-1;i>=0;i--){
+          const key=window.sessionStorage.key(i);
+          if(key?.startsWith(prefix))window.sessionStorage.removeItem(key);
+        }
+      }catch{}
+      setRecoveryOptIn(false);setRecoverable(null);setRecoveryVersion(null);
+      setOwnerScope(null);
       setConnection("signed-out");setPages([]);setRevisions([]);setSelected("");
       setNotice("Local owner session ended.");
     }catch{setProblem("Unable to confirm sign-out");}
@@ -310,6 +381,30 @@ export default function OwnerConsole(){
         <section className="owner-panel">
           <h2>Block editor</h2>
           <p className="owner-hint">Changes are local until the server acknowledges a new draft.</p>
+          {process.env.NEXT_PUBLIC_EDITOR_RECOVERY_ENABLED==="true"&&selected&&<>
+            <label className="owner-hint">
+              <input type="checkbox" checked={recoveryOptIn}
+                onChange={event=>{
+                  const yes=event.target.checked;
+                  setRecoveryOptIn(yes);
+                  if(!yes)clearRecovery(selected);
+                }}/>
+              Keep a temporary, unpublished recovery copy in this browser tab (up to 2 hours).
+            </label>
+            <p className="owner-hint">Use only on a trusted device. Browser session storage is not
+              encrypted by this application. Recovery never approves or publishes content;
+              successful sign-out clears recovery copies for this owner in this tab.</p>
+            {recoverable&&<section className="owner-preserve" aria-label="Interrupted draft recovery">
+              <strong>Recoverable unpublished changes found</strong>
+              <p>Saved at {new Date(recoverable.storedAt).toLocaleString()}.
+                Snapshot server revision: {recoverable.expectedVersion}.</p>
+              <button type="button" className="button secondary" onClick={restoreRecovery}>
+                Restore local snapshot</button>
+              <button type="button" className="button secondary"
+                onClick={()=>clearRecovery(selected)}>Discard recovery copy</button>
+            </section>}
+          </>}
+
           <p role="status" aria-live="polite" className="owner-hint">
             {hasUnsavedChanges?"Unsaved local edits — not yet committed.":
               "Editor content loaded or acknowledged by the server."}
@@ -401,15 +496,27 @@ export default function OwnerConsole(){
               </div>
             </fieldset>)}
             {chosen&&<>
+              {recoveryVersion!==null&&recoveryVersion!==latestRevisionNumber&&<>
+                <p role="alert" className="owner-error">Recovered draft was based on revision {recoveryVersion},
+                  but latest server revision is {latestRevisionNumber}. Compare both before creating a new draft.</p>
+                <button type="button" className="button secondary"
+                  onClick={()=>{
+                    if(window.confirm("I compared the recovered draft with the latest server revision and want to append it as a new draft.")){
+                      setRecoveryVersion(null);
+                      setNotice("Revision conflict acknowledged; a new draft may be saved after review.");
+                    }
+                  }}>Confirm comparison and permit a new draft</button>
+              </>}
               <p className="owner-hint">Latest server revision: {latestRevisionNumber||"not loaded"}.
                 Saving appends a new draft only if this is still the current server version.
                 A conflict keeps your local edits for review.</p>
               <button className="button" type="button"
-                disabled={busy||!!chosen.trashedAt||latestRevisionNumber<1}
+                disabled={busy||!!chosen.trashedAt||latestRevisionNumber<1||
+                  (recoveryVersion!==null&&recoveryVersion!==latestRevisionNumber)}
                 onClick={()=>void act("/api/owner/pages/"+chosen.id+"/draft",
                   {document:doc,expectedVersion:latestRevisionNumber},
                   "New draft revision acknowledged by the server.",
-                  ()=>setAcknowledgedDoc(JSON.stringify(doc)))}>
+                  ()=>{setAcknowledgedDoc(JSON.stringify(doc));clearRecovery(chosen.id);})}>
                 Save new draft revision</button>
             </>}
           </div>
