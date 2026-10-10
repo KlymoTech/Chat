@@ -59,6 +59,9 @@ export function WebsiteCMSPage() {
   const [slug, setSlug] = useState('new-page');
   const [copyTitle, setCopyTitle] = useState('');
   const [copySlug, setCopySlug] = useState('');
+  const [importContent, setImportContent] = useState('');
+  const [importTitle, setImportTitle] = useState('Imported page');
+  const [importSlug, setImportSlug] = useState('imported-page');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -103,6 +106,49 @@ export function WebsiteCMSPage() {
       });
       setPages((items) => [copied, ...items]);
       open(copied, true);
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const exportPage = async () => {
+    if (!selected || busy || dirty) return;
+    setBusy(true); setError('');
+    try {
+      const manifest = await request<{
+        format: 'northstar.site-page'; version: 1; page: PageDocument;
+      }>('/site-cms/pages/' + selected.id + '/export');
+      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+      const downloadUrl = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = selected.slug + '.site-page.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        URL.revokeObjectURL(downloadUrl);
+      }
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const importPage = async () => {
+    if (!importContent || busy || dirty) return;
+    setBusy(true); setError('');
+    try {
+      const imported: unknown = JSON.parse(importContent);
+      if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
+        throw new Error('Choose a valid site page JSON manifest.');
+      }
+      const manifest = imported as Record<string, unknown>;
+      const result = await request<CMSPage>('/site-cms/pages/import', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...manifest, new_slug: importSlug.trim(), new_title: importTitle.trim(),
+        }),
+      });
+      setPages((pages) => [result, ...pages]);
+      setImportContent('');
+      open(result, true);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   };
@@ -224,7 +270,35 @@ export function WebsiteCMSPage() {
           <label>Page title<input value={name} required maxLength={180} onChange={(event) => setName(event.target.value)}/></label>
           <label>URL slug<input value={slug} required maxLength={160} pattern="[a-z0-9]+(-[a-z0-9]+)*" onChange={(event) => setSlug(event.target.value)}/></label>
           <Button type="submit" icon={FilePlus2} disabled={busy || !name.trim()}>Create draft</Button>
-        </form></Card>
+        </form>
+        <div className="site-cms-import">
+          <h4>Import page JSON</h4>
+          <p>Import a previously exported page as a new private draft. Existing pages are never overwritten.</p>
+          <form className="site-cms-import-form" onSubmit={(event) => { event.preventDefault(); void importPage(); }}>
+            <label>Exported JSON manifest (up to 10 MB)
+              <input type="file" accept=".json,application/json" onChange={(event) => {
+                const file = event.target.files?.[0];
+                setImportContent('');
+                if (!file) return;
+                if (file.size > 10 * 1024 * 1024) {
+                  setError('The import file must be 10 MB or smaller.');
+                  return;
+                }
+                void file.text().then((value) => { setImportContent(value); setError(''); })
+                  .catch(() => setError('Could not read the selected file.'));
+              }} />
+            </label>
+            <label>New page title
+              <input required maxLength={180} value={importTitle}
+                onChange={(event) => setImportTitle(event.target.value)} />
+            </label>
+            <label>New URL slug
+              <input required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={160}
+                value={importSlug} onChange={(event) => setImportSlug(event.target.value)} />
+            </label>
+            <Button type="submit" variant="secondary" disabled={busy || dirty || !importContent || !importSlug.trim() || !importTitle.trim()}>Import as draft</Button>
+          </form>
+        </div></Card>
         <div className="site-cms-workspace">
           <Card><h3>Website engagement</h3><p>First-party, consent-eligible events from published pages (last 30 days).</p>
             <div className="site-cms-metrics">
@@ -247,6 +321,12 @@ export function WebsiteCMSPage() {
               </div></div>
               {dirty ? <p className="site-cms-unsaved">Unsaved changes. Save before publishing.</p> : null}
               {selected.publishedVersion ? <a className="site-cms-public-link" target="_blank" rel="noreferrer" href={publicUrl}>Open published page <ExternalLink size={15}/></a> : null}
+            </Card>
+            <Card>
+              <h3>Export content</h3>
+              <p>Download this private draft in the validated site-page JSON format.</p>
+              <Button icon={Copy} variant="secondary" onClick={() => { void exportPage(); }}
+                disabled={busy || dirty}>Export current draft</Button>
             </Card>
             <Card>
               <h3>Duplicate this page</h3>
