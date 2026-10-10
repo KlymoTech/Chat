@@ -1,0 +1,109 @@
+"""Fail-closed ordering for protected signing orchestration."""
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import pytest
+
+from northstar_api.modules.platform_runtime import queue_notification_authorized_signing as subject
+
+
+class Consumption:
+    def __init__(self, events, fail=False):
+        self.events = events
+        self.fail = fail
+
+    async def consume(self, **kwargs):
+        self.events.append("consume")
+        if self.fail:
+            raise PermissionError("duplicate grant")
+
+
+def arguments(consumption):
+    return dict(
+        authorization_token="token",
+        authorization_public_key_pem=b"key",
+        authorization_issuer="issuer",
+        authorization_audience="audience",
+        authorization_consumption=consumption,
+        index_reconciler=object(),
+        report_reconciler=object(),
+        signing_identity=object(),
+        signing_claims=object(),
+        release_id="release-12345678",
+        run_id="run-12345678",
+        branch="feature/test",
+        environment="staging",
+        source_commit="a" * 40,
+        source_digest="b" * 64,
+        target_digest="c" * 64,
+        witness_public_key_pem=b"witness",
+        test_signer_public_key_pem=b"signer",
+        witness_issuer="issuer",
+        controller_id="controller",
+        job_full_name="job",
+        now=datetime(2026, 10, 10, tzinfo=UTC),
+    )
+
+
+@pytest.mark.asyncio
+async def test_grant_is_consumed_before_custody(monkeypatch):
+    events = []
+
+    def verify(*args, **kwargs):
+        events.append("verify")
+        return "authorization-12345678"
+
+    async def sign(*args, **kwargs):
+        events.append("custody")
+        assert kwargs["run_id"] == "run-12345678"
+        return "signed"
+
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", verify)
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    result = await subject.sign_with_protected_authorization(
+        None, **arguments(Consumption(events))
+    )
+    assert result == "signed"
+    assert events == ["verify", "consume", "custody"]
+
+
+@pytest.mark.asyncio
+async def test_rejected_or_duplicate_grant_never_reaches_custody(monkeypatch):
+    events = []
+    sign = AsyncMock()
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    monkeypatch.setattr(
+        subject, "verify_protected_signing_authorization",
+        lambda *args, **kwargs: "authorization-12345678",
+    )
+    with pytest.raises(PermissionError, match="duplicate"):
+        await subject.sign_with_protected_authorization(
+            None, **arguments(Consumption(events, fail=True))
+        )
+    assert events == ["consume"]
+    sign.assert_not_awaited()
+
+    def reject(*args, **kwargs):
+        raise PermissionError("invalid signature")
+
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", reject)
+    events.clear()
+    with pytest.raises(PermissionError, match="invalid signature"):
+        await subject.sign_with_protected_authorization(
+            None, **arguments(Consumption(events))
+        )
+    assert events == []
+    sign.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_replay_ledger_rejects_request(monkeypatch):
+    sign = AsyncMock()
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    with pytest.raises(PermissionError, match="one-use authorization"):
+        await subject.sign_with_protected_authorization(
+            None, **arguments(None)
+        )
+    sign.assert_not_awaited()
