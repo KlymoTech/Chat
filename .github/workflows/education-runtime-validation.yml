@@ -81,7 +81,10 @@ jobs:
           heads = set(script.get_heads())
           if not heads:
               raise SystemExit("Alembic has no migration heads")
-          print(f"Education migration {revision.revision} is present; current heads: {sorted(heads)}")
+          reachable = {item.revision for head in heads for item in script.iterate_revisions(head, "base")}
+          if revision.revision not in reachable:
+              raise SystemExit("Education migration is disconnected from all migration heads")
+          print(f"Education migration {revision.revision} is reachable; current heads: {sorted(heads)}")
           PY
       - name: Run Education runtime authorization regressions
         run: >-
