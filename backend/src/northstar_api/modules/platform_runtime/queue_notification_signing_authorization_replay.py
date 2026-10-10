@@ -51,7 +51,7 @@ class CommittedAuthorizationConsumption:
             or _RELEASE.fullmatch(release_id) is None
             or not isinstance(run_id, str)
             or _RUN.fullmatch(run_id) is None
-            or not isinstance(now, datetime) or now.tzinfo is None
+            or not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None
         ):
             raise PermissionError("invalid signing authorization consumption")
         try:
