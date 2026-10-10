@@ -350,6 +350,16 @@ async def create_site_redirect(
             action="create", version=1,
             details_json=_redirect_info(row),
         ))
+        event = enqueue_event(
+            session, tenant_id=principal.tenant_id,
+            aggregate_type="website_redirect", aggregate_id=row.id,
+            event_type="website.redirect.created",
+            payload={
+                "workspaceId": str(workspace_id), "sourceSlug": row.source_slug,
+                "targetSlug": row.target_slug, "version": row.version,
+            },
+        )
+        event.workspace_id = workspace_id
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -402,6 +412,17 @@ async def update_site_redirect(
         action="update" if payload.enabled else "disable",
         version=rule.version, details_json=_redirect_info(rule),
     ))
+    event = enqueue_event(
+        session, tenant_id=principal.tenant_id,
+        aggregate_type="website_redirect", aggregate_id=rule.id,
+        event_type="website.redirect.updated",
+        payload={
+            "workspaceId": str(workspace_id), "sourceSlug": rule.source_slug,
+            "targetSlug": rule.target_slug, "statusCode": rule.status_code,
+            "enabled": rule.enabled, "version": rule.version,
+        },
+    )
+    event.workspace_id = workspace_id
     await session.commit()
     return _redirect_info(rule)
 
