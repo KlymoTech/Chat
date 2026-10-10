@@ -297,6 +297,12 @@ try {
     "VALUES($1,$2,$3,'review','review_lead')",
     [uuid(),siteId,runId],"23505");
   await mustReject(
+    "INSERT INTO website_cms.automation_internal_tasks "+
+    "(id,site_id,run_id,node_id,action) "+
+    "VALUES($1,$2,$3,'review_two','review_lead')",
+    [uuid(),otherSiteId,runId],"23503");
+
+  await mustReject(
     "UPDATE website_cms.automation_internal_runs "+
     "SET status='completed' WHERE id=$1",[runId],"23514");
   await client.query(
