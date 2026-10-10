@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Iterable
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.help_config import HelpSettings, get_help_settings
@@ -187,6 +188,9 @@ class HelpSearchService:
             .where(
                 HelpArticle.status == HelpArticleStatus.PUBLISHED,
                 HelpCategory.is_active.is_(True),
+                # Filter roles before SQL LIMIT to prevent inaccessible articles
+                # from exhausting the candidate window for non-admin users.
+                cast(HelpArticle.audience_roles_json, JSONB).contains([role.value]),
                 ts_query.op("@@")(vector),
             )
             .order_by(rank_expr.desc())
@@ -195,12 +199,10 @@ class HelpSearchService:
         if category:
             statement = statement.where(HelpCategory.slug == category)
         rows = (await session.execute(statement)).all()
-        role_value = role.value
         query_tokens = _tokens(query)
         return [
             (article.id, float(score), _snippet(article.body_markdown, query_tokens))
             for article, score in rows
-            if role_value in (article.audience_roles_json or [])
         ]
 
     def _portable_lexical(
