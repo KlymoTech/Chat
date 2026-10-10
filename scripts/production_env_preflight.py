@@ -11,7 +11,7 @@ import ipaddress
 import json
 import re
 from pathlib import Path
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 REQUIRED = ("JWT_SECRET", "MFA_ENCRYPTION_KEY", "DATABASE_URL", "APP_CORS_ORIGINS")
 PLACEHOLDER = re.compile(r"replace|change.me|example|localhost|127\.0\.0\.1", re.I)
@@ -128,8 +128,9 @@ def valid_postgres_url(value: str) -> bool:
             and parsed.port != 0
             and not parsed.fragment
             and not PLACEHOLDER.search(parsed.hostname)
-            and not PLACEHOLDER.search(parsed.username)
-            and not PLACEHOLDER.search(parsed.password)
+            and not PLACEHOLDER.search(unquote(parsed.username))
+            and not PLACEHOLDER.search(unquote(parsed.password))
+            and bool(unquote(parsed.password).strip())
         )
     except ValueError:
         return False
