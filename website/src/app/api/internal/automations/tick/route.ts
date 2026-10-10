@@ -1,6 +1,6 @@
 import {NextResponse} from "next/server";
-import {verifyInternalTick} from "../../../../lib/internal-automation-auth";
-import {advanceDueInternalAutomations} from "../../../../lib/internal-automation-runs";
+import {verifyInternalTick} from "../../../../../lib/internal-automation-auth";
+import {advanceDueInternalAutomations} from "../../../../../lib/internal-automation-runs";
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
 export const maxDuration=30;
