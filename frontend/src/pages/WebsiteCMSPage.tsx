@@ -17,7 +17,7 @@ const newDocument = (title: string, slug: string): PageDocument => ({ schema_ver
 ] });
 const newBlock = (kind: Exclude<Kind, 'section'>): Node => kind === 'heading' ? { id: id(), kind, text: 'Heading' }
   : kind === 'paragraph' ? { id: id(), kind, text: 'Describe this section.' }
-    : kind === 'image' ? { id: id(), kind, text: 'Image description', url: '/images/placeholder.svg' }
+    : kind === 'image' ? { id: id(), kind, text: 'Image description', url: '/favicon.svg' }
       : { id: id(), kind, text: 'Learn more', url: '/contact' };
 function mapNodes(nodes: Node[], target: string, change: (node: Node) => Node): Node[] {
   return nodes.map((node) => node.id === target ? change(node)
