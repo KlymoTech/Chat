@@ -169,5 +169,18 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_asyncpg_ssl_true_allowed(self):
+        self.valid["DATABASE_URL"] = "postgresql+asyncpg://user:password@db.internal/app?ssl=true"
+        self.assertEqual(validate(self.valid), [])
+
+    def test_asyncpg_sslmode_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql+asyncpg://user:password@db.internal/app?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+    def test_psycopg_ssl_option_rejected(self):
+        self.valid["DATABASE_URL"] += "?ssl=true"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
