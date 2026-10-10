@@ -338,3 +338,43 @@ export const internalAutomationsApi = {
     },
   ),
 };
+
+/** Marketing permission is independent of the existing processing-consent receipt. */
+export interface LeadMarketingPreferences {
+  leadId: string;
+  marketingStatus: string;
+  marketingAllowed: boolean;
+  processingConsentPreserved: true;
+  note: string;
+}
+
+export interface MarketingUnsubscribeLink {
+  path: string;
+  expiresIn: string;
+  note: string;
+}
+
+export interface MarketingWithdrawalResult {
+  status: 'withdrawn';
+  changed: boolean;
+  processingConsentPreserved: true;
+}
+
+export const marketingPreferencesApi = {
+  get: (leadId: string) => request<LeadMarketingPreferences>(
+    '/site-marketing/leads/' + encodeURIComponent(leadId) + '/preferences',
+  ),
+  withdraw: (leadId: string) => request<MarketingWithdrawalResult>(
+    '/site-marketing/leads/' + encodeURIComponent(leadId) + '/withdraw', { method: 'POST' },
+  ),
+  createUnsubscribeLink: (leadId: string) => request<MarketingUnsubscribeLink>(
+    '/site-marketing/leads/' + encodeURIComponent(leadId) + '/unsubscribe-link',
+    { method: 'POST' },
+  ),
+  publicUrl: (path: string) => new URL(
+    path,
+    API_URL.startsWith('http://') || API_URL.startsWith('https://')
+      ? API_URL
+      : window.location.origin,
+  ).toString(),
+};
