@@ -298,9 +298,15 @@ async def unpublish_form(
     if form.draft_version != payload.expected_version:
         raise HTTPException(409, "Form changed; reload before unpublishing")
     if form.published_version is not None:
-        await session.execute(update(WebsiteForm).where(
-            WebsiteForm.id == form.id, WebsiteForm.draft_version == payload.expected_version,
+        old_publication = form.published_version
+        changed = await session.execute(update(WebsiteForm).where(
+            WebsiteForm.id == form.id,
+            WebsiteForm.draft_version == payload.expected_version,
+            WebsiteForm.published_version == old_publication,
         ).values(published_version=None, updated_at=datetime.now(UTC)))
+        if changed.rowcount != 1:
+            await session.rollback()
+            raise HTTPException(409, "Form publication changed concurrently")
         form.published_version = None
         record_audit_event(
             session, tenant_id=principal.tenant_id, workspace_id=principal.workspace_id,
@@ -336,7 +342,10 @@ async def form_submission_receipts(
     ]
 
 
-async def _public_form(session: DBSession, workspace_id: UUID, slug: str) -> tuple[WebsiteForm, SiteFormDocument, Workspace]:
+async def _public_form(
+    session: DBSession, workspace_id: UUID, slug: str,
+    *, allow_unpublished: bool = False,
+) -> tuple[WebsiteForm, SiteFormDocument, Workspace]:
     workspace = await session.scalar(select(Workspace).where(
         Workspace.id == workspace_id, Workspace.status == WorkspaceStatus.ACTIVE,
     ))
@@ -344,11 +353,13 @@ async def _public_form(session: DBSession, workspace_id: UUID, slug: str) -> tup
         raise HTTPException(404, "Published form unavailable")
     form = await session.scalar(select(WebsiteForm).where(
         WebsiteForm.tenant_id == workspace.tenant_id, WebsiteForm.workspace_id == workspace_id,
-        WebsiteForm.slug == slug, WebsiteForm.published_version.is_not(None),
+        WebsiteForm.slug == slug,
+        *((WebsiteForm.published_version.is_not(None),) if not allow_unpublished else ()),
     ))
-    if form is None or form.published_version is None:
+    if form is None or (not allow_unpublished and form.published_version is None):
         raise HTTPException(404, "Published form unavailable")
-    rev = await _revision(session, form, form.published_version)
+    active_version = form.published_version or form.draft_version
+    rev = await _revision(session, form, active_version)
     return form, SiteFormDocument.model_validate(rev.document_json), workspace
 
 
@@ -378,7 +389,11 @@ async def submit_public_form(
         raise HTTPException(415, "Use the published website form")
     if len(await request.body()) > 20000:
         raise HTTPException(413, "Form request is too large")
-    form, document, workspace = await _public_form(session, workspace_id, slug)
+    # Lookup historical receipts even after an owner has safely unpublished
+    # the form. New enrolments are still forbidden when no revision is live.
+    form, document, workspace = await _public_form(
+        session, workspace_id, slug, allow_unpublished=True,
+    )
     raw = await request.form()
     if len(raw) > 35 or any(not isinstance(value, str) for _, value in raw.multi_items()):
         raise HTTPException(422, "Invalid form submission")
@@ -416,6 +431,8 @@ async def submit_public_form(
                 if accept_json else _html(
                     "<h1>Already received</h1><p role=\"status\">Your enquiry was recorded. "
                     "Receipt: " + escape(str(prior.id)) + "</p>"))
+    if form.published_version is None:
+        raise HTTPException(410, "This form is closed and cannot accept new submissions")
     if version != form.published_version:
         raise HTTPException(409, "This form changed; reload it before submitting")
     answers, errors = validate_answers(document, values)
