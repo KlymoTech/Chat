@@ -27,13 +27,8 @@ class Consumption:
 
 @pytest.fixture(autouse=True)
 def configured_replay_store_types(monkeypatch):
-    from northstar_api.modules.platform_runtime import (
-        queue_notification_custody_signing_claims as claims_module,
-        queue_notification_signing_authorization_replay as replay_module,
-    )
-
-    monkeypatch.setattr(replay_module, "CommittedAuthorizationConsumption", Consumption)
-    monkeypatch.setattr(claims_module, "CommittedPostgresSigningClaims", SigningClaims)
+    monkeypatch.setattr(subject, "CommittedAuthorizationConsumption", Consumption)
+    monkeypatch.setattr(subject, "CommittedPostgresSigningClaims", SigningClaims)
 
 
 def arguments(consumption):
