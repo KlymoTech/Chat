@@ -41,6 +41,7 @@ def test_timezone_aware_policy_cutoff_is_in_utc() -> None:
 def test_explicit_agent_hold_blocks_candidates(name: str) -> None:
     assert has_local_retention_hold({name: True})
     assert not has_local_retention_hold({name: False})
+    assert has_local_retention_hold({name: "true"})
 
 
 @pytest.mark.asyncio
@@ -126,3 +127,23 @@ async def test_preview_never_executes_when_parameters_invalid() -> None:
             as_of=datetime.now(UTC),
         )
     db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unverifiable_latest_message_timestamp_cannot_be_candidate() -> None:
+    cid = uuid4()
+    older = datetime(2025, 1, 1, tzinfo=UTC)
+    message_without_timezone = datetime(2026, 10, 10)
+    result = MagicMock()
+    result.all.return_value = [
+        (cid, older, older, message_without_timezone, {"retentionDays": 90})
+    ]
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result)
+
+    report = await preview_conversation_retention(
+        db, tenant_id=uuid4(), workspace_id=uuid4(),
+        as_of=datetime.now(UTC), max_rows=1,
+    )
+    assert report.candidate_ids == ()
+    assert report.invalid_policy == 1
