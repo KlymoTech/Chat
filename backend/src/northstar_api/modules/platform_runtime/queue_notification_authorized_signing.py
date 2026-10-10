@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from .queue_notification_custody_attestation_signer import sign_custodied_jenkins_test_result
+from .queue_notification_custody_signing_claims import CommittedPostgresSigningClaims
+from .queue_notification_signing_authorization_replay import CommittedAuthorizationConsumption
 from .queue_notification_signing_authorization import (
     ProtectedSigningPlan,
     verify_protected_signing_authorization,
@@ -46,11 +48,7 @@ async def sign_with_protected_authorization(
         raise PermissionError("timezone-aware signing time required")
     if authorization_consumption is None or signing_claims is None:
         raise PermissionError("committed authorization and signing replay guards are required")
-    # Production requests must use the committed, independent database ledgers.
-    # Duck-typed substitutes are reserved for isolated unit tests.
-    from .queue_notification_signing_authorization_replay import CommittedAuthorizationConsumption
-    from .queue_notification_custody_signing_claims import CommittedPostgresSigningClaims
-
+    # Production requires concrete committed ledgers; unit tests patch these types.
     if not isinstance(authorization_consumption, CommittedAuthorizationConsumption):
         raise PermissionError("committed authorization consumption service required")
     if not isinstance(signing_claims, CommittedPostgresSigningClaims):
