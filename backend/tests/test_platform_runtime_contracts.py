@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from northstar_api.modules.platform_runtime import (
     ChangeLifecycleError,
+    DependencyGraph,
     PlatformSpec,
     PlatformSpecError,
     analyze_capability_change,
@@ -14,6 +15,7 @@ from northstar_api.modules.platform_runtime import (
     build_dependency_graph,
     classify_provider_change,
     transition_change,
+    validate_dependency_graph,
     validate_platform_spec,
 )
 
@@ -144,3 +146,33 @@ def test_change_lifecycle_requires_approval_separation_and_safe_transitions() ->
     assert approver_is_distinct(uuid4(), uuid4()) is True
     with pytest.raises(ChangeLifecycleError, match="cannot transition"):
         transition_change("waiting_approval", "deploying")
+
+
+
+def test_dependency_graph_declares_all_consumers_and_providers() -> None:
+    graph = build_dependency_graph(
+        PlatformSpec(
+            providers={"cache": "redis", "events": "kafka", "storage": "minio"},
+            resources={"redis_provisioned": True, "kafka_provisioned": True},
+        )
+    )
+    assert graph == validate_dependency_graph(graph)
+    assert {"application", "cache", "events", "storage"} <= set(graph.nodes)
+    assert all(set(edge) <= set(graph.nodes) for edge in graph.edges)
+    assert ("cache", "redis") in graph.edges
+    assert ("events", "kafka") in graph.edges
+
+
+@pytest.mark.parametrize(
+    "graph",
+    [
+        DependencyGraph(("a", "b"), (("a", "missing"),)),
+        DependencyGraph(("a", "b"), (("a", "b"), ("b", "a"))),
+        DependencyGraph(("a",), (("a", "a"),)),
+        DependencyGraph(("a", "a"), ()),
+        DependencyGraph(("",), ()),
+    ],
+)
+def test_dependency_graph_fitness_fails_closed(graph: DependencyGraph) -> None:
+    with pytest.raises(PlatformSpecError, match="dependency graph"):
+        validate_dependency_graph(graph)
