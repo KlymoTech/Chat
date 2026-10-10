@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Check, ExternalLink, FilePlus2, Plus, RefreshCw, Save, Send, ShieldCheck } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Copy, ExternalLink, FilePlus2, GripVertical, Plus, RefreshCw, Save, Send, ShieldCheck, Trash2 } from 'lucide-react';
 import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { apiConfig, request } from '@/lib/api';
+import { duplicateSibling, moveBlockBetweenSections, removeChild, reorderNodes, type BuilderNode } from './websiteBuilderOperations';
 import './WebsiteCMSPage.css';
 
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
 type Action = 'submit' | 'approve' | 'publish';
-interface Node { id: string; kind: Kind; text?: string | null; url?: string | null; children?: Node[] }
+type Node = BuilderNode;
 interface PageSEO { description: string; canonical_url: string | null; indexable: boolean }
 interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[]; seo?: PageSEO }
 interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
@@ -27,10 +28,7 @@ function mapNodes(nodes: Node[], target: string, change: (node: Node) => Node): 
     : node.children ? { ...node, children: mapNodes(node.children, target, change) } : node);
 }
 function move(items: Node[], identifier: string, delta: number): Node[] {
-  const from = items.findIndex((item) => item.id === identifier);
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= items.length) return items;
-  const result = [...items]; [result[from], result[to]] = [result[to]!, result[from]!]; return result;
+  return reorderNodes(items, identifier, delta);
 }
 function render(node: Node): ReactNode {
   if (node.kind === 'heading') return <h2 key={node.id}>{node.text}</h2>;
@@ -56,6 +54,7 @@ export function WebsiteCMSPage() {
   const [selected, setSelected] = useState<CMSPage | null>(null);
   const [draft, setDraft] = useState<PageDocument | null>(null);
   const [sectionId, setSectionId] = useState<string | null>(null);
+  const [draggedItem, setDraggedItem] = useState<{ id: string; type: 'section' | 'block' } | null>(null);
   const [name, setName] = useState('New page');
   const [slug, setSlug] = useState('new-page');
   const [busy, setBusy] = useState(false);
@@ -77,8 +76,8 @@ export function WebsiteCMSPage() {
     try { setRevisions(await request<Revision[]>('/site-cms/pages/' + pageId + '/revisions')); }
     catch (reason) { setError(message(reason)); }
   };
-  const open = (page: CMSPage) => {
-    if (dirty && !window.confirm('Discard unsaved content changes?')) return;
+  const open = (page: CMSPage, force = false) => {
+    if (!force && dirty && !window.confirm('Discard unsaved content changes?')) return;
     setSelected(page); setDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
     void refreshRevisions(page.id);
   };
@@ -86,7 +85,7 @@ export function WebsiteCMSPage() {
     setBusy(true); setError('');
     try {
       const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim())) });
-      setPages((items) => [page, ...items]); open(page);
+      setPages((items) => [page, ...items]); open(page, true);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   };
@@ -103,6 +102,55 @@ export function WebsiteCMSPage() {
   const addBlock = (kind: Exclude<Kind, 'section'>) => {
     if (currentSection) edit(currentSection.id, (section) => ({ ...section, children: [...(section.children ?? []), newBlock(kind)] }));
   };
+  const moveSection = (targetId: string, direction: number) => {
+    setDraft((current) => current ? { ...current, nodes: reorderNodes(current.nodes, targetId, direction) } : null);
+  };
+  const duplicateSection = (targetId: string) => {
+    setDraft((current) => current ? { ...current, nodes: duplicateSibling(current.nodes, targetId, id) } : null);
+  };
+  const deleteSection = (targetId: string) => {
+    if (!draft || draft.nodes.length <= 1 || !window.confirm('Remove this section from the unsaved draft?')) return;
+    const next = draft.nodes.filter((node) => node.id !== targetId);
+    setDraft({ ...draft, nodes: next });
+    if (sectionId === targetId) setSectionId(next[0]?.id ?? null);
+  };
+  const duplicateBlock = (blockId: string) => {
+    if (currentSection) edit(currentSection.id, (section) => ({
+      ...section, children: duplicateSibling(section.children ?? [], blockId, id),
+    }));
+  };
+  const deleteBlock = (blockId: string) => {
+    if (!currentSection || !window.confirm('Remove this block from the unsaved draft?')) return;
+    edit(currentSection.id, (section) => ({
+      ...section, children: removeChild(section.children ?? [], blockId),
+    }));
+  };
+  const moveBlock = (blockId: string, destinationId: string) => {
+    setDraft((current) => current ? {
+      ...current, nodes: moveBlockBetweenSections(current.nodes, blockId, destinationId),
+    } : null);
+  };
+  const dropSection = (targetId: string) => {
+    if (draggedItem?.type !== 'section' || draggedItem.id === targetId || !draft) return;
+    const from = draft.nodes.findIndex((node) => node.id === draggedItem.id);
+    const to = draft.nodes.findIndex((node) => node.id === targetId);
+    if (from < 0 || to < 0) return;
+    setDraft({ ...draft, nodes: reorderNodes(draft.nodes, draggedItem.id, to - from) });
+    setDraggedItem(null);
+  };
+  const dropBlock = (targetId: string) => {
+    if (draggedItem?.type !== 'block' || draggedItem.id === targetId || !draft || !currentSection) return;
+    const sourceSection = draft.nodes.find((node) => (node.children ?? []).some((child) => child.id === draggedItem.id));
+    if (!sourceSection) return;
+    const targetIndex = (currentSection.children ?? []).findIndex((node) => node.id === targetId);
+    if (targetIndex < 0) return;
+    setDraft({
+      ...draft,
+      nodes: moveBlockBetweenSections(draft.nodes, draggedItem.id, currentSection.id, targetIndex),
+    });
+    setDraggedItem(null);
+  };
+
   const dirty = !!selected && !!draft && JSON.stringify(draft) !== JSON.stringify(selected.document);
   const replace = (page: CMSPage) => {
     setSelected(page); setDraft(page.document); setPages((items) => items.map((item) => item.id === page.id ? page : item));
@@ -203,21 +251,53 @@ export function WebsiteCMSPage() {
                 <small>Unapproved pages remain noindex. Add the verified canonical URL before enabling indexing.</small>
               </fieldset>
               <div className="site-cms-sections" role="group" aria-label="Page sections">
-                {draft.nodes.map((section, index) => <button type="button" key={section.id} className={currentSection?.id === section.id ? 'is-selected' : ''}
-                  onClick={() => setSectionId(section.id)}>Section {index + 1} · {(section.children ?? []).length} blocks</button>)}
+                {draft.nodes.map((section, index) => <div className="site-cms-section-row" key={section.id}
+                  draggable onDragStart={() => setDraggedItem({ id: section.id, type: 'section' })}
+                  onDragEnd={() => setDraggedItem(null)}
+                  onDragOver={(event) => { if (draggedItem?.type === 'section') event.preventDefault(); }}
+                  onDrop={(event) => { event.preventDefault(); dropSection(section.id); }}>
+                  <button type="button" className={currentSection?.id === section.id ? 'is-selected' : ''}
+                    aria-pressed={currentSection?.id === section.id}
+                    onClick={() => setSectionId(section.id)}><GripVertical size={15} aria-hidden="true" /> Section {index + 1} · {(section.children ?? []).length} blocks</button>
+                  <div className="site-cms-row-actions">
+                    <button type="button" aria-label={'Move section ' + (index + 1) + ' up'} disabled={index === 0}
+                      onClick={() => moveSection(section.id, -1)}><ArrowUp size={15}/></button>
+                    <button type="button" aria-label={'Move section ' + (index + 1) + ' down'} disabled={index === draft.nodes.length - 1}
+                      onClick={() => moveSection(section.id, 1)}><ArrowDown size={15}/></button>
+                    <button type="button" aria-label={'Duplicate section ' + (index + 1)}
+                      onClick={() => duplicateSection(section.id)}><Copy size={15}/></button>
+                    <button type="button" aria-label={'Remove section ' + (index + 1)} disabled={draft.nodes.length <= 1}
+                      onClick={() => deleteSection(section.id)}><Trash2 size={15}/></button>
+                  </div>
+                </div>)}
               </div>
               <Button variant="secondary" size="sm" icon={Plus} onClick={addSection}>Add section</Button>
               <h4>Add content block</h4><div className="site-cms-add" role="group" aria-label="Add block">
                 {(['heading', 'paragraph', 'image', 'button'] as const).map((kind) =>
                   <Button key={kind} size="sm" variant="secondary" icon={Plus} onClick={() => addBlock(kind)}>{kind}</Button>)}
               </div>
-              {(currentSection?.children ?? []).map((node, index, list) => <div key={node.id} className="site-cms-block">
-                <div className="site-cms-block-head"><strong>{node.kind} {index + 1}</strong><div>
+              {(currentSection?.children ?? []).map((node, index, list) => <div key={node.id} className="site-cms-block"
+                draggable onDragStart={() => setDraggedItem({ id: node.id, type: 'block' })}
+                onDragEnd={() => setDraggedItem(null)}
+                onDragOver={(event) => { if (draggedItem?.type === 'block') event.preventDefault(); }}
+                onDrop={(event) => { event.preventDefault(); dropBlock(node.id); }}>
+                <div className="site-cms-block-head"><strong><GripVertical size={15} aria-hidden="true"/> {node.kind} {index + 1}</strong><div>
                   <button aria-label={'Move ' + node.kind + ' up'} type="button" disabled={index === 0}
                     onClick={() => edit(currentSection!.id, (section) => ({ ...section, children: move(section.children ?? [], node.id, -1) }))}><ArrowUp size={15}/></button>
                   <button aria-label={'Move ' + node.kind + ' down'} type="button" disabled={index === list.length - 1}
                     onClick={() => edit(currentSection!.id, (section) => ({ ...section, children: move(section.children ?? [], node.id, 1) }))}><ArrowDown size={15}/></button>
+                  <button aria-label={'Duplicate ' + node.kind} type="button"
+                    onClick={() => duplicateBlock(node.id)}><Copy size={15}/></button>
+                  <button aria-label={'Remove ' + node.kind} type="button"
+                    onClick={() => deleteBlock(node.id)}><Trash2 size={15}/></button>
                 </div></div>
+                {draft.nodes.length > 1 ? <label>Move block to section
+                  <select value="" onChange={(event) => { if (event.target.value) moveBlock(node.id, event.target.value); }}>
+                    <option value="">Choose destination…</option>
+                    {draft.nodes.filter((section) => section.id !== currentSection?.id).map((section) =>
+                      <option key={section.id} value={section.id}>Section {draft.nodes.indexOf(section) + 1}</option>)}
+                  </select>
+                </label> : null}
                 <label>{node.kind === 'image' ? 'Alternative text' : node.kind === 'button' ? 'Button label' : 'Content'}
                   <textarea value={node.text ?? ''} rows={node.kind === 'paragraph' ? 3 : 2} maxLength={10000}
                     onChange={(event) => edit(node.id, (item) => ({ ...item, text: event.target.value }))}/></label>
