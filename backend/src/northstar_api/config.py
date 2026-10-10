@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     s3_public_endpoint_url: str | None = None
     s3_region: str = "us-east-1"
     s3_bucket: str = "northstar-knowledge"
+    s3_auth_mode: Literal["static", "aws-default"] = "static"
     s3_access_key_id: SecretStr | None = None
     s3_secret_access_key: SecretStr | None = None
     s3_presign_ttl_seconds: int = 900
@@ -314,6 +315,11 @@ class Settings(BaseSettings):
             raise ValueError("SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must be provided together")
         if bool(self.s3_access_key_id) != bool(self.s3_secret_access_key):
             raise ValueError("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be provided together")
+        if self.s3_auth_mode == "aws-default" and (
+            self.s3_access_key_id or self.s3_secret_access_key
+            or self.s3_endpoint_url or self.s3_public_endpoint_url
+        ):
+            raise ValueError("S3_AUTH_MODE=aws-default cannot use static keys or custom S3 endpoints")
         meta_values = (
             self.meta_app_id,
             self.meta_app_secret,
@@ -353,7 +359,9 @@ class Settings(BaseSettings):
 
     @property
     def s3_configured(self) -> bool:
-        return bool(self.s3_access_key_id and self.s3_secret_access_key)
+        return self.s3_auth_mode == "aws-default" or bool(
+            self.s3_access_key_id and self.s3_secret_access_key
+        )
 
     @property
     def whatsapp_configured(self) -> bool:

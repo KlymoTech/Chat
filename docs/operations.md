@@ -161,6 +161,15 @@ Check the `job-dispatcher` and Celery worker logs, RabbitMQ health and queue age
 
 If the browser cannot upload a newly selected file, confirm it supplied the required SHA-256 of the exact bytes, copied every returned multipart field without converting fields to headers, and appended the file last. Confirm `S3_PUBLIC_ENDPOINT_URL` is reachable from the browser and that its host, scheme, and port match the presigned URL. Promotion rejects changed/mismatched size, type, checksum, ETag, or object version. If ingestion fails after promotion, confirm the worker can reach `S3_ENDPOINT_URL`. Both endpoint settings must address the same bucket and credentials.
 
+For an approved AWS S3 workload, set `S3_AUTH_MODE=aws-default`, the regional
+`S3_REGION` and bucket, and give the workload a least-privilege IAM role. Leave
+`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT_URL`, and
+`S3_PUBLIC_ENDPOINT_URL` unset. The SDK resolves temporary credentials; this
+mode does not prove an IAM role is attached or that the bucket policy permits
+the operation, so qualify presign, upload, promotion and readback in AWS. A
+presigned POST cannot outlive the credentials that signed it. Local MinIO keeps
+the default `S3_AUTH_MODE=static` path and its existing endpoint/key behavior.
+
 ### Analytics is stale
 
 Compare unpublished outbox age with Kafka consumer lag. Outbox growth means publishing is blocked; lag growth means the consumer or projection database is slow. Restarting is safe only because both stages are idempotent.

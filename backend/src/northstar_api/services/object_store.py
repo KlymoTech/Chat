@@ -40,6 +40,14 @@ class ObjectStore:
         self.settings = settings or get_settings()
 
     def _client(self, *, public: bool = False) -> Any:
+        if self.settings.s3_auth_mode == "aws-default":
+            # Let the AWS SDK resolve and rotate the workload's credentials.
+            # Never attach the MinIO endpoint or application-managed keys here.
+            return boto3.client(
+                "s3",
+                region_name=self.settings.s3_region,
+                config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+            )
         access_key = self.settings.s3_access_key_id
         secret_key = self.settings.s3_secret_access_key
         if not self.settings.s3_configured or access_key is None or secret_key is None:
@@ -86,13 +94,16 @@ class ObjectStore:
         ]
 
         def generate() -> tuple[str, dict[str, str]]:
-            result = self._client(public=True).generate_presigned_post(
-                Bucket=self.settings.s3_bucket,
-                Key=key,
-                Fields=fields,
-                Conditions=conditions,
-                ExpiresIn=self.settings.s3_presign_ttl_seconds,
-            )
+            try:
+                result = self._client(public=True).generate_presigned_post(
+                    Bucket=self.settings.s3_bucket,
+                    Key=key,
+                    Fields=fields,
+                    Conditions=conditions,
+                    ExpiresIn=self.settings.s3_presign_ttl_seconds,
+                )
+            except (BotoCoreError, ClientError) as exc:
+                raise ObjectStoreUnavailable("Object storage could not sign the upload") from exc
             generated_url = result.get("url")
             generated_fields = result.get("fields")
             if not isinstance(generated_url, str) or not isinstance(generated_fields, dict):
@@ -113,8 +124,8 @@ class ObjectStore:
             raise InvalidUpload("Uploaded object does not belong to this workspace")
 
         def promote() -> tuple[str, str, int]:
-            client = self._client()
             try:
+                client = self._client()
                 head = client.head_object(Bucket=self.settings.s3_bucket, Key=key)
                 size = int(head.get("ContentLength", 0))
                 metadata = {str(name).lower(): str(value) for name, value in head.get("Metadata", {}).items()}
@@ -126,6 +137,8 @@ class ObjectStore:
                 error_code = str(exc.response.get("Error", {}).get("Code", ""))
                 if error_code in {"404", "NoSuchKey", "NotFound"}:
                     raise InvalidUpload("Uploaded object was not found or has expired") from exc
+                raise ObjectStoreUnavailable("Object storage could not validate the upload") from exc
+            except BotoCoreError as exc:
                 raise ObjectStoreUnavailable("Object storage could not validate the upload") from exc
             except (TypeError, ValueError) as exc:
                 raise InvalidUpload("Uploaded object metadata is invalid") from exc

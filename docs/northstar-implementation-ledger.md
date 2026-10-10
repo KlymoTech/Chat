@@ -560,3 +560,15 @@ do not merge without explicit instruction.
 - Local checks: 24 focused Python tests and two mocked Terraform plans pass.
   This is a preflight guard, not proof of live queue delivery or production
   qualification; AWS cutover remains disabled and untested.
+
+## Increment: explicit IAM-role-compatible S3 access (2026-10-10)
+
+- Repository comparison found presigned uploads, checksum/version validation,
+  and commit-failure cleanup already present; those were preserved. The missing
+  AWS credential path was added as opt-in `S3_AUTH_MODE=aws-default`, using the
+  SDK credential chain without application-managed keys or custom S3 endpoints.
+  Local MinIO's default static-key mode is unchanged. Configuration rejects
+  mixing the two modes; targeted tests cover mode validation and client setup.
+- This is not the full upload-session/quarantine/orphan-reconciliation package.
+  No AWS bucket policy, workload identity, browser upload, or recovery test was
+  run, and no production storage configuration was changed.

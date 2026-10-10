@@ -2,12 +2,81 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
+from botocore.exceptions import NoCredentialsError
 
-from northstar_api.config import get_settings
+from northstar_api.config import Settings, get_settings
 from northstar_api.services.object_store import InvalidUpload, ObjectStore, ObjectStoreUnavailable
+
+
+def test_aws_default_s3_client_uses_sdk_identity_without_static_keys_or_custom_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create = Mock(return_value=Mock())
+    monkeypatch.setattr("northstar_api.services.object_store.boto3.client", create)
+    settings = Settings(
+        s3_auth_mode="aws-default",
+        s3_access_key_id=None,
+        s3_secret_access_key=None,
+        s3_endpoint_url=None,
+        s3_public_endpoint_url=None,
+        s3_region="ap-south-1",
+    )
+    store = ObjectStore(settings)
+    assert store._client(public=True) is create.return_value
+    kwargs = create.call_args.kwargs
+    assert kwargs["region_name"] == "ap-south-1"
+    assert kwargs["config"].signature_version == "s3v4"
+    assert kwargs["config"].s3["addressing_style"] == "virtual"
+    assert "endpoint_url" not in kwargs
+    assert "aws_access_key_id" not in kwargs
+    assert "aws_secret_access_key" not in kwargs
+
+
+def test_existing_static_s3_mode_keeps_minio_endpoint_and_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create = Mock(return_value=Mock())
+    monkeypatch.setattr("northstar_api.services.object_store.boto3.client", create)
+    settings = Settings(
+        s3_auth_mode="static",
+        s3_access_key_id="minio-user",
+        s3_secret_access_key="minio-secret",  # noqa: S106 - test-only fake credential
+        s3_endpoint_url="http://minio:9000",
+        s3_public_endpoint_url="http://localhost:9000",
+    )
+    store = ObjectStore(settings)
+    store._client(public=True)
+    kwargs = create.call_args.kwargs
+    assert kwargs["endpoint_url"] == settings.s3_public_endpoint_url
+    assert kwargs["aws_access_key_id"] == settings.s3_access_key_id.get_secret_value()
+    assert kwargs["aws_secret_access_key"] == settings.s3_secret_access_key.get_secret_value()
+    assert kwargs["config"].s3["addressing_style"] == "path"
+
+
+@pytest.mark.asyncio
+async def test_missing_aws_credentials_fails_as_storage_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        s3_auth_mode="aws-default",
+        s3_access_key_id=None,
+        s3_secret_access_key=None,
+        s3_endpoint_url=None,
+        s3_public_endpoint_url=None,
+    )
+    store = ObjectStore(settings)
+    client = Mock()
+    client.generate_presigned_post.side_effect = NoCredentialsError()
+    monkeypatch.setattr(store, "_client", Mock(return_value=client))
+    with pytest.raises(ObjectStoreUnavailable, match="could not sign"):
+        await store.presign_post(
+            tenant_id=uuid4(), filename="note.txt", content_type="text/plain",
+            size_bytes=4, checksum_sha256=hashlib.sha256(b"note").hexdigest(),
+        )
 
 
 class _Body:

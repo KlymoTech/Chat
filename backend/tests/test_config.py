@@ -42,6 +42,36 @@ def test_hardened_production_configuration_is_accepted() -> None:
     assert not settings.rate_limit_fail_open
 
 
+def test_production_accepts_explicit_aws_default_storage_credentials() -> None:
+    settings = _production_settings(
+        s3_auth_mode="aws-default",
+        s3_access_key_id=None,
+        s3_secret_access_key=None,
+    )
+    assert settings.s3_configured
+    assert settings.s3_auth_mode == "aws-default"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"s3_access_key_id": "old-key", "s3_secret_access_key": "old-secret"},
+        {"s3_endpoint_url": "http://minio:9000"},
+        {"s3_public_endpoint_url": "https://objects.example.org"},
+    ],
+)
+def test_aws_default_storage_rejects_static_keys_or_custom_endpoints(
+    override: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError, match="S3_AUTH_MODE=aws-default"):
+        _production_settings(**{
+            "s3_auth_mode": "aws-default",
+            "s3_access_key_id": None,
+            "s3_secret_access_key": None,
+            **override,
+        })
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [
