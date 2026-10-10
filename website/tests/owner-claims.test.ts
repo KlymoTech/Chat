@@ -10,6 +10,13 @@ describe("signed owner identity claims", () => {
       id:user, siteId:site, permissions:["cms:read", "cms:draft"]
     });
   });
+  it("only accepts redirect permission from a verified matching-site claim",()=>{
+    expect(actorFromVerifiedClaims({...claims,permissions:["cms:redirect"]},site))
+      .toEqual({id:user,siteId:site,permissions:["cms:redirect"]});
+    expect(actorFromVerifiedClaims({...claims,site_id:
+      "2d495e1d-bc02-4ddb-a972-d60e2b6c3de5",permissions:["cms:redirect"]},site))
+      .toBeNull();
+  });
   it("denies tenant switching, missing provisioning and unknown permissions", () => {
     expect(actorFromVerifiedClaims(claims,undefined)).toBeNull();
     expect(actorFromVerifiedClaims(claims,"2d495e1d-bc02-4ddb-a972-d60e2b6c3de5")).toBeNull();
