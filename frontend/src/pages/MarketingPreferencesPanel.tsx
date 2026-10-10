@@ -94,6 +94,11 @@ export function MarketingPreferencesPanel({ journeys }: { journeys: CRMWorkflowJ
         </Badge>
       </div>
       <p><ShieldCheck size={17} aria-hidden="true" /> Enquiry-processing permission is not modified.</p>
+      {preferences.marketingStatus === 'pending_verification' && <p role="status">
+        An earlier marketing withdrawal was found for this contact address.
+        Reconfirmation is required before marketing can be permitted.
+      </p>}
+      <p>{preferences.note}</p>
       <div className="crm-marketing-permission__actions">
         <Button variant="secondary" icon={ShieldOff}
           disabled={busy || ['withdrawn', 'revoked', 'denied', 'opted_out'].includes(preferences.marketingStatus)}
