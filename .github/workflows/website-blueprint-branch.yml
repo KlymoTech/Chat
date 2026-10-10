@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/website-blueprint-v1-3-20261010
+      - feature/website-consolidated-20261010
   workflow_dispatch:
 
 permissions:
