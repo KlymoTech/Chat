@@ -49,7 +49,7 @@ def retention_cutoff(security: object, *, as_of: datetime) -> datetime | None:
 def has_local_retention_hold(security: object) -> bool:
     """Conservatively block preview candidates with an explicit local hold."""
     return isinstance(security, dict) and any(
-        security.get(name) is True
+        name in security and security[name] is not False and security[name] is not None
         for name in ("legalHold", "retentionHold", "privacyHold")
     )
 
@@ -117,13 +117,17 @@ async def preview_conversation_retention(
             held += 1
             continue
         cutoff = retention_cutoff(security, as_of=as_of)
-        timestamps = tuple(
-            parsed for stamp in (started_at, updated_at, message_at)
-            if (parsed := _aware_utc(stamp)) is not None
-        )
-        if cutoff is None or len(timestamps) < 2:
+        started = _aware_utc(started_at)
+        updated = _aware_utc(updated_at)
+        latest = _aware_utc(message_at) if message_at is not None else None
+        if (
+            cutoff is None
+            or started is None
+            or updated is None
+            or (message_at is not None and latest is None)
+        ):
             invalid_policy += 1
-        elif max(timestamps) < cutoff:
+        elif max(stamp for stamp in (started, updated, latest) if stamp is not None) < cutoff:
             candidates.append(conversation_id)
         else:
             recent += 1
