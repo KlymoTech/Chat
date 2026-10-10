@@ -324,13 +324,15 @@ async def create_site_redirect(
         session, principal.tenant_id, workspace_id,
         payload.source_slug, payload.target_slug,
     )
-    existing_page = await session.scalar(select(WebsitePage.id).where(
+    existing_page = await session.scalar(select(WebsitePage).where(
         WebsitePage.tenant_id == principal.tenant_id,
         WebsitePage.workspace_id == workspace_id,
         WebsitePage.slug == payload.source_slug,
     ))
-    if existing_page is not None:
-        raise HTTPException(409, "A site page already owns the redirect source URL")
+    if existing_page is not None and (
+        existing_page.published_version is not None or existing_page.status != "archived"
+    ):
+        raise HTTPException(409, "Only unused or archived page URLs can be redirected")
     row = WebsiteRedirect(
         tenant_id=principal.tenant_id,
         workspace_id=workspace_id,
