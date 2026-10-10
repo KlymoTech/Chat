@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import {lookupPublicContentRedirect} from "../../../lib/content-redirects";
 import { PublishedBlocks } from "../../../components/PublishedBlocks";
 import { loadPublishedPage } from "../../../lib/cms-db";
 import { canonical, indexingApproved } from "../../../lib/seo";
@@ -21,6 +22,12 @@ export default async function ContentPage({ params }: { params: Promise<{slug: s
   const { slug } = await params;
   if (!validSlug(slug)) notFound();
   const page = await loadPublishedPage(`/content/${slug}`);
-  if (!page) notFound();
+  if (!page) {
+    const replacement=await lookupPublicContentRedirect(`/content/${slug}`);
+    // Next.js permanentRedirect returns an SEO-safe HTTP 308; never forward
+    // query strings, click IDs or credentials from the old request.
+    if(replacement)permanentRedirect(replacement);
+    notFound();
+  }
   return <article className="page"><h1>{page.title}</h1>{page.description && <p className="lead">{page.description}</p>}<PublishedBlocks blocks={page.blocks}/></article>;
 }
