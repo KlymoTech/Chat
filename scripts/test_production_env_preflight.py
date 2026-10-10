@@ -88,5 +88,10 @@ class ProductionPreflightTests(unittest.TestCase):
                 load_env(path)
 
 
+    def test_database_password_containing_example_word_allowed(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:myexamplepassword@db.internal/app"
+        self.assertEqual(validate(self.valid), [])
+
+
 if __name__ == "__main__":
     unittest.main()
