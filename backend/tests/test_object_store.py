@@ -580,8 +580,6 @@ def test_docx_archive_rejects_duplicate_package_members() -> None:
     )
 
 
-
-
 @pytest.mark.parametrize(
     "bad_member",
     [
