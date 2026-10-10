@@ -45,7 +45,12 @@ def load_env(path: Path) -> dict[str, str]:
 
 def public_hostname(hostname: str) -> bool:
     """Reject local, loopback and private IP literals as public CORS origins."""
-    if PLACEHOLDER.search(hostname) or hostname.endswith((".local", ".localhost")):
+    if (
+        PLACEHOLDER.search(hostname)
+        or hostname.endswith((".local", ".localhost", ".internal"))
+        or hostname in {"localhost", "local"}
+        or any(character.isspace() for character in hostname)
+    ):
         return False
     try:
         address = ipaddress.ip_address(hostname)
