@@ -30,12 +30,20 @@ if(!url || process.env.WEBSITE_SECURITY_VERIFY_ALLOW!=="true"){
       "automation_definitions","automation_versions",
       "automation_internal_runs","automation_run_steps","automation_internal_tasks",
       "privacy_rights_cases","privacy_rights_history",
+      "content_redirects",
     ];
     if(reader==="public-cms-reader"){
       const access=await pool.query(
         `SELECT has_table_privilege(current_user,
                  'website_cms.public_published_pages','SELECT') AS can_read`);
       if(!access.rows[0]?.can_read)failed.push("Reader lacks approved public CMS view");
+      if(process.env.WEBSITE_REDIRECT_PUBLIC_ENABLED==="true"){
+        const mapping=await pool.query(
+          "SELECT has_table_privilege(current_user,"+
+          "'website_cms.public_approved_content_redirects','SELECT') AS can_read");
+        if(!mapping.rows[0]?.can_read)
+          failed.push("Reader lacks approved public redirect security-barrier view");
+      }
       for(const table of tables){
         const result=await pool.query(
           "SELECT has_table_privilege(current_user,$1,'SELECT') AS can_read, "+
