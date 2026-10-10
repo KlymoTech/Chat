@@ -245,7 +245,11 @@ async def save_page(page_id: UUID, payload: PageEdit, principal: CmsAdmin,
 async def transition_page(page_id: UUID, action: EditorialAction, principal: CmsAdmin,
                           session: DBSession, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
-    if action not in {EditorialAction.SUBMIT, EditorialAction.APPROVE, EditorialAction.PUBLISH}:
+    if action not in {
+        EditorialAction.SUBMIT, EditorialAction.APPROVE, EditorialAction.PUBLISH,
+        EditorialAction.ARCHIVE, EditorialAction.RESTORE_DRAFT,
+        EditorialAction.REQUEST_CHANGES,
+    }:
         raise HTTPException(422, "Unsupported CMS action")
     page = await _get_page(session, principal, page_id)
     try:
@@ -260,7 +264,11 @@ async def transition_page(page_id: UUID, action: EditorialAction, principal: Cms
         )
         .values(
             status=new_state.value,
-            **({"published_version": page.draft_version} if action == EditorialAction.PUBLISH else {}),
+            **(
+                {"published_version": page.draft_version}
+                if action == EditorialAction.PUBLISH else
+                {"published_version": None} if action == EditorialAction.ARCHIVE else {}
+            ),
             updated_at=datetime.now(UTC),
         )
     )
@@ -270,11 +278,24 @@ async def transition_page(page_id: UUID, action: EditorialAction, principal: Cms
     page.status = new_state.value
     if action == EditorialAction.PUBLISH:
         page.published_version = page.draft_version
+    if action == EditorialAction.ARCHIVE:
+        # Archival disables public serving without deleting any source revision.
+        page.published_version = None
     session.add(_audit(page, principal, action.value))
     if action == EditorialAction.PUBLISH:
         event = enqueue_event(
             session, tenant_id=principal.tenant_id, aggregate_type="website_page",
             aggregate_id=page.id, event_type="website.page.published",
+            payload={
+                "pageId": str(page.id), "workspaceId": str(page.workspace_id),
+                "slug": page.slug, "revision": page.draft_version,
+            },
+        )
+        event.workspace_id = page.workspace_id
+    if action == EditorialAction.ARCHIVE:
+        event = enqueue_event(
+            session, tenant_id=principal.tenant_id, aggregate_type="website_page",
+            aggregate_id=page.id, event_type="website.page.unpublished",
             payload={
                 "pageId": str(page.id), "workspaceId": str(page.workspace_id),
                 "slug": page.slug, "revision": page.draft_version,
@@ -297,7 +318,8 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
     page = await session.scalar(
         select(WebsitePage).where(
             WebsitePage.workspace_id == workspace_id, WebsitePage.tenant_id == workspace.tenant_id,
-            WebsitePage.slug == slug, WebsitePage.published_version.is_not(None),
+            WebsitePage.slug == slug, WebsitePage.status == EditorialState.PUBLISHED.value,
+            WebsitePage.published_version.is_not(None),
         )
     )
     if page is None or page.published_version is None:
