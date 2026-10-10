@@ -1,13 +1,18 @@
 """Offline checks for the independent, one-use authorization ledger."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 
 import pytest
 
 from northstar_api.modules.platform_runtime import (
     queue_notification_signing_authorization_replay as replay,
 )
+
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
+        return None
 
 
 class FakeSession:
@@ -66,6 +71,7 @@ async def test_consumption_requires_confirmed_commit(monkeypatch, error):
 @pytest.mark.parametrize("change", [
     {"authorization_id": "bad"}, {"release_id": "../bad"},
     {"run_id": "x"}, {"now": datetime(2026, 10, 10)},
+    {"now": datetime(2026, 10, 10, tzinfo=NoOffsetTZ())},
 ])
 async def test_invalid_parameters_do_not_touch_database(change):
     class Unreachable:
