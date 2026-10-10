@@ -22,6 +22,7 @@ from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.models import LeadConsent
 from northstar_api.lead_crm.website_marketing_suppression import (
     InvalidUnsubscribeToken,
+    MARKETINGMARKETING_STOP_STATUSES,
     make_unsubscribe_token,
     verify_unsubscribe_token,
 )
@@ -32,7 +33,6 @@ from northstar_api.services.rate_limit import redis_services
 
 router = APIRouter(prefix="/site-marketing", tags=["website marketing preferences"])
 Owner = Annotated[Principal, Depends(require_roles(Role.OWNER, Role.ADMIN))]
-_STOP_STATUSES = frozenset({"withdrawn", "revoked", "denied", "opted_out"})
 
 
 async def _scoped_lead(
