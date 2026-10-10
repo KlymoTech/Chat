@@ -288,6 +288,7 @@ export interface InternalLeadAutomationPreview {
   policyVersion: number;
   segmentVersion: number;
   eligibleLeads: number;
+  eligibleFingerprint: string;
   alreadyQueued: number;
   remainingEligible: number;
   blockedByConsentOrStatus: number;
@@ -334,6 +335,7 @@ export const internalAutomationsApi = {
         expected_policy_version: preview.policyVersion,
         expected_segment_version: preview.segmentVersion,
         expected_eligible_leads: preview.eligibleLeads,
+        expected_eligible_fingerprint: preview.eligibleFingerprint,
       }),
     },
   ),
