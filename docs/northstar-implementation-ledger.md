@@ -920,3 +920,19 @@ do not merge without explicit instruction.
 - Eleven focused capacity/safety tests and Ruff pass. No provider API calls,
   scaling executor, durable metrics or automatic activation were added;
   production scaling remains unqualified.
+
+## Increment: strict DOCX ZIP member handling (2026-10-11)
+
+- Hardened the **existing shared** DOCX archive validator used by S3/MinIO
+  staged-upload promotion and knowledge ingestion. In addition to previous
+  member-count, duplicate and expanded-byte checks it now rejects path
+  traversal, absolute/drive/backslash/dot-segment members, case-insensitive
+  duplicate package names, Unix symbolic links, encrypted members, and
+  unsupported ZIP compression. Ordinary directory entries still pass.
+- A self-contained local pytest reproduction of the changed ZIP-member
+  predicates passed 12 tests. This was **not** the repository's full pytest
+  suite, its Ruff gate, or a live object-store integration run. GitHub Actions
+  still fails before executing runner steps; see issue #141.
+- This is a package-structure guard, **not** antivirus/malware scanning,
+  complete OPC validation, age-based retention, upload quota reservation,
+  or production release authorization.
