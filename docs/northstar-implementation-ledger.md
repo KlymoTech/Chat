@@ -632,3 +632,13 @@ do not merge without explicit instruction.
   approved destination `VersionId` in the source record or prevent an earlier
   overwrite before `HEAD`; approved-version custody, IAM write isolation,
   malware scanning and live AWS qualification are still open.
+
+## Increment: upload-only local storage proxy (2026-10-10)
+
+- The local Nginx `/storage/` route now permits only the browser's presigned
+  multipart POST; GET, HEAD and other methods are denied at the proxy.
+  Backend object reads and cleanup continue to use the internal S3 client.
+  Renderer contract coverage checks that this guard survives config rendering.
+- This does not configure private AWS bucket policy, validate live Nginx/MinIO
+  behavior, or provide malware scanning, separate quarantine storage or a
+  governed download authorization endpoint.

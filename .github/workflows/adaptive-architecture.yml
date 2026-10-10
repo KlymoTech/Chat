@@ -18,6 +18,8 @@ on:
       - 'backend/src/northstar_api/main.py'
       - 'platform.yaml'
       - '.github/workflows/release.yml'
+      - 'frontend/nginx.conf'
+      - 'frontend/render-nginx-config.test.sh'
       - 'platform/**'
       - 'scripts/validate-platform-manifest.ps1'
       - 'scripts/audit-platform-conformance.py'
@@ -197,6 +199,9 @@ jobs:
         working-directory: .
         shell: pwsh
         run: ./scripts/validate-platform-manifest.ps1
+      - name: Upload-only storage proxy contract
+        working-directory: .
+        run: bash frontend/render-nginx-config.test.sh frontend/render-nginx-config.sh frontend/nginx.conf
       - name: Conformance auditor regression tests
         run: uv run pytest -q tests/test_platform_conformance_audit.py tests/test_release_multiarch_contract.py
       - name: AWS object promotion contracts

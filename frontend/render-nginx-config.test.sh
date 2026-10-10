@@ -10,6 +10,7 @@ S3_PUBLIC_ENDPOINT_URL=https://objects.example.com \
 WEB_CSP_EXTRA_CONNECT_SRC='https://objects.example.com https://events.example.com:8443' \
   "$renderer" "$template" "$test_output"
 grep -Fq "https://objects.example.com https://events.example.com:8443" "$test_output"
+grep -Fq 'limit_except POST { deny all; }' "$test_output"
 
 if S3_PUBLIC_ENDPOINT_URL=https://objects.example.com \
   WEB_CSP_EXTRA_CONNECT_SRC=https://different.example.com \
