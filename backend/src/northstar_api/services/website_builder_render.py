@@ -31,6 +31,7 @@ SITE_CSS = (
     "a.site-action:hover{background:#1e40af}"
     ".site-footer{max-width:1100px;margin:auto;padding:22px 24px 64px;border-top:1px solid #cbd5e1;color:#475569}"
     ".site-footer a{color:#1d4ed8;font-weight:650}"
+    ".site-byline{color:#334155;font-weight:600}.site-summary{max-width:65ch;color:#475569}"
     "@media(max-width:480px){main,.site-header{padding-left:14px;padding-right:14px}"
     "main>section{margin:14px 0;border-radius:15px}}"
     "@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}"
@@ -83,10 +84,13 @@ def render_page(
     title = escape(document.title)
     robots = "index, follow" if document.seo.indexable else "noindex, nofollow"
     seo_metadata = '<meta name="robots" content="' + robots + '">'
-    if document.seo.description:
+    effective_description = document.seo.description or (
+        document.blog.summary if document.blog is not None else ""
+    )
+    if effective_description:
         seo_metadata += (
             '<meta name="description" content="'
-            + _attr(document.seo.description)
+            + _attr(effective_description)
             + '">'
         )
     if document.seo.canonical_url:
@@ -94,6 +98,15 @@ def render_page(
             '<link rel="canonical" href="'
             + _attr(document.seo.canonical_url)
             + '">'
+        )
+    article_header = ""
+    language = "en"
+    if document.content_type == "article" and document.blog is not None:
+        language = document.blog.locale
+        article_header = (
+            '<p class="site-byline">By ' + escape(document.blog.author)
+            + ' · ' + escape(document.blog.category) + '</p>'
+            + '<p class="site-summary">' + escape(document.blog.summary) + '</p>'
         )
     privacy_footer = (
         '<footer class="site-footer"><a href="' + _attr(privacy_path) +
@@ -113,12 +126,12 @@ def render_page(
         )
     return (
         "<!doctype html>\n"
-        '<html lang="en"><head><meta charset="utf-8">'
+        f'<html lang="{_attr(language)}"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{title}</title>{seo_metadata}<style>{SITE_CSS}</style>"
         "</head><body>"
         '<a class="skip-link" href="#site-main">Skip to content</a>'
-        f'<header class="site-header"><p class="site-eyebrow">Welcome</p><h1>{title}</h1></header>'
+        f'<header class="site-header"><p class="site-eyebrow">{"Article" if document.content_type == "article" else "Welcome"}</p><h1>{title}</h1>{article_header}</header>'
         f'<main id="site-main">{sections}</main>'
         f"{privacy_footer}"
         f"{analytics_script}"
