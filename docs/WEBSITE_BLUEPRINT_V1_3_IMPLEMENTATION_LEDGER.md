@@ -8,7 +8,7 @@ domain contract does not imply that the UI, API, persistence or end-to-end flow 
 - Development branch: `feature/website-blueprint-v1-3-20261010`
 - Do not merge into `main` without explicit user instruction.
 - Preserve existing CMS, CRM, auth, routing and integrations.
-- New real CRM provider integration: deferred. Website-owned forms/leads: in scope.
+- All blueprint-listed capabilities are requested, including external CRM provider integration and conditional modules. Provider activation still requires authorized credentials, account access, lawful basis and project-specific configuration; do not misrepresent unconfigured integrations as operational.
 - Keep the existing Python/FastAPI backend unless an approved architecture
   decision replaces it; blueprint NestJS is a reference default, not evidence
   of a migration being necessary.
@@ -44,6 +44,9 @@ domain contract does not imply that the UI, API, persistence or end-to-end flow 
 - No broken primary journeys or untested recovery.
 - No automatic deletion of blog/source/trash content.
 - No green release sign-off without passing acceptance evidence.
+
+## Scope clarification (2026-10-10)
+The owner explicitly requests no deferred blueprint features. Implement all documented capability families and their working frontend/backend/database paths. External provider credentials, approvals, legal decisions, and live payment/ad transactions remain environment-dependent release prerequisites, not reasons to claim implementation completion. Maintain per-capability implementation, activation, and verification status separately.
 
 ## Next integration milestone
 Implement a real CMS page create/edit/preview/publish workflow with migrations,
