@@ -820,7 +820,7 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> Resp
         ),
         headers={
             "Cache-Control": "no-store",
-            "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; script-src 'nonce-{nonce}'; connect-src 'self'; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; frame-src 'self'; script-src 'nonce-{nonce}'; connect-src 'self'; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
             "X-Content-Type-Options": "nosniff",
         },
     )
