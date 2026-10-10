@@ -229,3 +229,23 @@ Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found 
 - Added Pydantic contract tests, public HTML/legacy compatibility tests, builder undo/redo preservation tests, dedicated inspector tests, and an existing CMS integration test confirming versioned save with appearance metadata.
 - **Verification remains incomplete:** GitHub Actions branch jobs continue failing before runner assignment with no executed steps. The styling increment is committed, **not independently build-/browser-/production-certified**. CAP-003 and CAP-004 remain `Not verified` in the capability register.
 - The rest of the blueprint remains in scope: component/template design system, breakpoint-specific controls, media/CDN, marketing journeys, consent/privacy rights, analytics reconciliation, external provider integrations and full release acceptance.
+
+
+## CAP-044 marketing consent/suppression increment — 2026-10-10 (consolidated branch)
+
+**Canonical runtime:** existing FastAPI `backend/` and React `frontend/` CRM Workflow. The alternate `website/` and `website-platform/` source trees remain preserved, not activated as duplicate live services.
+
+- Existing source audit: `LeadConsent` is already the authoritative purpose-specific consent history, and the existing CRM segment preview requires a latest marketing grant. No first-party signed unsubscribe implementation existed in the canonical runtime.
+- Added `lead_crm/website_marketing_suppression.py`, a purpose-specific HMAC-SHA256 signature with a domain-separated key, 30-day validity and opaque UUID scopes. The token is **not** a login JWT and exposes no email/contact fields.
+- Added existing-API-router `site-marketing` endpoints for owner preference read, signed link creation, explicit opt-out and signed public GET/POST. GET never mutates consent, preventing mail link scanners from unsubscribing recipients. POST accepts an authenticated-in-the-token one-click unsubscribe and is replay-safe.
+- The marketing withdrawal reuses `LeadConsent` and locks the existing `Lead` row during consent evaluation. A single database transaction persists a new withdrawal receipt, a PII-minimized integration audit and `lead.marketing.consent.withdrawn.v1` outbox event. Replaying a withdrawal does not generate duplicate receipts/events. Existing lead enquiry-processing consent is not modified.
+- Existing CRM segments treat both marketing-withdrawal status and `withdrawn_at` timestamps as a suppression signal, without treating ordinary enquiry-processing consent as marketing permission.
+- Extended the existing CRM Workflow API client and owner dashboard with `MarketingPreferencesPanel`, including scoped lead selection, explicit confirmation, link creation/copy, meaningful warnings and no automatic customer messaging.
+- Unit/API/UI tests committed: `test_website_marketing_suppression.py`, extensions to `test_website_lead_scoring_api.py`, `MarketingPreferencesPanel.test.tsx`. The existing branch CI now includes the new Python module/router lint and pure unit tests; the frontend test command already discovers the React test.
+- **Deployment prerequisites:** strong `JWT_SECRET` (32+ characters), no URL/bearer-token logging in public proxies, stable redirect/HTTPS domain and configured authenticated staff access. Do not embed signed links in analytics/query strings, and do not enable outbound marketing merely because a link can be generated.
+- **Not verified:** GitHub Actions jobs on the consolidated branch still fail before execution. No successful production migration, browser acceptance or email-provider List-Unsubscribe header integration is certified.
+- **Remaining CAP-044 scope:** secure subscription and double opt-in for new signups, linked contact/global suppression across channels, live dispatch-time suppression in every approved sender, complaint/bounce ingestion, brand preference center, provider acknowledgement and production tests. CAP-044 remains **Not verified**.
+
+## Consolidation CI branch routing — 2026-10-10
+
+The three preserved website workflows `website-blueprint-branch.yml`, `website-blueprint.yml` and `website-platform.yml` now include `feature/website-consolidated-20261010` as a validation branch. This **does not** deploy any of the three applications, switch runtime selection or change `main`. The runner-assignment failure remains an operational release blocker.
