@@ -201,3 +201,18 @@ Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found 
 - Accepted public form submissions now create a dedicated, PII-minimized `IntegrationAuditEvent` in the **same transaction** as the submission, existing Lead/LeadProfile, processing consent, conversion receipt and outbox messages. Receipt IDs, approved schema version and conversion IDs are recorded; visitor contact details are not copied into the audit.
 - The consent control must use the stable `processing_consent` key and explicit required affirmative input. Arbitrary "consent" controls cannot be silently reinterpreted as processing permission. This prevents ambiguous owner-selected labels from granting a broader purpose accidentally.
 - Regression tests assert that a submission audit exists without contact PII and the processing-consent key is enforced.
+
+
+## Website content preflight increment — 2026-10-10
+
+**Source scope:** CAP-004, CAP-090 and Blueprint Chapters 20, 30, 64–65. Existing `website_cms.py` plus owner `WebsiteCMSPage.tsx` were extended. No new CMS, deployment framework, navigation system, or database table was introduced.
+
+- Fixed two pre-existing regression assertions: the consent fixture now checks `processing_consent`, and the multi-line choice editor test supplies an actual newline separator.
+- Added tenant/workspace-scoped `GET /api/v1/site-cms/preflight`, authorized only for existing OWNER/ADMIN CMS principals. The response is `private, no-store` and contains no draft document bodies, visitor identities, tokens or secrets.
+- Checks actual currently published website pages, associated immutable revisions and builder document validity, and reports empty-page warnings.
+- Checks currently published forms have valid revision contracts, active same-workspace agents and the existing lead-generation purpose setting. Detects pages with embedded forms that are no longer published or no longer eligible.
+- Checks published navigation target slugs and active redirect destinations against currently published pages and flags collisions. Absence of a navigation menu yields a warning, not an invented pass.
+- Reports structured blockers and warnings with `contentReady` meaning **content integrity only**. `releaseCertified` is always false. The response explicitly excludes DB migration execution, third-party delivery, backup/recovery, security, accessibility and actual production deployment.
+- Mounted `WebsiteContentPreflight` within the existing `WebsiteCMSPage`. Owner manually runs/re-runs preflight after publication; results display actionable descriptions, resource slugs, severities and the separate production release limitation.
+- Backend integration regressions were added to `test_website_forms_api.py` and `test_website_navigation_api.py`. Frontend component regressions were added in `WebsiteContentPreflight.test.tsx`. Both are picked up by the existing branch CI test commands.
+- **Not verified:** GitHub Actions still has failed job records with zero executed steps and no retrievable job logs. A content preflight cannot stand in for E2E browser tests, app migrations or verified production releases; CAP-090 remains **Not verified**.
