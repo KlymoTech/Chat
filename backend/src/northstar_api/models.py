@@ -1021,3 +1021,6 @@ class EventQuarantine(Base, UUIDPrimaryKeyMixin):
 # Import the additive website CMS tables into the shared ORM metadata so
 # schema creation/tests observe the same database model set.
 from northstar_api.website_cms_models import WebsiteAudit, WebsitePage, WebsiteRevision  # noqa: E402,F401
+
+# Include anonymous site consent receipts in ORM metadata/schema creation.
+from northstar_api.website_consent_models import WebsiteConsentReceipt  # noqa: E402,F401
