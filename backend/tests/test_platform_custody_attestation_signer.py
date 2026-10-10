@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -10,6 +10,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from northstar_api.modules.platform_runtime import queue_notification_custody_attestation_signer as subject
 from northstar_api.modules.platform_runtime.queue_notification_jenkins_test_provenance import VerifiedJenkinsProvenance
+
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
+        return None
 
 
 def pem(key: Ed25519PrivateKey) -> bytes:
@@ -141,7 +146,7 @@ async def test_wrong_key_and_unqualified_suites_fail_closed(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}, datetime(2026, 10, 10)])
+@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}, datetime(2026, 10, 10), datetime(2026, 10, 10, tzinfo=NoOffsetTZ())])
 async def test_invalid_signing_clock_is_rejected_before_custody_or_key_access(
     monkeypatch, bad_clock
 ):
