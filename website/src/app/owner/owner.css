@@ -1,0 +1,54 @@
+/* Owner workspace: scoped styles and accessible controls only. */
+.owner-console{padding:2.5rem 0 5rem;min-height:65vh}
+.owner-console h1{font-size:clamp(2.3rem,4vw,3.2rem)}
+.owner-console h2{font-size:1.35rem;margin:.2rem 0 1rem}
+.owner-console h3{font-size:1.1rem}
+.owner-console button{cursor:pointer;font:inherit}
+.owner-console button:disabled{opacity:.55;cursor:not-allowed}
+.owner-heading{display:flex;justify-content:space-between;gap:1.5rem;align-items:center;flex-wrap:wrap}
+.owner-actions{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin:.8rem 0}
+.owner-actions button{border:1px solid #8498a2;padding:.55rem .8rem;border-radius:.5rem;background:white;color:#172a3a}
+.owner-actions button.button{color:white;background:#116a73;border-color:#116a73}
+.owner-actions button.button.secondary{background:white;color:#116a73}
+.owner-grid{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:1.25rem;align-items:start;margin-top:1.5rem}
+.owner-work{display:grid;gap:1.25rem;min-width:0}
+.owner-panel{border:1px solid #d9e1e5;background:#fff;border-radius:1rem;padding:1.25rem;min-width:0}
+.owner-pages{list-style:none;margin:1rem 0 0;padding:0}
+.owner-pages button{display:grid;text-align:left;width:100%;border:1px solid transparent;background:transparent;border-radius:.5rem;padding:.65rem;overflow-wrap:anywhere}
+.owner-pages button:hover,.owner-pages .owner-selected{background:#e8f3f3;border-color:#116a73}
+.owner-pages small{color:#516575}
+.owner-form{display:grid;gap:.65rem}
+.owner-form input,.owner-form textarea,.owner-form select,
+.owner-panel>select,.owner-preserve textarea{border:1px solid #71828e;border-radius:.5rem;background:#fff;color:#172a3a;padding:.65rem;width:100%;font:inherit}
+.owner-form label,.owner-panel>label,.owner-preserve label{font-weight:650;display:block}
+.owner-form label input,.owner-form label textarea{display:block;margin-top:.35rem}
+.owner-hint{font-size:.89rem;color:#516575}
+.owner-block{border:1px solid #ccd9e0;border-radius:.75rem;padding:1rem;display:grid;gap:.6rem}
+.owner-block legend{text-transform:capitalize;font-weight:700}
+.owner-block label{display:grid;gap:.3rem}
+.owner-preview{border-top:1px solid #d9e1e5;margin-top:1.5rem;padding-top:1.25rem;overflow-wrap:anywhere}
+.owner-preserve{border-top:1px solid #d9e1e5;margin-top:1rem;padding-top:1rem;display:grid;gap:.5rem}
+.owner-message,.owner-error{border-left:4px solid #116a73;padding:.7rem 1rem;background:white}
+.owner-error{border-left-color:#a52d37}
+@media(max-width:760px){.owner-grid{grid-template-columns:1fr}.owner-console{padding:1.5rem 0}.owner-heading{align-items:flex-start}}
+
+.owner-preserve input{border:1px solid #71828e;border-radius:.5rem;background:#fff;color:#172a3a;padding:.65rem;width:100%;font:inherit}
+
+
+/* Preview device widths are editor-only; no generated markup or inline CSS input. */
+.owner-preview-modes{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+.owner-preview-modes button{padding:.45rem .8rem;border:1px solid #71828e;border-radius:.5rem;background:#fff;color:#172a3a}
+.owner-preview-modes button[aria-pressed="true"]{border-color:#116a73;background:#e8f4f4;font-weight:700}
+.owner-preview-modes button:focus-visible{outline:3px solid #df8e20;outline-offset:2px}
+.owner-preview-scroll{overflow-x:auto;max-width:100%;border-radius:.75rem;padding:.7rem;background:#eff3f5}
+.owner-preview-device{padding:clamp(1rem,2vw,2rem);background:#fff;border:1px solid #ccd9e0;
+  margin-inline:auto;min-height:180px;overflow-wrap:anywhere;
+  container-type:inline-size;container-name:cms-preview}
+.owner-preview-device-desktop{width:1200px;max-width:none}
+.owner-preview-device-tablet{width:768px;max-width:none}
+.owner-preview-device-mobile{width:390px;max-width:none}
+@container cms-preview (max-width:600px){
+  .cms-hero,.cms-cta{padding:1rem;margin:1rem 0}
+  .cms-hero h2,.cms-cta h2{font-size:1.55rem}
+  .cms-hero-split{border-left-width:3px}
+}

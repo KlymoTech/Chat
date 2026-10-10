@@ -1,0 +1,60 @@
+name: Website Blueprint isolated checks
+on:
+  push:
+    branches: [feature/website-blueprint-v1-3]
+    paths:
+      - "website/**"
+      - ".github/workflows/website-blueprint.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  website-build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: website_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d website_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies (lockfile not yet committed)
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Relative import integrity (offline)
+        run: npm run test:imports
+      - name: Contract regression tests
+        run: npm test
+      - name: Isolated PostgreSQL migrations and acceptance checks
+        run: npm run test:postgres
+        env:
+          WEBSITE_TEST_DATABASE_ALLOW: "true"
+          WEBSITE_TEST_DATABASE_URL: "postgres://postgres:isolated-test-only@127.0.0.1:5432/website_test"
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SITE_APPROVED: "false"
+      - name: Install Chromium for public browser acceptance
+        run: npx playwright install --with-deps chromium
+      - name: Isolated browser smoke acceptance
+        run: npm run test:e2e
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SITE_APPROVED: "false"

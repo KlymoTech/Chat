@@ -1,0 +1,15 @@
+{
+  "name": "website-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev:api": "npm run start:dev -w @website-studio/api",
+    "dev:web": "npm run dev -w @website-studio/web",
+    "build": "npm run build -w @website-studio/api && npm run build -w @website-studio/web",
+    "db:generate": "npm run db:generate -w @website-studio/api",
+    "db:migrate": "npm run db:migrate -w @website-studio/api",
+    "db:seed": "npm run db:seed -w @website-studio/api",
+    "test": "npm run test -w @website-studio/api"
+  }
+}

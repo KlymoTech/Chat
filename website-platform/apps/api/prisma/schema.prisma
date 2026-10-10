@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Site {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  tagline     String    @default("")
+  description String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  pages       Page[]
+  articles    Article[]
+  leads       Lead[]
+}
+
+model Page {
+  id          String         @id @default(cuid())
+  siteId      String
+  site        Site           @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  slug        String
+  title       String
+  description String         @default("")
+  body        String         @default("")
+  status      String         @default("DRAFT")
+  revision    Int            @default(0)
+  draftVersion Int           @default(0)
+  publishedSnapshot Json?
+  publishedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  revisions   PageRevision[]
+  @@unique([siteId, slug])
+  @@index([siteId, status])
+}
+
+model PageRevision {
+  id        String   @id @default(cuid())
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Restrict)
+  revision  Int
+  snapshot  Json
+  actorId   String
+  createdAt DateTime @default(now())
+  @@unique([pageId, revision])
+}
+
+model Article {
+  id          String            @id @default(cuid())
+  siteId      String
+  site        Site              @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  slug        String
+  title       String
+  description String            @default("")
+  body        String            @default("")
+  status      String            @default("DRAFT")
+  revision    Int               @default(0)
+  draftVersion Int              @default(0)
+  publishedSnapshot Json?
+  publishedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  revisions   ArticleRevision[]
+  @@unique([siteId, slug])
+  @@index([siteId, status])
+}
+
+model ArticleRevision {
+  id        String   @id @default(cuid())
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  revision  Int
+  snapshot  Json
+  actorId   String
+  createdAt DateTime @default(now())
+  @@unique([articleId, revision])
+}
+
+model Lead {
+  id             String   @id @default(cuid())
+  siteId         String
+  site           Site     @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  name           String
+  email          String
+  message        String
+  marketingOptIn Boolean  @default(false)
+  utm            Json?
+  idempotencyKey String   @unique
+  status         String   @default("NEW")
+  createdAt      DateTime @default(now())
+  @@index([siteId, createdAt])
+}
+
+model AdminUser {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  role         String         @default("OWNER")
+  createdAt    DateTime       @default(now())
+  sessions     AdminSession[]
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Restrict)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  @@index([userId, expiresAt])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  entity    String
+  entityId  String
+  details   Json
+  createdAt DateTime @default(now())
+  @@index([entity, entityId, createdAt])
+}
+
+model OutboxEvent {
+  id        String   @id @default(cuid())
+  topic     String
+  payload   Json
+  state     String   @default("PENDING")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([state, createdAt])
+}
