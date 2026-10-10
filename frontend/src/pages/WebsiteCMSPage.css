@@ -48,3 +48,9 @@
 .site-cms-copy label{min-width:0}
 .site-cms-copy button{align-self:end;min-height:43px}
 @media(max-width:820px){.site-cms-copy{grid-template-columns:1fr}}
+
+.site-cms-save-note{font-size:.87rem;color:#334155;margin:10px 0}
+.site-cms-conflict{padding:14px;border:1px solid #f59e0b;background:#fffbeb;color:#78350f;border-radius:10px;margin-top:12px}
+.site-cms-conflict strong{display:block;font-weight:750}
+.site-cms-conflict p{margin:8px 0 14px}
+.site-cms-conflict .site-cms-actions{display:flex;gap:10px;flex-wrap:wrap}
