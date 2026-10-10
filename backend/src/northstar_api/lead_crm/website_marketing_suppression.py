@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from northstar_api.lead_crm.models import LeadConsent
+from northstar_api.models import Lead
+
 # Shared by preference APIs, form opt-in and any future provider send gate.
 # A new form must not silently reverse a prior explicit withdrawal.
 MARKETING_STOP_STATUSES = frozenset({"withdrawn", "revoked", "denied", "opted_out"})
@@ -104,3 +110,38 @@ def verify_unsubscribe_token(
         )
     except (UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError, OverflowError) as exc:
         raise InvalidUnsubscribeToken("Invalid or expired link") from exc
+
+
+
+async def has_workspace_marketing_suppression(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace_id: UUID,
+    email: str | None,
+    exclude_lead_id: UUID | None = None,
+) -> bool:
+    """An email withdrawal applies to all matching Leads in this workspace.
+
+    Marketing permission is never inferred from a separate processing consent
+    or reset by creating another Lead with the same email. The lookup uses only
+    the existing Lead and LeadConsent records; no shadow suppression table.
+    """
+    normalized_email = (email or "").strip().lower()
+    if not normalized_email:
+        return False
+    query = (
+        select(LeadConsent.id)
+        .join(Lead, Lead.id == LeadConsent.lead_id)
+        .where(
+            Lead.tenant_id == tenant_id,
+            Lead.workspace_id == workspace_id,
+            LeadConsent.tenant_id == tenant_id,
+            LeadConsent.consent_type == "marketing",
+            func.lower(LeadConsent.status).in_(MARKETING_STOP_STATUSES),
+            func.lower(Lead.email) == normalized_email,
+        )
+    )
+    if exclude_lead_id is not None:
+        query = query.where(Lead.id != exclude_lead_id)
+    return await session.scalar(query.limit(1)) is not None
