@@ -1,0 +1,77 @@
+name: Northstar offline security contracts
+
+on:
+  push:
+    branches:
+      - feature/northstar-adaptive-architecture-20261008
+    paths:
+      - '.github/workflows/northstar-offline-security-contracts.yml'
+      - 'backend/migrations/versions/0093_notification_jenkins_junit_custody.py'
+      - 'backend/migrations/versions/0093_notification_junit_index_custody.py'
+      - 'backend/migrations/versions/0094_merge_notification_junit_custody_heads.py'
+      - 'backend/migrations/versions/0095_notification_custody_signing_claims.py'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
+      - 'backend/tests/test_platform_custody*'
+      - 'backend/tests/test_platform_notification_junit_migration_merge.py'
+      - 'backend/uv.lock'
+      - 'backend/pyproject.toml'
+  pull_request:
+    paths:
+      - '.github/workflows/northstar-offline-security-contracts.yml'
+      - 'backend/migrations/versions/0093_notification_jenkins_junit_custody.py'
+      - 'backend/migrations/versions/0093_notification_junit_index_custody.py'
+      - 'backend/migrations/versions/0094_merge_notification_junit_custody_heads.py'
+      - 'backend/migrations/versions/0095_notification_custody_signing_claims.py'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
+      - 'backend/tests/test_platform_custody*'
+      - 'backend/tests/test_platform_notification_junit_migration_merge.py'
+      - 'backend/uv.lock'
+      - 'backend/pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: northstar-offline-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  signing-and-migrations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: test
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv sync --all-groups --locked
+      - name: Lint custody security implementation
+        run: >-
+          uv run ruff check
+          src/northstar_api/modules/platform_runtime/queue_notification_custody_attestation_signer.py
+          src/northstar_api/modules/platform_runtime/queue_notification_custody_signing_claims.py
+          tests/test_platform_custody_attestation_signer.py
+          tests/test_platform_custody_signing_claims.py
+          tests/test_platform_custody_signing_claim_migration.py
+          tests/test_platform_notification_junit_migration_merge.py
+      - name: Verify signer and migration regression contracts
+        run: >-
+          uv run pytest -q
+          tests/test_platform_custody_attestation_signer.py
+          tests/test_platform_custody_signing_claims.py
+          tests/test_platform_custody_signing_claim_migration.py
+          tests/test_platform_notification_junit_migration_merge.py
