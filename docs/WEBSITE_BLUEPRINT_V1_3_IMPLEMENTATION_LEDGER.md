@@ -262,6 +262,7 @@ Audit established that `backend/src/northstar_api/routers/crm_workflow.py` alrea
 - Added `CRMInternalAutomationsPanel.test.tsx` and updated existing `CRMWorkflowPage.test.tsx` to mock and verify the new shared panel without changing older workflows.
 - Added `test_website_internal_automations.py` contract tests and `test_website_internal_automations_api.py` integration checks covering bounded actions, ineligible/withdrawn leads, idempotent review requests, operational-segment isolation, actor history and no external CRM delivery events.
 - Updated `.github/workflows/website-blueprint-branch.yml` to include new Python tests and linting for the existing automation schema; the current frontend test glob automatically includes the new React tests.
+- Strengthened the existing execution path with a deterministic **eligible-cohort fingerprint**. New UI previews contain an opaque SHA-256 fingerprint of the exact eligible Lead IDs, and execution now rejects cohort substitution even when the total eligible count remains unchanged. The extra request field is optional for backward compatibility with existing API consumers; newer UI calls require it. Tests include same-count membership swaps.
 - CAP-040 stays **Not verified**. Full marketing automation remains a separate, unimplemented scope: visual rule graph/conditional journeys, durable timers, delayed jobs, consent-controlled external dispatch, sender-domain authentication, delivery retries/observability, simulation parity for those actions, and browser/production evidence.
 
 ### Verification limit
