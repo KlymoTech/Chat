@@ -62,6 +62,37 @@ class BuilderNode(BaseModel):
         return self
 
 
+class PageSEO(BaseModel):
+    """Owner-approved organic search metadata; pages are noindex until configured."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    description: str = Field(default="", max_length=160)
+    canonical_url: str | None = Field(default=None, max_length=2048)
+    indexable: bool = False
+
+    @field_validator("canonical_url")
+    @classmethod
+    def validate_canonical(cls, value: str | None) -> str | None:
+        if value is None or value.strip() == "":
+            return None
+        value = value.strip()
+        parts = urlsplit(value)
+        if (
+            parts.scheme != "https" or not parts.hostname
+            or parts.username or parts.password
+            or parts.fragment or parts.query
+        ):
+            raise ValueError("Canonical URLs must be HTTPS without credentials, query or fragment")
+        return value
+
+    @model_validator(mode="after")
+    def require_canonical_before_indexing(self) -> "PageSEO":
+        if self.indexable and not self.canonical_url:
+            raise ValueError("An approved canonical URL is required before indexing")
+        return self
+
+
 class BuilderPageDocument(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -69,6 +100,7 @@ class BuilderPageDocument(BaseModel):
     slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     title: str = Field(min_length=1, max_length=180)
     nodes: tuple[BuilderNode, ...] = ()
+    seo: PageSEO = Field(default_factory=PageSEO)
 
     @model_validator(mode="after")
     def check_tree(self) -> "BuilderPageDocument":
