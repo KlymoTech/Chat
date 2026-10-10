@@ -20,10 +20,13 @@ interface Revision { version: number; title: string; createdAt: string; isPublis
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
 const id = () => crypto.randomUUID();
 const defaultSEO: PageSEO = { description: '', canonical_url: null, indexable: false };
-const newDocument = (title: string, slug: string, asArticle = false): PageDocument => ({
+const newDocument = (
+  title: string, slug: string, asArticle = false,
+  author = '', category = '', summary = '',
+): PageDocument => ({
   schema_version: 1, title, slug, seo: { ...defaultSEO },
   content_type: asArticle ? 'article' : 'page',
-  blog: asArticle ? { author: 'Editorial team', category: 'General', summary: 'Update this article summary before publishing.', reviewer: null, locale: 'en' } : null,
+  blog: asArticle ? { author: author.trim(), category: category.trim(), summary: summary.trim(), reviewer: null, locale: 'en' } : null,
   nodes: [
   { id: id(), kind: 'section', children: [{ id: id(), kind: 'heading', text: title }, { id: id(), kind: 'paragraph', text: 'Edit this introduction.' }] },
 ] });
@@ -66,6 +69,9 @@ export function WebsiteCMSPage() {
   const [name, setName] = useState('New page');
   const [slug, setSlug] = useState('new-page');
   const [newContentType, setNewContentType] = useState<'page' | 'article'>('page');
+  const [newAuthor, setNewAuthor] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+  const [newSummary, setNewSummary] = useState('');
   const [copyTitle, setCopyTitle] = useState('');
   const [copySlug, setCopySlug] = useState('');
   const [importContent, setImportContent] = useState('');
@@ -100,7 +106,7 @@ export function WebsiteCMSPage() {
   const create = async () => {
     setBusy(true); setError('');
     try {
-      const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim(), newContentType === 'article')) });
+      const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim(), newContentType === 'article', newAuthor, newCategory, newSummary)) });
       setPages((items) => [page, ...items]); open(page, true);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
@@ -284,7 +290,24 @@ export function WebsiteCMSPage() {
               <option value="article">Blog article</option>
             </select>
           </label>
-          <Button type="submit" icon={FilePlus2} disabled={busy || !name.trim()}>Create draft</Button>
+          {newContentType === 'article' ? <fieldset className="site-cms-seo">
+            <legend>Editorial information</legend>
+            <label>Verified author
+              <input required maxLength={120} value={newAuthor}
+                onChange={(event) => setNewAuthor(event.target.value)} placeholder="Actual author or team" />
+            </label>
+            <label>Category
+              <input required maxLength={80} value={newCategory}
+                onChange={(event) => setNewCategory(event.target.value)} />
+            </label>
+            <label>Article summary
+              <textarea required maxLength={240} rows={3} value={newSummary}
+                onChange={(event) => setNewSummary(event.target.value)} />
+            </label>
+          </fieldset> : null}
+          <Button type="submit" icon={FilePlus2}
+            disabled={busy || !name.trim() || (newContentType === 'article'
+              && (!newAuthor.trim() || !newCategory.trim() || !newSummary.trim()))}>Create draft</Button>
         </form>
         <div className="site-cms-import">
           <h4>Import page JSON</h4>
