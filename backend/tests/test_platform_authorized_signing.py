@@ -142,3 +142,20 @@ async def test_nonfunctional_guard_is_rejected_before_authorization(monkeypatch,
     with pytest.raises(PermissionError, match="service unavailable"):
         await subject.sign_with_protected_authorization(None, **parameters)
     verify.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("clock", [0, False, "", [], {}, datetime(2026, 10, 10)])
+async def test_invalid_clock_never_consumes_authorization(monkeypatch, clock):
+    verify = AsyncMock()
+    sign = AsyncMock()
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", verify)
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    events = []
+    parameters = arguments(Consumption(events))
+    parameters["now"] = clock
+    with pytest.raises(PermissionError, match="timezone-aware"):
+        await subject.sign_with_protected_authorization(None, **parameters)
+    assert events == []
+    verify.assert_not_awaited()
+    sign.assert_not_awaited()
