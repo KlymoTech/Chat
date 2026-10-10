@@ -1036,3 +1036,8 @@ from northstar_api.website_event_models import WebsitePageEvent  # noqa: E402,F4
 from northstar_api.website_form_models import (  # noqa: E402,F401
     WebsiteForm, WebsiteFormRevision, WebsiteFormSubmission,
 )
+
+# Website journeys reuse the same workspace/Lead metadata and audit pipeline.
+from northstar_api.website_automation_models import (  # noqa: E402,F401
+    WebsiteAutomation, WebsiteAutomationRevision, WebsiteAutomationRun,
+)
