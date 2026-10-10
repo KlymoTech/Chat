@@ -318,8 +318,7 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
     page = await session.scalar(
         select(WebsitePage).where(
             WebsitePage.workspace_id == workspace_id, WebsitePage.tenant_id == workspace.tenant_id,
-            WebsitePage.slug == slug, WebsitePage.status == EditorialState.PUBLISHED.value,
-            WebsitePage.published_version.is_not(None),
+            WebsitePage.slug == slug, WebsitePage.published_version.is_not(None),
         )
     )
     if page is None or page.published_version is None:
