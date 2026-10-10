@@ -183,7 +183,8 @@ def audit(root: Path) -> list[Finding]:
             findings.append(_finding(1, "fail", location, "HTTP routes missing"))
         if kind == "queue" and process.get("queue") not in queues:
             findings.append(_finding(1, "fail", location, "queue resource is undeclared"))
-        if kind == "event" and process.get("topic") not in topics:
+        event_topic = process.get("topic")
+        if kind == "event" and (not isinstance(event_topic, str) or event_topic not in topics):
             findings.append(_finding(1, "fail", location, "event topic resource is undeclared"))
         if kind == "schedule" and (not isinstance(process.get("activity_gate"), str) or not process["activity_gate"].strip()):
             findings.append(_finding(9, "fail", location, "scheduled job requires a nonempty activity gate"))
