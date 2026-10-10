@@ -114,3 +114,8 @@ async def test_non_session_object_cannot_confirm_authorization():
             run_id="jenkins-run-123456",
             now=datetime(2026, 10, 10, tzinfo=UTC),
         )
+
+
+def test_invalid_session_factory_rejected_immediately():
+    with pytest.raises(TypeError, match="session factory required"):
+        replay.CommittedAuthorizationConsumption(None)
