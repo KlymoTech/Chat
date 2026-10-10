@@ -6,6 +6,7 @@ The caller must enforce decisions before collecting/sending optional events.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import secrets
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from sqlalchemy import select
 from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession
 from northstar_api.models import Workspace, WorkspaceStatus
+from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.website_consent_policy import (
     ConsentPreferences, ConsentPurpose, ConsentReceipt, decide_consent,
 )
@@ -158,6 +160,21 @@ async def save_choices(
     if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
         raise HTTPException(415, "Use JSON for consent updates")
     workspace = await _workspace(session, workspace_id)
+    # Rate-limit unauthenticated writes without storing raw client IPs in Redis.
+    address = request.client.host if request.client else "unknown"
+    digest = hmac.new(
+        get_settings().jwt_secret.get_secret_value().encode("utf-8"),
+        f"{workspace_id}:{address}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
+    rate = await redis_services.check_rate_limit(
+        f"site-consent:{workspace_id}:{digest}", 30,
+        window_seconds=3600, scope="site_consent",
+    )
+    if not rate.allowed:
+        raise HTTPException(
+            429, "Too many consent updates", headers={"Retry-After": str(rate.retry_after)},
+        )
     name = _cookie_name(workspace_id)
     token = request.cookies.get(name)
     subject = _subject_hash(workspace_id, token)
