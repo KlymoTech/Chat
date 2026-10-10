@@ -25,6 +25,8 @@ on:
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
       - 'backend/pyproject.toml'
+      - 'backend/scripts/verify_offline_signing.py'
+      - 'backend/tests/test_platform_offline_signing_verifier.py'
   pull_request:
     paths:
       - '.github/workflows/northstar-offline-security-contracts.yml'
@@ -47,6 +49,8 @@ on:
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
       - 'backend/pyproject.toml'
+      - 'backend/scripts/verify_offline_signing.py'
+      - 'backend/tests/test_platform_offline_signing_verifier.py'
   workflow_dispatch:
 
 permissions:
@@ -89,6 +93,7 @@ jobs:
           src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py
           src/northstar_api/modules/platform_runtime/queue_notification_jenkins_junit_custody.py
           src/northstar_api/modules/platform_runtime/queue_notification_jenkins_test_provenance.py
+          scripts/verify_offline_signing.py
           tests/test_platform_authorized_signing.py
           tests/test_platform_authorized_signing_integration.py
           tests/test_platform_signing_authorization.py
@@ -100,6 +105,7 @@ jobs:
           tests/test_platform_notification_junit_migration_merge.py
           tests/test_platform_jenkins_junit_custody.py
           tests/test_platform_jenkins_test_provenance.py
+          tests/test_platform_offline_signing_verifier.py
       - name: Verify signer and migration regression contracts
         run: >-
           uv run pytest -q
@@ -114,6 +120,7 @@ jobs:
           tests/test_platform_notification_junit_migration_merge.py
           tests/test_platform_jenkins_junit_custody.py
           tests/test_platform_jenkins_test_provenance.py
+          tests/test_platform_offline_signing_verifier.py
 
   postgres-replay-contracts:
     runs-on: ubuntu-24.04
