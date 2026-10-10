@@ -197,12 +197,13 @@ async def apply_lead_score(
         item for item in preview.rules if item.matched
     ]
     explanation = "Rule-based score v" + str(policy.version) + ": " + (
-        ", ".join(f"{item.field}={item.equals} ({item.points:+d})" for item in matched)
+        ", ".join(f"{item.field} ({item.points:+d})" for item in matched)
         if matched else "base points only"
     )
     old_score = profile.qualification_score
     profile.qualification_score = preview.proposed_score
-    profile.qualification_reason = explanation[:1000]
+    # Qualification reason/status belong to the existing human decision workflow.
+    # Scoring explanations are appended to LeadActivityEvent, not overwritten there.
     session.add(LeadActivityEvent(
         tenant_id=principal.tenant_id,
         lead_id=lead_id,
@@ -216,6 +217,7 @@ async def apply_lead_score(
             "newScore": preview.proposed_score,
             "recommendation": preview.recommendation,
             "matchedRules": len(matched),
+            "explanation": explanation[:1000],
             "qualificationStatusUnchanged": True,
         },
     ))
