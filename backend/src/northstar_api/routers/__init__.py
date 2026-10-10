@@ -77,6 +77,7 @@ from northstar_api.routers import (
     widget,
     website_cms,
     website_consent,
+    website_analytics,
     workspace_api_keys,
     workspace_invitations,
 )
@@ -143,6 +144,7 @@ api_router.include_router(channel_webhook_events.router)
 api_router.include_router(channels.router)
 api_router.include_router(website_cms.router)
 api_router.include_router(website_consent.router)
+api_router.include_router(website_analytics.router)
 api_router.include_router(analytics.router)
 api_router.include_router(integration_audit.router)
 api_router.include_router(integration_audit.audit_router)
