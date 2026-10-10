@@ -53,6 +53,10 @@ class InternalAutomationExecute(BaseModel):
     expected_policy_version: int = Field(ge=1)
     expected_segment_version: int = Field(ge=1)
     expected_eligible_leads: int = Field(ge=0, le=500)
+    # Optional for existing API clients; new owner UI uses exact-cohort checks.
+    expected_eligible_fingerprint: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$",
+    )
 
 
 def operationally_eligible(
