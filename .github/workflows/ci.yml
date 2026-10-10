@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/northstar-adaptive-architecture-20261008]
   pull_request:
   workflow_dispatch:
 

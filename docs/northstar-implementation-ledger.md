@@ -665,3 +665,15 @@ do not merge without explicit instruction.
   the protected production environment. Neither target was invoked here.
 - These add the missing Make entry points; they do not resolve the many
   qualification findings in the conformance report.
+
+## Increment: feature-branch whole-app CI trigger (2026-10-10)
+
+- CI now runs on pushes to `feature/northstar-adaptive-architecture-20261008`
+  as well as its existing pull-request and `main` triggers. Its existing
+  integration job builds and starts the complete Compose topology, runs the
+  authenticated end-to-end smoke (including a presigned upload), checks
+  migration heads and CRM schema, and collects logs before teardown.
+- This change does not alter `main`, deploy workloads, or establish a passing
+  CI result. A nightly schedule cannot execute solely from an unmerged feature
+  branch under GitHub's default-branch scheduling model; that qualification
+  remains unverified while the requested no-merge constraint is in force.
