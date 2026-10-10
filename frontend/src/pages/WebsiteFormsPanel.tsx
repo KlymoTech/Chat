@@ -43,7 +43,7 @@ const say = (reason: unknown) => reason instanceof Error ? reason.message : 'Req
 const slugOk = (value: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 const fieldKeyOk = (value: string) => /^[a-z][a-z0-9_]*$/.test(value);
 
-export function WebsiteFormsPanel({ workspaceId }: { workspaceId: string }) {
+export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId: string; onFormsChanged?: () => void }) {
   const [forms, setForms] = useState<SiteForm[]>([]);
   const [agents, setAgents] = useState<AgentChoice[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -119,6 +119,7 @@ export function WebsiteFormsPanel({ workspaceId }: { workspaceId: string }) {
         method: 'POST', body: JSON.stringify({ slug: newSlug, agent_id: agentId, document: draft }),
       });
       setForms((current) => [created, ...current]);
+      onFormsChanged?.();
       setSelectedId(created.id);
       setDraft(structuredClone(created.document));
       setNotice('Form saved as a private draft. Publish it when the assigned agent is active.');
@@ -135,6 +136,7 @@ export function WebsiteFormsPanel({ workspaceId }: { workspaceId: string }) {
         }),
       });
       setForms((current) => current.map((entry) => entry.id === saved.id ? saved : entry));
+      onFormsChanged?.();
       setDraft(structuredClone(saved.document));
       setNotice('Saved as revision ' + saved.draftVersion + '. The existing public revision remains unchanged.');
     } catch (reason) {
@@ -151,6 +153,7 @@ export function WebsiteFormsPanel({ workspaceId }: { workspaceId: string }) {
         { method: 'POST', body: JSON.stringify({ expected_version: selected.draftVersion }) },
       );
       setForms((current) => current.map((entry) => entry.id === saved.id ? saved : entry));
+      onFormsChanged?.();
       setNotice(unpublish ? 'Form is no longer public. Previous submissions remain available.'
         : 'Published revision ' + saved.publishedVersion + '. The public link is now active.');
     } catch (reason) { setError(say(reason)); }
