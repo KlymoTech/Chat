@@ -52,10 +52,13 @@ def validate_docx_archive(data: bytes, *, max_uncompressed_bytes: int) -> None:
             members = archive.infolist()
             if len(members) > 5_000:
                 raise ValueError("DOCX contains too many archive members")
+            names = [member.filename for member in members]
+            if len(names) != len(set(names)):
+                raise ValueError("DOCX contains duplicate archive members")
             if sum(member.file_size for member in members) > max_uncompressed_bytes:
                 raise ValueError("DOCX exceeds the configured expanded-size limit")
             if not {"[Content_Types].xml", "word/document.xml"}.issubset(
-                {member.filename for member in members}
+                set(names)
             ):
                 raise ValueError("DOCX is missing required package members")
     except zipfile.BadZipFile as exc:

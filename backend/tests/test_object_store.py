@@ -563,6 +563,22 @@ def test_docx_archive_rejects_excessive_member_count() -> None:
     )
 
 
+def test_docx_archive_rejects_duplicate_package_members() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "first")
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            archive.writestr("word/document.xml", "second")
+
+    with pytest.raises(ValueError, match="duplicate archive members"):
+        validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=1024)
+    assert not _matches_upload_signature(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        stream.getvalue(),
+    )
+
+
 async def test_promotion_rejects_misdeclared_bytes_before_copy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

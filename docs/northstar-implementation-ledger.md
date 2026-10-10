@@ -876,3 +876,13 @@ do not merge without explicit instruction.
 - Focused checks pass: 63 object-store tests, 4 ingestion tests, and Ruff on
   the changed Python files. This does not prove full DOCX safety, malware
   screening, upload quota reservation, or live S3 behavior.
+
+## Increment: unambiguous DOCX package members (2026-10-10)
+
+- The shared DOCX validator also rejects duplicate ZIP member names, so
+  validation and downstream parsers cannot choose different versions of the
+  same package part. Promotion rejects such archives before copying them, and
+  ingestion applies the identical rule. No new upload path was introduced.
+- The focused object-store and ingestion suites pass (68 tests total), and
+  Ruff passes on the changed files. This remains a bounded structural check,
+  not antivirus, full archive validation, or live AWS qualification.
