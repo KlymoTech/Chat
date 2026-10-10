@@ -39,3 +39,10 @@
 .site-forms-step-labels label{display:grid;gap:6px;font-weight:600}
 .site-forms-step-labels input{width:100%;min-width:0;padding:10px;border:1px solid #94a3b8;border-radius:7px;background:#fff;font:inherit}
 .site-forms-steps :is(input,button):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+
+/* A separate, optional marketing purpose is never bundled with enquiry consent. */
+.site-forms-marketing-opt-in{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:15px;border:1px solid #93c5fd;border-radius:10px;background:#eff6ff;margin:12px 0}
+.site-forms-marketing-opt-in strong{color:#1e3a8a}
+.site-forms-marketing-opt-in p{color:#334155;margin:5px 0 0;max-width:66ch;font-size:.9rem}
+.site-forms-marketing-opt-in button{flex-shrink:0}
+@media(max-width:600px){.site-forms-marketing-opt-in{align-items:stretch;flex-direction:column}}
