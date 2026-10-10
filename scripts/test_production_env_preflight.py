@@ -142,5 +142,10 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_dotted_numeric_hostname_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://192.168.1.999"]'
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
