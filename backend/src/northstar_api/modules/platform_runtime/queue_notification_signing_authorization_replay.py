@@ -36,6 +36,8 @@ class CommittedAuthorizationConsumption:
     """Use an independent database session, never the request transaction."""
 
     def __init__(self, session_factory):
+        if not callable(session_factory):
+            raise TypeError("independent database session factory required")
         self._factory = session_factory
 
     async def consume(
