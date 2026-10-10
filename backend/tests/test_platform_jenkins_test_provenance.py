@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -14,6 +14,11 @@ from northstar_api.modules.platform_runtime.queue_notification_jenkins_test_prov
     JenkinsProvenanceRejected,
     verify_witnessed_jenkins_reports,
 )
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
+        return None
+
 
 NOW = datetime(2026, 10, 10, 12, tzinfo=UTC)
 RUN = "jenkins-build-123"
@@ -223,4 +228,12 @@ def test_naive_verification_timestamp_rejected():
     private, record, params = harness()
     params["now"] = datetime(2026, 10, 10)
     with pytest.raises(JenkinsProvenanceRejected):
+        verify(private, record, params)
+
+
+@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}, datetime(2026, 10, 10, tzinfo=NoOffsetTZ())])
+def test_invalid_raw_junit_verification_clock_rejected_before_witness_validation(bad_clock):
+    private, record, params = harness()
+    params["now"] = bad_clock
+    with pytest.raises(JenkinsProvenanceRejected, match="timezone-aware"):
         verify(private, record, params)
