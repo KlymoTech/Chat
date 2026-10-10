@@ -729,6 +729,9 @@ async def _verify_embedded_site_forms(
         slugs.add(segments[6])
     if not slugs:
         return
+    # Serialize page publication and form unpublication against the existing
+    # workspace row lock, preventing a dangling public iframe in concurrent edits.
+    await _lock_public_route_namespace(session, principal)
     live = set((await session.scalars(select(WebsiteForm.slug).where(
         WebsiteForm.tenant_id == principal.tenant_id,
         WebsiteForm.workspace_id == page.workspace_id,
