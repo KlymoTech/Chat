@@ -66,7 +66,7 @@ export default function PrivacyRightsConsole(){
     try{
       await call("/api/owner/privacy/rights/"+encodeURIComponent(row.id),"POST",{
         expectedRevision:row.revision,to:value.to,reason:value.reason,
-        ...(value.evidenceRef?{evidenceRef:value.evidenceRef}:{}),
+        ...(decision[row.id]?.evidenceRef?{evidenceRef:decision[row.id].evidenceRef}:{}),
       });
       setStatus("Privacy case advanced with an immutable audit entry. No personal data was deleted.");
       await refresh();
