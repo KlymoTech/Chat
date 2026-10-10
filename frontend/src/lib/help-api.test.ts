@@ -88,6 +88,21 @@ describe('Help Center shared API authentication', () => {
     }));
   });
 
+  it('preserves a plain-text upstream error without consuming the response twice', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('Help service is unavailable', {
+      status: 502,
+      headers: { 'Content-Type': 'text/plain' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(helpApi.home()).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 502,
+      detail: 'Help service is unavailable',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('clears expired browser credentials when a Help request refresh is rejected', async () => {
     localStorage.setItem('northstar.session', JSON.stringify(savedSession('expired-access', 'invalid-refresh')));
     const fetchMock = vi.fn()
