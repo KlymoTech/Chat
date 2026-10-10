@@ -123,7 +123,7 @@ export default function PrivacyRightsConsole(){
             {needsEvidence&&<label>External evidence reference (UUID only; no documents)
               <input value={active?.evidenceRef??""} maxLength={36}
                 placeholder="Approved external case evidence UUID"
-                onChange={event=>setDecision(old=>({...old,[row.id], [row.id]:{
+                onChange={event=>setDecision(old=>({...old,[row.id]:{
                   to:chosen.to,reason:chosen.reason,evidenceRef:event.target.value,
                 }}))}/>
             </label>}
