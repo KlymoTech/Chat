@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectNodeIds, duplicateNode, duplicateSibling, moveBlockBetweenSections,
-  removeChild, reorderNodes, redoDraftHistory, reviseDraftHistory, startDraftHistory, undoDraftHistory, type BuilderNode,
+  removeChild, reorderNodes, redoDraftHistory, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode,
 } from './websiteBuilderOperations';
 
 const sample = (): BuilderNode[] => [
@@ -115,5 +115,20 @@ describe('editor draft history', () => {
     expect(changed.past).toHaveLength(1);
     expect(reset.past).toHaveLength(0);
     expect(undoDraftHistory(reset).present?.title).toBe('Other page');
+  });
+});
+
+describe('canonical document content comparison', () => {
+  it('serializes owner drafts across stable field order without a false autosave', () => {
+    const local = { title: 'About', seo: { indexable: false, description: 'About us' }, nodes: [{ id: 'one', kind: 'paragraph', text: 'Hello' }] };
+    const server = { nodes: [{ text: 'Hello', kind: 'paragraph', id: 'one' }], seo: { description: 'About us', indexable: false }, title: 'About' };
+    expect(sameDraftContent(local, server)).toBe(true);
+    expect(reviseDraftHistory(startDraftHistory(local), server).past).toHaveLength(0);
+  });
+
+  it('detects changed content and block order', () => {
+    const left = { nodes: [{ id: 'a' }, { id: 'b' }] };
+    expect(sameDraftContent(left, { nodes: [{ id: 'b' }, { id: 'a' }] })).toBe(false);
+    expect(sameDraftContent(left, { nodes: [{ id: 'a' }, { id: 'c' }] })).toBe(false);
   });
 });
