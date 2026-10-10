@@ -96,7 +96,7 @@ export function MarketingPreferencesPanel({ journeys }: { journeys: CRMWorkflowJ
       <p><ShieldCheck size={17} aria-hidden="true" /> Enquiry-processing permission is not modified.</p>
       <div className="crm-marketing-permission__actions">
         <Button variant="secondary" icon={ShieldOff}
-          disabled={busy || !preferences.marketingAllowed}
+          disabled={busy || ['withdrawn', 'revoked', 'denied', 'opted_out'].includes(preferences.marketingStatus)}
           onClick={() => { void withdraw(); }}>Withdraw marketing permission</Button>
         <Button variant="secondary" icon={Copy} disabled={busy}
           onClick={() => { void createLink(); }}>Create unsubscribe link</Button>
