@@ -196,5 +196,10 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertEqual(validate(self.valid), [])
 
 
+    def test_invalid_percent_encoding_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:bad%ZZpassword@db.internal/app?sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
