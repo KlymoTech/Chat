@@ -11,7 +11,7 @@ capability_registry: backend/src/northstar_api/modules/platform_runtime/registry
 images:
   api:
     dockerfile: backend/Dockerfile
-    platforms: [linux/arm64]
+    platforms: [linux/arm64, linux/amd64]
 
 web:
   build: npm run build

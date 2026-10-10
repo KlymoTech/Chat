@@ -80,6 +80,19 @@ implementation master plan.
   corresponding runtime and image qualification rules. Keep these gaps open
   until real workflows and builds are implemented and tested.
 
+## Multi-architecture release declaration increment (2026-10-10)
+
+- The existing release workflow now sets up Arm64 emulation and requests both
+  `linux/amd64` and `linux/arm64` for its API and web image matrix. The API
+  manifest declares the same two platforms. A branch-gate test checks that
+  declaration and preserves the existing SBOM, provenance, vulnerability scan
+  and attestation steps.
+- No image was built or published locally: Docker is unavailable here. Base
+  image manifests, successful per-architecture builds, runtime smoke tests,
+  registry manifest inspection and production qualification remain unverified.
+  The playbook's `image-push` and `deploy` Make targets remain missing; no
+  placeholder target was added.
+
 ## Safety obligations / current blockers
 
 - Locked controls must stay enforced, including authentication,

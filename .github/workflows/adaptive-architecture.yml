@@ -17,6 +17,7 @@ on:
       - 'backend/src/northstar_api/services/platform_activity.py'
       - 'backend/src/northstar_api/main.py'
       - 'platform.yaml'
+      - '.github/workflows/release.yml'
       - 'platform/**'
       - 'scripts/validate-platform-manifest.ps1'
       - 'scripts/audit-platform-conformance.py'
@@ -192,7 +193,7 @@ jobs:
         shell: pwsh
         run: ./scripts/validate-platform-manifest.ps1
       - name: Conformance auditor regression tests
-        run: uv run pytest -q tests/test_platform_conformance_audit.py
+        run: uv run pytest -q tests/test_platform_conformance_audit.py tests/test_release_multiarch_contract.py
       - name: Bounded outbox relay and recovery contracts
         run: uv run pytest -q tests/test_outbox_relay_once.py tests/test_outbox_relay_sns.py tests/test_outbox_recovery.py tests/test_domain_event_sqs_handler.py
       - run: uv run ruff check src/northstar_api/handlers/domain_events.py tests/test_domain_event_sqs_handler.py
