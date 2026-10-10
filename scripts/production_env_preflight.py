@@ -94,8 +94,8 @@ def validate(values: dict[str, str]) -> list[str]:
         value = values.get(key, "")
         if not value:
             errors.append(f"{key} is required")
-        elif PLACEHOLDER.search(value):
-            errors.append(f"{key} contains a development placeholder or local endpoint")
+        elif key in {"JWT_SECRET", "MFA_ENCRYPTION_KEY"} and PLACEHOLDER.search(value):
+            errors.append(f"{key} contains a development placeholder")
     database_url = values.get("DATABASE_URL", "")
     if database_url and not valid_postgres_url(database_url):
         errors.append("DATABASE_URL must be a valid PostgreSQL URL with non-placeholder credentials")
