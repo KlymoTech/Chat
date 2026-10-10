@@ -920,3 +920,29 @@ do not merge without explicit instruction.
 - Eleven focused capacity/safety tests and Ruff pass. No provider API calls,
   scaling executor, durable metrics or automatic activation were added;
   production scaling remains unqualified.
+
+
+## Increment: independent PostgreSQL custody of original JUnit index receipts (2026-10-10)
+
+- Added migration `0093_notification_junit_index_custody` and the
+  `platform_notification_junit_index_custody` model. It stores one exact
+  S3 index version/checksum, independent witness digest and all three
+  original JUnit S3 version receipts per release/run. Unique release/run
+  constraints and a PostgreSQL UPDATE/DELETE rejection trigger make the
+  custody link append-only. Alembic metadata registration was updated.
+- The existing `queue_notification_junit_index_custody.py` service
+  checks the protected AWS publisher role/session and independently
+  re-verifies the locked index and three original report versions
+  before staging a custody row. No transaction commit is performed.
+  The signer-facing read retrieves receipts solely from the protected
+  database row, not from caller-controlled S3 version values, and
+  re-verifies signed witness bytes and witness checksum.
+- Added failure-path unit tests for rejected IAM identity, tampered
+  provenance, wrong bucket, missing custody, DB conflict and altered
+  witness receipt. Wired tests into GitHub branch CI and the offline
+  Jenkins preflight.
+- Pending: confirmed green CI, real PostgreSQL migration execution,
+  IAM-restricted DB roles, actual S3/KMS/Object Lock qualification,
+  replay-resistant witness lifecycle and integration with an
+  authenticated attestation signing service. No production signing,
+  approval or worker activation is authorized.
