@@ -24,24 +24,31 @@ _MAX_NODES = 500
 
 
 def _safe_url(value: str) -> str:
-    """Reject ambiguous URLs before they are inserted into browser attributes."""
+    """Accept safe same-origin paths or explicit HTTPS destinations only."""
+    if not isinstance(value, str):
+        raise TypeError("URL must be text")
     value = value.strip()
-    if not value:
-        raise ValueError("URL must not be empty")
-    if any(ord(char) < 32 or ord(char) == 127 or ord(char) == 92 for char in value):
-        raise ValueError("URLs cannot contain control characters or backslashes")
+    if not value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError("URL cannot be empty or contain control characters")
+    # Browser URL normalization can treat backslashes as URL authority separators.
+    if "\\" in value:
+        raise ValueError("Backslashes are not allowed in URLs")
     parts = urlsplit(value)
-    if value.startswith("/") and not value.startswith("//") and not parts.netloc:
+    if value.startswith("/") and not value.startswith("//"):
+        if parts.scheme or parts.netloc:
+            raise ValueError("Relative paths cannot specify an authority")
         return value
     if (
         parts.scheme == "https"
         and parts.hostname
+        and parts.port != 0
         and not parts.username
         and not parts.password
         and not parts.fragment
     ):
         return value
-    raise ValueError("Only local paths or HTTPS URLs without credentials are allowed")
+    raise ValueError("Only same-origin paths or HTTPS URLs without credentials are allowed")
+
 
 class BuilderNode(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
