@@ -30,3 +30,12 @@
 .site-forms-field :is(input,select,textarea,button):focus-visible,
 .site-forms-new :is(input,select):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
 @media(max-width:640px){.site-forms-new,.site-forms-details,.site-forms-field-grid{grid-template-columns:1fr}.site-forms-details>label:nth-last-child(-n+2){grid-column:auto}}
+
+/* Progressive, versioned steps and conditional eligibility are edited in place. */
+.site-forms-steps{margin:22px 0 15px;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
+.site-forms-steps h4{margin-top:0}
+.site-forms-steps p{font-size:.9rem;color:#475569}
+.site-forms-step-labels{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.site-forms-step-labels label{display:grid;gap:6px;font-weight:600}
+.site-forms-step-labels input{width:100%;min-width:0;padding:10px;border:1px solid #94a3b8;border-radius:7px;background:#fff;font:inherit}
+.site-forms-steps :is(input,button):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
