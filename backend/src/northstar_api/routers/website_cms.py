@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from northstar_api.dependencies import DBSession, require_roles
 from northstar_api.models import Role, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
+from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.website_builder_document import BuilderPageDocument
 from northstar_api.services.website_builder_render import render_page
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
@@ -181,6 +182,16 @@ async def transition_page(page_id: UUID, action: EditorialAction, principal: Cms
     if action == EditorialAction.PUBLISH:
         page.published_version = page.draft_version
     session.add(_audit(page, principal, action.value))
+    if action == EditorialAction.PUBLISH:
+        event = enqueue_event(
+            session, tenant_id=principal.tenant_id, aggregate_type="website_page",
+            aggregate_id=page.id, event_type="website.page.published",
+            payload={
+                "pageId": str(page.id), "workspaceId": str(page.workspace_id),
+                "slug": page.slug, "revision": page.draft_version,
+            },
+        )
+        event.workspace_id = page.workspace_id
     await session.commit()
     revision = await _revision(session, page, page.draft_version)
     return _info(page, revision.document_json)
@@ -208,7 +219,7 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
         content=render_page(validated),
         headers={
             "Cache-Control": "no-store",
-            "Content-Security-Policy": "default-src 'none'; img-src https:; style-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Content-Security-Policy": "default-src 'none'; img-src 'self' https:; style-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
             "X-Content-Type-Options": "nosniff",
         },
     )
