@@ -1,0 +1,136 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { WebsiteFormsPanel } from './WebsiteFormsPanel';
+
+const mocks = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock('@/lib/api', () => ({
+  request: mocks.request,
+  apiConfig: { baseUrl: '/api/v1' },
+}));
+
+const workspaceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const agentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+const formDocument = {
+  title: 'Contact us', description: 'Contact our team',
+  privacy_notice: 'We process your enquiry to reply to you.',
+  submit_label: 'Send enquiry',
+  fields: [
+    { key: 'email', label: 'Email', kind: 'email', purpose: 'Reply to an enquiry',
+      required: true, sensitivity: 'personal', retention_days: 365, max_length: 300, choices: [] },
+    { key: 'processing_consent', label: 'I consent', kind: 'consent',
+      purpose: 'Process enquiry', required: true,
+      sensitivity: 'personal', retention_days: 365, max_length: 300, choices: [] },
+  ],
+};
+
+describe('Website CMS site forms editor', () => {
+  let forms: Array<{
+    id: string; slug: string; agentId: string; draftVersion: number;
+    publishedVersion: number | null; document: typeof formDocument;
+  }>;
+
+  beforeEach(() => {
+    forms = [];
+    mocks.request.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
+      if (path === '/site-forms' && !options) return structuredClone(forms);
+      if (path === '/agents') return [
+        { id: agentId, name: 'Lead Generation', purpose: 'lead_generation', status: 'active' },
+        { id: 'other', name: 'Support', purpose: 'support', status: 'active' },
+      ];
+      if (path === '/site-forms' && options?.method === 'POST') {
+        const posted = JSON.parse(options.body ?? '{}');
+        const result = {
+          id: 'form-1', slug: posted.slug, agentId: posted.agent_id,
+          draftVersion: 1, publishedVersion: null,
+          document: structuredClone(posted.document),
+        };
+        forms.push(result);
+        return result;
+      }
+      if (path === '/site-forms/form-1' && options?.method === 'PUT') {
+        const posted = JSON.parse(options.body ?? '{}');
+        if (posted.expected_version !== forms[0]!.draftVersion) throw new Error('Stale revision');
+        forms[0] = {
+          ...forms[0]!, draftVersion: forms[0]!.draftVersion + 1,
+          document: structuredClone(posted.document),
+        };
+        return structuredClone(forms[0]);
+      }
+      if (path === '/site-forms/form-1/publish' && options?.method === 'POST') {
+        forms[0]!.publishedVersion = forms[0]!.draftVersion;
+        return structuredClone(forms[0]);
+      }
+      if (path === '/site-forms/form-1/unpublish' && options?.method === 'POST') {
+        forms[0]!.publishedVersion = null;
+        return structuredClone(forms[0]);
+      }
+      if (path === '/site-forms/form-1/submissions') {
+        return [{ receiptId: 'receipt1', leadId: 'lead1', version: '1',
+          createdAt: '2026-10-10T08:00:00Z' }];
+      }
+      throw new Error('Unexpected request ' + path);
+    });
+  });
+
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it('uses the existing lead-generation agent, saves private draft and then publishes separately', async () => {
+    render(<WebsiteFormsPanel workspaceId={workspaceId}/>);
+    const slug = await screen.findByLabelText('Form URL slug');
+    await waitFor(() => expect(slug).toBeEnabled());
+    expect(screen.getByRole('option', { name: /Lead Generation/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Support' })).not.toBeInTheDocument();
+    fireEvent.change(slug, { target: { value: 'enquiry' } });
+    fireEvent.change(screen.getByLabelText('Lead Generation Agent'), { target: { value: agentId } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create private form' }));
+    await waitFor(() => expect(forms).toHaveLength(1));
+    expect(forms[0]!.publishedVersion).toBeNull();
+    const create = mocks.request.mock.calls.find(([path, opts]) =>
+      path === '/site-forms' && opts?.method === 'POST',
+    );
+    expect(JSON.parse(create![1].body).agent_id).toBe(agentId);
+    expect(screen.getByRole('button', { name: 'Publish form' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish form' }));
+    await waitFor(() => expect(forms[0]!.publishedVersion).toBe(1));
+    expect(screen.getByRole('link', { name: /site-forms\/public/ })).toHaveAttribute(
+      'href', '/api/v1/site-forms/public/' + workspaceId + '/enquiry',
+    );
+    expect(screen.getByText(/published revision 1/i)).toBeInTheDocument();
+  });
+
+  it('does not publish unsaved edits and retains prior live revision while saving draft', async () => {
+    forms = [{
+      id: 'form-1', slug: 'contact', agentId, draftVersion: 1, publishedVersion: 1,
+      document: structuredClone(formDocument),
+    }];
+    render(<WebsiteFormsPanel workspaceId={workspaceId}/>);
+    const select = await screen.findByLabelText('Choose a form');
+    fireEvent.change(select, { target: { value: 'form-1' } });
+    const title = screen.getByLabelText('Form title');
+    fireEvent.change(title, { target: { value: 'New draft title' } });
+    expect(screen.getByRole('button', { name: 'Publish form' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save revision' }));
+    await waitFor(() => expect(forms[0]!.draftVersion).toBe(2));
+    expect(forms[0]!.publishedVersion).toBe(1);
+    const update = mocks.request.mock.calls.find(([path, opts]) =>
+      path === '/site-forms/form-1' && opts?.method === 'PUT',
+    );
+    expect(JSON.parse(update![1].body).expected_version).toBe(1);
+  });
+
+  it('reads receipt references without requesting or exposing full submission answers', async () => {
+    forms = [{
+      id: 'form-1', slug: 'contact', agentId, draftVersion: 1, publishedVersion: 1,
+      document: structuredClone(formDocument),
+    }];
+    render(<WebsiteFormsPanel workspaceId={workspaceId}/>);
+    fireEvent.change(await screen.findByLabelText('Choose a form'),
+      { target: { value: 'form-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Load submission receipts' }));
+    expect(await screen.findByText(/Receipt receipt1/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review lead' })).toHaveAttribute('href', '/leads');
+    expect(mocks.request.mock.calls.some(([path]) =>
+      path === '/site-forms/form-1/submissions')).toBe(true);
+  });
+});
