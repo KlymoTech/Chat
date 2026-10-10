@@ -886,3 +886,15 @@ do not merge without explicit instruction.
 - The focused object-store and ingestion suites pass (68 tests total), and
   Ruff passes on the changed files. This remains a bounded structural check,
   not antivirus, full archive validation, or live AWS qualification.
+
+## Increment: conservative governed-switch classification (2026-10-10)
+
+- The existing advisory switch classifier now marks cross-environment spec
+  changes as locked rather than Class A. AI provider changes and external AI
+  egress changes now require Class B deployment review and evidence instead
+  of being labeled reversible runtime preferences. The existing pre-dispatch
+  verifier and execution path remain unchanged; no second switch layer was
+  added.
+- Focused tier, switch, preflight, contract and runtime API suites pass (50
+  tests), and Ruff passes on the changed Python files. This does not qualify
+  automatic switch execution or substitute for signed production evidence.

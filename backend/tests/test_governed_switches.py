@@ -2,9 +2,11 @@
 
 from northstar_api.modules.platform_runtime.contracts import (
     DeploymentSpec,
+    FeatureSpec,
     PlatformMetadata,
     PlatformSpec,
     ProviderSpec,
+    SecuritySpec,
 )
 from northstar_api.modules.platform_runtime.governed_switches import (
     SwitchClass,
@@ -53,3 +55,28 @@ def test_secrets_switch_is_class_b() -> None:
     current = PlatformSpec()
     desired = advanced(current, providers=ProviderSpec(secrets="aws-secrets-manager"))
     assert classify_transition(current, desired).change_class is SwitchClass.B
+
+
+def test_cross_environment_change_is_locked_even_when_only_metadata_changes() -> None:
+    current = PlatformSpec()
+    desired = advanced(current, metadata=PlatformMetadata(environment="staging", revision=2))
+    gate = classify_transition(current, desired)
+    assert gate.change_class is SwitchClass.L
+    assert gate.reason == "cross_environment_change_prohibited"
+    assert not gate.eligible_for_automatic_execution
+    assert "locked_change_prohibited" in verify_evidence(gate, (), approved=True)
+
+
+def test_ai_provider_and_external_egress_changes_require_deployment_review() -> None:
+    current = PlatformSpec(features=FeatureSpec(ai=True), providers=ProviderSpec(ai="nvidia"))
+    provider_change = advanced(current, providers=ProviderSpec(ai="openai-compatible"))
+    egress_change = advanced(
+        current,
+        security=SecuritySpec(allow_external_ai_egress=True),
+    )
+
+    for desired in (provider_change, egress_change):
+        gate = classify_transition(current, desired)
+        assert gate.change_class is SwitchClass.B
+        assert gate.requires_approval
+        assert not gate.eligible_for_automatic_execution

@@ -35,7 +35,7 @@ class TransitionGate:
 _MIGRATION = frozenset({"jobs", "events", "storage", "search", "vector"})
 _TOPOLOGY = frozenset({"profile", "orchestrator", "region", "account_id", "availability_zones"})
 _LOCKED = frozenset({"authorization_required", "tenant_isolation_required", "audit_required"})
-_RESTART = frozenset({"identity", "secrets", "image_digest"})
+_RESTART = frozenset({"identity", "secrets", "image_digest", "ai", "allow_external_ai_egress"})
 _EVIDENCE = {
     SwitchClass.A: ("health_snapshot", "rollback_configuration"),
     SwitchClass.B: ("deployment_plan", "canary_result", "rollback_configuration"),
@@ -68,7 +68,9 @@ def classify_transition(current: PlatformSpec, desired: PlatformSpec) -> Transit
     changed = _diff(current, desired)
     if not changed:
         return TransitionGate(SwitchClass.A, (), (), False, False, "no_change")
-    if changed & _LOCKED:
+    if "environment" in changed:
+        kind, reason = SwitchClass.L, "cross_environment_change_prohibited"
+    elif changed & _LOCKED:
         kind, reason = SwitchClass.L, "locked_security_configuration_requires_review"
     elif changed & _TOPOLOGY:
         kind, reason = SwitchClass.D, "topology_or_placement_migration"
