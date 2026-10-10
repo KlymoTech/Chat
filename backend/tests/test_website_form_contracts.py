@@ -136,12 +136,15 @@ def test_multistep_conditional_controls_only_validate_visible_purpose_fields():
     })
     assert required_errors["date"] == "This field is required"
 
-    _, tamper_errors = validate_answers(form, {
+    ignored, fallback_errors = validate_answers(form, {
         "name": "Morgan", "email": "morgan@example.com",
         "topic": "Sales", "date": "2026-11-05",
         "processing_consent": "on",
     })
-    assert tamper_errors["date"] == "This field is not available for the selected choice"
+    # Browsers without JavaScript show all fields: data outside the selected
+    # purpose must never be persisted, but must not break the legitimate lead.
+    assert fallback_errors == {}
+    assert "date" not in ignored
 
 
 def test_multistep_unsafe_conditions_and_forward_references_are_rejected():
