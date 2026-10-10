@@ -29,6 +29,7 @@ if(!url || process.env.WEBSITE_SECURITY_VERIFY_ALLOW!=="true"){
       "media_assets","consent_choices","analytics_events",
       "automation_definitions","automation_versions",
       "automation_internal_runs","automation_run_steps","automation_internal_tasks",
+      "privacy_rights_cases","privacy_rights_history",
     ];
     if(reader==="public-cms-reader"){
       const access=await pool.query(
