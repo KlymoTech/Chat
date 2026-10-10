@@ -47,6 +47,10 @@ def _decode(value: str, maximum: int) -> bytes:
     return result
 
 
+def _reject_nonfinite(value: str):
+    raise SigningAuthorizationRejected("nonfinite authorization JSON value")
+
+
 def _unique(pairs):
     result = {}
     for key, value in pairs:
@@ -79,7 +83,9 @@ def verify_protected_signing_authorization(
         if not isinstance(public, Ed25519PublicKey) or len(signature) != 64:
             raise SigningAuthorizationRejected("invalid authorization signer")
         public.verify(signature, body)
-        statement = json.loads(body, object_pairs_hook=_unique)
+        statement = json.loads(
+            body, object_pairs_hook=_unique, parse_constant=_reject_nonfinite,
+        )
     except (TypeError, ValueError, InvalidSignature, UnicodeDecodeError, OverflowError) as exc:
         raise SigningAuthorizationRejected("signing authorization not verified") from exc
 
@@ -92,7 +98,10 @@ def verify_protected_signing_authorization(
     }
     if set(statement) != required:
         raise SigningAuthorizationRejected("authorization fields do not match")
-    current = int(instant.astimezone(UTC).timestamp())
+    try:
+        current = int(instant.astimezone(UTC).timestamp())
+    except (OverflowError, ValueError, OSError) as exc:
+        raise SigningAuthorizationRejected("invalid signing authorization time") from exc
     issued, expires = statement["issued_at"], statement["expires_at"]
     auth_id = statement["authorization_id"]
     if (
