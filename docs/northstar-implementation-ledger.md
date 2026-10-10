@@ -778,3 +778,15 @@ do not merge without explicit instruction.
   that former boundary. This narrows one mislabeled-binary acceptance gap.
 - This is not malware scanning, text-encoding validation or comprehensive
   content classification; the rest of the upload lifecycle remains open.
+
+## Increment: real frontend qualification findings (2026-10-10)
+
+- Installed locked npm dependencies and ran broader local checks. TypeScript
+  typecheck passed. The integration-catalogue test had three obsolete Zoho
+  dialog expectations after the platform-managed one-click UI replaced that
+  flow; its mock and assertions now cover the current no-customer-secret
+  contract and all seven tests pass.
+- The repository is **not green**: frontend lint reported 56 problems, backend
+  repo-wide Ruff reported 219 findings, and the full frontend test run showed
+  additional failures before being stopped. These are not waived or counted
+  as passing CI. Docker, PostgreSQL integration and live AWS remain untested.

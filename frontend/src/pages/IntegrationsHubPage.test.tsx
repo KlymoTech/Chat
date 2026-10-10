@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,12 +7,15 @@ import { IntegrationsHubPage } from '@/pages/IntegrationsHubPage';
 const mocks = vi.hoisted(() => ({
   resume: vi.fn(), role: 'owner', crm: vi.fn(), channels: vi.fn(), providers: vi.fn(), agents: vi.fn(),
   create: vi.fn(), update: vi.fn(), test: vi.fn(), start: vi.fn(), activate: vi.fn(), entitlements: vi.fn(),
+  pushToast: vi.fn(),
+  zohoStatus: vi.fn(), zohoStart: vi.fn(), zohoCertify: vi.fn(),
 }));
-vi.mock('@/components/providers', () => ({ useAuth: () => ({ session: { user: { role: mocks.role } } }), useWorkspace: () => ({ activeWorkspace: { id: 'workspace-1' } }) }));
+vi.mock('@/components/providers', () => ({ useAuth: () => ({ session: { user: { role: mocks.role } } }), useWorkspace: () => ({ activeWorkspace: { id: 'workspace-1' } }), useToast: () => ({ pushToast: mocks.pushToast }) }));
 vi.mock('@/components/whatsapp-integration-modal', () => ({ WhatsAppIntegrationModal: () => null }));
 vi.mock('@/lib/api', () => ({ api: { integrations: { list: async () => [] }, agents: { list: mocks.agents } } }));
 vi.mock('@/lib/crm-one-click-api', () => ({ crmOneClickApi: { providers: mocks.providers, startOAuth: mocks.start, activateDirect: mocks.activate } }));
 vi.mock('@/lib/lead-crm-api', () => ({ leadCrmApi: { startOAuth: mocks.resume, connections: mocks.crm, channelConnections: mocks.channels, createChannelConnection: mocks.create, updateChannelConnection: mocks.update, testChannelConnection: mocks.test, connectionEntitlements: mocks.entitlements } }));
+vi.mock('@/lib/zoho-one-click-api', () => ({ zohoOneClickApi: { status: mocks.zohoStatus, start: mocks.zohoStart, certify: mocks.zohoCertify } }));
 
 const saved = { id: 'slack-1', public_id: 'channel-1', provider: 'slack', name: 'Slack', agent_id: 'agent-1', status: 'configured', configuration: {}, webhook_path: '/api/v1/webhooks/channels/tenant/slack/channel-1' };
 async function open(name: string) {
@@ -24,6 +27,7 @@ async function open(name: string) {
 }
 beforeEach(() => {
   mocks.role = 'owner'; mocks.crm.mockResolvedValue([]); mocks.channels.mockResolvedValue([]);
+  mocks.zohoStatus.mockResolvedValue({ platformConfigured: true, connected: false, status: 'disconnected', autoSyncNewLeads: false, autoSyncUpdates: false, mappingReady: false, routeReady: false, missingConfiguration: [] });
   mocks.entitlements.mockResolvedValue({ plan: 'business', features: { crm: true, allowedChannels: ['slack', 'telegram', 'instagram', 'facebook'] } });
   mocks.providers.mockResolvedValue([{ id: 'zoho', mode: 'oauth', configured: false, supportsSandbox: true, oauthRedirectUri: 'http://localhost:8100/api/v1/crm/oauth/zoho/callback' }]);
   mocks.agents.mockResolvedValue([{ id: 'agent-1', name: 'Slack support', appearance: { deploymentChannel: 'slack' } }, { id: 'wrong-agent', name: 'Website support', appearance: { deploymentChannel: 'website' } }]);
@@ -79,25 +83,16 @@ describe('integration catalogue and real setup', () => {
     expect(mocks.update).toHaveBeenCalledWith('slack-1', expect.objectContaining({ credentials: { bot_token: 'correct-token', signing_secret: 'correct-secret' } }));
   });
 
-  it('asks for a customer OAuth app and accepts only the expected popup callback', async () => {
-    const popup = { closed: false, close: vi.fn(), location: { replace: vi.fn() } };
-    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
-    mocks.start.mockResolvedValue({ connectionId: 'zoho-1', authorizationUrl: 'https://accounts.zoho.com/oauth/v2/auth' });
-    const dialog = await open('Zoho CRM');
-    expect(within(dialog).getByLabelText('Authorized redirect URL')).toHaveValue('http://localhost:8100/api/v1/crm/oauth/zoho/callback');
-    await userEvent.type(within(dialog).getByLabelText('Client ID'), 'customer-app');
-    await userEvent.type(within(dialog).getByLabelText('Client secret'), 'private-secret');
-    await userEvent.selectOptions(within(dialog).getByLabelText('Zoho data center'), 'in');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Authorize account' }));
-    await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
-    expect(mocks.start).toHaveBeenCalledWith('zoho', expect.objectContaining({ client_id: 'customer-app', client_secret: 'private-secret', region: 'in' }));
-    expect(screen.queryByDisplayValue('private-secret')).not.toBeInTheDocument();
-    const data = { type: 'northstar:crm-oauth', success: true, connectionId: 'zoho-1', readiness: { ready: true } };
-    act(() => { fireEvent(window, new MessageEvent('message', { origin: 'https://untrusted.example', source: popup as unknown as Window, data })); });
-    expect(screen.queryByText(/Account connected. Lead sync/)).not.toBeInTheDocument();
-    act(() => { fireEvent(window, new MessageEvent('message', { origin: 'http://localhost:8100', source: popup as unknown as Window, data })); });
-    expect(await screen.findByText(/Account connected. Lead sync/)).toBeInTheDocument();
-    expect(popup.close).toHaveBeenCalled();
+  it('uses platform-managed Zoho authorization without customer OAuth secrets', async () => {
+    mocks.zohoStart.mockRejectedValueOnce(new Error('Zoho authorization is temporarily unavailable'));
+    render(<MemoryRouter><IntegrationsHubPage /></MemoryRouter>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Connect Zoho CRM' }));
+    const connect = await screen.findByRole('button', { name: 'Connect Zoho' });
+    expect(screen.queryByLabelText('Client secret')).not.toBeInTheDocument();
+    await userEvent.click(connect);
+    await waitFor(() => expect(mocks.zohoStart).toHaveBeenCalledOnce());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Zoho authorization is temporarily unavailable');
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 
   it('prevents a viewer from connecting platforms', async () => {
@@ -108,37 +103,27 @@ describe('integration catalogue and real setup', () => {
     expect(screen.getByRole('button', { name: 'Connect Slack' })).toBeDisabled();
   });
 
-  it('keeps credentials editable and reports backend plan restrictions on submission', async () => {
-    mocks.entitlements.mockResolvedValue({ plan: 'starter', features: { crm: false, allowedChannels: ['website'] } });
-    const popup = { closed: false, close: vi.fn(), location: { replace: vi.fn() } };
-    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
-    mocks.start.mockRejectedValueOnce(new Error('CRM is not available on the starter plan'));
-    const dialog = await open('Zoho CRM');
-    expect(await within(dialog).findByText(/Your starter plan does not include/)).toBeInTheDocument();
-    expect(within(dialog).getByLabelText('Client ID')).toBeEnabled();
-    expect(within(dialog).getByRole('link', { name: 'Review plans' })).toHaveAttribute('href', '/workspace?section=billing');
-    await userEvent.type(within(dialog).getByLabelText('Client ID'), 'customer-app');
-    await userEvent.type(within(dialog).getByLabelText('Client secret'), 'customer-secret');
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Authorize account' }));
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('CRM is not available on the starter plan');
-    expect(mocks.start).toHaveBeenCalled();
-    expect(popup.close).toHaveBeenCalled();
-    expect(within(dialog).getByLabelText('Client ID')).toHaveValue('customer-app');
+  it('disables Zoho connection when the platform OAuth application is unconfigured', async () => {
+    mocks.zohoStatus.mockResolvedValueOnce({ platformConfigured: false, connected: false, status: 'configuration_error', autoSyncNewLeads: false, autoSyncUpdates: false, mappingReady: false, routeReady: false, missingConfiguration: ['client ID'] });
+    render(<MemoryRouter><IntegrationsHubPage /></MemoryRouter>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Connect Zoho CRM' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('platform Zoho OAuth application');
+    expect(screen.getByRole('button', { name: 'Connect Zoho' })).toBeDisabled();
+    expect(screen.queryByLabelText('Client secret')).not.toBeInTheDocument();
+    expect(mocks.zohoStart).not.toHaveBeenCalled();
   });
 });
 
 
-it('resumes authorization on the existing saved CRM connection', async () => {
-  mocks.crm.mockResolvedValue([{ id: 'zoho-existing', provider: 'zoho', name: 'Zoho CRM', status: 'auth_required', environment: 'production' }]);
-  mocks.resume.mockResolvedValue({ authorizationUrl: 'https://accounts.zoho.com/oauth/v2/auth' });
-  const popup = { closed: false, close: vi.fn(), location: { replace: vi.fn() } };
-  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+it('offers reconnect through the existing one-click Zoho connection', async () => {
+  mocks.crm.mockResolvedValue([{ id: 'zoho-existing', provider: 'zoho', name: 'Zoho CRM', status: 'degraded', environment: 'production' }]);
+  mocks.zohoStatus.mockResolvedValueOnce({ platformConfigured: true, connected: true, status: 'degraded', connectionId: 'zoho-existing', autoSyncNewLeads: true, autoSyncUpdates: true, mappingReady: true, routeReady: true, missingConfiguration: [] });
+  mocks.zohoStart.mockRejectedValueOnce(new Error('Reconnect temporarily unavailable'));
   render(<MemoryRouter><IntegrationsHubPage /></MemoryRouter>);
-  const manage = await screen.findByRole('button', { name: 'Manage Zoho CRM' });
-  await waitFor(() => expect(manage).toBeEnabled());
-  await userEvent.click(manage);
-  await userEvent.click(screen.getByRole('button', { name: 'Authorize account' }));
-  await waitFor(() => expect(mocks.resume).toHaveBeenCalledWith('zoho-existing'));
+  await userEvent.click(await screen.findByRole('button', { name: 'Manage Zoho CRM' }));
+  const reconnect = await screen.findByRole('button', { name: 'Reconnect Zoho' });
+  await userEvent.click(reconnect);
+  await waitFor(() => expect(mocks.zohoStart).toHaveBeenCalledOnce());
   expect(mocks.start).not.toHaveBeenCalled();
-  expect(popup.location.replace).toHaveBeenCalledWith('https://accounts.zoho.com/oauth/v2/auth');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Reconnect temporarily unavailable');
 });
