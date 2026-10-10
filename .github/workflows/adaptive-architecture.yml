@@ -116,7 +116,7 @@ on:
       - 'backend/tests/test_platform_postgres_custody_signing_claims.py'
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/tests/test_platform_jenkins_junit_custody.py'
-      - 'backend/tests/test_platform_custody_attestation_signer.py tests/test_platform_authorized_signing_integration.py'
+      - 'backend/tests/test_platform_custody_attestation_signer.py'
       - 'backend/tests/test_platform_authorized_signing_integration.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/tests/test_platform_custody_signing_claim_migration.py'
