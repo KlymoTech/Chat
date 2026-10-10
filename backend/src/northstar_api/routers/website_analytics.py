@@ -21,8 +21,8 @@ from northstar_api.routers.website_consent import (
     _same_origin, _subject_hash, _workspace,
 )
 from northstar_api.security import Principal
-from northstar_api.services.website_analytics_client import SITE_ANALYTICS_CLIENT_JS
 from northstar_api.services.rate_limit import redis_services
+from northstar_api.services.website_analytics_client import SITE_ANALYTICS_CLIENT_JS
 from northstar_api.website_cms_models import WebsitePage
 from northstar_api.website_event_models import WebsitePageEvent
 
