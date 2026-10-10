@@ -104,3 +104,19 @@ def test_browser_ambiguous_urls_are_rejected(unsafe):
         page([{"id": "hero", "kind": "section", "children": [
             {"id": "cta", "kind": "button", "text": "More", "url": unsafe},
         ]}])
+
+
+@pytest.mark.parametrize("url", [
+    "/\\\\unsafe.example/path",
+    "/folder/\\\\relative",
+    "/path\\nother",
+    "https://example.org/path\\tunsafe",
+    "https://example.org:0/unused",
+    "https://example.org/#fragment",
+    "https://someone:password@example.org/",
+])
+def test_ambiguous_builder_link_urls_are_rejected(url):
+    with pytest.raises(ValidationError):
+        page([{"id": "content", "kind": "section", "children": [
+            {"id": "outbound", "kind": "button", "text": "Open", "url": url},
+        ]}])
