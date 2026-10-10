@@ -285,3 +285,21 @@ The implementation is committed to `feature/website-consolidated-20261010` only.
 - Source-of-truth verification has not been completed: the latest GitHub Actions jobs on `feature/website-consolidated-20261010` still fail **before any runner or test step**, so backend integration tests, browser tests and migrations remain unexecuted by CI.
 - Scheduled delivery, a permission-approved export queue, warehouses/advertising spend, external provider acknowledgement, real attribution lift, reconciliation to independently read back CRM records and E2E operational drills remain out of scope for **this increment**, not marked complete in the blueprint.
 - `CAP-051` and `CAP-052` remain **Not verified**. Their traceability rows have been updated with implemented evidence and honest remaining gaps.
+
+
+## Optional marketing opt-in and workspace-wide suppression — 2026-10-10
+
+Source: Website Master Blueprint v1.3 Chapter 20.5, Chapter 47.1–47.5 and CAP-038/044/061. Audited existing `LeadConsent`, `website_marketing.py`, `MarketingPreferencesPanel.tsx`, `website_marketing_suppression.py`, `WebsiteFormsPanel.tsx` and form submission transaction **before** adding features. No duplicate marketing preference center, Lead store, suppression table, notification queue or mail sender was created.
+
+### Changes in canonical React/FastAPI runtime
+- Form contracts now support the stable `marketing_opt_in` checkbox ONLY when optional, unconditional and labeled/purposed specifically for marketing. It requires an unconditional required email input and cannot replace the required `processing_consent` field. Checkbox is not preselected.
+- Existing CMS form editor gained one optional action to insert the marketing checkbox. It remains editable for compliant label/purpose, while the stable key, type and optional status cannot silently change.
+- Public website form POST records a marketing `LeadConsent` **only** for an explicit checked answer; an unchecked/missing box creates no marketing grant. The receipt carries existing form ID and immutable version and is written in the existing Lead/consent/outbox transaction, with actor-independent audit and an internal consent-capture event. Processing consent remains separate.
+- Reuses the existing marketing-unsubscribe module's status vocabulary and adds one scoped email suppression lookup across the authoritative Lead and LeadConsent records. A previous withdrawal for the same tenant/workspace/email prevents re-grant after a new form submission; the attempted new opt-in remains `pending_verification` for explicit re-confirmation. The existing owner preference endpoint also fails closed for a previously granted Lead if another same-address Lead later withdraws. No marketing provider message is dispatched.
+- Existing CRM marketing preference UI displays suppression/reverification context; a suppressed lead is not offered another redundant unsubscribe action.
+- New unit, API, and React regression tests cover optional marketing purpose separation, no-consent default, previous-withdrawal protection, cross-lead suppression, signed link GET read-only / POST idempotency, and untouched processing consent.
+
+### Evidence and gaps
+- Source changes and tests were committed only to `feature/website-consolidated-20261010`; `main` remains unchanged.
+- Existing GitHub Actions runs continue to fail before any job receives an executable runner, preventing credible pass/fail evidence for new tests or the current application.
+- There is **no claim of full CAP-044 delivery**: real provider send-time suppression/List-Unsubscribe headers, bounce/complaint reconciliation, domain verification, all-channel consent, verified multi-step browser acceptance, protected retention deletion, and production rollout remain unfinished.
