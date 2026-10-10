@@ -120,3 +120,28 @@ def test_ambiguous_builder_link_urls_are_rejected(url):
         page([{"id": "content", "kind": "section", "children": [
             {"id": "outbound", "kind": "button", "text": "Open", "url": url},
         ]}])
+
+
+def test_first_party_form_blocks_require_same_origin_bounded_published_paths():
+    workspace = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    href = f"/api/v1/site-forms/public/{workspace}/contact"
+    doc = page([{"id": "section", "kind": "section", "children": [
+        {"id":"contactform", "kind":"form", "text":"Contact our team", "url":href},
+    ]}])
+    assert doc.nodes[0].children[0].url == href
+    for unsafe in [
+        "https://other.example/form",
+        "/api/v1/site-forms/public/not-uuid/contact",
+        "/api/v1/site-forms/public/" + workspace + "/contact?query=1",
+        "//malicious.example",
+        "javascript:alert(1)",
+    ]:
+        with pytest.raises(ValidationError):
+            page([{"id": "section", "kind": "section", "children": [
+                {"id":"form", "kind":"form", "text":"Contact", "url":unsafe},
+            ]}])
+    with pytest.raises(ValidationError):
+        page([{"id":"section","kind":"section","children":[
+            {"id":"form","kind":"form","text":"Contact","url":href,
+             "children":[{"id":"unsafe","kind":"paragraph","text":"Wrong child"}]},
+        ]}])
