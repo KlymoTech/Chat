@@ -16,7 +16,7 @@ on:
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py'
       - 'backend/tests/test_platform_custody*'
       - 'backend/tests/test_platform_signing_authorization*.py'
-      - 'backend/tests/test_platform_authorized_signing.py'
+      - 'backend/tests/test_platform_authorized_signing*.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
@@ -34,7 +34,7 @@ on:
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py'
       - 'backend/tests/test_platform_custody*'
       - 'backend/tests/test_platform_signing_authorization*.py'
-      - 'backend/tests/test_platform_authorized_signing.py'
+      - 'backend/tests/test_platform_authorized_signing*.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
@@ -80,6 +80,7 @@ jobs:
           src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization_replay.py
           src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py
           tests/test_platform_authorized_signing.py
+          tests/test_platform_authorized_signing_integration.py
           tests/test_platform_signing_authorization.py
           tests/test_platform_signing_authorization_replay.py
           tests/test_platform_signing_authorization_migration.py
@@ -91,6 +92,7 @@ jobs:
         run: >-
           uv run pytest -q
           tests/test_platform_authorized_signing.py
+          tests/test_platform_authorized_signing_integration.py
           tests/test_platform_signing_authorization.py
           tests/test_platform_signing_authorization_replay.py
           tests/test_platform_signing_authorization_migration.py
