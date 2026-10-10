@@ -8,7 +8,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime
 from urllib.parse import quote
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -41,6 +41,17 @@ class PageDuplicate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     title: str = Field(min_length=1, max_length=180)
+
+
+class SiteImportManifest(BaseModel):
+    """Allowlisted CMS export format; imported pages never overwrite live content."""
+
+    model_config = ConfigDict(extra="forbid")
+    format: Literal["northstar.site-page"]
+    version: Literal[1]
+    page: BuilderPageDocument
+    new_slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    new_title: str = Field(min_length=1, max_length=180)
 
 
 class PageEdit(VersionGuard):
@@ -158,6 +169,61 @@ async def duplicate_page(
         await session.rollback()
         raise HTTPException(409, "The destination page URL is already in use") from None
     return _info(page, data)
+
+
+@router.get("/pages/{page_id}/export")
+async def export_page_document(
+    page_id: UUID, principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    """Export a validated current draft as JSON; include no access tokens or private leads."""
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    page = await _get_page(session, principal, page_id)
+    revision = await _revision(session, page, page.draft_version)
+    document = BuilderPageDocument.model_validate(revision.document_json)
+    return {
+        "format": "northstar.site-page",
+        "version": 1,
+        "page": document.model_dump(mode="json"),
+    }
+
+
+@router.post("/pages/import", status_code=201)
+async def import_page_document(
+    manifest: SiteImportManifest, principal: CmsAdmin,
+    session: DBSession, response: Response,
+) -> dict[str, Any]:
+    """Import as a separate private draft; regenerate block IDs and canonical identity."""
+    response.headers["Cache-Control"] = "private, no-store"
+    copied = duplicate_page_document(
+        manifest.page,
+        new_slug=manifest.new_slug,
+        new_title=manifest.new_title,
+    )
+    page = WebsitePage(
+        tenant_id=principal.tenant_id,
+        workspace_id=_scope(principal),
+        slug=copied.slug,
+        title=copied.title,
+        status="draft",
+        draft_version=1,
+    )
+    session.add(page)
+    try:
+        await session.flush()
+        serialized = copied.model_dump(mode="json")
+        session.add(WebsiteRevision(
+            page_id=page.id,
+            version=1,
+            document_json=serialized,
+            created_by=principal.user_id,
+        ))
+        session.add(_audit(page, principal, "import"))
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "Import destination slug already exists") from None
+    return _info(page, serialized)
 
 
 @router.put("/pages/{page_id}")
