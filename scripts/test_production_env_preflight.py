@@ -62,7 +62,7 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
     def test_placeholder_database_password_rejected(self):
-        self.valid["DATABASE_URL"] = "postgresql://user:replace-password@db.internal/app"
+        self.valid["DATABASE_URL"] = "postgresql://user:replace-password@db.internal/app?sslmode=require"
         self.assertTrue(validate(self.valid))
 
 
@@ -87,6 +87,12 @@ class ProductionPreflightTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_env(path)
 
+
+    def test_database_password_containing_replace_word_allowed(self):
+        self.valid["DATABASE_URL"] = (
+            "postgresql://user:myreplacementpassword123@db.internal/app?sslmode=require"
+        )
+        self.assertEqual(validate(self.valid), [])
 
     def test_database_password_containing_example_word_allowed(self):
         self.valid["DATABASE_URL"] = "postgresql://user:myexamplepassword@db.internal/app?sslmode=require"
