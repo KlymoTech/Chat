@@ -4,6 +4,7 @@ import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { ApiError, apiConfig, request } from '@/lib/api';
 import { compareDraftDocuments, duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
+import { WebsiteFormsPanel } from './WebsiteFormsPanel';
 import './WebsiteCMSPage.css';
 
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
@@ -684,6 +685,7 @@ export function WebsiteCMSPage() {
           </form>
         </div></Card>
         <div className="site-cms-workspace">
+          <WebsiteFormsPanel key={activeWorkspace.id} workspaceId={activeWorkspace.id} />
           <Card>
             <div className="site-cms-navigation-heading">
               <div><h3>Page redirects</h3>
