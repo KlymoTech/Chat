@@ -1,8 +1,10 @@
 """Tests for the production configuration preflight."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
-from scripts.production_env_preflight import validate
+from scripts.production_env_preflight import load_env, validate
 
 
 class ProductionPreflightTests(unittest.TestCase):
@@ -62,6 +64,28 @@ class ProductionPreflightTests(unittest.TestCase):
     def test_placeholder_database_password_rejected(self):
         self.valid["DATABASE_URL"] = "postgresql://user:replace-password@db.internal/app"
         self.assertTrue(validate(self.valid))
+
+
+    def test_duplicate_env_key_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("APP_ENV=production\\nAPP_ENV=development\\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_env(path)
+
+    def test_invalid_env_key_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("INVALID-KEY=value\\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_env(path)
+
+    def test_unterminated_quote_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("JWT_SECRET='unterminated\\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_env(path)
 
 
 if __name__ == "__main__":
