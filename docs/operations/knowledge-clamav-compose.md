@@ -58,3 +58,24 @@ enabled API refuses promotion when the scanner is offline.
 
 This configuration preserves the existing API and object-store contract.
 No production AWS service is provisioned by this patch.
+
+## Live scanner qualification command
+
+Run the following only when the optional Compose scanner is running:
+
+```bash
+docker compose -f compose.yaml -f compose.knowledge-clamav.yaml \
+  exec api python -m northstar_api.workers.knowledge_clamav_qualification --test-eicar
+```
+
+This CLI checks loopback PING/VERSION, a clean INSTREAM payload, and whether
+the daemon rejects the harmless industry-standard EICAR signature. It
+exits nonzero if anything fails and emits no uploaded file content.
+Without `--test-eicar` it performs only partial connectivity checks and exits
+with code 2, which **must not** be used as a release gate.
+
+A successful live CLI output is one necessary local piece of evidence;
+it is not sufficient proof of signature freshness, image provenance,
+per-tenant isolation, production runtime behavior, restore readiness or
+release authorization. Capture and review the output during a real operator
+qualification run. No live daemon has been tested merely by merging this code.

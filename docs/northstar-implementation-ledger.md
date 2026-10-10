@@ -1004,3 +1004,16 @@ do not merge without explicit instruction.
 - Added cursor scope, continuation, cutoff pinning, and boundary-failure
   regression cases. Full PostgreSQL/RLS integration, concurrent-write
   snapshot behavior, and exact-commit CI remain unverified (issue #141).
+
+## Increment: operator-run local ClamAV detection qualification (2026-10-11)
+
+- Added a bounded, loopback-only verification CLI using the existing knowledge
+  INSTREAM adapter, and a harmless EICAR detection sample sent only when an
+  operator explicitly requests the test. It checks PING, VERSION, clean
+  acceptance and fail-closed detection. No production objects are modified.
+- Connectivity-only checks report partial status and exit nonzero, so no
+  release gate can be satisfied without a detection test.
+- Added socket-fake regression tests for framing, invalid/missing daemon
+  responses, detection false negatives and invalid settings.
+- The CLI and unit tests require exact-repository CI and **real** ClamAV
+  operation before they count as deployment qualification (issue #141).
