@@ -37,6 +37,7 @@ def _document(title: str = "Contact our team") -> dict:
 
 async def _create_form(
     client: AsyncClient, headers: dict[str, str],
+    *, document: dict | None = None,
 ) -> tuple[str, str, str]:
     workspace = await client.get("/api/v1/workspace", headers=headers)
     assert workspace.status_code == 200, workspace.text
@@ -49,7 +50,7 @@ async def _create_form(
     assert agent.status_code == 201, agent.text
     form_slug = "contact-" + uuid4().hex[:10]
     created = await client.post("/api/v1/site-forms", headers=headers, json={
-        "slug":form_slug, "agent_id":agent.json()["id"], "document":_document(),
+        "slug":form_slug, "agent_id":agent.json()["id"], "document":document or _document(),
     })
     assert created.status_code == 201, created.text
     return created.json()["id"], scope, form_slug
@@ -390,3 +391,113 @@ async def test_owner_preflight_counts_only_published_forms_and_never_certifies_r
     assert closed.status_code == 200, closed.text
     after = await client.get(endpoint, headers=auth_headers)
     assert after.json()["summary"]["publishedForms"] == original["summary"]["publishedForms"]
+
+
+
+async def test_marketing_opt_in_records_a_distinct_purpose_and_honors_prior_suppression(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    document = _document()
+    document["fields"].append({
+        "key": "marketing_opt_in",
+        "label": "I agree to receive marketing emails",
+        "kind": "checkbox", "required": False,
+        "purpose": "Receive optional email marketing updates",
+    })
+    form_id, workspace_id, slug = await _create_form(
+        client, auth_headers, document=document,
+    )
+    enabled = await client.post(
+        f"/api/v1/site-forms/{form_id}/publish", headers=auth_headers,
+        json={"expected_version": 1},
+    )
+    assert enabled.status_code == 200, enabled.text
+    url = f"/api/v1/site-forms/public/{workspace_id}/{slug}"
+    public = await client.get(url)
+    assert public.status_code == 200, public.text
+    assert 'name="marketing_opt_in"' in public.text
+    assert 'name="marketing_opt_in" value="on" required' not in public.text
+    unique_email = "marketing-" + uuid4().hex[:14] + "@example.org"
+
+    async def submit(*, opted_in: bool) -> UUID:
+        values = {**_values(str(uuid4())), "email": unique_email}
+        if opted_in:
+            values["marketing_opt_in"] = "on"
+        result = await client.post(
+            url, data=values, headers={"Accept": "application/json"},
+        )
+        assert result.status_code == 201, result.text
+        receipt_id = UUID(result.json()["receiptId"])
+        async with SessionFactory() as session:
+            submitted = await session.scalar(select(WebsiteFormSubmission).where(
+                WebsiteFormSubmission.id == receipt_id,
+            ))
+            assert submitted is not None and submitted.lead_id is not None
+            lead_id = submitted.lead_id
+        return lead_id
+
+    no_opt_in = await submit(opted_in=False)
+    async with SessionFactory() as session:
+        none_marketing = await session.scalar(select(LeadConsent.id).where(
+            LeadConsent.lead_id == no_opt_in, LeadConsent.consent_type == "marketing",
+        ))
+        processing = await session.scalar(select(LeadConsent).where(
+            LeadConsent.lead_id == no_opt_in, LeadConsent.consent_type == "processing",
+        ))
+    assert none_marketing is None
+    assert processing is not None and processing.status == "granted"
+    unknown = await client.get(
+        f"/api/v1/site-marketing/leads/{no_opt_in}/preferences",
+        headers=auth_headers,
+    )
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()["marketingAllowed"] is False
+
+    opt_in = await submit(opted_in=True)
+    async with SessionFactory() as session:
+        marketing = await session.scalar(select(LeadConsent).where(
+            LeadConsent.lead_id == opt_in,
+            LeadConsent.consent_type == "marketing",
+        ))
+        opt_in_event = await session.scalar(select(OutboxEvent).where(
+            OutboxEvent.aggregate_type == "lead",
+            OutboxEvent.aggregate_id == str(opt_in),
+            OutboxEvent.event_type == "lead.marketing.opt_in_recorded.v1",
+        ))
+    assert marketing is not None and marketing.status == "granted"
+    assert marketing.source == "website_form" and marketing.channel == "email"
+    assert marketing.text_version == f"{form_id}:1"
+    assert marketing.metadata_json["fieldKey"] == "marketing_opt_in"
+    assert opt_in_event is not None
+    permission = await client.get(
+        f"/api/v1/site-marketing/leads/{opt_in}/preferences",
+        headers=auth_headers,
+    )
+    assert permission.status_code == 200, permission.text
+    assert permission.json()["marketingAllowed"] is True
+
+    withdrawn = await client.post(
+        f"/api/v1/site-marketing/leads/{opt_in}/withdraw",
+        headers=auth_headers,
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["processingConsentPreserved"] is True
+    assert withdrawn.json()["changed"] is True
+
+    reopt = await submit(opted_in=True)
+    async with SessionFactory() as session:
+        pending = await session.scalar(select(LeadConsent).where(
+            LeadConsent.lead_id == reopt, LeadConsent.consent_type == "marketing",
+        ))
+        prior = (await session.scalars(select(LeadConsent).where(
+            LeadConsent.lead_id == opt_in, LeadConsent.consent_type == "marketing",
+        ).order_by(LeadConsent.created_at.desc()))).all()
+    assert pending is not None and pending.status == "pending_verification"
+    assert pending.metadata_json["requiresReview"] is True
+    assert any(row.status == "withdrawn" for row in prior)
+    checked_again = await client.get(
+        f"/api/v1/site-marketing/leads/{reopt}/preferences",
+        headers=auth_headers,
+    )
+    assert checked_again.status_code == 200
+    assert checked_again.json()["marketingAllowed"] is False
