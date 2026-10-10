@@ -18,6 +18,7 @@ from northstar_api.services.object_store import (
     ObjectStore,
     ObjectStoreUnavailable,
     _matches_upload_signature,
+    scan_with_clamav_instream,
     validate_docx_archive,
 )
 
@@ -664,6 +665,123 @@ def test_docx_archive_accepts_normal_directory_entries() -> None:
         archive.writestr("word/document.xml", "document")
 
     validate_docx_archive(stream.getvalue(), max_uncompressed_bytes=2_048)
+
+
+
+
+class _FakeClamSocket:
+    def __init__(self, reply: bytes) -> None:
+        self.reply = reply
+        self.chunks: list[bytes] = []
+        self.timeout: float | None = None
+
+    def __enter__(self) -> _FakeClamSocket:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def settimeout(self, timeout: float) -> None:
+        self.timeout = timeout
+
+    def sendall(self, chunk: bytes) -> None:
+        self.chunks.append(bytes(chunk))
+
+    def recv(self, _: int) -> bytes:
+        result, self.reply = self.reply, b""
+        return result
+
+
+def test_clamav_instream_clean_verdict_uses_loopback_and_bounded_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeClamSocket(b"stream: OK\\x00")
+    connect = Mock(return_value=client)
+    monkeypatch.setattr("northstar_api.services.object_store.socket.create_connection", connect)
+    content = b"a" * (70 * 1024)
+
+    scan_with_clamav_instream(content, port=3310, timeout_seconds=60)
+
+    connect.assert_called_once_with(("127.0.0.1", 3310), timeout=60)
+    assert client.timeout == 60
+    assert client.chunks[0] == b"zINSTREAM\\x00"
+    assert client.chunks[-1] == b"\\x00" * 4
+    assert b"".join(client.chunks[2:-1:2]) == content
+    assert len(client.chunks[1]) == 4
+    assert int.from_bytes(client.chunks[1], "big") == 64 * 1024
+
+
+@pytest.mark.parametrize(
+    ("reply", "error_type"),
+    [
+        (b"stream: Eicar-Test-Signature FOUND\\x00", InvalidUpload),
+        (b"stream: ERROR\\x00", ObjectStoreUnavailable),
+        (b"", ObjectStoreUnavailable),
+        (b"stream: OK", ObjectStoreUnavailable),
+    ],
+)
+def test_clamav_rejects_infected_missing_and_incomplete_verdicts(
+    monkeypatch: pytest.MonkeyPatch, reply: bytes, error_type: type[Exception]
+) -> None:
+    monkeypatch.setattr(
+        "northstar_api.services.object_store.socket.create_connection",
+        Mock(return_value=_FakeClamSocket(reply)),
+    )
+    with pytest.raises(error_type):
+        scan_with_clamav_instream(b"untrusted bytes", port=3310, timeout_seconds=60)
+
+
+def test_clamav_connection_failure_is_not_a_clean_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "northstar_api.services.object_store.socket.create_connection",
+        Mock(side_effect=ConnectionRefusedError("scanner offline")),
+    )
+    with pytest.raises(ObjectStoreUnavailable, match="scanner is unavailable"):
+        scan_with_clamav_instream(b"untrusted bytes", port=3310, timeout_seconds=60)
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+async def test_protected_environment_requires_scanner_before_object_copy(
+    monkeypatch: pytest.MonkeyPatch, app_env: str
+) -> None:
+    tenant_id = uuid4()
+    client = _FakeS3(b"untrusted file")
+    configured = get_settings().model_copy(
+        update={"app_env": app_env, "knowledge_clamav_enabled": False}
+    )
+    store = ObjectStore(configured)
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="Malware scanner is required"):
+        await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/10/note.txt")
+    assert client.copied_to is None
+
+
+async def test_scanner_detection_prevents_copy_without_purging_staging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid4()
+    client = _FakeS3(b"untrusted file")
+    configured = get_settings().model_copy(update={"knowledge_clamav_enabled": True})
+    store = ObjectStore(configured)
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+    scan = Mock(side_effect=InvalidUpload("Uploaded file failed malware scan"))
+    monkeypatch.setattr(
+        "northstar_api.services.object_store.scan_with_clamav_instream", scan
+    )
+    key = f"staging/{tenant_id}/2026/10/note.txt"
+
+    with pytest.raises(InvalidUpload, match="failed malware scan"):
+        await store.promote_staged(tenant_id, key)
+    scan.assert_called_once_with(
+        client.data,
+        port=configured.knowledge_clamav_port,
+        timeout_seconds=configured.knowledge_clamav_timeout_seconds,
+    )
+    assert client.copied_to is None
+    assert key not in client.deleted
 
 
 async def test_promotion_rejects_misdeclared_bytes_before_copy(
