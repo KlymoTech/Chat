@@ -249,3 +249,20 @@ Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found 
 ## Consolidation CI branch routing — 2026-10-10
 
 The three preserved website workflows `website-blueprint-branch.yml`, `website-blueprint.yml` and `website-platform.yml` now include `feature/website-consolidated-20261010` as a validation branch. This **does not** deploy any of the three applications, switch runtime selection or change `main`. The runner-assignment failure remains an operational release blocker.
+
+
+## CAP-040 owner automation workflow integration — 10 October 2026
+
+Audit established that `backend/src/northstar_api/routers/crm_workflow.py` already implements version-guarded `/crm/workflow/internal-automations` list/save/preview/execute and uses the existing Workspace.settings_json register, Lead/LeadProfile, purpose-limited operational segments, LeadActivityEvent, IntegrationAuditEvent and deduplicated workspace administrator notifications. No parallel automation table, CRM or notification queue was introduced.
+
+### Committed work
+- Added `frontend/src/pages/CRMInternalAutomationsPanel.tsx` and CSS to the **existing CRMWorkflowPage**. It provides operations-segment selection, rule name and bounded maximum-per-run editing, enable/disable, remove-as-draft, versioned save, read-only preview, and separately confirmed execution.
+- The frontend uses the **existing** `internalAutomationsApi` and `leadSegmentsApi` clients. It never calls an outbound provider; saving a definition does not queue notifications, and previewing it is read-only.
+- Running requires a saved, enabled operation with a currently enabled **operations** segment. Unsaved rules, stale previews, excessive (truncated) scans, zero eligible leads or missing confirmation all block the UI. The backend independently enforces tenant/workspace/agent boundaries, processing-consent eligibility, version guards, scan cap and per-version deduplication.
+- Added `CRMInternalAutomationsPanel.test.tsx` and updated existing `CRMWorkflowPage.test.tsx` to mock and verify the new shared panel without changing older workflows.
+- Added `test_website_internal_automations.py` contract tests and `test_website_internal_automations_api.py` integration checks covering bounded actions, ineligible/withdrawn leads, idempotent review requests, operational-segment isolation, actor history and no external CRM delivery events.
+- Updated `.github/workflows/website-blueprint-branch.yml` to include new Python tests and linting for the existing automation schema; the current frontend test glob automatically includes the new React tests.
+- CAP-040 stays **Not verified**. Full marketing automation remains a separate, unimplemented scope: visual rule graph/conditional journeys, durable timers, delayed jobs, consent-controlled external dispatch, sender-domain authentication, delivery retries/observability, simulation parity for those actions, and browser/production evidence.
+
+### Verification limit
+The implementation is committed to `feature/website-consolidated-20261010` only. At the time of writing the consolidated branch has no GitHub Actions execution records, and other website branches have exhibited runner assignment failures. There is no claim that these new tests have run or that all blueprint acceptance gates pass.
