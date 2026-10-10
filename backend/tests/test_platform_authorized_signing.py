@@ -25,6 +25,17 @@ class Consumption:
             raise PermissionError("duplicate grant")
 
 
+@pytest.fixture(autouse=True)
+def configured_replay_store_types(monkeypatch):
+    from northstar_api.modules.platform_runtime import (
+        queue_notification_custody_signing_claims as claims_module,
+        queue_notification_signing_authorization_replay as replay_module,
+    )
+
+    monkeypatch.setattr(replay_module, "CommittedAuthorizationConsumption", Consumption)
+    monkeypatch.setattr(claims_module, "CommittedPostgresSigningClaims", SigningClaims)
+
+
 def arguments(consumption):
     return dict(
         authorization_token="token",
@@ -139,7 +150,7 @@ async def test_nonfunctional_guard_is_rejected_before_authorization(monkeypatch,
         parameters["authorization_consumption"] = object()
     else:
         parameters["signing_claims"] = object()
-    with pytest.raises(PermissionError, match="service unavailable"):
+    with pytest.raises(PermissionError, match="service required"):
         await subject.sign_with_protected_authorization(None, **parameters)
     verify.assert_not_awaited()
 
