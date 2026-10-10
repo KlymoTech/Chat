@@ -17,6 +17,8 @@ def test_junit_custody_migrations_have_one_merged_head() -> None:
     }
     assert script.get_revision("0093_notification_jenkins_junit_custody")
     assert script.get_revision("0093_notification_junit_index_custody")
-    assert "0094_merge_notification_junit_custody_heads" in script.get_heads()
+    # The merge stays in the lineage after subsequent append-only revisions.
+    assert script.get_revision("0095_notification_custody_signing_claims").down_revision == merged.revision
+    assert "0096_signing_authorization_replay" in script.get_heads()
     assert "0093_notification_jenkins_junit_custody" not in script.get_heads()
     assert "0093_notification_junit_index_custody" not in script.get_heads()
