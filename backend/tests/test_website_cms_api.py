@@ -64,6 +64,8 @@ async def test_cms_draft_review_publish_and_revision_isolation(
     assert published.status_code == 200, published.text
     assert "<unsafe>" not in published.text
     assert "&lt;unsafe&gt;Hello&lt;/unsafe&gt;" in published.text
+    assert 'Privacy and tracking preferences' in published.text
+    assert '/privacy/site/' + workspace_id in published.text
     assert published.headers["cache-control"] == "no-store"
     assert published.headers["x-content-type-options"] == "nosniff"
 
