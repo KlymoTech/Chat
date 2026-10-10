@@ -153,7 +153,7 @@ def integrated_signing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_real_ed25519_authorization_and_custody_are_one_use(integrated_signing):
-    params, state, identity, signer, controller, authorizations, claims = integrated_signing
+    params, state, identity, signer, _, authorizations, claims = integrated_signing
     attestation = await orchestration.sign_with_protected_authorization(None, **params)
     signer.public_key().verify(attestation.signature, attestation.payload)
     body = json.loads(attestation.payload)
@@ -176,7 +176,7 @@ async def test_real_ed25519_authorization_and_custody_are_one_use(integrated_sig
 async def test_real_authorization_rejection_precedes_custody_and_key_access(
     integrated_signing, tamper
 ):
-    params, state, identity, signer, controller, authorizations, claims = integrated_signing
+    params, state, identity, _, controller, authorizations, claims = integrated_signing
     if tamper == "wrong_branch":
         params["authorization_token"] = authorization_token(
             controller, branch="feature/other",
