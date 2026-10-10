@@ -82,8 +82,9 @@ export default function OwnerConsole(){
       const result=await requestJson("/api/owner/pages");
       if(!hasArray(result,"pages"))throw new Error("Unexpected CMS response");
       setPages(result.pages as Page[]);
-      if(typeof result.actorId==="string"&&typeof result.siteId==="string")
-        setOwnerScope({actorId:result.actorId,siteId:result.siteId});
+      const ownerInfo=result as Record<string,unknown>;
+      if(typeof ownerInfo.actorId==="string"&&typeof ownerInfo.siteId==="string")
+        setOwnerScope({actorId:ownerInfo.actorId,siteId:ownerInfo.siteId});
       else setOwnerScope(null);
       setConnection("ready");setProblem("");
     }catch(error){
