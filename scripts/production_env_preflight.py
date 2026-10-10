@@ -59,6 +59,8 @@ def valid_https_origin(origin: object) -> bool:
             and parsed.port != 0
             and not PLACEHOLDER.search(parsed.hostname)
             and parsed.netloc == origin.removeprefix("https://")
+            and parsed.hostname == parsed.hostname.lower()
+            and parsed.hostname not in {"0.0.0.0", "::1"}
         )
     except ValueError:
         return False

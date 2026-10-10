@@ -93,5 +93,14 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertEqual(validate(self.valid), [])
 
 
+    def test_wildcard_interface_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://0.0.0.0"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_loopback_ipv6_origin_rejected(self):
+        self.valid["APP_CORS_ORIGINS"] = '["https://[::1]"]'
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
