@@ -155,3 +155,55 @@ export async function advanceDueInternalAutomations():Promise<{
     throw error;
   }finally{client.release();}
 }
+
+export type InternalTaskSummary=Readonly<{
+ id:string;runId:string;nodeId:string;action:string;state:string;createdAt:string;
+}>;
+export async function listInternalAutomationTasks(
+  actor:CmsActor,definitionId:string,
+):Promise<InternalTaskSummary[]>{
+  requireAutomationOwner(actor);
+  if(!uuid.test(definitionId))throw new Error("Invalid workflow ID");
+  const found=await db().query<InternalTaskSummary>(
+    `SELECT t.id::text,t.run_id::text AS "runId",t.node_id AS "nodeId",
+            t.action,t.state,t.created_at::text AS "createdAt"
+       FROM website_cms.automation_internal_tasks t
+       JOIN website_cms.automation_internal_runs r
+         ON r.id=t.run_id AND r.site_id=t.site_id
+      WHERE r.site_id=$1 AND r.definition_id=$2 AND r.subject_type='synthetic'
+      ORDER BY t.created_at DESC LIMIT 100`,
+    [actor.siteId,definitionId]);
+  return found.rows;
+}
+export async function completeInternalAutomationTask(
+  actor:CmsActor,definitionId:string,taskId:string,reason:string,
+):Promise<{id:string;state:"done"}>{
+  requireAutomationOwner(actor);
+  if(!uuid.test(definitionId)||!uuid.test(taskId)||
+     typeof reason!=="string"||reason.trim().length<10||reason.trim().length>500)
+    throw new Error("Invalid internal task decision");
+  const client=await db().connect();
+  try {
+    await client.query("BEGIN");
+    const updated=await client.query(
+      `UPDATE website_cms.automation_internal_tasks t SET state='done'
+        FROM website_cms.automation_internal_runs r
+       WHERE t.id=$1 AND t.site_id=$2 AND t.state='pending'
+         AND r.id=t.run_id AND r.site_id=t.site_id
+         AND r.definition_id=$3 AND r.subject_type='synthetic'
+       RETURNING t.id`,
+      [taskId,actor.siteId,definitionId]);
+    if(updated.rowCount!==1)throw new Error("Task not pending for this site");
+    await client.query(
+      `INSERT INTO website_cms.audit_events(
+         id,site_id,actor_id,action,target_id,metadata)
+       VALUES($1,$2,$3,'cms.automation_internal_task_done',$4,
+              jsonb_build_object('reason',$5::text))`,
+      [randomUUID(),actor.siteId,actor.id,taskId,reason.trim()]);
+    await client.query("COMMIT");
+    return {id:taskId,state:"done"};
+  }catch(error){
+    try{await client.query("ROLLBACK");}catch{}
+    throw error;
+  }finally{client.release();}
+}
