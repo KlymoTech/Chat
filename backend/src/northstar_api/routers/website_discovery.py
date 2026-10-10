@@ -53,6 +53,7 @@ async def website_sitemap(workspace_id: UUID, session: DBSession) -> Response:
         .where(
             WebsitePage.tenant_id == workspace.tenant_id,
             WebsitePage.workspace_id == workspace_id,
+            WebsitePage.status == "published",
             WebsitePage.published_version.is_not(None),
         )
         .order_by(WebsitePage.slug.asc()),
