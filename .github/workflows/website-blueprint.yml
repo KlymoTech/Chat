@@ -1,7 +1,7 @@
 name: Website Blueprint isolated checks
 on:
   push:
-    branches: [feature/website-blueprint-v1-3]
+    branches: [feature/website-blueprint-v1-3, feature/website-consolidated-20261010]
     paths:
       - "website/**"
       - ".github/workflows/website-blueprint.yml"
