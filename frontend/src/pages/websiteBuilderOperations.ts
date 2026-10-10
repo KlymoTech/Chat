@@ -108,7 +108,7 @@ export function reviseDraftHistory<T>(
   const next = typeof change === 'function'
     ? (change as (current: T | null) => T | null)(history.present)
     : change;
-  if (JSON.stringify(next) === JSON.stringify(history.present)) return history;
+  if (sameDraftContent(next, history.present)) return history;
   if (next === null) return startDraftHistory<T>(null);
   const past = history.present === null ? [] : [...history.past, history.present].slice(-maxSteps);
   return { past, present: next, future: [] };
@@ -132,4 +132,24 @@ export function redoDraftHistory<T>(history: DraftHistory<T>): DraftHistory<T> {
     present: next,
     future: history.future.slice(1),
   };
+}
+
+/** Compare JSON page documents by content, not JavaScript object-key insertion order.
+ * Server Pydantic serialization can reorder keys between autosave rounds.
+ */
+export function sameDraftContent(left: unknown, right: unknown): boolean {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.keys(record)
+          .filter((key) => record[key] !== undefined)
+          .sort()
+          .map((key) => [key, canonical(record[key])]),
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
