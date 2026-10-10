@@ -21,6 +21,7 @@ from northstar_api.lead_crm.website_lead_scoring import (
 )
 from northstar_api.models import Lead, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
+from northstar_api.services.notifications import notify_workspace_admins
 from northstar_api.services.crm_workflow import crm_workflow_service
 
 router = APIRouter(prefix="/crm", tags=["crm workflow"])
@@ -233,5 +234,20 @@ async def apply_lead_score(
         before={"score": old_score},
         after={"score": preview.proposed_score, "policyVersion": policy.version},
     )
+    if old_score < policy.review_threshold <= preview.proposed_score:
+        # Reuse existing idempotent *internal* notifications. Never contact the lead.
+        await notify_workspace_admins(
+            session,
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace.id,
+            title="Lead scoring review requested",
+            body="A lead crossed the configured scoring threshold. A human must verify qualification.",
+            dedupe_key=f"website-score-review:{lead_id}:{policy.version}",
+            category="lead",
+            severity="info",
+            action_url="/leads",
+            action_label="Review lead",
+            metadata={"leadId": str(lead_id), "policyVersion": policy.version},
+        )
     await session.commit()
     return preview.model_copy(update={"current_score": preview.proposed_score})
