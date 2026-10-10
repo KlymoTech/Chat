@@ -96,12 +96,14 @@ class _FakeS3:
         etag: str | None = '"object-etag"',
         copied_size: int | None = None,
         copied_version_id: str | None = "copy-version-1",
+        source_version_id: str | None = "version-1",
     ) -> None:
         self.data = data
         self.declared_size = len(data) if declared_size is None else declared_size
         self.etag = etag
         self.copied_size = copied_size
         self.copied_version_id = copied_version_id
+        self.source_version_id = source_version_id
         self.copied_to: str | None = None
         self.deleted: list[str] = []
         self.delete_arguments: list[dict[str, Any]] = []
@@ -120,7 +122,7 @@ class _FakeS3:
             ),
             "ContentType": "text/plain",
             "Metadata": {"declared-size": str(self.declared_size), "sha256": self.checksum},
-            "VersionId": "version-1",
+            "VersionId": self.source_version_id,
         }
         if self.etag is not None:
             result["ETag"] = self.etag
@@ -232,6 +234,30 @@ async def test_promotion_rejects_a_size_different_from_signed_metadata(
         await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.txt")
 
     assert client.copied_to is None
+
+
+@pytest.mark.parametrize("source_version_id", [None, "", "null"])
+async def test_aws_promotion_requires_versioned_staging_object(
+    monkeypatch: pytest.MonkeyPatch, source_version_id: str | None
+) -> None:
+    tenant_id = uuid4()
+    client = _FakeS3(b"payload", source_version_id=source_version_id)
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="immutable object versions"):
+        await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.txt")
+
+    assert client.copied_to is None
+    assert client.deleted == []
 
 
 @pytest.mark.parametrize("etag", [None, "", "unquoted", '"contains\nnewline"'])

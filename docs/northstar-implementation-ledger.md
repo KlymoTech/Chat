@@ -585,3 +585,13 @@ do not merge without explicit instruction.
 - This is not the full upload-session/quarantine/orphan-reconciliation package.
   No AWS bucket policy, workload identity, browser upload, or recovery test was
   run, and no production storage configuration was changed.
+
+## Increment: versioned AWS staging preflight (2026-10-10)
+
+- In opt-in `S3_AUTH_MODE=aws-default`, upload promotion now refuses to copy
+  from a staging object if S3 does not return a real `VersionId`. This ensures
+  the already-present checksum read and conditional copy are pinned to an
+  immutable source version. The default static-key MinIO path is unchanged.
+- This is only a source-version preflight. Destination version/digest custody,
+  malware scanning, quarantine isolation, quota reservation, orphan cleanup,
+  retention, AWS bucket policy and live qualification remain missing.

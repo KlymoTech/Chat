@@ -152,6 +152,10 @@ class ObjectStore:
             expected_checksum = metadata.get("sha256", "").lower()
             if not re.fullmatch(r"[a-f0-9]{64}", expected_checksum):
                 raise InvalidUpload("Uploaded object is missing its signed checksum")
+            if self.settings.s3_auth_mode == "aws-default" and (
+                not version_id or version_id.lower() == "null"
+            ):
+                raise ObjectStoreUnavailable("AWS upload bucket must return immutable object versions")
 
             try:
                 source_version = (
