@@ -6,13 +6,15 @@ import './WebsiteFormsPanel.css';
 
 type FieldKind = 'text' | 'email' | 'phone' | 'select' | 'radio' | 'checkbox' | 'date' | 'consent';
 type Sensitivity = 'normal' | 'personal';
+interface FormFieldCondition { field_key: string; equals: string }
 interface FormField {
   key: string; label: string; kind: FieldKind; required: boolean; purpose: string;
   sensitivity: Sensitivity; retention_days: number; max_length: number; choices: string[];
+  step?: number; condition?: FormFieldCondition | null;
 }
 interface FormDocument {
   title: string; submit_label: string; description: string; privacy_notice: string;
-  fields: FormField[];
+  fields: FormField[]; steps?: string[];
 }
 interface SiteForm {
   id: string; slug: string; agentId: string;
@@ -27,11 +29,13 @@ const field = (key: string, label: string, kind: FieldKind, required: boolean): 
     : 'Process and respond to this enquiry',
   sensitivity: 'personal', retention_days: 365,
   max_length: kind === 'text' ? 1000 : 300, choices: [],
+  step: 1, condition: null,
 });
 const draftTemplate = (): FormDocument => ({
   title: 'Contact us', submit_label: 'Send enquiry',
   description: 'Tell us how we can help.',
   privacy_notice: 'We will use the details you provide to respond to this enquiry. This does not subscribe you to marketing.',
+  steps: ['Your details'],
   fields: [
     field('name', 'Full name', 'text', true),
     field('email', 'Email address', 'email', true),
@@ -91,25 +95,78 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
   };
   const changeField = (index: number, patch: Partial<FormField>) => {
     setDraft((current) => ({
-      ...current, fields: current.fields.map((item, i) => i === index ? { ...item, ...patch } : item),
+      ...current,
+      fields: current.fields.map((item, i) => i === index ? { ...item, ...patch } : item)
+        .sort((left, right) => (left.step ?? 1) - (right.step ?? 1)),
     }));
   };
   const makeField = (kind: FieldKind) => {
-    const key = 'field_' + (draft.fields.length + 1);
+    if (kind === 'consent' && draft.fields.some((item) => item.kind === 'consent')) return;
+    const keys = new Set(draft.fields.map((item) => item.key));
+    let next = draft.fields.length + 1;
+    while (keys.has('field_' + next)) next++;
+    const key = kind === 'consent' ? 'processing_consent' : 'field_' + next;
     const created = field(key, 'New field', kind, kind === 'consent');
+    created.step = draft.steps?.length ?? 1;
     if (kind === 'select' || kind === 'radio') created.choices = ['Option A', 'Option B'];
     setDraft((current) => ({ ...current, fields: [...current.fields, created] }));
   };
+  const addStep = () => {
+    if ((draft.steps?.length ?? 1) >= 5 || draft.fields.length >= 30) return;
+    setDraft((current) => {
+      const steps = current.steps ?? ['Your details'];
+      const keys = new Set(current.fields.map((item) => item.key));
+      let n = current.fields.length + 1;
+      while (keys.has('field_' + n)) n++;
+      const nextField = field('field_' + n, 'New field', 'text', false);
+      nextField.step = steps.length + 1;
+      return { ...current, steps: [...steps, 'Step ' + (steps.length + 1)],
+        fields: [...current.fields, nextField] };
+    });
+  };
+  const removeLastStep = () => setDraft((current) => {
+    const steps = current.steps ?? ['Your details'];
+    if (steps.length <= 1) return current;
+    return { ...current, steps: steps.slice(0, -1), fields: current.fields.map((item) =>
+      item.step === steps.length ? { ...item, step: steps.length - 1 } : item) };
+  });
+  const stepNames = draft.steps ?? ['Your details'];
   const draftValid = (
     draft.title.trim().length > 0 && draft.privacy_notice.trim().length >= 10 &&
+    stepNames.length >= 1 && stepNames.length <= 5 &&
+    stepNames.every((label) => label.trim().length > 0 && label.trim().length <= 90) &&
     draft.fields.length >= 2 && draft.fields.length <= 30 &&
-    draft.fields.every((item) => fieldKeyOk(item.key)
-      && item.label.trim() && item.purpose.trim().length >= 3
-      && (item.kind === 'consent' ? item.required : true)
-      && (item.kind === 'select' || item.kind === 'radio' ? item.choices.length > 0 : item.choices.length === 0)) &&
+    draft.fields.every((item, index) => {
+      const currentStep = item.step ?? 1;
+      const prior = draft.fields.slice(0, index);
+      const condition = item.condition;
+      const controller = condition
+        ? prior.find((candidate) => candidate.key === condition.field_key && !candidate.condition)
+        : null;
+      return fieldKeyOk(item.key)
+        && Boolean(item.label.trim()) && item.purpose.trim().length >= 3
+        && currentStep >= 1 && currentStep <= stepNames.length
+        && (index === 0 || currentStep >= (draft.fields[index - 1]!.step ?? 1))
+        && (item.kind !== 'consent' || (item.required && item.key === 'processing_consent'))
+        && (item.kind === 'consent' || item.key !== 'processing_consent')
+        && (item.kind === 'select' || item.kind === 'radio'
+          ? item.choices.length > 0 && new Set(item.choices).size === item.choices.length
+          : item.choices.length === 0)
+        && (!condition || (
+          Boolean(controller)
+          && (controller!.step ?? 1) <= currentStep
+          && (controller!.kind === 'select' || controller!.kind === 'radio'
+            ? controller!.choices.includes(condition.equals)
+            : controller!.kind === 'checkbox' && ['true', 'false'].includes(condition.equals))
+          && item.kind !== 'consent'
+          && !(item.required && (item.kind === 'email' || item.kind === 'phone'))
+        ));
+    }) &&
+    stepNames.every((_, index) => draft.fields.some((item) => (item.step ?? 1) === index + 1)) &&
     new Set(draft.fields.map((item) => item.key)).size === draft.fields.length &&
-    draft.fields.some((item) => item.kind === 'consent') &&
-    draft.fields.some((item) => item.required && (item.kind === 'email' || item.kind === 'phone'))
+    draft.fields.filter((item) => item.kind === 'consent').length === 1 &&
+    draft.fields.some((item) => item.required && !item.condition
+      && (item.kind === 'email' || item.kind === 'phone'))
   );
   const create = async () => {
     if (!draftValid || !slugOk(newSlug) || !agentId || busy) return;
