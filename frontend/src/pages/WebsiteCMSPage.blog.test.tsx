@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({
   request: mocks.request,
   apiConfig: { baseUrl: '/api/v1' },
+  ApiError: class ApiError extends Error {
+    constructor(message: string, readonly status: number) { super(message); }
+  },
 }));
 
 vi.mock('@/components/providers', () => ({
