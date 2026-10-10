@@ -22,7 +22,8 @@ from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.models import LeadConsent
 from northstar_api.lead_crm.website_marketing_suppression import (
     InvalidUnsubscribeToken,
-    MARKETINGMARKETING_STOP_STATUSES,
+    MARKETING_STOP_STATUSES,
+    has_workspace_marketing_suppression,
     make_unsubscribe_token,
     verify_unsubscribe_token,
 )
@@ -144,11 +145,24 @@ async def owner_marketing_preferences(
         "withdrawn" if receipt is not None and receipt.withdrawn_at is not None
         else receipt.status.strip().casefold() if receipt is not None else "unknown"
     )
+    suppressed = await has_workspace_marketing_suppression(
+        session,
+        tenant_id=lead.tenant_id,
+        workspace_id=lead.workspace_id,
+        email=lead.email,
+    )
+    displayed_status = "suppressed" if suppressed and status == "granted" else status
+    note = (
+        "Another Lead for this email has withdrawn marketing permission; "
+        "reconfirmation is required before email marketing may resume."
+        if suppressed else
+        "Marketing permission is separate from enquiry-processing consent."
+    )
     return {
-        "leadId": str(lead.id), "marketingStatus": status,
-        "marketingAllowed": status == "granted",
+        "leadId": str(lead.id), "marketingStatus": displayed_status,
+        "marketingAllowed": status == "granted" and not suppressed,
         "processingConsentPreserved": True,
-        "note": "Marketing permission is separate from enquiry-processing consent.",
+        "note": note,
     }
 
 
