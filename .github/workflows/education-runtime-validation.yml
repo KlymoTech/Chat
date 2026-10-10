@@ -43,7 +43,7 @@ jobs:
       - name: Verify dependency lock remains unchanged
         run: |
           git diff --exit-code -- uv.lock
-          uv tree --locked --depth 1
+          uv tree --frozen --depth 1
       - name: Verify clean application import
         run: |
           uv run python - <<'PY'
