@@ -306,7 +306,7 @@ export default function OwnerConsole(){
     <div className="owner-heading">
       <div><p className="eyebrow">Authenticated content workspace</p><h1 id="owner-title">Owner CMS</h1>
         <p>Edits are drafts. Publication needs independent approval and downstream refresh.</p></div>
-      <div className="owner-actions"><Link href="/owner/media">Media quarantine</Link><Link href="/owner/media/review">Media review</Link><Link href="/owner/media/publish">Media publication</Link><Link href="/owner/analytics">Analytics</Link><Link href="/owner/automations">Automations</Link><Link href="/owner/privacy/rights">Privacy rights</Link><Link href="/resources">Public resources</Link>
+      <div className="owner-actions"><Link href="/owner/media">Media quarantine</Link><Link href="/owner/media/review">Media review</Link><Link href="/owner/media/publish">Media publication</Link><Link href="/owner/analytics">Analytics</Link><Link href="/owner/automations">Automations</Link><Link href="/owner/privacy/rights">Privacy rights</Link><Link href="/owner/redirects">Redirects</Link><Link href="/resources">Public resources</Link>
         <button className="button secondary" onClick={()=>void signOut()} disabled={busy}>Sign out</button></div>
     </div>
     {notice&&<p className="owner-message" role="status">{notice}</p>}
