@@ -1,0 +1,22 @@
+.site-cms-layout{display:grid;grid-template-columns:minmax(230px,280px) minmax(0,1fr);gap:16px;align-items:start}
+.site-cms-workspace{display:grid;gap:16px;min-width:0}.site-cms-layout .card{min-width:0}
+.site-cms-create,.site-cms-editor-grid .card{display:grid;gap:12px}.site-cms-create{margin-top:16px}
+.site-cms-page label{display:grid;gap:6px;font-size:13px;font-weight:600}
+.site-cms-page input,.site-cms-page textarea{padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#17202b;max-width:100%;width:100%;font:inherit}
+.site-cms-pages,.site-cms-sections{display:grid;gap:6px;margin:14px 0}
+.site-cms-pages button,.site-cms-sections button{padding:12px;text-align:left;border:1px solid #e5e7eb;border-radius:9px;background:#fff;cursor:pointer}
+.site-cms-pages button small,.site-cms-toolbar small{display:block;color:#64748b;margin-top:4px}
+.site-cms-pages button.is-selected,.site-cms-sections button.is-selected{border-color:#2563eb;background:#eff6ff}
+.site-cms-toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:center}
+.site-cms-actions,.site-cms-add{display:flex;gap:8px;flex-wrap:wrap}
+.site-cms-unsaved{color:#92400e;font-weight:600;margin-top:10px}.site-cms-public-link{display:inline-flex;align-items:center;gap:6px;margin-top:10px}
+.site-cms-editor-grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(240px,1fr);gap:16px}
+.site-cms-block{border:1px solid #cbd5e1;padding:12px;border-radius:10px;display:grid;gap:9px}
+.site-cms-block-head{display:flex;justify-content:space-between;gap:8px;align-items:center;text-transform:capitalize}
+.site-cms-block-head button{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:6px;cursor:pointer;margin-left:5px}
+.site-cms-block-head button:disabled{opacity:.4;cursor:not-allowed}
+.site-cms-preview{border:1px solid #e2e8f0;min-height:220px;padding:18px;background:white;border-radius:10px;overflow-wrap:anywhere}
+.site-cms-preview-section{margin:0 0 14px;padding:8px}.site-cms-preview h2{font-size:1.45rem;margin:0 0 12px}
+.site-cms-preview img{max-width:100%;height:auto}
+@media(max-width:1050px){.site-cms-editor-grid{grid-template-columns:1fr}}
+@media(max-width:680px){.site-cms-layout{grid-template-columns:1fr}}
