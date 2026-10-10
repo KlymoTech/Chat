@@ -64,5 +64,7 @@ class CommittedPostgresSigningClaims:
                     witness_sha256=witness_sha256, claimed_at=now.astimezone(UTC),
                 ))
                 await session.commit()
-        except (SQLAlchemyError, PermissionError) as exc:
+        except Exception as exc:
+            # A lost connection during COMMIT has an unknown outcome. Never
+            # retry or unlock a signing key based on an uncertain claim.
             raise PermissionError("custody signing claim unavailable or already used") from exc
