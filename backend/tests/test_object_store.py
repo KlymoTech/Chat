@@ -170,9 +170,11 @@ class _FakeVersionPaginator:
     def __init__(self, pages: list[dict[str, Any]]) -> None:
         self.pages = pages
         self.arguments: dict[str, Any] = {}
+        self.calls = 0
 
     def paginate(self, **kwargs: Any) -> list[dict[str, Any]]:
         self.arguments = kwargs
+        self.calls += 1
         return self.pages
 
 
@@ -193,6 +195,14 @@ class _FakeVersionedS3:
     def delete_objects(self, *, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:  # noqa: N803
         del Bucket
         self.deleted_batches.append(Delete["Objects"])
+        removed = {(item["Key"], item["VersionId"]) for item in Delete["Objects"]}
+        for page in self.paginator.pages:
+            for collection in ("Versions", "DeleteMarkers"):
+                page[collection] = [
+                    item
+                    for item in page.get(collection, [])
+                    if (item["Key"], item["VersionId"]) not in removed
+                ]
         return {}
 
     def delete_object(self, *, Bucket: str, Key: str) -> None:  # noqa: N803
@@ -673,6 +683,28 @@ async def test_purge_exact_respects_s3_multi_delete_batch_limit(
 
     assert deleted == 1_001
     assert [len(batch) for batch in client.deleted_batches] == [1_000, 1]
+
+
+async def test_purge_exact_rejects_a_version_created_after_enumeration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = f"knowledge/{uuid4()}/2026/09/policy.txt"
+    client = _FakeVersionedS3([{"Versions": [{"Key": key, "VersionId": "v1"}]}])
+    original_delete = client.delete_objects
+
+    def delete_then_add(*, Bucket: str, Delete: dict[str, Any]) -> dict[str, Any]:  # noqa: N803
+        result = original_delete(Bucket=Bucket, Delete=Delete)
+        client.paginator.pages[0]["Versions"].append({"Key": key, "VersionId": "v2"})
+        return result
+
+    client.delete_objects = delete_then_add  # type: ignore[method-assign]
+    store = ObjectStore(get_settings())
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="still contains the purged key"):
+        await store.purge_exact(key)
+    assert client.deleted_batches == [[{"Key": key, "VersionId": "v1"}]]
+    assert client.paginator.calls == 2
 
 
 async def test_purge_exact_surfaces_partial_version_delete_failures(

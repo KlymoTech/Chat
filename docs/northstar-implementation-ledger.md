@@ -711,3 +711,13 @@ do not merge without explicit instruction.
   retroactively pinned; a controlled backfill or re-upload is still needed.
   This does not establish IAM write isolation, object-lock retention, malware
   scanning, or live AWS qualification.
+
+## Increment: post-delete exact-key reconciliation (2026-10-10)
+
+- Versioned object purges now re-list the exact key after batch deletion and
+  fail if any version or delete marker remains. The existing event consumer
+  only acknowledges a successful purge, so a concurrent new version remains
+  eligible for retry rather than being silently marked clean. A focused test
+  simulates a version added after the first enumeration.
+- This does not replace periodic orphan discovery, prevent new writes to a
+  deleted key, or prove S3/IAM behavior in a live account.

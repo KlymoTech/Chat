@@ -352,6 +352,14 @@ class ObjectStore:
                 errors = response.get("Errors", [])
                 if errors:
                     raise ObjectStoreUnavailable("Object storage could not delete every object version")
+
+            # A new version or delete marker can appear after enumeration. Do
+            # not acknowledge the cleanup event until the exact key is empty;
+            # the caller may retry the idempotent purge on a later delivery.
+            for page in paginator.paginate(Bucket=bucket, Prefix=key):
+                for collection_name in ("Versions", "DeleteMarkers"):
+                    if any(item.get("Key") == key for item in page.get(collection_name, [])):
+                        raise ObjectStoreUnavailable("Object storage still contains the purged key")
             return len(versioned_objects)
         except ObjectStoreUnavailable:
             raise
