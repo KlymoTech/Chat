@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectNodeIds, duplicateNode, duplicateSibling, moveBlockBetweenSections,
-  removeChild, reorderNodes, type BuilderNode,
+  removeChild, reorderNodes, redoDraftHistory, reviseDraftHistory, startDraftHistory, undoDraftHistory, type BuilderNode,
 } from './websiteBuilderOperations';
 
 const sample = (): BuilderNode[] => [
@@ -72,5 +72,48 @@ describe('versioned visual website builder operations', () => {
     expect(moved[0]!.children?.map((node) => node.id)).toEqual(['paragraph-one', 'heading-one']);
     expect(moveBlockBetweenSections(original, 'heading-one', 'section-one', -1)).toBe(original);
     expect(moveBlockBetweenSections(original, 'heading-one', 'section-one', 999)).toBe(original);
+  });
+});
+
+describe('editor draft history', () => {
+  it('records a reversible edit and redo without changing the saved baseline', () => {
+    const initial = { title: 'Original', nodes: sample() };
+    const edited = { ...initial, title: 'Updated' };
+    const start = startDraftHistory(initial);
+    const changed = reviseDraftHistory(start, edited);
+    expect(changed.past).toHaveLength(1);
+    expect(start.present?.title).toBe('Original');
+    const undone = undoDraftHistory(changed);
+    expect(undone.present?.title).toBe('Original');
+    expect(undone.future).toHaveLength(1);
+    expect(redoDraftHistory(undone).present?.title).toBe('Updated');
+  });
+
+  it('discards the redo branch after a new edit', () => {
+    const start = startDraftHistory({ title: 'One' });
+    const changed = reviseDraftHistory(start, { title: 'Two' });
+    const undone = undoDraftHistory(changed);
+    const fork = reviseDraftHistory(undone, { title: 'Three' });
+    expect(fork.future).toHaveLength(0);
+    expect(redoDraftHistory(fork)).toBe(fork);
+    expect(fork.present?.title).toBe('Three');
+  });
+
+  it('caps history length and ignores duplicate updates', () => {
+    let history = startDraftHistory({ number: 0 });
+    for (let i = 1; i < 101; i += 1) {
+      history = reviseDraftHistory(history, { number: i });
+    }
+    expect(history.past).toHaveLength(50);
+    expect(history.present?.number).toBe(100);
+    expect(reviseDraftHistory(history, { number: 100 })).toBe(history);
+  });
+
+  it('resets draft history when changing pages', () => {
+    const changed = reviseDraftHistory(startDraftHistory({ title: 'First' }), { title: 'Second' });
+    const reset = startDraftHistory({ title: 'Other page' });
+    expect(changed.past).toHaveLength(1);
+    expect(reset.past).toHaveLength(0);
+    expect(undoDraftHistory(reset).present?.title).toBe('Other page');
   });
 });
