@@ -33,3 +33,22 @@
 @media(max-width:760px){.owner-grid{grid-template-columns:1fr}.owner-console{padding:1.5rem 0}.owner-heading{align-items:flex-start}}
 
 .owner-preserve input{border:1px solid #71828e;border-radius:.5rem;background:#fff;color:#172a3a;padding:.65rem;width:100%;font:inherit}
+
+
+/* Preview device widths are editor-only; no generated markup or inline CSS input. */
+.owner-preview-modes{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+.owner-preview-modes button{padding:.45rem .8rem;border:1px solid #71828e;border-radius:.5rem;background:#fff;color:#172a3a}
+.owner-preview-modes button[aria-pressed="true"]{border-color:#116a73;background:#e8f4f4;font-weight:700}
+.owner-preview-modes button:focus-visible{outline:3px solid #df8e20;outline-offset:2px}
+.owner-preview-scroll{overflow-x:auto;max-width:100%;border-radius:.75rem;padding:.7rem;background:#eff3f5}
+.owner-preview-device{padding:clamp(1rem,2vw,2rem);background:#fff;border:1px solid #ccd9e0;
+  margin-inline:auto;min-height:180px;overflow-wrap:anywhere;
+  container-type:inline-size;container-name:cms-preview}
+.owner-preview-device-desktop{width:1200px;max-width:none}
+.owner-preview-device-tablet{width:768px;max-width:none}
+.owner-preview-device-mobile{width:390px;max-width:none}
+@container cms-preview (max-width:600px){
+  .cms-hero,.cms-cta{padding:1rem;margin:1rem 0}
+  .cms-hero h2,.cms-cta h2{font-size:1.55rem}
+  .cms-hero-split{border-left-width:3px}
+}
