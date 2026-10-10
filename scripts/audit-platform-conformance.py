@@ -93,6 +93,8 @@ def _handler_finding(root: Path, value: object, process: str) -> Finding | None:
         return _finding(7, "fail", "platform.yaml", f"{process}: invalid handler reference")
     module, function = value.split(":", 1)
     path = root / "backend" / "src" / (module.replace(".", "/") + ".py")
+    if not path.resolve().is_relative_to(root.resolve()):
+        return _finding(7, "fail", str(path), f"{process}: handler path escapes repository")
     if not path.is_file():
         return _finding(7, "fail", str(path), f"{process}: handler module is missing")
     try:
@@ -144,6 +146,21 @@ def audit(root: Path) -> list[Finding]:
     if not isinstance(queues, list):
         findings.append(_finding(1, "fail", "platform.yaml", "resources.queues must be a list"))
         queues = []
+    elif any(not isinstance(queue, str) or not queue for queue in queues):
+        findings.append(_finding(1, "fail", "platform.yaml", "resources.queues must contain nonempty names"))
+    elif len(set(queues)) != len(queues):
+        findings.append(_finding(1, "fail", "platform.yaml", "resources.queues names must be unique"))
+    raw_topics = resources.get("topics", [])
+    if not isinstance(raw_topics, list):
+        findings.append(_finding(1, "fail", "platform.yaml", "resources.topics must be a list"))
+        raw_topics = []
+    topics: set[str] = set()
+    for topic in raw_topics:
+        name = topic.get("name") if isinstance(topic, dict) else topic
+        if not isinstance(name, str) or not name or name in topics:
+            findings.append(_finding(1, "fail", "platform.yaml", "resources.topics has an invalid or duplicate name"))
+        else:
+            topics.add(name)
     names: set[str] = set()
     for index, process in enumerate(processes):
         location = f"platform.yaml:processes[{index}]"
@@ -166,14 +183,17 @@ def audit(root: Path) -> list[Finding]:
             findings.append(_finding(1, "fail", location, "HTTP routes missing"))
         if kind == "queue" and process.get("queue") not in queues:
             findings.append(_finding(1, "fail", location, "queue resource is undeclared"))
-        if kind == "schedule" and not process.get("activity_gate"):
-            findings.append(_finding(9, "fail", location, "scheduled job has no activity gate"))
+        event_topic = process.get("topic")
+        if kind == "event" and (not isinstance(event_topic, str) or event_topic not in topics):
+            findings.append(_finding(1, "fail", location, "event topic resource is undeclared"))
+        if kind == "schedule" and (not isinstance(process.get("activity_gate"), str) or not process["activity_gate"].strip()):
+            findings.append(_finding(9, "fail", location, "scheduled job requires a nonempty activity gate"))
         if kind in {"queue", "event", "schedule"}:
             issue = _handler_finding(root, process.get("handler"), str(name))
             if issue:
                 findings.append(issue)
-        if process.get("runtime") == "lambda" and (not isinstance(process.get("timeout_s"), int) or process["timeout_s"] > 900):
-            findings.append(_finding(8, "fail", location, "Lambda timeout must be an integer <= 900 seconds"))
+        if process.get("runtime") == "lambda" and (type(process.get("timeout_s")) is not int or not 1 <= process["timeout_s"] <= 900):
+            findings.append(_finding(8, "fail", location, "Lambda timeout must be an integer between 1 and 900 seconds"))
 
     makefile = root / "Makefile"
     make_text = makefile.read_text(encoding="utf-8") if makefile.is_file() else ""
@@ -187,17 +207,27 @@ def audit(root: Path) -> list[Finding]:
         if not isinstance(image, dict) or not isinstance(image.get("dockerfile"), str):
             findings.append(_finding(15, "fail", "platform.yaml", f"{name}: Dockerfile missing"))
             continue
-        dockerfile = root / image["dockerfile"]
+        declared_path = Path(image["dockerfile"])
+        dockerfile = (root / declared_path).resolve()
+        if declared_path.is_absolute() or not dockerfile.is_relative_to(root.resolve()):
+            findings.append(_finding(15, "fail", "platform.yaml", f"{name}: Dockerfile path escapes repository"))
+            continue
         if not dockerfile.is_file():
             findings.append(_finding(15, "fail", str(dockerfile), f"{name}: Dockerfile not found"))
             continue
-        source = dockerfile.read_text(encoding="utf-8")
+        try:
+            source = dockerfile.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            findings.append(_finding(15, "fail", str(dockerfile), f"{name}: Dockerfile unreadable: {exc}"))
+            continue
         if not re.search(r"(?im)^USER\s+(?!root\b)\S+", source):
             findings.append(_finding(15, "fail", str(dockerfile), f"{name}: non-root runtime user not declared"))
         if len(re.findall(r"(?im)^FROM\s+", source)) < 2:
             findings.append(_finding(15, "fail", str(dockerfile), f"{name}: multi-stage build missing"))
         platforms = image.get("platforms", [])
-        if not isinstance(platforms, list) or not {"linux/arm64", "linux/amd64"}.issubset(set(platforms)):
+        if (not isinstance(platforms, list) or
+                any(not isinstance(platform, str) for platform in platforms) or
+                not {"linux/arm64", "linux/amd64"}.issubset(platforms)):
             findings.append(_finding(15, "fail", "platform.yaml", f"{name}: both Arm64 and x86 platforms must be declared"))
 
     for rule, detail in UNVERIFIED.items():

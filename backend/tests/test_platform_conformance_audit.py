@@ -1,4 +1,6 @@
 import subprocess
+
+import pytest
 import sys
 from pathlib import Path
 
@@ -85,3 +87,98 @@ def test_duplicate_yaml_keys_fail_closed(tmp_path: Path) -> None:
     result = run_audit(root)
     assert result.returncode == 0
     assert "duplicate YAML key" in result.stdout
+
+
+@pytest.mark.parametrize("topic", ["missing", "[invalid]"])
+def test_undeclared_event_topic_fails_closed(tmp_path: Path, topic: str) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    original = manifest.read_text(encoding="utf-8")
+    updated = original.replace(
+        "processes:\n",
+        "processes:\n"
+        "  - name: event\n"
+        "    kind: event\n"
+        "    image: api\n"
+        f"    topic: {topic}\n"
+        "    handler: northstar_api.handlers.job:handle\n",
+    ).replace(
+        "resources: {queues: []}",
+        "resources: {queues: [], topics: [{name: approved}]}",
+    )
+    manifest.write_text(updated, encoding="utf-8")
+    result = run_audit(root)
+    assert "event topic resource is undeclared" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("invalid_timeout", ["-1", "0", "true", "901"])
+def test_invalid_lambda_timeout_fails_closed(
+    tmp_path: Path, invalid_timeout: str
+) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    original = manifest.read_text(encoding="utf-8")
+    manifest.write_text(
+        original.replace(
+            "    kind: schedule\n",
+            "    kind: schedule\n"
+            "    runtime: lambda\n"
+            f"    timeout_s: {invalid_timeout}\n",
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert (
+        "Lambda timeout must be an integer between 1 and 900 seconds"
+        in result.stdout
+    )
+    assert "Traceback" not in result.stderr
+
+
+def test_non_scalar_image_platform_is_rejected(tmp_path: Path) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "platforms: [linux/arm64, linux/amd64]",
+            "platforms: [linux/arm64, {arch: linux/amd64}]",
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "both Arm64 and x86 platforms must be declared" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_dockerfile_outside_repository_is_rejected(tmp_path: Path) -> None:
+    root = fixture_root(tmp_path)
+    outside = tmp_path.parent / f"{tmp_path.name}.Dockerfile"
+    outside.write_text(
+        "FROM python:3.12 AS builder\nFROM python:3.12\nUSER app\n",
+        encoding="utf-8",
+    )
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "dockerfile: Dockerfile",
+            f"dockerfile: ../{outside.name}",
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "Dockerfile path escapes repository" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_scheduled_activity_gate_must_be_a_nonempty_string(tmp_path: Path) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "activity_gate: 2h", "activity_gate: true"
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "scheduled job requires a nonempty activity gate" in result.stdout
