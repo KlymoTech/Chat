@@ -38,8 +38,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
-      - name: Resolve backend environment
-        run: uv sync --all-groups
+      - name: Resolve backend environment from committed lockfile
+        run: uv sync --locked --all-groups
       - name: Verify clean application import
         run: |
           uv run python - <<'PY'
