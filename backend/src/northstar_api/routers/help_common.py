@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlparse
 from uuid import UUID
 
 from sqlalchemy import select
@@ -23,6 +22,7 @@ from northstar_api.help_schemas import (
     HelpSupportRequestOut,
 )
 from northstar_api.models import Role, Tenant
+from northstar_api.services.help_links import safe_support_url
 
 _SAFE_DIAGNOSTIC_KEYS = {"userAgent", "appVersion", "buildId", "platform", "language", "timezone"}
 _SECRET_KEY_PATTERN = re.compile(r"token|secret|password|authorization|cookie|api.?key|credential", re.I)
@@ -81,11 +81,7 @@ async def _support_destination(session: DBSession, tenant_id: UUID) -> HelpSuppo
     if not isinstance(white_label, dict):
         white_label = {}
     email = str(white_label.get("supportEmail") or "support@northstar.ai").strip()
-    external_candidate = str(white_label.get("supportUrl") or "").strip()
-    parsed = urlparse(external_candidate) if external_candidate else None
-    external_url = (
-        external_candidate if parsed and parsed.scheme in {"http", "https"} and parsed.netloc else ""
-    )
+    external_url = safe_support_url(white_label.get("supportUrl"))
     return HelpSupportDestinationOut(email=email, external_url=external_url)
 
 
