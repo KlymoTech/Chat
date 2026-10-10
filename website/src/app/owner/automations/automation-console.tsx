@@ -5,6 +5,7 @@ import {simulateAutomation,validateAutomation,type AutomationDefinition,type Aut
   from "../../../lib/automation-contract";
 
 type Summary={id:string;title:string;version:number;updatedAt:string};
+type StoredRun={id:string;status:string;currentNodeId:string;dueAt:string;processedSteps:number};
 const starter:AutomationDefinition={title:"New internal lead review workflow",nodes:[
   {id:"start",type:"trigger",event:"lead_accepted",next:"review"},
   {id:"review",type:"task",action:"review_lead",next:"finish"},
@@ -22,6 +23,7 @@ async function api(path:string,method:"GET"|"POST"="GET",body?:unknown):Promise<
 export default function AutomationConsole(){
   const [graph,setGraph]=useState<AutomationDefinition>(starter);
   const [drafts,setDrafts]=useState<Summary[]>([]);
+  const [runs,setRuns]=useState<StoredRun[]>([]);
   const [activeId,setActiveId]=useState("");
   const [version,setVersion]=useState(0);
   const [source,setSource]=useState<"form"|"subscription">("form");
@@ -58,8 +60,15 @@ export default function AutomationConsole(){
         {...node,next:id}:node).concat(newNode)};
     });
   }
+  async function loadRuns(id:string){
+    if(!id){setRuns([]);return;}
+    try{
+      const result=await api("/api/owner/automations/"+encodeURIComponent(id)+"/runs") as {runs?:StoredRun[]};
+      if(Array.isArray(result.runs))setRuns(result.runs);
+    }catch{setRuns([]);}
+  }
   async function choose(id:string){
-    if(!id){setActiveId("");setVersion(0);setGraph(starter);return;}
+    if(!id){setActiveId("");setVersion(0);setGraph(starter);setRuns([]);return;}
     setBusy(true);setError("");setMessage("");
     try{
       const result=await api("/api/owner/automations/"+encodeURIComponent(id)) as {
@@ -67,6 +76,7 @@ export default function AutomationConsole(){
       };
       if(!validateAutomation(result.definition))throw new Error("Stored graph invalid");
       setActiveId(id);setVersion(result.version);setGraph(result.definition);
+      await loadRuns(id);
     }catch(err){setError(err instanceof Error?err.message:"Cannot load draft");}
     finally{setBusy(false);}
   }
@@ -83,9 +93,23 @@ export default function AutomationConsole(){
       if(!result||typeof result!=="object"||!("id" in result)||!("version" in result))
         throw new Error("Unexpected draft receipt");
       setActiveId(String(result.id));setVersion(Number(result.version));
+      await loadRuns(String(result.id));
       setMessage("Immutable draft saved. No workflow was published or executed.");
       await refresh();
     }catch(err){setError(err instanceof Error?err.message:"Unable to save workflow");}
+    finally{setBusy(false);}
+  }
+  async function queueSyntheticRun(){
+    if(!activeId||busy)return;
+    setBusy(true);setError("");setMessage("");
+    try{
+      const result=await api("/api/owner/automations/"+encodeURIComponent(activeId)+"/test-run",
+        "POST",{sourceCategory:source,marketingConsent:consent});
+      if(!result||typeof result!=="object"||!("runId" in result))
+        throw new Error("Synthetic test was not confirmed");
+      setMessage("Synthetic run accepted. Use a signed internal runner to advance due nodes.");
+      await loadRuns(activeId);
+    }catch(e){setError(e instanceof Error?e.message:"Synthetic run unavailable");}
     finally{setBusy(false);}
   }
   const valid=validateAutomation(graph);
@@ -167,6 +191,26 @@ export default function AutomationConsole(){
       </div>
       <button className="button" disabled={busy||!valid} onClick={()=>void save()}>
         Save immutable draft version</button>
+      <section aria-labelledby="synthetic-title">
+        <h2 id="synthetic-title">Durable synthetic test runs</h2>
+        <p>No real contacts, messages, payments or CRM actions are enrolled.
+          A separate authenticated internal runner advances due nodes and stores internal tasks.
+          All processing remains disabled until the operator enables staging verification.</p>
+        <button className="button secondary" type="button"
+          disabled={busy||!activeId||!valid} onClick={()=>void queueSyntheticRun()}>
+          Enqueue synthetic workflow run</button>
+        <button className="button secondary" type="button"
+          disabled={busy||!activeId} onClick={()=>void loadRuns(activeId)}>
+          Refresh run statuses</button>
+        {runs.length>0?<table>
+          <thead><tr><th scope="col">Run</th><th scope="col">Status</th>
+            <th scope="col">Next node</th><th scope="col">Steps</th></tr></thead>
+          <tbody>{runs.map(run=><tr key={run.id}>
+            <td>{run.id.slice(0,8)}</td><td>{run.status}</td>
+            <td>{run.currentNodeId}</td><td>{run.processedSteps}</td>
+          </tr>)}</tbody>
+        </table>:<p>No synthetic runs loaded.</p>}
+      </section>
       <section aria-labelledby="simulation-title">
         <h2 id="simulation-title">Dry-run simulation</h2>
         <p>Uses synthetic data and a virtual clock; no production destinations are contacted.</p>
