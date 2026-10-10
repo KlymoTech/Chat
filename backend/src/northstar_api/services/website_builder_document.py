@@ -52,6 +52,16 @@ def _safe_url(value: str) -> str:
     raise ValueError("Only same-origin paths or HTTPS URLs without credentials are allowed")
 
 
+class NodeAppearance(BaseModel):
+    """Owner-selected design tokens only; never arbitrary CSS or HTML."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    alignment: Literal["start", "center", "end"] = "start"
+    spacing: Literal["compact", "normal", "spacious"] = "normal"
+    tone: Literal["default", "muted", "accent"] = "default"
+
+
 class BuilderNode(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -59,6 +69,7 @@ class BuilderNode(BaseModel):
     kind: NodeKind
     text: str | None = Field(default=None, max_length=10000)
     url: str | None = None
+    appearance: NodeAppearance | None = None
     children: tuple["BuilderNode", ...] = ()
 
     @field_validator("url")
