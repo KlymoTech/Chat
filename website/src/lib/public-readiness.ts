@@ -7,11 +7,18 @@ export type PublicReadinessResult = "ready" | "unavailable";
 export function publicReadinessConfigured(input: {
   enabled?: string; siteSlug?: string; readerUrl?: string;
 }): boolean {
-  return input.enabled === "true" &&
-    typeof input.siteSlug === "string" &&
-    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.siteSlug) &&
-    typeof input.readerUrl === "string" &&
-    input.readerUrl.length > 0;
+  if (input.enabled !== "true" ||
+      typeof input.siteSlug !== "string" ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.siteSlug) ||
+      typeof input.readerUrl !== "string") return false;
+
+  try {
+    const url = new URL(input.readerUrl);
+    return (url.protocol === "postgres:" || url.protocol === "postgresql:") &&
+      Boolean(url.hostname) && Boolean(url.pathname && url.pathname !== "/");
+  } catch {
+    return false;
+  }
 }
 
 let reader: Pool | undefined;

@@ -20,12 +20,18 @@ describe("public CMS dependency readiness",()=>{
     expect(await checkPublicCmsReadiness()).toBe("unavailable");
     expect(query).not.toHaveBeenCalled();
   });
-  it("rejects invalid site scopes before connecting",()=>{
+  it("rejects invalid site scopes and database connection strings",()=>{
+    for (const readerUrl of ["", " ", "https://example.com/db", "postgres://", "postgres://db/", "not a URL"]) {
+      expect(publicReadinessConfigured({enabled:"true",siteSlug:"site-one",readerUrl})).toBe(false);
+    }
     expect(publicReadinessConfigured({
-      enabled:"true",siteSlug:"../other-site",readerUrl:"postgres://db",
+      enabled:"true",siteSlug:"../other-site",readerUrl:"postgres://db/site",
     })).toBe(false);
     expect(publicReadinessConfigured({
-      enabled:"true",siteSlug:"site-one",readerUrl:"postgres://db",
+      enabled:"true",siteSlug:"site-one",readerUrl:"postgres://db/site",
+    })).toBe(true);
+    expect(publicReadinessConfigured({
+      enabled:"true",siteSlug:"site-one",readerUrl:"postgresql://db/site",
     })).toBe(true);
   });
   it("reports a healthy public published view without looking at private tables",async()=>{
