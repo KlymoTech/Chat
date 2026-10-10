@@ -32,7 +32,7 @@ def _probe_command(command: bytes, *, port: int, timeout: float) -> str:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout) as conn:
             conn.settimeout(timeout)
-            conn.sendall(b"z" + command + b"\\x00")
+            conn.sendall(b"z" + command + b"\x00")
             response = bytearray()
             terminated = False
             while len(response) < 512:
@@ -40,7 +40,7 @@ def _probe_command(command: bytes, *, port: int, timeout: float) -> str:
                 if not chunk:
                     break
                 response.extend(chunk)
-                if b"\\x00" in response or b"\\n" in response:
+                if b"\x00" in response or b"\n" in response:
                     terminated = True
                     break
     except (OSError, TimeoutError) as exc:
@@ -48,7 +48,8 @@ def _probe_command(command: bytes, *, port: int, timeout: float) -> str:
     if not terminated:
         raise ObjectStoreUnavailable("ClamAV probe did not return a full response")
     try:
-        value = bytes(response).split(b"\\x00", 1)[0].split(b"\\n", 1)[0].decode("ascii")
+        raw = bytes(response).split(b"\x00", 1)[0].split(b"\n", 1)[0]
+        value = raw.decode("ascii")
     except UnicodeError as exc:
         raise ObjectStoreUnavailable("ClamAV probe returned invalid bytes") from exc
     if command == b"PING" and value != "PONG":
