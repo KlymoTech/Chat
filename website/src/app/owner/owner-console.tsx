@@ -151,6 +151,16 @@ export default function OwnerConsole(){
   async function choose(id:string){
     if(id!==selected && hasUnsavedChanges &&
        !window.confirm("You have unsaved local edits. Continue without saving them?"))return;
+    if(id!==selected && hasUnsavedChanges && selected && recoveryOptIn &&
+       ownerScope && process.env.NEXT_PUBLIC_EDITOR_RECOVERY_ENABLED==="true"){
+      const copy=createRecovery({
+        siteId:ownerScope.siteId,ownerId:ownerScope.actorId,pageId:selected,
+        expectedVersion:recoveryVersion??revisions.reduce((m,r)=>Math.max(m,r.revision),0),
+        document:doc,
+      });
+      const key=recoveryKey(selected);
+      if(copy&&key)try{window.sessionStorage.setItem(key,copy);}catch{}
+    }
     // No silent reuse of another page's private editor state.
     setSelected(id);setNotice("");setProblem("");
     resetDoc(emptyDoc);setAcknowledgedDoc(JSON.stringify(emptyDoc));
