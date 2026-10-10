@@ -26,6 +26,7 @@ import {
 } from '@/lib/crm-workflow-api';
 import { relativeTime } from '@/lib/format';
 import { LeadScoringPanel } from '@/pages/LeadScoringPanel';
+import { CRMSegmentsPanel } from '@/pages/CRMSegmentsPanel';
 import '@/pages/CRMWorkflowPage.css';
 
 interface PipelineStep {
@@ -296,6 +297,7 @@ export function CRMWorkflowPage() {
     </Card>
 
     <LeadScoringPanel key={workflow.workspaceId} journeys={workflow.recentJourneys} onApplied={() => { void load(true); }} />
+    <CRMSegmentsPanel key={workflow.workspaceId + '-segments'} />
 
     <Card className="crm-workflow-journeys">
       <div className="crm-workflow-section-heading">
