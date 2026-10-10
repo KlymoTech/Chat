@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS website_cms.privacy_rights_history (
  actor_id uuid NOT NULL,
  from_status varchar(24),
  to_status varchar(24) NOT NULL,
+ evidence_ref uuid,
  reason_code varchar(40) NOT NULL CHECK(reason_code IN (
   'intake_recorded','identity_requested','identity_confirmed',
   'review_requested','legal_review_required','lawful_hold_confirmed',
@@ -36,7 +37,8 @@ CREATE TABLE IF NOT EXISTS website_cms.privacy_rights_history (
  recorded_at timestamptz NOT NULL DEFAULT now(),
  FOREIGN KEY(site_id,case_id) REFERENCES website_cms.privacy_rights_cases(site_id,id),
  UNIQUE(case_id,revision),
- CHECK(from_status IS DISTINCT FROM to_status)
+ CHECK(from_status IS DISTINCT FROM to_status),
+ CHECK (to_status NOT IN ('verified','denied','fulfilled') OR evidence_ref IS NOT NULL)
 );
 CREATE OR REPLACE FUNCTION website_cms.privacy_rights_history_immutable()
  RETURNS trigger LANGUAGE plpgsql AS $$
