@@ -957,3 +957,18 @@ do not merge without explicit instruction.
   failing before step execution (issue #141).
 - This is not proof of zero malware risk, retrospective cleaning of legacy
   objects, complete quota/retention enforcement or production release approval.
+
+## Increment: opt-in Compose ClamAV knowledge-upload sidecar (2026-10-11)
+
+- Added `compose.knowledge-clamav.yaml` as an optional override without
+  changing the normal Compose services or their default startup. It configures
+  the existing `api` to scan knowledge uploads and starts an official ClamAV
+  image sharing the API network namespace; clamd binds only to loopback.
+- The scanner has persistent FreshClam signatures, no published ports,
+  bounded resources, and size-limit alerts rather than silent clean results.
+  The existing knowledge-upload fail-closed gate remains the authority.
+- Added read-only YAML contract tests and environment documentation; no Docker
+  engine, ClamAV service, malware signature, live S3, or production AWS runtime
+  was exercised. GitHub Actions remains blocked before runner execution (#141).
+- Production image digests, real scan/timeout tests, health monitoring,
+  rollout, retention, and release approval remain outstanding.
