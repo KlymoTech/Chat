@@ -19,6 +19,7 @@ interface PageDocument {
 interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
 interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
+interface EmbeddableForm { id: string; slug: string; publishedVersion: number | null; document: { title: string } }
 interface SiteMenuLink { id: string; label: string; slug: string }
 interface SiteMenu { draftVersion: number; publishedVersion: number | null; document: { items: SiteMenuLink[] } }
 interface SiteMenuRevision { version: number; createdAt: string; isPublished: boolean }
@@ -55,6 +56,8 @@ function render(node: Node): ReactNode {
   if (node.kind === 'paragraph') return <p key={node.id}>{node.text}</p>;
   if (node.kind === 'image') return <img key={node.id} src={node.url ?? ''} alt={node.text ?? ''} loading="lazy"/>;
   if (node.kind === 'button') return <span className="button button--primary" key={node.id}>{node.text}</span>;
+  if (node.kind === 'form') return <div key={node.id} className="site-cms-form-placeholder"
+    role="note">First-party form: {node.text}. Live submissions are disabled in this private preview.</div>;
   return <section key={node.id} className="site-cms-preview-section">{(node.children ?? []).map(render)}</section>;
 }
 function message(reason: unknown): string {
@@ -84,6 +87,20 @@ export function WebsiteCMSPage() {
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const [pages, setPages] = useState<CMSPage[]>([]);
+  const [embeddableForms, setEmbeddableForms] = useState<EmbeddableForm[]>([]);
+  const [formEmbedSlug, setFormEmbedSlug] = useState('');
+  useEffect(() => {
+    if (!workspaceId) {
+      setEmbeddableForms([]);
+      return;
+    }
+    let active = true;
+    void request<EmbeddableForm[]>('/site-forms')
+      .then((forms) => { if (active) setEmbeddableForms(forms.filter((form) => form.publishedVersion !== null)); })
+      .catch(() => { if (active) setEmbeddableForms([]); });
+    return () => { active = false; };
+  }, [workspaceId]);
+
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [metrics, setMetrics] = useState<WebsiteMetrics | null>(null);
   const [siteMenu, setSiteMenu] = useState<SiteMenu | null>(null);
@@ -414,6 +431,26 @@ export function WebsiteCMSPage() {
   };
   const currentSection = draft?.nodes.find((node) => node.id === sectionId) ?? draft?.nodes[0];
   const seo = draft?.seo ?? defaultSEO;
+  const refreshEmbeddableForms = async () => {
+    try {
+      const listed = await request<EmbeddableForm[]>('/site-forms');
+      setEmbeddableForms(listed.filter((form) => form.publishedVersion !== null));
+    } catch (reason) {
+      setError('Published form choices could not load: ' + message(reason));
+    }
+  };
+  const addFormBlock = () => {
+    const chosen = embeddableForms.find((form) => form.slug === formEmbedSlug);
+    if (!chosen || !workspaceId || !currentSection) return;
+    const embedded: Node = {
+      id: id(), kind: 'form', text: chosen.document.title,
+      url: '/api/v1/site-forms/public/' + workspaceId + '/' + chosen.slug,
+    };
+    edit(currentSection.id, (section) => ({
+      ...section, children: [...(section.children ?? []), embedded],
+    }));
+    setFormEmbedSlug('');
+  };
   const addBlock = (kind: Exclude<Kind, 'section'>) => {
     if (currentSection) edit(currentSection.id, (section) => ({ ...section, children: [...(section.children ?? []), newBlock(kind)] }));
   };
@@ -685,7 +722,8 @@ export function WebsiteCMSPage() {
           </form>
         </div></Card>
         <div className="site-cms-workspace">
-          <WebsiteFormsPanel key={activeWorkspace.id} workspaceId={activeWorkspace.id} />
+          <WebsiteFormsPanel key={activeWorkspace.id} workspaceId={activeWorkspace.id}
+            onFormsChanged={() => { void refreshEmbeddableForms(); }} />
           <Card>
             <div className="site-cms-navigation-heading">
               <div><h3>Page redirects</h3>
@@ -1002,6 +1040,21 @@ export function WebsiteCMSPage() {
                 {(['heading', 'paragraph', 'image', 'button'] as const).map((kind) =>
                   <Button key={kind} size="sm" variant="secondary" icon={Plus} onClick={() => addBlock(kind)}>{kind}</Button>)}
               </div>
+              <div className="site-cms-form-embed">
+                <label>Published form to embed
+                  <select value={formEmbedSlug} onChange={(event) => setFormEmbedSlug(event.target.value)}>
+                    <option value="">Select a published form…</option>
+                    {embeddableForms.map((form) => <option key={form.id} value={form.slug}>
+                      {form.document.title} (/{form.slug})
+                    </option>)}
+                  </select>
+                </label>
+                <Button size="sm" variant="secondary" icon={Plus}
+                  disabled={!currentSection || !formEmbedSlug}
+                  onClick={addFormBlock}>Embed published form</Button>
+                <Button size="sm" variant="secondary" icon={RefreshCw}
+                  onClick={() => { void refreshEmbeddableForms(); }}>Refresh forms</Button>
+              </div>
               {(currentSection?.children ?? []).map((node, index, list) => <div key={node.id} className="site-cms-block"
                 draggable onDragStart={() => setDraggedItem({ id: node.id, type: 'block' })}
                 onDragEnd={() => setDraggedItem(null)}
@@ -1024,7 +1077,7 @@ export function WebsiteCMSPage() {
                       <option key={section.id} value={section.id}>Section {draft.nodes.indexOf(section) + 1}</option>)}
                   </select>
                 </label> : null}
-                <label>{node.kind === 'image' ? 'Alternative text' : node.kind === 'button' ? 'Button label' : 'Content'}
+                <label>{node.kind === 'image' ? 'Alternative text' : node.kind === 'button' ? 'Button label' : node.kind === 'form' ? 'Accessible form title' : 'Content'}
                   <textarea value={node.text ?? ''} rows={node.kind === 'paragraph' ? 3 : 2} maxLength={10000}
                     onChange={(event) => edit(node.id, (item) => ({ ...item, text: event.target.value }))}/></label>
                 {(node.kind === 'image' || node.kind === 'button') && <label>URL
