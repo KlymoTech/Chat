@@ -81,8 +81,7 @@ async def collect_event(
         WebsitePage.tenant_id == workspace.tenant_id,
         WebsitePage.workspace_id == workspace_id,
         WebsitePage.slug == event.slug,
-        WebsitePage.status == "published",
-            WebsitePage.published_version.is_not(None),
+        WebsitePage.published_version.is_not(None),
     ))
     if page is None:
         raise HTTPException(404, "Published page not found")
