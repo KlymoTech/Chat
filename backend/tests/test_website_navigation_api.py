@@ -129,7 +129,7 @@ async def test_menu_immutable_public_version_restore_and_archival(
     await _publish_page(client, auth_headers, page_b)
     menu_path = "/api/v1/site-cms/menu"
     current_menu = await client.get(menu_path, headers=auth_headers)
-    assert current_menu.status_code == base_version + 200, current_menu.text
+    assert current_menu.status_code == 200, current_menu.text
     base_version = current_menu.json()["draftVersion"]
     link_a = {"id": "item-a", "label": "First", "slug": slug_a}
     link_b = {"id": "item-b", "label": "Second", "slug": slug_b}
@@ -137,15 +137,15 @@ async def test_menu_immutable_public_version_restore_and_archival(
     saved = await client.put(menu_path, headers=auth_headers, json={
         "expected_version": base_version, "document": {"items": [link_a]},
     })
-    assert saved.status_code == base_version + 200, saved.text
+    assert saved.status_code == 200, saved.text
     assert (await client.post(
         menu_path + "/publish", headers=auth_headers, json={"expected_version": base_version + 1},
-    )).status_code == base_version + 200
+    )).status_code == 200
 
     edited = await client.put(menu_path, headers=auth_headers, json={
         "expected_version": base_version + 1, "document": {"items": [link_b]},
     })
-    assert edited.status_code == base_version + 200, edited.text
+    assert edited.status_code == 200, edited.text
     assert edited.json()["draftVersion"] == base_version + 2
     assert edited.json()["publishedVersion"] == base_version + 1
 
@@ -157,15 +157,15 @@ async def test_menu_immutable_public_version_restore_and_archival(
     promoted = await client.post(
         menu_path + "/publish", headers=auth_headers, json={"expected_version": base_version + 2},
     )
-    assert promoted.status_code == base_version + 200
+    assert promoted.status_code == 200
     assert f">{link_b['label']}</a>" in (await client.get(public_url)).text
     revisions = await client.get(menu_path + "/revisions", headers=auth_headers)
-    assert [entry["version"] for entry in revisions.json()] == [base_version + 2, base_version + 1]
+    assert [entry["version"] for entry in revisions.json()[:2]] == [base_version + 2, base_version + 1]
 
     restored = await client.post(
         menu_path + "/restore/" + str(base_version + 1), headers=auth_headers, json={"expected_version": base_version + 2},
     )
-    assert restored.status_code == base_version + 200, restored.text
+    assert restored.status_code == 200, restored.text
     assert restored.json()["draftVersion"] == base_version + 3
     assert restored.json()["publishedVersion"] == base_version + 2
     assert restored.json()["document"]["items"] == [link_a]
@@ -173,15 +173,15 @@ async def test_menu_immutable_public_version_restore_and_archival(
 
     assert (await client.post(
         menu_path + "/publish", headers=auth_headers, json={"expected_version": base_version + 3},
-    )).status_code == base_version + 200
+    )).status_code == 200
     assert f">{link_a['label']}</a>" in (await client.get(public_url)).text
 
     archived = await client.post(
         f"/api/v1/site-cms/pages/{page_a}/archive", headers=auth_headers,
     )
-    assert archived.status_code == base_version + 200
+    assert archived.status_code == 200
     live_other_page = await client.get(f"/api/v1/site-cms/public/{workspace_id}/{slug_b}")
-    assert live_other_page.status_code == base_version + 200
+    assert live_other_page.status_code == 200
     assert 'aria-label="Primary navigation"' not in live_other_page.text
     # No automatic deletion of historical menu content after archiving a destination.
     history = await client.get(menu_path, headers=auth_headers)
