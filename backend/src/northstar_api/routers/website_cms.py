@@ -28,9 +28,12 @@ router = APIRouter(prefix="/site-cms", tags=["site-cms"])
 CmsAdmin = Annotated[Principal, Depends(require_roles(Role.OWNER, Role.ADMIN))]
 
 
-class PageEdit(BaseModel):
+class VersionGuard(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
+
+
+class PageEdit(VersionGuard):
     document: BuilderPageDocument
 
 
@@ -244,7 +247,7 @@ async def list_revisions(page_id: UUID, principal: CmsAdmin, session: DBSession,
 
 
 @router.post("/pages/{page_id}/restore/{version}")
-async def restore_revision(page_id: UUID, version: int, payload: PageEdit,
+async def restore_revision(page_id: UUID, version: int, payload: VersionGuard,
                            principal: CmsAdmin, session: DBSession,
                            response: Response) -> dict[str, Any]:
     """Restore by appending a new draft; never rewrite or discard the old revision."""
