@@ -145,8 +145,8 @@ def verify_witnessed_jenkins_reports(
     All expected metadata and public keys must be externally pinned to a
     protected build plan; none should be derived from the witness payload.
     """
-    instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
+    instant = datetime.now(UTC) if now is None else now
+    if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
         raise JenkinsProvenanceRejected("timezone-aware verification required")
     if (
         not isinstance(witness_token, str)
