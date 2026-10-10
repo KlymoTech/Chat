@@ -26,7 +26,7 @@
 | CAP-009 | Manual-only blog retention, no-expiry trash and controlled purge | F | 09, 38 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-010 | Media rights, quarantine, derivatives, alt text and private downloads | F | 08, 09, 50 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-011 | Technical SEO status/rendering/canonical/index policy | F | 10, 50 | Page SEO schema/editor/HTML metadata (partial) | **Not verified** |
-| CAP-012 | Sitemaps, feeds, pagination, faceting and crawl trap controls | F | 10, 50 | No capability-specific verification evidence assigned | **Not verified** |
+| CAP-012 | Sitemaps, feeds, pagination, faceting and crawl trap controls | F | 10, 50 | Published-only sitemap API/UI link and regression test committed (partial) | **Not verified** |
 | CAP-013 | Structured-data registry and truthful rich-result eligibility | F | 10, 50 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-014 | Search-intent map, editorial calendar and internal linking | G | 11, 43, 49 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-015 | Local profiles, real branch/service-area pages and reputation | B | 11, 49, 57 | No capability-specific verification evidence assigned | **Not verified** |
