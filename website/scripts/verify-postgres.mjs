@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:17},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 017 must be contiguous");
+const expected=Array.from({length:18},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 018 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -324,7 +324,38 @@ try {
     "SELECT COUNT(*) AS total FROM website_cms.automation_internal_runs "+
     "WHERE id=$1 AND status='completed' AND processed_steps=2",[runId]),1,
     "Completed synthetic run should preserve its state and budget");
-  console.log(JSON.stringify({database:"website_test",migrations:17,checks:[
+  // Chapter 59: manual privacy rights case state and immutable minimal evidence.
+  const rightsCaseId=uuid(),rightsHistoryId=uuid();
+  await client.query(
+    "INSERT INTO website_cms.privacy_rights_cases "+
+    "(id,site_id,request_kind,created_by_actor_id) "+
+    "VALUES($1,$2,'erasure',$3)",
+    [rightsCaseId,siteId,authorId]);
+  await client.query(
+    "INSERT INTO website_cms.privacy_rights_history "+
+    "(id,site_id,case_id,revision,actor_id,from_status,to_status,reason_code) "+
+    "VALUES($1,$2,$3,1,$4,NULL,'intake','intake_recorded')",
+    [rightsHistoryId,siteId,rightsCaseId,authorId]);
+  await mustReject(
+    "UPDATE website_cms.privacy_rights_history "+
+    "SET reason_code='review_requested' WHERE id=$1",
+    [rightsHistoryId],"23514");
+  await mustReject(
+    "INSERT INTO website_cms.privacy_rights_history "+
+    "(id,site_id,case_id,revision,actor_id,from_status,to_status,reason_code) "+
+    "VALUES($1,$2,$3,2,$4,'intake','verified','identity_confirmed')",
+    [uuid(),siteId,rightsCaseId,reviewerId],"23514");
+  await mustReject(
+    "INSERT INTO website_cms.privacy_rights_history "+
+    "(id,site_id,case_id,revision,actor_id,from_status,to_status,reason_code) "+
+    "VALUES($1,$2,$3,2,$4,'intake','pending_verification','identity_requested')",
+    [uuid(),otherSiteId,rightsCaseId,reviewerId],"23503");
+  await client.query(
+    "INSERT INTO website_cms.privacy_rights_history "+
+    "(id,site_id,case_id,revision,actor_id,from_status,to_status,reason_code) "+
+    "VALUES($1,$2,$3,2,$4,'intake','pending_verification','identity_requested')",
+    [uuid(),siteId,rightsCaseId,reviewerId]);
+  console.log(JSON.stringify({database:"website_test",migrations:18,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
@@ -335,7 +366,9 @@ try {
     "analytics-event-action-pair-database-enforced",
     "consent-withdrawn","automation-immutable-revision","automation-site-isolation",
     "synthetic-run-durable","synthetic-enrollment-deduplicated",
-    "internal-tasks-idempotent","internal-run-site-scope","completed-run-state-consistent"
+    "internal-tasks-idempotent","internal-run-site-scope","completed-run-state-consistent",
+    "privacy-rights-immutable-history","privacy-rights-evidence-gate",
+    "privacy-rights-cross-tenant-denied","privacy-rights-state-preserved"
   ],status:"passed"}));
 } finally {
   client.release();
