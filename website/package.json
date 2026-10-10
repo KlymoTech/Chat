@@ -13,7 +13,8 @@
     "cms:revalidate:once": "node scripts/cms-outbox-worker.mjs",
     "media:inspect:once": "node scripts/media-inspection-once.mjs",
     "test:e2e": "playwright test",
-    "test:security-db": "node scripts/verify-security-grants.mjs"
+    "test:security-db": "node scripts/verify-security-grants.mjs",
+    "automation:internal:once": "node scripts/automation-internal-once.mjs"
   },
   "dependencies": {
     "next": "^15.5.0",
