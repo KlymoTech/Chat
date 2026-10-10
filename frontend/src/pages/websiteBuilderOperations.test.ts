@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest';
+import {
+  collectNodeIds, duplicateNode, duplicateSibling, moveBlockBetweenSections,
+  removeChild, reorderNodes, type BuilderNode,
+} from './websiteBuilderOperations';
+
+const sample = (): BuilderNode[] => [
+  { id: 'section-one', kind: 'section', children: [
+    { id: 'heading-one', kind: 'heading', text: 'First' },
+    { id: 'paragraph-one', kind: 'paragraph', text: 'Second' },
+  ] },
+  { id: 'section-two', kind: 'section', children: [
+    { id: 'heading-two', kind: 'heading', text: 'Third' },
+  ] },
+];
+
+describe('versioned visual website builder operations', () => {
+  it('reorders sections without mutating original arrays or changing identifiers', () => {
+    const original = sample();
+    const moved = reorderNodes(original, 'section-one', 1);
+    expect(moved.map((node) => node.id)).toEqual(['section-two', 'section-one']);
+    expect(original.map((node) => node.id)).toEqual(['section-one', 'section-two']);
+    expect(reorderNodes(original, 'section-one', -1)).toBe(original);
+  });
+
+  it('duplicates a nested section with entirely new identifiers', () => {
+    const original = sample();
+    let next = 0;
+    const cloned = duplicateNode(original[0]!, () => 'copy-' + ++next);
+    expect(cloned.children?.map((node) => node.text)).toEqual(['First', 'Second']);
+    const existing = collectNodeIds(original);
+    const newIds = collectNodeIds([cloned]);
+    expect(new Set(newIds).size).toBe(newIds.length);
+    expect(newIds.some((id) => existing.includes(id))).toBe(false);
+    expect(original[0]?.id).toBe('section-one');
+  });
+
+  it('duplicates a block immediately after the source', () => {
+    const original = sample()[0]!.children!;
+    const duplicated = duplicateSibling(original, 'heading-one', () => 'new-heading');
+    expect(duplicated.map((node) => node.id)).toEqual(['heading-one', 'new-heading', 'paragraph-one']);
+    expect(duplicated[1]?.text).toBe('First');
+    expect(original).toHaveLength(2);
+  });
+
+  it('removes only the selected block and preserves original content', () => {
+    const original = sample()[0]!.children!;
+    const reduced = removeChild(original, 'paragraph-one');
+    expect(reduced.map((node) => node.id)).toEqual(['heading-one']);
+    expect(original).toHaveLength(2);
+    expect(removeChild(original, 'nonexistent')).toBe(original);
+  });
+
+  it('moves content between sections and keeps the same block ID', () => {
+    const original = sample();
+    const moved = moveBlockBetweenSections(original, 'heading-one', 'section-two');
+    expect(moved[0]!.children?.map((node) => node.id)).toEqual(['paragraph-one']);
+    expect(moved[1]!.children?.map((node) => node.id)).toEqual(['heading-two', 'heading-one']);
+    expect(new Set(collectNodeIds(moved)).size).toBe(collectNodeIds(original).length);
+    expect(original[0]!.children).toHaveLength(2);
+  });
+
+  it('does not drop a block on an unknown section', () => {
+    const original = sample();
+    expect(moveBlockBetweenSections(original, 'heading-one', 'no-section')).toBe(original);
+    expect(moveBlockBetweenSections(original, 'no-block', 'section-two')).toBe(original);
+  });
+
+  it('moves blocks within a section deterministically and ignores invalid indices', () => {
+    const original = sample();
+    const moved = moveBlockBetweenSections(original, 'heading-one', 'section-one', 2);
+    expect(moved[0]!.children?.map((node) => node.id)).toEqual(['paragraph-one', 'heading-one']);
+    expect(moveBlockBetweenSections(original, 'heading-one', 'section-one', -1)).toBe(original);
+    expect(moveBlockBetweenSections(original, 'heading-one', 'section-one', 999)).toBe(original);
+  });
+});
