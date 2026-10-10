@@ -1,0 +1,176 @@
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ArrowDown, ArrowUp, Check, ExternalLink, FilePlus2, Plus, RefreshCw, Save, Send, ShieldCheck } from 'lucide-react';
+import { useWorkspace } from '@/components/providers';
+import { Button, Card, Badge } from '@/components/ui';
+import { apiConfig, request } from '@/lib/api';
+import './WebsiteCMSPage.css';
+
+type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
+type Action = 'submit' | 'approve' | 'publish';
+interface Node { id: string; kind: Kind; text?: string | null; url?: string | null; children?: Node[] }
+interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[] }
+interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
+const id = () => crypto.randomUUID();
+const newDocument = (title: string, slug: string): PageDocument => ({ schema_version: 1, title, slug, nodes: [
+  { id: id(), kind: 'section', children: [{ id: id(), kind: 'heading', text: title }, { id: id(), kind: 'paragraph', text: 'Edit this introduction.' }] },
+] });
+const newBlock = (kind: Exclude<Kind, 'section'>): Node => kind === 'heading' ? { id: id(), kind, text: 'Heading' }
+  : kind === 'paragraph' ? { id: id(), kind, text: 'Describe this section.' }
+    : kind === 'image' ? { id: id(), kind, text: 'Image description', url: '/images/placeholder.svg' }
+      : { id: id(), kind, text: 'Learn more', url: '/contact' };
+function mapNodes(nodes: Node[], target: string, change: (node: Node) => Node): Node[] {
+  return nodes.map((node) => node.id === target ? change(node)
+    : node.children ? { ...node, children: mapNodes(node.children, target, change) } : node);
+}
+function move(items: Node[], identifier: string, delta: number): Node[] {
+  const from = items.findIndex((item) => item.id === identifier);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= items.length) return items;
+  const result = [...items]; [result[from], result[to]] = [result[to]!, result[from]!]; return result;
+}
+function render(node: Node): ReactNode {
+  if (node.kind === 'heading') return <h2 key={node.id}>{node.text}</h2>;
+  if (node.kind === 'paragraph') return <p key={node.id}>{node.text}</p>;
+  if (node.kind === 'image') return <img key={node.id} src={node.url ?? ''} alt={node.text ?? ''} loading="lazy"/>;
+  if (node.kind === 'button') return <span className="button button--primary" key={node.id}>{node.text}</span>;
+  return <section key={node.id} className="site-cms-preview-section">{(node.children ?? []).map(render)}</section>;
+}
+function message(reason: unknown): string {
+  if (reason && typeof reason === 'object' && 'detail' in reason) {
+    const detail = (reason as { detail?: unknown }).detail;
+    if (detail && typeof detail === 'object' && 'detail' in detail) return String((detail as { detail: unknown }).detail);
+  }
+  return reason instanceof Error ? reason.message : 'The request could not be completed.';
+}
+
+export function WebsiteCMSPage() {
+  const { activeWorkspace } = useWorkspace();
+  const [pages, setPages] = useState<CMSPage[]>([]);
+  const [selected, setSelected] = useState<CMSPage | null>(null);
+  const [draft, setDraft] = useState<PageDocument | null>(null);
+  const [sectionId, setSectionId] = useState<string | null>(null);
+  const [name, setName] = useState('New page');
+  const [slug, setSlug] = useState('new-page');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    if (!activeWorkspace) return;
+    setBusy(true); setError('');
+    try {
+      const saved = await request<CMSPage[]>('/site-cms/pages');
+      setPages(saved);
+      setSelected((current) => current ? saved.find((page) => page.id === current.id) ?? null : null);
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  }, [activeWorkspace?.id]);
+  useEffect(() => { setPages([]); setSelected(null); setDraft(null); void load(); }, [load]);
+  const open = (page: CMSPage) => {
+    setSelected(page); setDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
+  };
+  const create = async () => {
+    setBusy(true); setError('');
+    try {
+      const page = await request<CMSPage>('/site-cms/pages', { method: 'POST', body: JSON.stringify(newDocument(name.trim(), slug.trim())) });
+      setPages((items) => [page, ...items]); open(page);
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const edit = (identifier: string, change: (node: Node) => Node) => {
+    setDraft((current) => current ? { ...current, nodes: mapNodes(current.nodes, identifier, change) } : null);
+  };
+  const addSection = () => {
+    const identifier = id();
+    setDraft((current) => current ? { ...current, nodes: [...current.nodes, { id: identifier, kind: 'section', children: [] }] } : null);
+    setSectionId(identifier);
+  };
+  const currentSection = draft?.nodes.find((node) => node.id === sectionId) ?? draft?.nodes[0];
+  const addBlock = (kind: Exclude<Kind, 'section'>) => {
+    if (currentSection) edit(currentSection.id, (section) => ({ ...section, children: [...(section.children ?? []), newBlock(kind)] }));
+  };
+  const dirty = !!selected && !!draft && JSON.stringify(draft) !== JSON.stringify(selected.document);
+  const replace = (page: CMSPage) => {
+    setSelected(page); setDraft(page.document); setPages((items) => items.map((item) => item.id === page.id ? page : item));
+  };
+  const save = async () => {
+    if (!selected || !draft) return;
+    setBusy(true); setError('');
+    try {
+      replace(await request<CMSPage>('/site-cms/pages/' + selected.id, {
+        method: 'PUT', body: JSON.stringify({ expected_version: selected.draftVersion, document: draft }),
+      }));
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const transition = async (action: Action) => {
+    if (!selected || dirty) return;
+    setBusy(true); setError('');
+    try { replace(await request<CMSPage>('/site-cms/pages/' + selected.id + '/' + action, { method: 'POST' })); }
+    catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const publicUrl = selected && activeWorkspace
+    ? apiConfig.baseUrl + '/site-cms/public/' + activeWorkspace.id + '/' + selected.slug : '';
+
+  return <div className="page site-cms-page">
+    <div className="page-heading page-heading--split"><div><h2>Website CMS</h2>
+      <p>Create content blocks, review pages, and publish immutable versions.</p></div>
+      <Button variant="secondary" icon={RefreshCw} disabled={busy} onClick={() => void load()}>Refresh</Button></div>
+    {error ? <div role="alert" className="form-error">{error}</div> : null}
+    {!activeWorkspace ? <Card><p>Select a workspace to manage its site.</p></Card> :
+      <div className="site-cms-layout">
+        <Card><h3>Pages</h3><div className="site-cms-pages">
+          {pages.map((page) => <button key={page.id} type="button" className={selected?.id === page.id ? 'is-selected' : ''}
+            onClick={() => open(page)}><strong>{page.title}</strong><small>/{page.slug} · {page.status}</small></button>)}
+          {!busy && pages.length === 0 ? <p>No pages yet. Create one below.</p> : null}
+        </div><form className="site-cms-create" onSubmit={(event) => { event.preventDefault(); void create(); }}>
+          <label>Page title<input value={name} required maxLength={180} onChange={(event) => setName(event.target.value)}/></label>
+          <label>URL slug<input value={slug} required maxLength={160} pattern="[a-z0-9]+(-[a-z0-9]+)*" onChange={(event) => setSlug(event.target.value)}/></label>
+          <Button type="submit" icon={FilePlus2} disabled={busy || !name.trim()}>Create draft</Button>
+        </form></Card>
+        <div className="site-cms-workspace">
+          {!draft || !selected ? <Card><h3>Select a page</h3><p>Choose an existing page or create a draft.</p></Card> : <>
+            <Card><div className="site-cms-toolbar"><div><strong>{selected.title}</strong> <Badge tone={selected.status === 'published' ? 'success' : 'warning'}>{selected.status}</Badge>
+              <small>Draft revision {selected.draftVersion} · Published {selected.publishedVersion ?? 'never'}</small></div>
+              <div className="site-cms-actions">
+                <Button icon={Save} disabled={busy || !dirty} onClick={() => void save()}>Save draft</Button>
+                <Button variant="secondary" icon={Send} disabled={busy || dirty || selected.status !== 'draft'} onClick={() => void transition('submit')}>Submit review</Button>
+                <Button variant="secondary" icon={Check} disabled={busy || dirty || selected.status !== 'in_review'} onClick={() => void transition('approve')}>Approve</Button>
+                <Button variant="secondary" icon={ShieldCheck} disabled={busy || dirty || selected.status !== 'approved'} onClick={() => void transition('publish')}>Publish</Button>
+              </div></div>
+              {dirty ? <p className="site-cms-unsaved">Unsaved changes. Save before publishing.</p> : null}
+              {selected.publishedVersion ? <a className="site-cms-public-link" target="_blank" rel="noreferrer" href={publicUrl}>Open published page <ExternalLink size={15}/></a> : null}
+            </Card>
+            <div className="site-cms-editor-grid"><Card>
+              <h3>Visual page builder</h3>
+              <label>Page title<input value={draft.title} maxLength={180} onChange={(event) => setDraft({ ...draft, title: event.target.value })}/></label>
+              <div className="site-cms-sections" role="group" aria-label="Page sections">
+                {draft.nodes.map((section, index) => <button type="button" key={section.id} className={currentSection?.id === section.id ? 'is-selected' : ''}
+                  onClick={() => setSectionId(section.id)}>Section {index + 1} · {(section.children ?? []).length} blocks</button>)}
+              </div>
+              <Button variant="secondary" size="sm" icon={Plus} onClick={addSection}>Add section</Button>
+              <h4>Add content block</h4><div className="site-cms-add" role="group" aria-label="Add block">
+                {(['heading', 'paragraph', 'image', 'button'] as const).map((kind) =>
+                  <Button key={kind} size="sm" variant="secondary" icon={Plus} onClick={() => addBlock(kind)}>{kind}</Button>)}
+              </div>
+              {(currentSection?.children ?? []).map((node, index, list) => <div key={node.id} className="site-cms-block">
+                <div className="site-cms-block-head"><strong>{node.kind} {index + 1}</strong><div>
+                  <button aria-label={'Move ' + node.kind + ' up'} type="button" disabled={index === 0}
+                    onClick={() => edit(currentSection!.id, (section) => ({ ...section, children: move(section.children ?? [], node.id, -1) }))}><ArrowUp size={15}/></button>
+                  <button aria-label={'Move ' + node.kind + ' down'} type="button" disabled={index === list.length - 1}
+                    onClick={() => edit(currentSection!.id, (section) => ({ ...section, children: move(section.children ?? [], node.id, 1) }))}><ArrowDown size={15}/></button>
+                </div></div>
+                <label>{node.kind === 'image' ? 'Alternative text' : node.kind === 'button' ? 'Button label' : 'Content'}
+                  <textarea value={node.text ?? ''} rows={node.kind === 'paragraph' ? 3 : 2} maxLength={10000}
+                    onChange={(event) => edit(node.id, (item) => ({ ...item, text: event.target.value }))}/></label>
+                {(node.kind === 'image' || node.kind === 'button') && <label>URL
+                  <input value={node.url ?? ''} onChange={(event) => edit(node.id, (item) => ({ ...item, url: event.target.value }))}/></label>}
+              </div>)}
+            </Card><Card><h3>Draft preview</h3><p>Private preview. Tracking scripts are not loaded.</p>
+              <div className="site-cms-preview">{draft.nodes.map(render)}</div>
+            </Card></div>
+          </>}
+        </div>
+      </div>}
+  </div>;
+}
