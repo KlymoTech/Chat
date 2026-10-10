@@ -117,6 +117,8 @@ class ObjectStore:
             raise InvalidUpload("Uploaded file type is not supported")
         if size_bytes <= 0 or size_bytes > self.settings.upload_max_bytes:
             raise InvalidUpload("Uploaded file size is not permitted")
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", checksum_sha256):
+            raise InvalidUpload("Uploaded file checksum is invalid")
         if self.settings.s3_auth_mode == "aws-default" and workspace_id is None:
             raise InvalidUpload("AWS uploads require an authorized workspace")
         key = self.new_key(

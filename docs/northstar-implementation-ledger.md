@@ -855,3 +855,14 @@ do not merge without explicit instruction.
   API test files now passes all 34 tests (including billing). This removes
   obsolete test setup, not any production feature or authorization check.
 - Full-suite, repo-wide lint, live provider, and deployment checks remain open.
+
+## Increment: direct presign checksum validation (2026-10-10)
+
+- The shared object-store presign method now rejects malformed SHA-256 values
+  before calling S3/MinIO, matching the existing HTTP schema's checksum
+  contract for callers that invoke the service directly. It uses the same
+  upload path; no duplicate storage mechanism or existing feature was removed.
+- The full object-store test module passes (61 tests), including three new
+  malformed-checksum cases, and Ruff passes on the changed Python files.
+  Malware scanning, upload quotas, live object-store qualification and broader
+  release gates remain open.

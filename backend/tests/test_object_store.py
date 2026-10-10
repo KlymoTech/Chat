@@ -91,6 +91,27 @@ async def test_missing_aws_credentials_fails_as_storage_unavailable(
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("checksum", ["not-a-sha256", "a" * 63, "g" * 64])
+async def test_presign_rejects_invalid_checksum_before_storage_io(
+    monkeypatch: pytest.MonkeyPatch, checksum: str
+) -> None:
+    store = ObjectStore(get_settings())
+    client = Mock()
+    monkeypatch.setattr(store, "_client", client)
+
+    with pytest.raises(InvalidUpload, match="checksum is invalid"):
+        await store.presign_post(
+            tenant_id=uuid4(),
+            filename="note.txt",
+            content_type="text/plain",
+            size_bytes=4,
+            checksum_sha256=checksum,
+        )
+
+    client.assert_not_called()
+
+
 class _Body:
     def __init__(self, data: bytes) -> None:
         self.data = data
