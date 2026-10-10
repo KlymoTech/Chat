@@ -84,6 +84,7 @@ Retrieved documents and user messages can contain prompt injection. They are dat
   this disabled by default. The scanner must run in the same private network
   namespace/sidecar (loopback only); its availability, signature freshness, size limits,
   operational alerts, and real detection evidence still require deployment qualification.
+  For an opt-in local integration profile, see `docs/operations/knowledge-clamav-compose.md`.
 - Store objects privately under generated tenant-prefixed keys; never trust a user-supplied storage key.
 - Restrict object-store CORS to exact deployed web origins and methods. The current browser upload uses multipart `POST`, not presigned `PUT`; allow `GET`/`HEAD` only if a deployed browser download path needs them. Community MinIO's Compose setting is cluster-wide through `MINIO_API_CORS_ALLOW_ORIGIN`; use bucket-scoped CORS on production object stores that support it.
 - Strip active document content and do not execute macros, scripts, or embedded binaries.
