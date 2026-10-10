@@ -33,6 +33,8 @@ describe('owner CMS page redirects', () => {
       if (path === '/site-cms/pages' && !options) return [
         page('home', true), page('about', true), page('draft-only', false),
       ];
+      if (path === '/site-forms' && !options) return [];
+      if (path === '/agents' && !options) return [];
       if (path === '/site-cms/redirects' && !options) return structuredClone(rules);
       if (path === '/site-cms/menu') return {
         draftVersion: 0, publishedVersion: null, document: { items: [] },
