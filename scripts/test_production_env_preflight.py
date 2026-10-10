@@ -147,5 +147,22 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_postgres_sslmode_require_allowed(self):
+        self.valid["DATABASE_URL"] += "?sslmode=require"
+        self.assertEqual(validate(self.valid), [])
+
+    def test_postgres_sslmode_disable_rejected(self):
+        self.valid["DATABASE_URL"] += "?sslmode=disable"
+        self.assertTrue(validate(self.valid))
+
+    def test_postgres_unexpected_query_option_rejected(self):
+        self.valid["DATABASE_URL"] += "?application_name=debug"
+        self.assertTrue(validate(self.valid))
+
+    def test_postgres_duplicate_tls_option_rejected(self):
+        self.valid["DATABASE_URL"] += "?sslmode=require&sslmode=disable"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
