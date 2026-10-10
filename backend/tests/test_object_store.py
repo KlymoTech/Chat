@@ -648,7 +648,7 @@ def test_docx_archive_rejects_encrypted_member_flag() -> None:
     payload = bytearray(stream.getvalue())
     offset = 0
     while True:
-        header = payload.find(b"PK\\x01\\x02", offset)
+        header = payload.find(b"PK\x01\x02", offset)
         if header < 0:
             break
         payload[header + 8] |= 0x1
