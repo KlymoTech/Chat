@@ -171,7 +171,8 @@ async def save_choices(
         f"site-consent:{workspace_id}:{digest}", 30,
         window_seconds=3600, scope="site_consent",
     )
-    if not rate.allowed:
+    if not rate.allowed and (choices.analytics or choices.marketing or choices.personalization):
+        # Visitors must still be able to withdraw optional consent during Redis outages.
         raise HTTPException(
             429, "Too many consent updates", headers={"Retry-After": str(rate.retry_after)},
         )
