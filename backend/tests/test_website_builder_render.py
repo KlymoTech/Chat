@@ -3,7 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from northstar_api.services.website_builder_document import BuilderPageDocument
-from northstar_api.services.website_builder_render import render_page
+from northstar_api.services.website_builder_render import render_page, style_csp_hash
 
 
 def build(nodes, title="Site"):
@@ -31,7 +31,7 @@ def test_export_links_are_safe_and_accessible():
     html = render_page(page)
     assert 'href="/about"' in html
     assert 'href="https://example.org" rel="noopener noreferrer"' in html
-    assert '<main><section' in html
+    assert '<main id="site-main"><section' in html
 
 
 def test_no_raw_markup_or_javascript_urls():
@@ -39,6 +39,14 @@ def test_no_raw_markup_or_javascript_urls():
         build([{"id": "hero", "kind": "section", "children": [
             {"id": "unsafe", "kind": "button", "text": "Click", "url": "javascript:alert(1)"},
         ]])
+
+
+def test_static_styles_are_hashable_for_strict_csp():
+    doc = build([])
+    html = render_page(doc)
+    assert "<style>" in html
+    assert 'href="#site-main"' in html
+    assert style_csp_hash().startswith("sha256-")
 
 
 def test_renderer_rejects_unvalidated_input():
