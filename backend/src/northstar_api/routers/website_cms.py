@@ -26,6 +26,7 @@ from northstar_api.services.website_builder_document import BuilderPageDocument
 from northstar_api.services.website_builder_duplicate import duplicate_page_document
 from northstar_api.services.website_builder_render import render_page, style_csp_hash
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
+from northstar_api.website_form_models import WebsiteForm
 from northstar_api.website_cms_models import (
     WebsiteAudit, WebsitePage, WebsiteRevision, WebsiteSiteMenu,
     WebsiteSiteMenuAudit, WebsiteSiteMenuRevision,
@@ -704,6 +705,40 @@ async def save_page(page_id: UUID, payload: PageEdit, principal: CmsAdmin,
     return _info(page, document)
 
 
+async def _verify_embedded_site_forms(
+    session: DBSession, principal: Principal, page: WebsitePage,
+) -> None:
+    """Only live forms owned by the same workspace may be embedded on publication."""
+    revision = await _revision(session, page, page.draft_version)
+    document = BuilderPageDocument.model_validate(revision.document_json)
+    slugs: set[str] = set()
+    stack = list(document.nodes)
+    while stack:
+        node = stack.pop()
+        stack.extend(node.children)
+        if node.kind != "form":
+            continue
+        segments = (node.url or "").split("/")
+        # URL syntax is already allowlisted in BuilderNode; this also binds the
+        # embed to the publishing page's own tenant/workspace.
+        if (
+            len(segments) != 7 or segments[5] != str(page.workspace_id)
+            or segments[3:5] != ["site-forms", "public"]
+        ):
+            raise HTTPException(409, "Embedded form must belong to this workspace")
+        slugs.add(segments[6])
+    if not slugs:
+        return
+    live = set((await session.scalars(select(WebsiteForm.slug).where(
+        WebsiteForm.tenant_id == principal.tenant_id,
+        WebsiteForm.workspace_id == page.workspace_id,
+        WebsiteForm.slug.in_(slugs),
+        WebsiteForm.published_version.is_not(None),
+    ))).all())
+    if live != slugs:
+        raise HTTPException(409, "Publish all embedded website forms before publishing this page")
+
+
 @router.post("/pages/{page_id}/{action}")
 async def transition_page(page_id: UUID, action: EditorialAction, principal: CmsAdmin,
                           session: DBSession, response: Response) -> dict[str, Any]:
@@ -719,6 +754,8 @@ async def transition_page(page_id: UUID, action: EditorialAction, principal: Cms
         new_state = next_editorial_state(EditorialState(page.status), action)
     except ValueError:
         raise HTTPException(409, "Invalid editorial transition") from None
+    if action == EditorialAction.PUBLISH:
+        await _verify_embedded_site_forms(session, principal, page)
     changed = await session.execute(
         update(WebsitePage)
         .where(
