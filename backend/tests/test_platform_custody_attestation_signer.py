@@ -137,3 +137,40 @@ async def test_wrong_key_and_unqualified_suites_fail_closed(monkeypatch):
     args["test_signer_public_key_pem"] = pem(Ed25519PrivateKey.generate())
     with pytest.raises(subject.CustodyAttestationRejected, match="does not match"):
         await subject.sign_custodied_jenkins_test_result(None, **args)
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}, datetime(2026, 10, 10)])
+async def test_invalid_signing_clock_is_rejected_before_custody_or_key_access(
+    monkeypatch, bad_clock
+):
+    async def no_custody(*args, **kwargs):
+        raise AssertionError("invalid clock must never reach custody")
+
+    class NoIdentity:
+        async def retrieve_for_isolated_service(self, **kwargs):
+            raise AssertionError("invalid clock must never unlock key")
+
+    monkeypatch.setattr(subject, "load_and_reconcile_witnessed_junit_custody", no_custody)
+    with pytest.raises(subject.CustodyAttestationRejected, match="timezone-aware"):
+        await subject.sign_custodied_jenkins_test_result(
+            None,
+            index_reconciler=object(),
+            report_reconciler=object(),
+            signing_identity=NoIdentity(),
+            signing_claims=Claims(),
+            release_id="release-12345678",
+            run_id="run-12345678",
+            branch="feature/test",
+            environment="staging",
+            source_commit="a" * 40,
+            source_digest="b" * 64,
+            target_digest="c" * 64,
+            witness_public_key_pem=b"placeholder",
+            test_signer_public_key_pem=pem(Ed25519PrivateKey.generate()),
+            witness_issuer="trusted-controller",
+            controller_id="jenkins-1",
+            job_full_name="safe/job",
+            now=bad_clock,
+        )
