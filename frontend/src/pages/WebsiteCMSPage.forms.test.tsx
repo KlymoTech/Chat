@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebsiteCMSPage } from './WebsiteCMSPage';
 
@@ -63,6 +63,12 @@ describe('CMS published form embed builder', () => {
       };
       if (path === '/site-analytics/summary?days=30') return {
         days: 30, pageViews: 0, ctaClicks: 0, pages: [],
+        formSubmissions: { total: 3, byForm: [{ slug: 'contact', submissions: 3 }] },
+        conversionDispatch: {
+          publishedToEventBus: 1, queued: 1, retrying: 1,
+          missingOutboxEvents: 0, deliveryConfirmed: false,
+          note: 'Event-bus publication is not downstream provider delivery.',
+        },
       };
       if (path === '/site-cms/pages/' + page.id + '/revisions') return [];
       if (path === '/site-cms/pages/' + page.id && options?.method === 'PUT') {
@@ -78,6 +84,18 @@ describe('CMS published form embed builder', () => {
     });
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it('keeps accepted enquiry and broker health separate from consent-based browsing metrics', async () => {
+    render(<WebsiteCMSPage />);
+    const area = await screen.findByRole('region', {
+      name: 'Lead-capture receipt and event-bus reconciliation',
+    });
+    expect(area).toHaveTextContent('Accepted forms');
+    expect(area).toHaveTextContent('Events published to broker');
+    expect(area).toHaveTextContent('Broker retries needed');
+    expect(area).toHaveTextContent('Event-bus publication is not downstream provider delivery.');
+    expect(within(area).getByRole('alert')).toHaveTextContent('require operational review');
+  });
 
   it('only embeds already published first-party forms and previews without accepting leads', async () => {
     render(<WebsiteCMSPage />);
