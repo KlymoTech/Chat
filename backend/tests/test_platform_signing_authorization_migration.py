@@ -12,7 +12,8 @@ def test_authorization_revision_extends_signing_claims():
     revision = script.get_revision("0096_signing_authorization_replay")
     assert revision is not None
     assert revision.down_revision == "0095_notification_custody_signing_claims"
-    assert "0096_signing_authorization_replay" in script.get_heads()
+    assert len(script.get_heads()) == 1
+    assert revision.revision in {item.revision for item in script.walk_revisions()}
 
 
 def test_authorization_consumption_cannot_be_mutated_or_silently_erased():
