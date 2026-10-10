@@ -158,3 +158,73 @@ async def test_website_cms_revision_restore_and_authenticated_preview(
         headers=auth_headers, json={"expected_version": 2},
     )
     assert stale_restore.status_code == 409
+
+
+
+async def test_duplicate_page_is_independent_private_and_search_safe(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    prefix = uuid4().hex[:12]
+    original_slug = "original-" + prefix
+    copy_slug = "copied-" + prefix
+    original_document = page_document(original_slug, "Original headline")
+    original_document["seo"] = {
+        "description": "Approved search summary",
+        "canonical_url": "https://example.org/" + original_slug,
+        "indexable": True,
+    }
+    created = await client.post(
+        "/api/v1/site-cms/pages", headers=auth_headers, json=original_document,
+    )
+    assert created.status_code == 201, created.text
+    source = created.json()
+    url = "/api/v1/site-cms/pages/" + source["id"] + "/duplicate"
+    payload = {"slug": copy_slug, "title": "Independent copy"}
+
+    no_auth = await client.post(url, json=payload)
+    assert no_auth.status_code == 401
+
+    duplicate = await client.post(url, headers=auth_headers, json=payload)
+    assert duplicate.status_code == 201, duplicate.text
+    copied = duplicate.json()
+    assert copied["id"] != source["id"]
+    assert copied["status"] == "draft"
+    assert copied["draftVersion"] == 1
+    assert copied["publishedVersion"] is None
+    assert copied["slug"] == copy_slug
+    assert copied["title"] == "Independent copy"
+    assert copied["document"]["seo"]["indexable"] is False
+    assert copied["document"]["seo"]["canonical_url"] is None
+    assert copied["document"]["seo"]["description"] == "Approved search summary"
+    original_nodes = source["document"]["nodes"]
+    cloned_nodes = copied["document"]["nodes"]
+    assert original_nodes[0]["id"] != cloned_nodes[0]["id"]
+    assert original_nodes[0]["children"][0]["id"] != cloned_nodes[0]["children"][0]["id"]
+    assert original_nodes[0]["children"][0]["text"] == cloned_nodes[0]["children"][0]["text"]
+
+    duplicate_again = await client.post(url, headers=auth_headers, json=payload)
+    assert duplicate_again.status_code == 409
+
+    invalid = await client.post(url, headers=auth_headers, json={
+        "slug": "../unsafe", "title": "Unsafe URL",
+    })
+    assert invalid.status_code == 422
+
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    assert workspace.status_code == 200
+    response = await client.get(
+        "/api/v1/site-cms/public/" + workspace.json()["id"] + "/" + copy_slug
+    )
+    assert response.status_code == 404
+
+    async with SessionFactory() as session:
+        copied_revisions = await session.scalar(
+            select(func.count()).select_from(WebsiteRevision)
+            .where(WebsiteRevision.page_id == UUID(copied["id"]))
+        )
+        audits = await session.scalar(
+            select(func.count()).select_from(WebsiteAudit)
+            .where(WebsiteAudit.page_id == UUID(copied["id"]))
+        )
+    assert copied_revisions == 1
+    assert audits == 1
