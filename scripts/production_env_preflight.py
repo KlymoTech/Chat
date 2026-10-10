@@ -11,7 +11,7 @@ import ipaddress
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 REQUIRED = ("JWT_SECRET", "MFA_ENCRYPTION_KEY", "DATABASE_URL", "APP_CORS_ORIGINS")
 PLACEHOLDER = re.compile(r"replace|change.me|example|localhost|127\.0\.0\.1", re.I)
@@ -101,6 +101,16 @@ def valid_postgres_url(value: str) -> bool:
     """Require a usable PostgreSQL URL without embedded placeholder credentials."""
     try:
         parsed = urlparse(value)
+        options = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+        allowed_options = {"sslmode", "ssl"}
+        if len({key for key, _ in options}) != len(options):
+            return False
+        if any(key not in allowed_options or not option for key, option in options):
+            return False
+        if any(key == "sslmode" and option not in {"require", "verify-ca", "verify-full"} for key, option in options):
+            return False
+        if any(key == "ssl" and option.lower() not in {"true", "1"} for key, option in options):
+            return False
         return (
             parsed.scheme in {"postgresql", "postgresql+asyncpg"}
             and bool(parsed.hostname)
@@ -108,7 +118,6 @@ def valid_postgres_url(value: str) -> bool:
             and bool(parsed.password)
             and bool(parsed.path.strip("/"))
             and parsed.port != 0
-            and not parsed.query
             and not parsed.fragment
             and not PLACEHOLDER.search(parsed.hostname)
             and not PLACEHOLDER.search(parsed.username)
