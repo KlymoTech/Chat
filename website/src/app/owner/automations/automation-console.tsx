@@ -6,6 +6,7 @@ import {simulateAutomation,validateAutomation,type AutomationDefinition,type Aut
 
 type Summary={id:string;title:string;version:number;updatedAt:string};
 type StoredRun={id:string;status:string;currentNodeId:string;dueAt:string;processedSteps:number};
+type InternalTask={id:string;runId:string;nodeId:string;action:string;state:string;createdAt:string};
 const starter:AutomationDefinition={title:"New internal lead review workflow",nodes:[
   {id:"start",type:"trigger",event:"lead_accepted",next:"review"},
   {id:"review",type:"task",action:"review_lead",next:"finish"},
@@ -24,6 +25,8 @@ export default function AutomationConsole(){
   const [graph,setGraph]=useState<AutomationDefinition>(starter);
   const [drafts,setDrafts]=useState<Summary[]>([]);
   const [runs,setRuns]=useState<StoredRun[]>([]);
+  const [tasks,setTasks]=useState<InternalTask[]>([]);
+  const [taskReasons,setTaskReasons]=useState<Record<string,string>>({});
   const [activeId,setActiveId]=useState("");
   const [version,setVersion]=useState(0);
   const [source,setSource]=useState<"form"|"subscription">("form");
@@ -67,8 +70,28 @@ export default function AutomationConsole(){
       if(Array.isArray(result.runs))setRuns(result.runs);
     }catch{setRuns([]);}
   }
+  async function loadTasks(id:string){
+    if(!id){setTasks([]);return;}
+    try{
+      const result=await api("/api/owner/automations/"+encodeURIComponent(id)+"/tasks") as {tasks?:InternalTask[]};
+      if(Array.isArray(result.tasks))setTasks(result.tasks);
+    }catch{setTasks([]);}
+  }
+  async function completeTask(taskId:string){
+    if(!activeId||busy)return;
+    const reason=taskReasons[taskId]?.trim()??"";
+    if(reason.length<10||reason.length>500)return;
+    setBusy(true);setError("");setMessage("");
+    try{
+      await api("/api/owner/automations/"+encodeURIComponent(activeId)+"/tasks",
+        "POST",{taskId,reason});
+      setMessage("Internal synthetic task marked done with an audit reason.");
+      await loadTasks(activeId);
+    }catch(err){setError(err instanceof Error?err.message:"Unable to complete task");}
+    finally{setBusy(false);}
+  }
   async function choose(id:string){
-    if(!id){setActiveId("");setVersion(0);setGraph(starter);setRuns([]);return;}
+    if(!id){setActiveId("");setVersion(0);setGraph(starter);setRuns([]);setTasks([]);return;}
     setBusy(true);setError("");setMessage("");
     try{
       const result=await api("/api/owner/automations/"+encodeURIComponent(id)) as {
@@ -76,7 +99,7 @@ export default function AutomationConsole(){
       };
       if(!validateAutomation(result.definition))throw new Error("Stored graph invalid");
       setActiveId(id);setVersion(result.version);setGraph(result.definition);
-      await loadRuns(id);
+      await Promise.all([loadRuns(id),loadTasks(id)]);
     }catch(err){setError(err instanceof Error?err.message:"Cannot load draft");}
     finally{setBusy(false);}
   }
@@ -93,7 +116,7 @@ export default function AutomationConsole(){
       if(!result||typeof result!=="object"||!("id" in result)||!("version" in result))
         throw new Error("Unexpected draft receipt");
       setActiveId(String(result.id));setVersion(Number(result.version));
-      await loadRuns(String(result.id));
+      await Promise.all([loadRuns(String(result.id)),loadTasks(String(result.id))]);
       setMessage("Immutable draft saved. No workflow was published or executed.");
       await refresh();
     }catch(err){setError(err instanceof Error?err.message:"Unable to save workflow");}
@@ -108,7 +131,7 @@ export default function AutomationConsole(){
       if(!result||typeof result!=="object"||!("runId" in result))
         throw new Error("Synthetic test was not confirmed");
       setMessage("Synthetic run accepted. Use a signed internal runner to advance due nodes.");
-      await loadRuns(activeId);
+      await Promise.all([loadRuns(activeId),loadTasks(activeId)]);
     }catch(e){setError(e instanceof Error?e.message:"Synthetic run unavailable");}
     finally{setBusy(false);}
   }
@@ -200,8 +223,24 @@ export default function AutomationConsole(){
           disabled={busy||!activeId||!valid} onClick={()=>void queueSyntheticRun()}>
           Enqueue synthetic workflow run</button>
         <button className="button secondary" type="button"
-          disabled={busy||!activeId} onClick={()=>void loadRuns(activeId)}>
-          Refresh run statuses</button>
+          disabled={busy||!activeId} onClick={()=>void Promise.all([loadRuns(activeId),loadTasks(activeId)])}>
+          Refresh run statuses and tasks</button>
+        {tasks.length>0&&<section aria-labelledby="internal-tasks-title">
+          <h3 id="internal-tasks-title">Pending and completed internal tasks</h3>
+          {tasks.map(task=><div key={task.id} style={{margin:"1rem 0",padding:12,
+            border:"1px solid #ccd7db",borderRadius:8}}>
+            <p><strong>{task.action.replaceAll("_"," ")}</strong> · {task.state} · run {task.runId.slice(0,8)}</p>
+            {task.state==="pending"&&<>
+              <label>Completion justification (10–500 characters)
+                <textarea rows={2} maxLength={500} value={taskReasons[task.id]??""}
+                  onChange={event=>setTaskReasons(old=>({...old,[task.id]:event.target.value}))}/>
+              </label>
+              <button className="button secondary" type="button"
+                disabled={busy||(taskReasons[task.id]?.trim().length??0)<10}
+                onClick={()=>void completeTask(task.id)}>Mark internal task done</button>
+            </>}
+          </div>)}
+        </section>}
         {runs.length>0?<table>
           <thead><tr><th scope="col">Run</th><th scope="col">Status</th>
             <th scope="col">Next node</th><th scope="col">Steps</th></tr></thead>
