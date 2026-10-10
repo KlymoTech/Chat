@@ -210,3 +210,20 @@ async def test_invalid_signing_configuration_never_burns_grant(
     assert events == []
     verify.assert_not_awaited()
     sign.assert_not_awaited()
+
+
+
+@pytest.mark.asyncio
+async def test_witness_and_signer_must_use_distinct_keys_before_grant(monkeypatch):
+    verify = AsyncMock()
+    sign = AsyncMock()
+    monkeypatch.setattr(subject, "verify_protected_signing_authorization", verify)
+    monkeypatch.setattr(subject, "sign_custodied_jenkins_test_result", sign)
+    events = []
+    parameters = arguments(Consumption(events))
+    parameters["test_signer_public_key_pem"] = parameters["witness_public_key_pem"]
+    with pytest.raises(PermissionError, match="must be independent"):
+        await subject.sign_with_protected_authorization(None, **parameters)
+    assert events == []
+    verify.assert_not_awaited()
+    sign.assert_not_awaited()
