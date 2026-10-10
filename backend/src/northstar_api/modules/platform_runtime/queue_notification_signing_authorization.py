@@ -66,7 +66,7 @@ def verify_protected_signing_authorization(
     The result is the one-time authorization ID; production must also persist
     an independently enforced replay decision before key retrieval.
     """
-    instant = now or datetime.now(UTC)
+    instant = datetime.now(UTC) if now is None else now
     if not isinstance(instant, datetime) or instant.tzinfo is None:
         raise SigningAuthorizationRejected("timezone-aware authorization required")
     if not isinstance(token, str) or len(token) > 4096 or token.count(".") != 1:
@@ -80,7 +80,7 @@ def verify_protected_signing_authorization(
             raise SigningAuthorizationRejected("invalid authorization signer")
         public.verify(signature, body)
         statement = json.loads(body, object_pairs_hook=_unique)
-    except (TypeError, ValueError, InvalidSignature, UnicodeDecodeError) as exc:
+    except (TypeError, ValueError, InvalidSignature, UnicodeDecodeError, OverflowError) as exc:
         raise SigningAuthorizationRejected("signing authorization not verified") from exc
 
     if not isinstance(statement, dict):
