@@ -92,11 +92,12 @@ class DurableDispatchService:
         # A definitive broker rejection is not a transient delivery failure:
         # quarantine the durable row for an explicitly audited manual replay.
         rejected = receipt is not None and receipt.outcome is DeliveryOutcome.REJECTED
-        next_status = (
-            "published" if accepted else
-            "dead_letter" if rejected or claim.attempts >= self.max_attempts else
-            "retrying"
-        )
+        if accepted:
+            next_status = "published"
+        elif rejected or claim.attempts >= self.max_attempts:
+            next_status = "dead_letter"
+        else:
+            next_status = "retrying"
         retry_seconds = min(3600, 2 ** min(claim.attempts, 10))
         # Lease ownership is checked in SQL, so an expired prior owner cannot
         # overwrite a new worker's acknowledgement or retry status.
