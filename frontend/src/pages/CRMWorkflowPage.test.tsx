@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   scoringSave: vi.fn(),
   scoringPreview: vi.fn(),
   scoringApply: vi.fn(),
+  segmentsList: vi.fn(),
+  segmentsSave: vi.fn(),
+  segmentsPreview: vi.fn(),
 }));
 
 vi.mock('@/lib/crm-workflow-api', async () => {
@@ -24,6 +27,11 @@ vi.mock('@/lib/crm-workflow-api', async () => {
       savePolicy: mocks.scoringSave,
       preview: mocks.scoringPreview,
       apply: mocks.scoringApply,
+    },
+    leadSegmentsApi: {
+      list: mocks.segmentsList,
+      save: mocks.segmentsSave,
+      preview: mocks.segmentsPreview,
     },
   };
 });
@@ -142,6 +150,7 @@ describe('CRMWorkflowPage', () => {
       version: 0, enabled: false, base_points: 0,
       review_threshold: 60, rules: [],
     });
+    mocks.segmentsList.mockResolvedValue({ version: 0, segments: [] });
   });
 
   afterEach(() => {
@@ -158,6 +167,7 @@ describe('CRMWorkflowPage', () => {
 
     expect(await screen.findByText('CRM full workflow')).toBeInTheDocument();
     expect(screen.getByText('Automatic flow ready')).toBeInTheDocument();
+    expect(await screen.findByText('Consent-aware Lead segments')).toBeInTheDocument();
     expect(screen.getByText('1. Conversation captured')).toBeInTheDocument();
     expect(screen.getByText('2. Resolve and qualify')).toBeInTheDocument();
     expect(screen.getByText('4. Durable CRM routing')).toBeInTheDocument();
