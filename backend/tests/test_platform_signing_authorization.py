@@ -147,3 +147,18 @@ def test_invalid_signing_clock_fails_closed():
             expected_audience="private-test-signer",
             plan=plan, now="invalid",
         )
+
+
+
+@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}])
+def test_falsey_clock_never_falls_back_to_current_time(bad_clock):
+    key, at, plan, public = _fixture()
+    with pytest.raises(SigningAuthorizationRejected, match="timezone-aware"):
+        verify_protected_signing_authorization(
+            _token(key, plan, at),
+            pinned_issuer_public_key_pem=public,
+            expected_issuer="protected-issuer",
+            expected_audience="private-test-signer",
+            plan=plan,
+            now=bad_clock,
+        )
