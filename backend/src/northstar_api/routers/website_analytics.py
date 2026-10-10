@@ -136,6 +136,22 @@ async def site_analytics_summary(
     if principal.workspace_id is None:
         raise HTTPException(400, "Select a workspace")
     period_start = datetime.now(UTC) - timedelta(days=days)
+    # PostgreSQL timestamptz -> date uses the connection timezone by default.
+    # Convert to a UTC wall-clock timestamp before grouping; SQLite fixtures
+    # already store UTC timestamps and use their built-in date() function.
+    pg = session.get_bind().dialect.name == "postgresql"
+    event_day = (
+        func.date(func.timezone("UTC", WebsitePageEvent.occurred_at))
+        if pg else func.date(WebsitePageEvent.occurred_at)
+    )
+    form_day = (
+        func.date(func.timezone("UTC", WebsiteFormSubmission.created_at))
+        if pg else func.date(WebsiteFormSubmission.created_at)
+    )
+    outbox_day = (
+        func.date(func.timezone("UTC", OutboxEvent.occurred_at))
+        if pg else func.date(OutboxEvent.occurred_at)
+    )
     scope = (
         WebsitePageEvent.tenant_id == principal.tenant_id,
         WebsitePageEvent.workspace_id == principal.workspace_id,
@@ -261,18 +277,18 @@ async def site_analytics_daily_report(
     )
     raw_events = (await session.execute(
         select(
-            func.date(WebsitePageEvent.occurred_at),
+            event_day,
             WebsitePageEvent.event_type,
             func.count(WebsitePageEvent.id),
         ).where(*scope)
         .group_by(
-            func.date(WebsitePageEvent.occurred_at),
+            event_day,
             WebsitePageEvent.event_type,
         )
     )).all()
     raw_forms = (await session.execute(
         select(
-            func.date(WebsiteFormSubmission.created_at),
+            form_day,
             func.count(WebsiteFormSubmission.id),
         )
         .where(
@@ -281,11 +297,11 @@ async def site_analytics_daily_report(
             WebsiteFormSubmission.created_at >= start,
             WebsiteFormSubmission.created_at <= now,
         )
-        .group_by(func.date(WebsiteFormSubmission.created_at))
+        .group_by(form_day)
     )).all()
     raw_outbox = (await session.execute(
         select(
-            func.date(OutboxEvent.occurred_at),
+            outbox_day,
             OutboxEvent.published_at.is_not(None),
             OutboxEvent.last_error.is_not(None),
             func.count(OutboxEvent.id),
@@ -299,7 +315,7 @@ async def site_analytics_daily_report(
             OutboxEvent.occurred_at <= now,
         )
         .group_by(
-            func.date(OutboxEvent.occurred_at),
+            .group_by(outbox_day,
             OutboxEvent.published_at.is_not(None),
             OutboxEvent.last_error.is_not(None),
         )
