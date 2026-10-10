@@ -16,6 +16,14 @@ FormKind = Literal["text", "email", "phone", "select", "radio", "checkbox", "dat
 FieldSensitivity = Literal["normal", "personal", "sensitive"]
 
 
+class FormFieldCondition(BaseModel):
+    """Explicit, single-level equality guard on a prior non-sensitive choice."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    field_key: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=60)
+    equals: str = Field(min_length=1, max_length=120)
+
+
 class SiteFormField(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     key: str = Field(min_length=1, max_length=60, pattern=r"^[a-z][a-z0-9_]*$")
@@ -27,6 +35,8 @@ class SiteFormField(BaseModel):
     retention_days: int = Field(default=365, ge=1, le=3650)
     max_length: int = Field(default=300, ge=1, le=2000)
     choices: tuple[str, ...] = Field(default=(), max_length=30)
+    step: int = Field(default=1, ge=1, le=5)
+    condition: FormFieldCondition | None = None
 
     @field_validator("label", "purpose")
     @classmethod
@@ -64,6 +74,7 @@ class SiteFormDocument(BaseModel):
     description: str = Field(default="", max_length=1000)
     privacy_notice: str = Field(min_length=10, max_length=1000)
     fields: tuple[SiteFormField, ...] = Field(min_length=2, max_length=30)
+    steps: tuple[str, ...] = Field(default=("Your details",), min_length=1, max_length=5)
 
     @model_validator(mode="after")
     def shape(self) -> "SiteFormDocument":
@@ -76,6 +87,36 @@ class SiteFormDocument(BaseModel):
             raise ValueError("Require at least one contact method")
         if any(field.key in {"_submission_key", "_version", "_website"} for field in self.fields):
             raise ValueError("Reserved transport field")
+        if any(not label.strip() or len(label) > 90 for label in self.steps):
+            raise ValueError("Each form step needs a short, nonempty label")
+        if any(field.step > len(self.steps) for field in self.fields):
+            raise ValueError("Form fields reference an undefined step")
+        if [field.step for field in self.fields] != sorted(field.step for field in self.fields):
+            raise ValueError("Fields must be ordered by their form step")
+        if set(field.step for field in self.fields) != set(range(1, len(self.steps) + 1)):
+            raise ValueError("Every declared step must contain a field")
+        earlier: dict[str, SiteFormField] = {}
+        for field in self.fields:
+            condition = field.condition
+            if condition is not None:
+                controller = earlier.get(condition.field_key)
+                if (
+                    controller is None
+                    or controller.condition is not None
+                    or controller.kind not in {"select", "radio", "checkbox"}
+                    or controller.step > field.step
+                ):
+                    raise ValueError("Conditions may only reference earlier unconditional choice fields")
+                if controller.kind == "checkbox":
+                    if condition.equals not in {"true", "false"}:
+                        raise ValueError("Checkbox conditions use true or false")
+                elif condition.equals not in controller.choices:
+                    raise ValueError("Condition must use a configured controller choice")
+                if field.kind == "consent" or (
+                    field.required and field.kind in {"email", "phone"}
+                ):
+                    raise ValueError("Consent and required contact methods cannot be conditional")
+            earlier[field.key] = field
         return self
 
 
@@ -111,6 +152,15 @@ def validate_answers(
     for unexpected in submitted.keys() - allowed:
         errors[unexpected] = "Unknown form field"
     for field in document.fields:
+        if field.condition is not None:
+            controller = answers.get(field.condition.field_key)
+            actual = str(controller).lower() if isinstance(controller, bool) else controller
+            if actual != field.condition.equals:
+                # No processing of submitted answers outside the selected purpose.
+                hidden_value = submitted.get(field.key, "")
+                if hidden_value:
+                    errors[field.key] = "This field is not available for the selected choice"
+                continue
         raw = submitted.get(field.key, "")
         if not isinstance(raw, str):
             errors[field.key] = "Invalid input"
