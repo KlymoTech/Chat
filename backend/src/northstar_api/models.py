@@ -1031,3 +1031,8 @@ from northstar_api.website_consent_models import WebsiteConsentReceipt  # noqa: 
 
 # Register consent-gated page events in shared model metadata.
 from northstar_api.website_event_models import WebsitePageEvent  # noqa: E402,F401
+
+# First-party forms extend the same authoritative Lead and workspace persistence.
+from northstar_api.website_form_models import (  # noqa: E402,F401
+    WebsiteForm, WebsiteFormRevision, WebsiteFormSubmission,
+)
