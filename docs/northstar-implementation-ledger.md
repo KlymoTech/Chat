@@ -75,10 +75,10 @@ implementation master plan.
   is unchanged. Focused tests cover the CRM engine parameters.
 - `local-up` and `local-down` now reuse the existing Compose-backed `up` and
   `down` targets without changing their behavior. The audit still reports
-  missing deploy/image-push targets and an Arm64-only API image declaration.
-  Adding placeholder targets or an unbuilt x86 label would not satisfy the
-  corresponding runtime and image qualification rules. Keep these gaps open
-  until real workflows and builds are implemented and tested.
+  gaps that were open at that audit increment: Make deploy/image-push targets
+  and dual-architecture image declaration. The declarations are addressed by
+  later increments; actual architecture builds and production deployments
+  still require the corresponding workflows and evidence.
 
 ## Multi-architecture release declaration increment (2026-10-10)
 
@@ -653,3 +653,15 @@ do not merge without explicit instruction.
 - Focused tests cover missing workspace, key scoping and cross-workspace
   promotion denial. This is not per-user upload reservation, persisted
   session ownership, or AWS bucket-policy enforcement.
+
+## Increment: governed release/deployment Make targets (2026-10-10)
+
+- `image-push` requires a new `v*` tag at `HEAD` and pushes it to `origin`,
+  invoking the existing verified multi-architecture release workflow. It does
+  not build or publish around that workflow's vulnerability/provenance gates.
+- `deploy` validates the immutable commit, HTTPS health URL, and an existing
+  workflow ref, then dispatches the existing deployment workflow. That
+  workflow verifies image attestations and still requires approval through
+  the protected production environment. Neither target was invoked here.
+- These add the missing Make entry points; they do not resolve the many
+  qualification findings in the conformance report.
