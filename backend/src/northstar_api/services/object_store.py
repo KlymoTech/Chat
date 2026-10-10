@@ -226,6 +226,13 @@ class ObjectStore:
             def cleanup_copy() -> None:
                 if not copy_created:
                     return
+                if self.settings.s3_auth_mode == "aws-default" and (
+                    copied_version_id is None or copied_version_id.lower() == "null"
+                ):
+                    # A plain DELETE could hide a newer writer's version.
+                    raise ObjectStoreUnavailable(
+                        "AWS promoted copy has no version receipt; cleanup is indeterminate"
+                    )
                 try:
                     if copied_version_id is not None and copied_version_id.lower() != "null":
                         client.delete_object(
@@ -234,10 +241,7 @@ class ObjectStore:
                             VersionId=copied_version_id,
                         )
                     else:
-                        if self.settings.s3_auth_mode == "aws-default":
-                            client.delete_object(Bucket=self.settings.s3_bucket, Key=permanent_key)
-                        else:
-                            self._purge_exact_sync(client, permanent_key)
+                        self._purge_exact_sync(client, permanent_key)
                 except (BotoCoreError, ClientError, ObjectStoreUnavailable) as exc:
                     raise ObjectStoreUnavailable(
                         "Object storage could not clean up an invalid promoted upload"

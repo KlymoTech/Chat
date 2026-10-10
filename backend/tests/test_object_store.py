@@ -370,7 +370,7 @@ async def test_aws_promotion_cleans_exact_copy_when_staging_delete_fails(
 
 
 @pytest.mark.parametrize("copied_version_id", [None, "null"])
-async def test_aws_promotion_rejects_unversioned_destination_and_cleans_copy(
+async def test_aws_promotion_rejects_unversioned_destination_without_deleting_latest(
     monkeypatch: pytest.MonkeyPatch, copied_version_id: str | None
 ) -> None:
     tenant_id = uuid4()
@@ -387,12 +387,12 @@ async def test_aws_promotion_rejects_unversioned_destination_and_cleans_copy(
     )
     monkeypatch.setattr(store, "_client", lambda **_: client)
 
-    with pytest.raises(ObjectStoreUnavailable, match="could not promote"):
+    with pytest.raises(ObjectStoreUnavailable, match="cleanup is indeterminate"):
         await store.promote_staged(
             tenant_id, f"staging/{tenant_id}/{workspace_id}/2026/09/example.txt", workspace_id=workspace_id
         )
 
-    assert client.deleted == [client.copied_to]
+    assert client.deleted == []
 
 
 @pytest.mark.parametrize(

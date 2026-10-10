@@ -721,3 +721,13 @@ do not merge without explicit instruction.
   simulates a version added after the first enumeration.
 - This does not replace periodic orphan discovery, prevent new writes to a
   deleted key, or prove S3/IAM behavior in a live account.
+
+## Increment: no unversioned AWS destination cleanup (2026-10-10)
+
+- AWS promotion no longer issues a plain destination DELETE when S3 omits or
+  returns a null copied `VersionId`. That delete could hide a newer writer's
+  object behind a delete marker. The operation now fails with an indeterminate
+  cleanup error and leaves the object for supervised version-aware repair.
+  Static-key MinIO cleanup retains its existing behavior.
+- The unreceipted object remains a possible orphan; periodic discovery and
+  safe reconciliation still need implementation and live AWS qualification.
