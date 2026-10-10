@@ -118,13 +118,16 @@ export interface CRMWorkflow {
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '/api/v1';
 const SESSION_KEY = 'northstar.session';
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, options?: { method?: 'PUT' | 'POST'; body?: string }): Promise<T> {
   const accessToken = readStorage<{ accessToken?: string } | null>(SESSION_KEY, null)?.accessToken;
   const workspaceId = activeWorkspaceId();
   const response = await fetch(`${API_URL}${path}`, {
     credentials: 'include',
+    ...(options?.method ? { method: options.method } : {}),
+    ...(options?.body ? { body: options.body } : {}),
     headers: {
       Accept: 'application/json',
+      ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(workspaceId ? { 'X-Workspace-ID': workspaceId } : {}),
     },
@@ -145,4 +148,67 @@ async function request<T>(path: string): Promise<T> {
 
 export const crmWorkflowApi = {
   get: (limit = 25) => request<CRMWorkflow>(`/crm/workflow?limit=${limit}`),
+};
+
+export type LeadScoreField = 'source_channel' | 'utm_source' | 'utm_medium' | 'utm_campaign';
+
+export interface LeadScoreRule {
+  field: LeadScoreField;
+  equals: string;
+  points: number;
+}
+
+export interface LeadScoringPolicy {
+  version: number;
+  enabled: boolean;
+  base_points: number;
+  review_threshold: number;
+  rules: LeadScoreRule[];
+}
+
+export interface LeadScoreExplanation extends LeadScoreRule {
+  matched: boolean;
+}
+
+export interface LeadScorePreview {
+  lead_id: string;
+  policy_version: number;
+  eligible: boolean;
+  ineligible_reason: string | null;
+  current_score: number | null;
+  proposed_score: number | null;
+  review_threshold: number;
+  recommendation: 'review' | 'below_threshold' | 'blocked' | 'disabled';
+  qualification_status: string | null;
+  rules: LeadScoreExplanation[];
+}
+
+export const leadScoringApi = {
+  policy: () => request<LeadScoringPolicy>('/crm/workflow/scoring-policy'),
+  savePolicy: (policy: LeadScoringPolicy) => request<LeadScoringPolicy>(
+    '/crm/workflow/scoring-policy',
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        expected_version: policy.version,
+        enabled: policy.enabled,
+        base_points: policy.base_points,
+        review_threshold: policy.review_threshold,
+        rules: policy.rules,
+      }),
+    },
+  ),
+  preview: (leadId: string) => request<LeadScorePreview>(
+    '/crm/workflow/leads/' + encodeURIComponent(leadId) + '/score-preview',
+  ),
+  apply: (leadId: string, preview: LeadScorePreview) => request<LeadScorePreview>(
+    '/crm/workflow/leads/' + encodeURIComponent(leadId) + '/apply-score',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        expected_policy_version: preview.policy_version,
+        expected_score: preview.current_score,
+      }),
+    },
+  ),
 };
