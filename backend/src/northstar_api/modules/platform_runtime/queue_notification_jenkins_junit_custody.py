@@ -123,8 +123,8 @@ async def stage_witnessed_junit_custody(
         raise PermissionError("qualified Jenkins evidence custodian identity required")
     if not isinstance(release_id, str) or _RELEASE.fullmatch(release_id) is None:
         raise JenkinsJunitCustodyRejected("invalid protected release ID")
-    instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
+    instant = datetime.now(UTC) if now is None else now
+    if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
         raise JenkinsJunitCustodyRejected("timezone-aware custody required")
     if (
         not isinstance(index_receipt, JenkinsJunitIndexReceipt)
@@ -201,8 +201,8 @@ async def load_and_reconcile_witnessed_junit_custody(
     """
     if not isinstance(release_id, str) or _RELEASE.fullmatch(release_id) is None:
         raise JenkinsJunitCustodyRejected("invalid release identifier")
-    instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
+    instant = datetime.now(UTC) if now is None else now
+    if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
         raise JenkinsJunitCustodyRejected("timezone-aware custody required")
     row = await session.get(NotificationJenkinsJunitCustodyRecord, release_id)
     if (
