@@ -3,20 +3,21 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from fastapi import HTTPException
-from sqlalchemy import select, update
-
-from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from northstar_api.database import get_session
 from northstar_api.dependencies import require_permissions
-from northstar_api.lead_crm.crm_workflow_schemas import CRMWorkflowOut
 from northstar_api.lead_crm.audit import record_audit_event
+from northstar_api.lead_crm.crm_workflow_schemas import CRMWorkflowOut
 from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile
 from northstar_api.lead_crm.website_lead_scoring import (
-    ScorePolicy, ScorePolicyUpdate, ScorePreview, evaluate_score,
+    ScorePolicy,
+    ScorePolicyUpdate,
+    ScorePreview,
+    evaluate_score,
 )
 from northstar_api.models import Lead, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
