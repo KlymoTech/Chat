@@ -110,6 +110,18 @@ class PageSEO(BaseModel):
         return self
 
 
+class BlogMetadata(BaseModel):
+    """Public editorial information; private drafts cannot enter the article index."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    author: str = Field(min_length=1, max_length=120)
+    category: str = Field(min_length=1, max_length=80)
+    summary: str = Field(min_length=1, max_length=240)
+    reviewer: str | None = Field(default=None, max_length=120)
+    locale: str = Field(default="en", pattern=r"^[a-z]{2}(?:-[A-Z]{2})?$")
+
+
 class BuilderPageDocument(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -118,9 +130,15 @@ class BuilderPageDocument(BaseModel):
     title: str = Field(min_length=1, max_length=180)
     nodes: tuple[BuilderNode, ...] = ()
     seo: PageSEO = Field(default_factory=PageSEO)
+    content_type: Literal["page", "article"] = "page"
+    blog: BlogMetadata | None = None
 
     @model_validator(mode="after")
     def check_tree(self) -> "BuilderPageDocument":
+        if self.content_type == "article" and self.blog is None:
+            raise ValueError("Articles require author, category, and summary")
+        if self.content_type == "page" and self.blog is not None:
+            raise ValueError("Blog metadata is only allowed for articles")
         ids: set[str] = set()
         count = 0
         stack = [(node, 1) for node in self.nodes]
