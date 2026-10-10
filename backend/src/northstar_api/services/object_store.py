@@ -115,7 +115,6 @@ def _matches_upload_signature(content_type: str, data: bytes) -> bool:
     return False
 
 
-
 def scan_with_clamav_instream(data: bytes, *, port: int, timeout_seconds: float) -> None:
     """Require a clean ClamAV INSTREAM verdict from the local service sidecar."""
     if not data:
