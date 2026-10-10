@@ -121,3 +121,21 @@ def test_primary_navigation_uses_safe_markup_and_meaningful_landmark():
 def test_no_published_navigation_does_not_create_empty_landmark():
     page = build([])
     assert 'aria-label="Primary navigation"' not in render_page(page)
+
+
+def test_public_form_blocks_render_restricted_same_origin_iframe():
+    from northstar_api.services.website_builder_document import BuilderPageDocument
+    workspace = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    page = BuilderPageDocument.model_validate({
+        "slug":"contact","title":"Get in touch",
+        "nodes":[{"id":"top","kind":"section","children":[
+            {"id":"contact","kind":"form","text":"Enquiry & assistance",
+             "url":f"/api/v1/site-forms/public/{workspace}/contact"},
+        ]}],
+    })
+    rendered = render_page(page)
+    assert 'sandbox="allow-forms allow-same-origin"' in rendered
+    assert 'referrerpolicy="no-referrer"' in rendered
+    assert 'title="Enquiry &amp; assistance"' in rendered
+    assert f'src="/api/v1/site-forms/public/{workspace}/contact"' in rendered
+    assert "<script>Enquiry" not in rendered
