@@ -13,8 +13,10 @@ on:
       - 'backend/migrations/versions/0096_signing_authorization_replay.py'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization*.py'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py'
       - 'backend/tests/test_platform_custody*'
       - 'backend/tests/test_platform_signing_authorization*.py'
+      - 'backend/tests/test_platform_authorized_signing.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
@@ -29,8 +31,10 @@ on:
       - 'backend/migrations/versions/0096_signing_authorization_replay.py'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_custody*'
       - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization*.py'
+      - 'backend/src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py'
       - 'backend/tests/test_platform_custody*'
       - 'backend/tests/test_platform_signing_authorization*.py'
+      - 'backend/tests/test_platform_authorized_signing.py'
       - 'backend/tests/test_platform_notification_junit_migration_merge.py'
       - 'backend/tests/test_platform_postgres_signing_authorization_replay.py'
       - 'backend/uv.lock'
@@ -74,6 +78,8 @@ jobs:
           src/northstar_api/modules/platform_runtime/queue_notification_custody_signing_claims.py
           src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization.py
           src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization_replay.py
+          src/northstar_api/modules/platform_runtime/queue_notification_authorized_signing.py
+          tests/test_platform_authorized_signing.py
           tests/test_platform_signing_authorization.py
           tests/test_platform_signing_authorization_replay.py
           tests/test_platform_signing_authorization_migration.py
@@ -84,6 +90,7 @@ jobs:
       - name: Verify signer and migration regression contracts
         run: >-
           uv run pytest -q
+          tests/test_platform_authorized_signing.py
           tests/test_platform_signing_authorization.py
           tests/test_platform_signing_authorization_replay.py
           tests/test_platform_signing_authorization_migration.py
