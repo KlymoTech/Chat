@@ -267,3 +267,74 @@ export const leadSegmentsApi = {
     '/crm/workflow/segments/' + encodeURIComponent(segmentId) + '/preview',
   ),
 };
+
+
+export interface InternalLeadAutomation {
+  id: string;
+  name: string;
+  segment_id: string;
+  enabled: boolean;
+  action: 'notify_admins';
+  max_per_run: number;
+}
+
+export interface InternalLeadAutomationRegister {
+  version: number;
+  automations: InternalLeadAutomation[];
+}
+
+export interface InternalLeadAutomationPreview {
+  automationId: string;
+  policyVersion: number;
+  segmentVersion: number;
+  eligibleLeads: number;
+  alreadyQueued: number;
+  remainingEligible: number;
+  blockedByConsentOrStatus: number;
+  unknownInputLeads: number;
+  examinedLeads: number;
+  truncated: boolean;
+  maxPerRun: number;
+  action: 'notify_admins';
+  externalDelivery: false;
+  note: string;
+}
+
+export interface InternalLeadAutomationRun {
+  automationId: string;
+  policyVersion: number;
+  queuedReviews: number;
+  previouslyQueued: number;
+  noRecipients: number;
+  remainingEligible: number;
+  externalDelivery: false;
+  note: string;
+}
+
+export const internalAutomationsApi = {
+  list: () => request<InternalLeadAutomationRegister>('/crm/workflow/internal-automations'),
+  save: (register: InternalLeadAutomationRegister) => request<InternalLeadAutomationRegister>(
+    '/crm/workflow/internal-automations',
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        expected_version: register.version,
+        automations: register.automations,
+      }),
+    },
+  ),
+  preview: (automationId: string) => request<InternalLeadAutomationPreview>(
+    '/crm/workflow/internal-automations/' + encodeURIComponent(automationId) + '/preview',
+  ),
+  execute: (automationId: string, preview: InternalLeadAutomationPreview) => request<InternalLeadAutomationRun>(
+    '/crm/workflow/internal-automations/' + encodeURIComponent(automationId) + '/execute',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        expected_policy_version: preview.policyVersion,
+        expected_segment_version: preview.segmentVersion,
+        expected_eligible_leads: preview.eligibleLeads,
+      }),
+    },
+  ),
+};
