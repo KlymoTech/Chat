@@ -15,7 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from northstar_api.dependencies import DBSession, require_roles
-from northstar_api.models import Role
+from northstar_api.models import OutboxEvent, Role
+from northstar_api.website_form_models import WebsiteForm, WebsiteFormSubmission
 from northstar_api.routers.website_consent import (
     _cookie_name, _effective, _global_privacy_control, _latest,
     _same_origin, _subject_hash, _workspace,
@@ -155,10 +156,79 @@ async def site_analytics_summary(
             by_slug[slug] = by_slug.get(slug, 0) + int(count)
         elif event_type == "cta_click":
             cta_clicks += int(count)
+    # These are trusted committed business transactions, deliberately SEPARATE
+    # from optional consent-gated browser events. Do not add or divide them into
+    # analytics page-view denominators.
+    form_counts = (await session.execute(
+        select(WebsiteForm.slug, func.count(WebsiteFormSubmission.id))
+        .join(WebsiteFormSubmission, WebsiteFormSubmission.form_id == WebsiteForm.id)
+        .where(
+            WebsiteForm.tenant_id == principal.tenant_id,
+            WebsiteForm.workspace_id == principal.workspace_id,
+            WebsiteFormSubmission.tenant_id == principal.tenant_id,
+            WebsiteFormSubmission.workspace_id == principal.workspace_id,
+            WebsiteFormSubmission.created_at >= period_start,
+        )
+        .group_by(WebsiteForm.slug)
+    )).all()
+    submission_count = sum(int(count) for _, count in form_counts)
+    # Outbox publication indicates the event broker accepted the message; it
+    # is not proof of CRM delivery, an email send or ad-network conversion.
+    conversion_scope = (
+        OutboxEvent.tenant_id == principal.tenant_id,
+        OutboxEvent.workspace_id == principal.workspace_id,
+        OutboxEvent.aggregate_type == "website_form",
+        OutboxEvent.event_type == "website.form.submitted.v1",
+        OutboxEvent.occurred_at >= period_start,
+    )
+    event_states = (await session.execute(
+        select(
+            OutboxEvent.published_at.is_not(None),
+            OutboxEvent.last_error.is_not(None),
+            func.count(OutboxEvent.id),
+        )
+        .where(*conversion_scope)
+        .group_by(
+            OutboxEvent.published_at.is_not(None),
+            OutboxEvent.last_error.is_not(None),
+        )
+    )).all()
+    events_published = 0
+    events_queued = 0
+    events_retrying = 0
+    for published, errored, amount in event_states:
+        if published:
+            events_published += int(amount)
+        elif errored:
+            events_retrying += int(amount)
+        else:
+            events_queued += int(amount)
+    event_total = events_published + events_queued + events_retrying
+    # An unmatched receipt is a reconciliation exception. It never means the
+    # lead can be safely re-created; alert owner for investigation instead.
+    unmatched = max(0, submission_count - event_total)
+
     return {
         "days": days,
         "pageViews": page_views,
         "ctaClicks": cta_clicks,
+        "formSubmissions": {
+            "total": submission_count,
+            "byForm": [
+                {"slug": slug, "submissions": int(count)}
+                for slug, count in sorted(
+                    form_counts, key=lambda item: (-int(item[1]), item[0]),
+                )[:50]
+            ],
+        },
+        "conversionDispatch": {
+            "publishedToEventBus": events_published,
+            "queued": events_queued,
+            "retrying": events_retrying,
+            "missingOutboxEvents": unmatched,
+            "deliveryConfirmed": False,
+            "note": "Event-bus publication is not downstream provider delivery or a qualified lead.",
+        },
         "pages": [
             {"slug": slug, "pageViews": count}
             for slug, count in sorted(by_slug.items(), key=lambda item: (-item[1], item[0]))
