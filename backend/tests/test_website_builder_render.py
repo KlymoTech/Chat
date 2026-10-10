@@ -102,3 +102,22 @@ def test_blog_page_renders_escaped_author_summary_and_locale():
     assert 'Visible summary &amp; reliable evidence' in html
     assert '<meta name="description" content="Visible summary &amp; reliable evidence">' in html
     assert '<meta name="robots" content="noindex, nofollow">' in html
+
+
+def test_primary_navigation_uses_safe_markup_and_meaningful_landmark():
+    page = build([], title="Customer support")
+    html = render_page(page, navigation=(
+        ('About & <company>', '/api/v1/site-cms/public/workspace/about'),
+        ('Talk to us', '/api/v1/site-cms/public/workspace/contact'),
+    ))
+    assert '<nav class="site-nav" aria-label="Primary navigation">' in html
+    assert 'About &amp; &lt;company&gt;' in html
+    assert '<company>' not in html
+    assert 'href="/api/v1/site-cms/public/workspace/contact"' in html
+    assert 'href="#site-main"' in html
+    assert '<script>' not in html
+
+
+def test_no_published_navigation_does_not_create_empty_landmark():
+    page = build([])
+    assert 'aria-label="Primary navigation"' not in render_page(page)
