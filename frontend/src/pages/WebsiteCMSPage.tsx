@@ -21,6 +21,11 @@ interface CMSPage { id: string; slug: string; title: string; status: string; dra
 interface SiteMenuLink { id: string; label: string; slug: string }
 interface SiteMenu { draftVersion: number; publishedVersion: number | null; document: { items: SiteMenuLink[] } }
 interface SiteMenuRevision { version: number; createdAt: string; isPublished: boolean }
+interface SiteRedirect {
+  id: string; sourceSlug: string; targetSlug: string;
+  statusCode: 307 | 308; enabled: boolean; version: number;
+}
+type RedirectEdit = Pick<SiteRedirect, 'targetSlug' | 'statusCode' | 'enabled'>;
 const id = () => crypto.randomUUID();
 const defaultSEO: PageSEO = { description: '', canonical_url: null, indexable: false };
 const newDocument = (
@@ -87,6 +92,14 @@ export function WebsiteCMSPage() {
   const [menuBusy, setMenuBusy] = useState(false);
   const [menuError, setMenuError] = useState('');
   const [menuNote, setMenuNote] = useState('');
+  const [redirects, setRedirects] = useState<SiteRedirect[]>([]);
+  const [redirectEdits, setRedirectEdits] = useState<Record<string, RedirectEdit>>({});
+  const [redirectSource, setRedirectSource] = useState('');
+  const [redirectTarget, setRedirectTarget] = useState('');
+  const [redirectStatus, setRedirectStatus] = useState<307 | 308>(308);
+  const [redirectBusy, setRedirectBusy] = useState(false);
+  const [redirectError, setRedirectError] = useState('');
+  const [redirectNote, setRedirectNote] = useState('');
   const [selected, setSelected] = useState<CMSPage | null>(null);
   const [editing, setEditing] = useState(() => startDraftHistory<PageDocument>(null));
   const draft = editing.present;
@@ -127,6 +140,14 @@ export function WebsiteCMSPage() {
       const saved = await request<CMSPage[]>('/site-cms/pages');
       setPages(saved);
       try {
+        const rules = await request<SiteRedirect[]>('/site-cms/redirects');
+        setRedirects(rules);
+        setRedirectEdits({});
+        setRedirectError('');
+      } catch (reason) {
+        setRedirectError('Redirect rules could not load: ' + message(reason));
+      }
+      try {
         const menu = await request<SiteMenu>('/site-cms/menu');
         setSiteMenu(menu);
         setMenuDraft(menu.document.items);
@@ -143,6 +164,67 @@ export function WebsiteCMSPage() {
     finally { setBusy(false); }
   }, [workspaceId]);
   useEffect(() => { setPages([]); setSelected(null); resetDraft(null); setSiteMenu(null); setMenuDraft([]); setMenuHistory([]); void load(); }, [load, resetDraft]);
+  const refreshRedirects = async () => {
+    setRedirectBusy(true); setRedirectError('');
+    try {
+      const rules = await request<SiteRedirect[]>('/site-cms/redirects');
+      setRedirects(rules);
+      setRedirectEdits({});
+      setRedirectNote('Redirect rules reloaded.');
+    } catch (reason) { setRedirectError(message(reason)); }
+    finally { setRedirectBusy(false); }
+  };
+  const createRedirect = async () => {
+    if (redirectBusy || !redirectSource.trim() || !redirectTarget) return;
+    setRedirectBusy(true); setRedirectError(''); setRedirectNote('');
+    try {
+      const created = await request<SiteRedirect>('/site-cms/redirects', {
+        method: 'POST',
+        body: JSON.stringify({
+          source_slug: redirectSource.trim(),
+          target_slug: redirectTarget,
+          status_code: redirectStatus,
+        }),
+      });
+      setRedirects((items) => [...items, created].sort((a, b) => a.sourceSlug.localeCompare(b.sourceSlug)));
+      setRedirectSource('');
+      setRedirectTarget('');
+      setRedirectNote('Redirect created. The old URL now forwards to its published destination.');
+    } catch (reason) { setRedirectError(message(reason)); }
+    finally { setRedirectBusy(false); }
+  };
+  const changeRedirect = (rule: SiteRedirect, change: Partial<RedirectEdit>) => {
+    setRedirectEdits((old) => ({
+      ...old,
+      [rule.id]: { targetSlug: rule.targetSlug, statusCode: rule.statusCode,
+        enabled: rule.enabled, ...old[rule.id], ...change },
+    }));
+    setRedirectError(''); setRedirectNote('');
+  };
+  const saveRedirect = async (rule: SiteRedirect) => {
+    if (redirectBusy) return;
+    const editing = redirectEdits[rule.id];
+    if (!editing) return;
+    setRedirectBusy(true); setRedirectError(''); setRedirectNote('');
+    try {
+      const changed = await request<SiteRedirect>('/site-cms/redirects/' + rule.id, {
+        method: 'PUT',
+        body: JSON.stringify({
+          expected_version: rule.version, target_slug: editing.targetSlug,
+          status_code: editing.statusCode, enabled: editing.enabled,
+        }),
+      });
+      setRedirects((items) => items.map((item) => item.id === rule.id ? changed : item));
+      setRedirectEdits((old) => {
+        const next = { ...old };
+        delete next[rule.id];
+        return next;
+      });
+      setRedirectNote('Redirect /' + changed.sourceSlug + ' saved as version ' + changed.version + '.');
+    } catch (reason) {
+      setRedirectError(message(reason) + ' Your proposed changes remain visible. Reload to resolve a version conflict.');
+    } finally { setRedirectBusy(false); }
+  };
   const menuDirty = !!siteMenu && !sameDraftContent(menuDraft, siteMenu.document.items);
   const updateMenu = (next: SiteMenuLink[]) => {
     setMenuDraft(next);
@@ -595,6 +677,82 @@ export function WebsiteCMSPage() {
           </form>
         </div></Card>
         <div className="site-cms-workspace">
+          <Card>
+            <div className="site-cms-navigation-heading">
+              <div><h3>Page redirects</h3>
+                <p>Forward an old or archived URL to a currently published page. No external or unpublished destinations are permitted.</p>
+              </div>
+              <Button size="sm" variant="secondary" icon={RefreshCw}
+                disabled={redirectBusy} onClick={() => { void refreshRedirects(); }}>Reload redirects</Button>
+            </div>
+            {redirectError ? <p role="alert" className="form-error">{redirectError}</p> : null}
+            {redirectNote ? <p role="status" className="site-cms-save-note">{redirectNote}</p> : null}
+            <form className="site-cms-redirect-create" onSubmit={(event) => { event.preventDefault(); void createRedirect(); }}>
+              <label>Previous URL slug
+                <input value={redirectSource} maxLength={160} required
+                  pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="old-page"
+                  disabled={redirectBusy}
+                  onChange={(event) => setRedirectSource(event.target.value)} />
+              </label>
+              <label>Published destination
+                <select value={redirectTarget} required disabled={redirectBusy}
+                  onChange={(event) => setRedirectTarget(event.target.value)}>
+                  <option value="">Choose a published page…</option>
+                  {pages.filter((page) => page.publishedVersion !== null).map((page) =>
+                    <option key={page.id} value={page.slug}>{page.title} (/{page.slug})</option>)}
+                </select>
+              </label>
+              <label>Redirect type
+                <select value={redirectStatus} disabled={redirectBusy}
+                  onChange={(event) => setRedirectStatus(Number(event.target.value) as 307 | 308)}>
+                  <option value={308}>Permanent (308)</option>
+                  <option value={307}>Temporary (307)</option>
+                </select>
+              </label>
+              <Button type="submit" icon={Plus} variant="secondary"
+                disabled={redirectBusy || !redirectSource.trim() || !redirectTarget}>
+                Create redirect
+              </Button>
+            </form>
+            <div className="site-cms-redirect-list">
+              {redirects.length === 0 ? <p>No redirect rules have been configured.</p> : null}
+              {redirects.map((rule) => {
+                const edited = redirectEdits[rule.id] ?? rule;
+                const hasChange = !sameDraftContent(
+                  { targetSlug: edited.targetSlug, statusCode: edited.statusCode, enabled: edited.enabled },
+                  { targetSlug: rule.targetSlug, statusCode: rule.statusCode, enabled: rule.enabled },
+                );
+                return <div className="site-cms-redirect-row" key={rule.id}>
+                  <strong>/{rule.sourceSlug}</strong>
+                  <label>Destination
+                    <select value={edited.targetSlug} disabled={redirectBusy}
+                      onChange={(event) => changeRedirect(rule, { targetSlug: event.target.value })}>
+                      {!pages.some((page) => page.slug === edited.targetSlug && page.publishedVersion !== null)
+                        ? <option value={edited.targetSlug}>/{edited.targetSlug} (not currently published)</option> : null}
+                      {pages.filter((page) => page.publishedVersion !== null).map((page) =>
+                        <option key={page.id} value={page.slug}>/{page.slug}</option>)}
+                    </select>
+                  </label>
+                  <label>Type
+                    <select value={edited.statusCode} disabled={redirectBusy}
+                      onChange={(event) => changeRedirect(rule, { statusCode: Number(event.target.value) as 307 | 308 })}>
+                      <option value={308}>308 permanent</option>
+                      <option value={307}>307 temporary</option>
+                    </select>
+                  </label>
+                  <label className="site-cms-redirect-enabled">
+                    <input type="checkbox" checked={edited.enabled} disabled={redirectBusy}
+                      onChange={(event) => changeRedirect(rule, { enabled: event.target.checked })}/>
+                    Enabled
+                  </label>
+                  <Button size="sm" variant="secondary" icon={Save}
+                    disabled={redirectBusy || !hasChange}
+                    onClick={() => { void saveRedirect(rule); }}>Save rule</Button>
+                  <small>Revision {rule.version} · {rule.enabled ? 'Active' : 'Disabled'}</small>
+                </div>;
+              })}
+            </div>
+          </Card>
           <Card>
             <div className="site-cms-navigation-heading">
               <div><h3>Public navigation</h3>
