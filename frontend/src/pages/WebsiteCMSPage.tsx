@@ -8,12 +8,14 @@ import './WebsiteCMSPage.css';
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
 type Action = 'submit' | 'approve' | 'publish';
 interface Node { id: string; kind: Kind; text?: string | null; url?: string | null; children?: Node[] }
-interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[] }
+interface PageSEO { description: string; canonical_url: string | null; indexable: boolean }
+interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[]; seo?: PageSEO }
 interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
 interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
 const id = () => crypto.randomUUID();
-const newDocument = (title: string, slug: string): PageDocument => ({ schema_version: 1, title, slug, nodes: [
+const defaultSEO: PageSEO = { description: '', canonical_url: null, indexable: false };
+const newDocument = (title: string, slug: string): PageDocument => ({ schema_version: 1, title, slug, seo: { ...defaultSEO }, nodes: [
   { id: id(), kind: 'section', children: [{ id: id(), kind: 'heading', text: title }, { id: id(), kind: 'paragraph', text: 'Edit this introduction.' }] },
 ] });
 const newBlock = (kind: Exclude<Kind, 'section'>): Node => kind === 'heading' ? { id: id(), kind, text: 'Heading' }
@@ -97,6 +99,7 @@ export function WebsiteCMSPage() {
     setSectionId(identifier);
   };
   const currentSection = draft?.nodes.find((node) => node.id === sectionId) ?? draft?.nodes[0];
+  const seo = draft?.seo ?? defaultSEO;
   const addBlock = (kind: Exclude<Kind, 'section'>) => {
     if (currentSection) edit(currentSection.id, (section) => ({ ...section, children: [...(section.children ?? []), newBlock(kind)] }));
   };
@@ -176,6 +179,27 @@ export function WebsiteCMSPage() {
             <div className="site-cms-editor-grid"><Card>
               <h3>Visual page builder</h3>
               <label>Page title<input value={draft.title} maxLength={180} onChange={(event) => setDraft({ ...draft, title: event.target.value })}/></label>
+              <fieldset className="site-cms-seo">
+                <legend>Search appearance</legend>
+                <label>Meta description (up to 160 characters)
+                  <textarea rows={3} maxLength={160} value={seo.description}
+                    onChange={(event) => setDraft({ ...draft, seo: { ...seo, description: event.target.value } })}/>
+                </label>
+                <label>Approved canonical HTTPS URL
+                  <input type="url" placeholder="https://yourdomain.example/page"
+                    value={seo.canonical_url ?? ''} maxLength={2048}
+                    onChange={(event) => {
+                      const value = event.target.value.trim();
+                      setDraft({ ...draft, seo: { ...seo, canonical_url: value || null, indexable: value ? seo.indexable : false } });
+                    }}/>
+                </label>
+                <label className="site-cms-indexable">
+                  <input type="checkbox" checked={seo.indexable} disabled={!seo.canonical_url}
+                    onChange={(event) => setDraft({ ...draft, seo: { ...seo, indexable: event.target.checked } })}/>
+                  Allow search engines to index this page
+                </label>
+                <small>Unapproved pages remain noindex. Add the verified canonical URL before enabling indexing.</small>
+              </fieldset>
               <div className="site-cms-sections" role="group" aria-label="Page sections">
                 {draft.nodes.map((section, index) => <button type="button" key={section.id} className={currentSection?.id === section.id ? 'is-selected' : ''}
                   onClick={() => setSectionId(section.id)}>Section {index + 1} · {(section.children ?? []).length} blocks</button>)}
