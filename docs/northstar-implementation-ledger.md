@@ -677,3 +677,14 @@ do not merge without explicit instruction.
   CI result. A nightly schedule cannot execute solely from an unmerged feature
   branch under GitHub's default-branch scheduling model; that qualification
   remains unverified while the requested no-merge constraint is in force.
+
+## Increment: complete Compose service-presence smoke (2026-10-10)
+
+- The existing authenticated Compose smoke now requires the separate
+  WhatsApp worker to become healthy and checks that every declared Compose
+  service is running, except the two already-verified successful one-shot
+  initialization jobs. This catches stopped or omitted CRM, channel, course,
+  and future services that the previous hard-coded shortlist missed.
+- This is a process-presence gate, not evidence that every worker consumed a
+  message or that live AWS behavior is qualified. No Compose service or
+  application feature was removed.

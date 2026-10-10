@@ -289,12 +289,20 @@ wait_for_one_shot migrate
 wait_for_one_shot minio-init
 assert_object_store_cors
 
-for service in api web worker; do
+for service in api web worker whatsapp-worker; do
   wait_for_container_health "$service"
 done
-for service in job-dispatcher outbox-relay analytics-consumer object-cleaner; do
+
+# A whole-app smoke must fail if any newly added Compose workload is absent or
+# has exited, not just the original shortlist of background consumers.
+compose_services="$(docker compose config --services)"
+[[ -n "$compose_services" ]] || { echo "Compose declared no services" >&2; exit 1; }
+while IFS= read -r service; do
+  case "$service" in
+    migrate|minio-init) continue ;;
+  esac
   assert_container_running "$service"
-done
+done <<<"$compose_services"
 
 wait_for_http "API liveness" "$API_URL/health/live"
 wait_for_http "API readiness" "$API_URL/health/ready"
