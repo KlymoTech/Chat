@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS website_cms.automation_internal_runs (
  FOREIGN KEY(site_id,definition_id,version)
   REFERENCES website_cms.automation_versions(site_id,definition_id,version),
  UNIQUE(site_id,definition_id,version,subject_id,trigger_event_id),
+ UNIQUE(site_id,id),
  CHECK(expires_at>created_at AND expires_at<=created_at+interval '14 days'),
  CHECK ((claimed_by IS NULL AND claimed_until IS NULL)
     OR (claimed_by IS NOT NULL AND claimed_until IS NOT NULL)),
@@ -40,7 +41,8 @@ CREATE INDEX IF NOT EXISTS ix_website_automation_due
 CREATE TABLE IF NOT EXISTS website_cms.automation_run_steps (
  id uuid PRIMARY KEY,
  site_id uuid NOT NULL,
- run_id uuid NOT NULL REFERENCES website_cms.automation_internal_runs(id),
+ run_id uuid NOT NULL,
+ FOREIGN KEY(site_id,run_id) REFERENCES website_cms.automation_internal_runs(site_id,id),
  step_number integer NOT NULL CHECK(step_number BETWEEN 1 AND 60),
  node_id varchar(40) NOT NULL,
  result varchar(16) NOT NULL CHECK(result IN('advanced','waiting','completed','blocked')),
@@ -50,7 +52,8 @@ CREATE TABLE IF NOT EXISTS website_cms.automation_run_steps (
 CREATE TABLE IF NOT EXISTS website_cms.automation_internal_tasks (
  id uuid PRIMARY KEY,
  site_id uuid NOT NULL,
- run_id uuid NOT NULL REFERENCES website_cms.automation_internal_runs(id),
+ run_id uuid NOT NULL,
+ FOREIGN KEY(site_id,run_id) REFERENCES website_cms.automation_internal_runs(site_id,id),
  node_id varchar(40) NOT NULL,
  action varchar(32) NOT NULL CHECK(action IN('review_lead','notify_owner')),
  state varchar(16) NOT NULL DEFAULT 'pending' CHECK(state IN('pending','done','cancelled')),
