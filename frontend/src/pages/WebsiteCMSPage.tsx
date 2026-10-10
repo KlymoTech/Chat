@@ -47,6 +47,7 @@ function message(reason: unknown): string {
 
 export function WebsiteCMSPage() {
   const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
   const [pages, setPages] = useState<CMSPage[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [metrics, setMetrics] = useState<WebsiteMetrics | null>(null);
@@ -59,16 +60,16 @@ export function WebsiteCMSPage() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    if (!activeWorkspace) return;
+    if (!workspaceId) return;
     setBusy(true); setError('');
     try {
       const saved = await request<CMSPage[]>('/site-cms/pages');
       setPages(saved);
-      setMetrics(await request<WebsiteMetrics>('/site-analytics/summary?days=30'));
+      setMetrics(await request<WebsiteMetrics>('/site-analytics/summary?days=30').catch(() => null));
       setSelected((current) => current ? saved.find((page) => page.id === current.id) ?? null : null);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
-  }, [activeWorkspace?.id]);
+  }, [workspaceId]);
   useEffect(() => { setPages([]); setSelected(null); setDraft(null); void load(); }, [load]);
   const refreshRevisions = async (pageId: string) => {
     try { setRevisions(await request<Revision[]>('/site-cms/pages/' + pageId + '/revisions')); }
