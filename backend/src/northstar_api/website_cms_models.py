@@ -59,3 +59,63 @@ class WebsiteAudit(Base):
     action: Mapped[str] = mapped_column(String(40), nullable=False)
     revision_version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class WebsiteSiteMenu(Base):
+    """One versioned public navigation document per workspace."""
+
+    __tablename__ = "website_site_menus"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_website_site_menu_workspace"),
+        Index("ix_website_site_menus_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    draft_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    published_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+
+
+class WebsiteSiteMenuRevision(Base):
+    """Immutable menu content, with the real editor actor."""
+
+    __tablename__ = "website_site_menu_revisions"
+    __table_args__ = (
+        UniqueConstraint("menu_id", "version", name="uq_website_site_menu_revision_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    menu_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("website_site_menus.id", ondelete="RESTRICT"), nullable=False, index=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    document_json: Mapped[dict[str, Any]] = mapped_column(DocumentJSON, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
+
+
+class WebsiteSiteMenuAudit(Base):
+    """Preserve who changed the public navigation pointer and when."""
+
+    __tablename__ = "website_site_menu_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    menu_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("website_site_menus.id", ondelete="RESTRICT"), nullable=False, index=True,
+    )
+    actor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    revision_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
