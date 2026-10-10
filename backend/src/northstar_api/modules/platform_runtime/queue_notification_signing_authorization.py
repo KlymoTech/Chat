@@ -67,7 +67,7 @@ def verify_protected_signing_authorization(
     an independently enforced replay decision before key retrieval.
     """
     instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
+    if not isinstance(instant, datetime) or instant.tzinfo is None:
         raise SigningAuthorizationRejected("timezone-aware authorization required")
     if not isinstance(token, str) or len(token) > 4096 or token.count(".") != 1:
         raise SigningAuthorizationRejected("invalid authorization token")
@@ -97,10 +97,16 @@ def verify_protected_signing_authorization(
     auth_id = statement["authorization_id"]
     if (
         type(statement["version"]) is not int or statement["version"] != 1
+        or type(statement["issuer"]) is not str
+        or type(statement["audience"]) is not str
         or statement["issuer"] != expected_issuer
         or statement["audience"] != expected_audience
         or statement["purpose"] != "sign-witnessed-junit-custody"
         or type(auth_id) is not str or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", auth_id)
+        or any(type(statement[key]) is not str or not statement[key] for key in (
+            "release_id", "run_id", "branch", "environment", "source_commit",
+            "source_digest", "target_digest"
+        ))
         or type(issued) is not int or type(expires) is not int
         or issued > current or current >= expires or expires - issued > 300
         or issued < current - 300
