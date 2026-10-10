@@ -31,6 +31,7 @@ from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import redis_services
 from northstar_api.services.website_builder_document import BuilderPageDocument
+from northstar_api.services.website_form_client import SITE_FORM_CLIENT_JS
 from northstar_api.website_cms_models import WebsitePage, WebsiteRevision
 from northstar_api.services.website_form_contracts import (
     FormCreate, FormUpdate, FormVersionGuard, SiteFormDocument, validate_answers,
@@ -48,6 +49,10 @@ _FORM_STYLE = (
     "padding:11px;border:1px solid #64748b;border-radius:6px;font:inherit}fieldset{border:1px solid #cbd5e1;"
     "border-radius:8px;padding:12px}button{background:#1d4ed8;color:#fff;border:0;border-radius:7px;"
     "padding:13px 20px;font:inherit;cursor:pointer}.error{color:#991b1b}.required{color:#991b1b}"
+    "[hidden]{display:none!important}.site-form-step{margin:12px 0;padding:16px;border:1px solid #cbd5e1;border-radius:9px}"
+    ".site-form-step legend{font-size:1.08rem;font-weight:700;padding:0 6px}.site-form-nav{display:flex;gap:12px;margin:16px 0}"
+    ".site-form-nav button{background:#475569}.site-form-progress{color:#475569;font-weight:600}"
+    ".site-form-condition{border-left:3px solid #93c5fd;padding-left:12px;margin:12px 0}"
     ".honeypot{position:absolute;left:-10000px}a:focus,input:focus,button:focus,select:focus{"
     "outline:3px solid #f59e0b;outline-offset:2px}small{display:block;color:#475569}"
 )
@@ -59,14 +64,15 @@ def _html(content: str, *, status_code: int = 200) -> HTMLResponse:
         content=("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
                  "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                  "<title>Website enquiry</title><meta name=\"robots\" content=\"noindex\">"
-                 f"<style>{_FORM_STYLE}</style></head><body><main>{content}</main></body></html>"),
+                 f'<style>{_FORM_STYLE}</style><script defer src="/api/v1/site-forms/client.js"></script>'
+                 f"</head><body><main>{content}</main></body></html>"),
         status_code=status_code,
         headers={
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": (
                 "default-src 'none'; style-src 'sha256-" + _STYLE_HASH +
-                "'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'"
+                "'; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'"
             ),
         },
     )
@@ -75,37 +81,67 @@ def _html(content: str, *, status_code: int = 200) -> HTMLResponse:
 def _field_html(field: Any) -> str:
     key = escape(field.key, quote=True)
     label = escape(field.label)
-    required = " required" if field.required else ""
+    # A conditional required field is enabled and validated by progressive
+    # enhancement, and always enforced on the server for matching conditions.
+    required = " required" if field.required and field.condition is None else ""
+    required_hint = ' data-site-required="true"' if field.required else ""
     star = ' <span class="required">(required)</span>' if field.required else ""
     purpose = "<small>" + escape(field.purpose) + "</small>"
     if field.kind in {"checkbox", "consent"}:
-        return (f'<div><label><input type="checkbox" name="{key}" value="on"{required}>'
-                f' {label}{star}</label>{purpose}</div>')
-    if field.kind == "radio":
+        markup = (
+            f'<div><label><input type="checkbox" name="{key}" value="on"{required_hint}{required}>'
+            f' {label}{star}</label>{purpose}</div>'
+        )
+    elif field.kind == "radio":
         choices = "".join(
             '<label><input type="radio" name="' + key + '" value="' +
-            escape(choice, quote=True) + '"' + required + "> " + escape(choice) + "</label>"
+            escape(choice, quote=True) + '"' + required_hint + required +
+            "> " + escape(choice) + "</label>"
             for choice in field.choices
         )
-        return f"<fieldset><legend>{label}{star}</legend>{choices}{purpose}</fieldset>"
-    if field.kind == "select":
+        markup = f"<fieldset><legend>{label}{star}</legend>{choices}{purpose}</fieldset>"
+    elif field.kind == "select":
         options = '<option value="">Choose an option</option>' + "".join(
             '<option value="' + escape(choice, quote=True) + '">' + escape(choice) + "</option>"
             for choice in field.choices
         )
-        return (f'<div><label for="{key}">{label}{star}</label>'
-                f'<select id="{key}" name="{key}"{required}>{options}</select>{purpose}</div>')
-    if field.kind == "text" and field.max_length > 240:
-        return (f'<div><label for="{key}">{label}{star}</label>'
-                f'<textarea id="{key}" name="{key}" maxlength="{field.max_length}"'
-                f' rows="5"{required}></textarea>{purpose}</div>')
-    input_kind = "tel" if field.kind == "phone" else field.kind if field.kind in {"email", "date"} else "text"
-    return (f'<div><label for="{key}">{label}{star}</label>'
+        markup = (
+            f'<div><label for="{key}">{label}{star}</label>'
+            f'<select id="{key}" name="{key}"{required_hint}{required}>{options}</select>{purpose}</div>'
+        )
+    elif field.kind == "text" and field.max_length > 240:
+        markup = (
+            f'<div><label for="{key}">{label}{star}</label>'
+            f'<textarea id="{key}" name="{key}" maxlength="{field.max_length}"'
+            f' rows="5"{required_hint}{required}></textarea>{purpose}</div>'
+        )
+    else:
+        input_kind = "tel" if field.kind == "phone" else (
+            field.kind if field.kind in {"email", "date"} else "text"
+        )
+        markup = (
+            f'<div><label for="{key}">{label}{star}</label>'
             f'<input id="{key}" name="{key}" type="{input_kind}" maxlength="{field.max_length}"'
-            f'{required}>{purpose}</div>')
+            f'{required_hint}{required}>{purpose}</div>'
+        )
+    if field.condition is None:
+        return markup
+    controller = escape(field.condition.field_key, quote=True)
+    equals = escape(field.condition.equals, quote=True)
+    instruction = (
+        "<small>Only answer when " + escape(field.condition.field_key) +
+        " equals " + escape(field.condition.equals) + ".</small>"
+    )
+    return (
+        f'<div class="site-form-condition" data-condition-key="{controller}" '
+        f'data-condition-equals="{equals}">{markup}{instruction}</div>'
+    )
 
 
-def _render_form(doc: SiteFormDocument, form: WebsiteForm, *, key: str, errors: dict[str, str] | None = None) -> HTMLResponse:
+def _render_form(
+    doc: SiteFormDocument, form: WebsiteForm, *, key: str,
+    errors: dict[str, str] | None = None,
+) -> HTMLResponse:
     issues = errors or {}
     error_markup = ""
     if issues:
@@ -114,17 +150,31 @@ def _render_form(doc: SiteFormDocument, form: WebsiteForm, *, key: str, errors: 
             + "".join("<li>" + escape(name + ": " + message) + "</li>" for name, message in issues.items())
             + "</ul></div>"
         )
+    step_sections = []
+    for step_index, heading in enumerate(doc.steps, start=1):
+        content_fields = "".join(
+            _field_html(field) for field in doc.fields if field.step == step_index
+        )
+        step_sections.append(
+            f'<fieldset class="site-form-step" data-site-step="{step_index}">'
+            f'<legend>{escape(heading)}</legend>{content_fields}</fieldset>'
+        )
     content = (
         f"<h1>{escape(doc.title)}</h1><p>{escape(doc.description)}</p>{error_markup}"
-        f'<form action="/api/v1/site-forms/public/{form.workspace_id}/{escape(form.slug, quote=True)}"'
+        f'<form data-site-form action="/api/v1/site-forms/public/{form.workspace_id}/{escape(form.slug, quote=True)}"'
         f' method="post" accept-charset="utf-8">'
         '<label class="honeypot" aria-hidden="true">Leave blank'
         '<input name="_website" tabindex="-1" autocomplete="off"></label>'
         f'<input type="hidden" name="_version" value="{form.published_version}">'
         f'<input type="hidden" name="_submission_key" value="{escape(key, quote=True)}">'
-        + "".join(_field_html(field) for field in doc.fields)
+        '<p class="site-form-progress" data-site-progress role="status" aria-live="polite"></p>'
+        + "".join(step_sections)
+        + '<div class="site-form-nav">'
+        '<button type="button" data-site-back hidden>Previous step</button>'
+        '<button type="button" data-site-next hidden>Next step</button>'
+        '</div>'
         + "<p>" + escape(doc.privacy_notice) + "</p>"
-        + "<button type=\"submit\">" + escape(doc.submit_label) + "</button></form>"
+        + '<button type="submit" data-site-submit>' + escape(doc.submit_label) + "</button></form>"
     )
     return _html(content, status_code=422 if issues else 200)
 
@@ -172,6 +222,15 @@ async def _revision(session: DBSession, form: WebsiteForm, version: int) -> Webs
     if revision is None:
         raise HTTPException(409, "Form revision unavailable")
     return revision
+
+
+@router.get("/client.js", include_in_schema=False)
+async def site_form_client() -> Response:
+    return Response(
+        content=SITE_FORM_CLIENT_JS,
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("")
