@@ -7,9 +7,10 @@ quarantine/consent evidence is available.
 from __future__ import annotations
 
 from datetime import date
+from uuid import UUID
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, TypeAdapter, field_validator, model_validator
 
 FormKind = Literal["text", "email", "phone", "select", "radio", "checkbox", "date", "consent"]
 FieldSensitivity = Literal["normal", "personal", "sensitive"]
@@ -77,7 +78,7 @@ class SiteFormDocument(BaseModel):
 class FormCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     slug: str = Field(min_length=1, max_length=160, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    agent_id: str = Field(pattern=r"^[a-f0-9-]{36}$")
+    agent_id: UUID
     document: SiteFormDocument
 
 
@@ -90,6 +91,9 @@ class FormUpdate(BaseModel):
 class FormVersionGuard(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
+
+
+_EMAIL_ADAPTER = TypeAdapter(EmailStr)
 
 
 def validate_answers(
@@ -125,7 +129,7 @@ def validate_answers(
             continue
         if field.kind == "email":
             try:
-                value = str(EmailStr._validate(value))
+                value = str(_EMAIL_ADAPTER.validate_python(value))
             except (ValueError, TypeError):
                 errors[field.key] = "Enter a valid email address"
                 continue
@@ -140,6 +144,8 @@ def validate_answers(
             continue
         elif field.kind == "date":
             try:
+                if len(value) != 10 or value[4] != "-" or value[7] != "-":
+                    raise ValueError("Invalid date format")
                 date.fromisoformat(value)
             except ValueError:
                 errors[field.key] = "Enter a valid date"
