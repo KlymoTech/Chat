@@ -5,6 +5,7 @@ Never modifies separate processing consent or automatically dispatches messages.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 from datetime import UTC, datetime
 from html import escape
@@ -202,7 +203,7 @@ _UNSUBSCRIBE_STYLE = (
     "button{padding:12px 22px;border:0;border-radius:7px;background:#1d4ed8;color:white;font:inherit}"
     "button:focus-visible{outline:3px solid #eab308;outline-offset:2px}"
 )
-_STYLE_SHA = __import__("base64").b64encode(hashlib.sha256(_UNSUBSCRIBE_STYLE.encode()).digest()).decode()
+_STYLE_SHA = base64.b64encode(hashlib.sha256(_UNSUBSCRIBE_STYLE.encode()).digest()).decode()
 
 
 def _confirmation(content: str) -> HTMLResponse:
