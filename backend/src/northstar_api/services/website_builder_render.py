@@ -81,6 +81,20 @@ def render_page(
         raise TypeError("Expected validated BuilderPageDocument")
     sections = "".join(_render_node(node) for node in document.nodes)
     title = escape(document.title)
+    robots = "index, follow" if document.seo.indexable else "noindex, nofollow"
+    seo_metadata = '<meta name="robots" content="' + robots + '">'
+    if document.seo.description:
+        seo_metadata += (
+            '<meta name="description" content="'
+            + _attr(document.seo.description)
+            + '">'
+        )
+    if document.seo.canonical_url:
+        seo_metadata += (
+            '<link rel="canonical" href="'
+            + _attr(document.seo.canonical_url)
+            + '">'
+        )
     privacy_footer = (
         '<footer class="site-footer"><a href="' + _attr(privacy_path) +
         '">Privacy and tracking preferences</a></footer>'
@@ -101,7 +115,7 @@ def render_page(
         "<!doctype html>\n"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title}</title><style>{SITE_CSS}</style>"
+        f"<title>{title}</title>{seo_metadata}<style>{SITE_CSS}</style>"
         "</head><body>"
         '<a class="skip-link" href="#site-main">Skip to content</a>'
         f'<header class="site-header"><p class="site-eyebrow">Welcome</p><h1>{title}</h1></header>'
