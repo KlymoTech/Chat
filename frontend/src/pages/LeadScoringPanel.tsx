@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, GitBranch, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Badge, Button, Card } from '@/components/ui';
 import {
@@ -35,7 +35,7 @@ export function LeadScoringPanel({ journeys, onApplied }: Props) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true); setError('');
     try {
       const policy = await leadScoringApi.policy();
@@ -43,8 +43,8 @@ export function LeadScoringPanel({ journeys, onApplied }: Props) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to load scoring policy.');
     } finally { setLoading(false); }
-  };
-  useEffect(() => { void refresh(); }, []);
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const dirty = Boolean(saved && draft && JSON.stringify(saved) !== JSON.stringify(draft));
   const modify = (changes: Partial<LeadScoringPolicy>) => {
