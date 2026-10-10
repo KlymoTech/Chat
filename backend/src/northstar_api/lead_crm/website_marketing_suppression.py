@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+# Shared by preference APIs, form opt-in and any future provider send gate.
+# A new form must not silently reverse a prior explicit withdrawal.
+MARKETING_STOP_STATUSES = frozenset({"withdrawn", "revoked", "denied", "opted_out"})
+
 _TOKEN_PURPOSE = "marketing-unsubscribe"
 _KEY_LABEL = b"northstar.site-marketing.unsubscribe.v1\0"
 _MAX_TOKEN_LENGTH = 750
