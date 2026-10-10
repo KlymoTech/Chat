@@ -32,6 +32,15 @@ SITE_CSS = (
     "a.site-action{display:inline-flex;align-items:center;justify-content:center;background:#1d4ed8;"
     "border-radius:10px;color:#fff;font-weight:650;padding:12px 24px;text-decoration:none;margin:8px 0}"
     "a.site-action:hover{background:#1e40af}"
+
+    ".site-node.site-align-center{text-align:center}.site-node.site-align-end{text-align:right}"
+    ".site-node.site-space-compact{margin-block:8px}.site-node.site-space-spacious{margin-block:30px}"
+    ".site-node.site-tone-muted{color:#475569}.site-node.site-tone-accent{color:#1d4ed8}"
+    "main>section.site-node.site-space-compact{padding:16px}"
+    "main>section.site-node.site-space-spacious{padding:clamp(48px,6vw,76px)}"
+    "main>section.site-node.site-tone-accent{background:#eff6ff;color:#1e3a8a;border-color:#bfdbfe}"
+    ".site-action.site-node.site-tone-accent{background:#1e40af;color:#fff}"
+    ".site-form-frame.site-node.site-tone-accent{border-color:#1d4ed8}"
     ".site-form-frame{display:block;width:100%;min-height:670px;border:1px solid #cbd5e1;border-radius:12px;background:#fff}"
     ".site-footer{max-width:1100px;margin:auto;padding:22px 24px 64px;border-top:1px solid #cbd5e1;color:#475569}"
     ".site-footer a{color:#1d4ed8;font-weight:650}"
@@ -51,14 +60,31 @@ def _attr(value: str) -> str:
     return escape(value, quote=True)
 
 
+def _appearance_class_names(node: BuilderNode) -> str:
+    """Design tokens are validated literals; never use arbitrary CSS values."""
+    if node.appearance is None:
+        return ""
+    appearance = node.appearance
+    return (
+        f" site-node site-align-{appearance.alignment}"
+        f" site-space-{appearance.spacing} site-tone-{appearance.tone}"
+    )
+
+
+def _appearance_attr(node: BuilderNode) -> str:
+    names = _appearance_class_names(node)
+    return f' class="{names.strip()}"' if names else ""
+
+
 def _render_node(node: BuilderNode) -> str:
+    appearance = _appearance_attr(node)
     if node.kind == "heading":
-        return f'<h2 data-builder-id="{_attr(node.id)}">{escape(node.text or "")}</h2>'
+        return f'<h2 data-builder-id="{_attr(node.id)}"{appearance}>{escape(node.text or "")}</h2>'
     if node.kind == "paragraph":
-        return f'<p data-builder-id="{_attr(node.id)}">{escape(node.text or "")}</p>'
+        return f'<p data-builder-id="{_attr(node.id)}"{appearance}>{escape(node.text or "")}</p>'
     if node.kind == "image":
         return (
-            f'<img data-builder-id="{_attr(node.id)}" src="{_attr(node.url or "")}" '
+            f'<img data-builder-id="{_attr(node.id)}"{appearance} src="{_attr(node.url or "")}" '
             f'alt="{_attr(node.text or "")}" loading="lazy">'
         )
     if node.kind == "button":
@@ -66,18 +92,18 @@ def _render_node(node: BuilderNode) -> str:
         external = url.startswith("https://")
         protection = ' rel="noopener noreferrer"' if external else ""
         return (
-            f'<a class="site-action" data-builder-id="{_attr(node.id)}" href="{_attr(url)}"'
+            f'<a class="site-action{_appearance_class_names(node)}" data-builder-id="{_attr(node.id)}" href="{_attr(url)}"'
             f'{protection}>{escape(node.text or "")}</a>'
         )
     if node.kind == "form":
         return (
-            f'<iframe class="site-form-frame" data-builder-id="{_attr(node.id)}" '
+            f'<iframe class="site-form-frame{_appearance_class_names(node)}" data-builder-id="{_attr(node.id)}" '
             f'src="{_attr(node.url or "")}" title="{_attr(node.text or "Contact form")}" '
             'loading="lazy" sandbox="allow-forms allow-same-origin" referrerpolicy="no-referrer"></iframe>'
         )
     tag = "section" if node.kind == "section" else "div"
     children = "".join(_render_node(child) for child in node.children)
-    return f'<{tag} data-builder-id="{_attr(node.id)}">{children}</{tag}>'
+    return f'<{tag} data-builder-id="{_attr(node.id)}"{appearance}>{children}</{tag}>'
 
 
 def render_page(
