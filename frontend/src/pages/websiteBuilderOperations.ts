@@ -88,3 +88,48 @@ export function collectNodeIds(sections: BuilderNode[]): string[] {
   }
   return ids;
 }
+
+/** One bounded undo stack shared by text, block, section and metadata edits. */
+export interface DraftHistory<T> {
+  past: T[];
+  present: T | null;
+  future: T[];
+}
+
+export function startDraftHistory<T>(document: T | null): DraftHistory<T> {
+  return { past: [], present: document, future: [] };
+}
+
+export function reviseDraftHistory<T>(
+  history: DraftHistory<T>,
+  change: T | null | ((current: T | null) => T | null),
+  maxSteps = 50,
+): DraftHistory<T> {
+  const next = typeof change === 'function'
+    ? (change as (current: T | null) => T | null)(history.present)
+    : change;
+  if (JSON.stringify(next) === JSON.stringify(history.present)) return history;
+  if (next === null) return startDraftHistory<T>(null);
+  const past = history.present === null ? [] : [...history.past, history.present].slice(-maxSteps);
+  return { past, present: next, future: [] };
+}
+
+export function undoDraftHistory<T>(history: DraftHistory<T>): DraftHistory<T> {
+  if (!history.past.length) return history;
+  const previous = history.past[history.past.length - 1]!;
+  return {
+    past: history.past.slice(0, -1),
+    present: previous,
+    future: history.present === null ? history.future : [history.present, ...history.future],
+  };
+}
+
+export function redoDraftHistory<T>(history: DraftHistory<T>): DraftHistory<T> {
+  if (!history.future.length) return history;
+  const next = history.future[0]!;
+  return {
+    past: history.present === null ? history.past : [...history.past, history.present].slice(-50),
+    present: next,
+    future: history.future.slice(1),
+  };
+}
