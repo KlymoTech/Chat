@@ -69,21 +69,21 @@ class ProductionPreflightTests(unittest.TestCase):
     def test_duplicate_env_key_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"
-            path.write_text("APP_ENV=production\\nAPP_ENV=development\\n", encoding="utf-8")
+            path.write_text("APP_ENV=production\nAPP_ENV=development\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_env(path)
 
     def test_invalid_env_key_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"
-            path.write_text("INVALID-KEY=value\\n", encoding="utf-8")
+            path.write_text("INVALID-KEY=value\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_env(path)
 
     def test_unterminated_quote_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"
-            path.write_text("JWT_SECRET='unterminated\\n", encoding="utf-8")
+            path.write_text("JWT_SECRET='unterminated\n", encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_env(path)
 
