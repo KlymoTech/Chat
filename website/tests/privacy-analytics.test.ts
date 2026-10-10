@@ -26,6 +26,19 @@ describe("versioned consent and minimal first-party analytics",()=>{
     expect(parseAnalyticsEvent({...base,
       actionKey:"faq_550e8400-e29b-41d4-a716-446655440000_3"})).not.toBeNull();
   });
+  it("rejects mismatched event/action pairs that would inflate reporting",()=>{
+    const base={eventName:"cta_click",actionKey:"cta_contact",routePath:"/contact"};
+    expect(parseAnalyticsEvent({...base,eventName:"faq_open"})).toBeNull();
+    expect(parseAnalyticsEvent({...base,eventName:"form_start"})).toBeNull();
+    expect(parseAnalyticsEvent({...base,eventName:"navigation_click"})).toBeNull();
+    expect(parseAnalyticsEvent({...base,eventName:"content_view"})).toBeNull();
+    expect(parseAnalyticsEvent({...base,eventName:"faq_open",
+      actionKey:"faq_550e8400-e29b-41d4-a716-446655440000_0"})).not.toBeNull();
+    expect(parseAnalyticsEvent({...base,eventName:"form_start",
+      actionKey:"form_start"})).not.toBeNull();
+    expect(parseAnalyticsEvent({...base,eventName:"content_view",
+      actionKey:"page_view"})).not.toBeNull();
+  });
   it("blocks PII, tracking IDs, query strings and arbitrary event payloads",()=>{
     const baseline={eventName:"cta_click",actionKey:"cta_contact",routePath:"/contact"};
     for(const value of [
