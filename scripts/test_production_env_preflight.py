@@ -11,8 +11,8 @@ class ProductionPreflightTests(unittest.TestCase):
     def setUp(self):
         self.valid = {
             "APP_ENV": "production",
-            "JWT_SECRET": "a" * 40,
-            "MFA_ENCRYPTION_KEY": "b" * 40,
+            "JWT_SECRET": "N6p9!aB2xQ7#vR4kL8@tY5mZ1wC3sD0eF",
+            "MFA_ENCRYPTION_KEY": "R8v2@pL6tH4!cK9qD5#sW1zY7mN3fA0bG",
             "DATABASE_URL": "postgresql://user:password@db.internal:5432/app",
             "APP_CORS_ORIGINS": '["https://app.company.test"]',
             "APP_AUTO_CREATE_SCHEMA": "false",
@@ -108,6 +108,14 @@ class ProductionPreflightTests(unittest.TestCase):
 
     def test_private_ipv6_origin_rejected(self):
         self.valid["APP_CORS_ORIGINS"] = '["https://[fc00::1]"]'
+        self.assertTrue(validate(self.valid))
+
+    def test_repeated_jwt_secret_rejected(self):
+        self.valid["JWT_SECRET"] = "a" * 40
+        self.assertTrue(validate(self.valid))
+
+    def test_repeated_mfa_secret_rejected(self):
+        self.valid["MFA_ENCRYPTION_KEY"] = "b" * 40
         self.assertTrue(validate(self.valid))
 
 
