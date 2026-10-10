@@ -315,7 +315,7 @@ async def site_analytics_daily_report(
             OutboxEvent.occurred_at <= now,
         )
         .group_by(
-            .group_by(outbox_day,
+            outbox_day,
             OutboxEvent.published_at.is_not(None),
             OutboxEvent.last_error.is_not(None),
         )
