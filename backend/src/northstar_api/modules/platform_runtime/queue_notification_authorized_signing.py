@@ -60,6 +60,7 @@ async def sign_with_protected_authorization(
     # The custody reader still independently verifies both keys and its evidence.
     if not callable(getattr(signing_identity, "retrieve_for_isolated_service", None)):
         raise PermissionError("protected signing identity unavailable")
+    pinned_keys = []
     for public_key in (witness_public_key_pem, test_signer_public_key_pem):
         try:
             key = serialization.load_pem_public_key(public_key)
@@ -67,6 +68,9 @@ async def sign_with_protected_authorization(
             raise PermissionError("invalid pinned custody key") from exc
         if not isinstance(key, Ed25519PublicKey):
             raise PermissionError("pinned custody keys must use Ed25519")
+        pinned_keys.append(key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw))
+    if pinned_keys[0] == pinned_keys[1]:
+        raise PermissionError("witness and attestation signer must be independent")
     grant_id = verify_protected_signing_authorization(
         authorization_token,
         pinned_issuer_public_key_pem=authorization_public_key_pem,
