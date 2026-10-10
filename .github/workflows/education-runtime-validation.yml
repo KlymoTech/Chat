@@ -103,18 +103,21 @@ jobs:
           PY
       - name: Capture Python environment diagnostics
         if: always()
+        shell: bash
         run: |
-          uv run python -VV
-          uv run python -m pip --version || true
-          uv run python - <<'PY'
-          from pathlib import Path
-          from importlib.util import find_spec
-
-          modules = ("fastapi", "sqlalchemy", "alembic", "pytest", "northstar_api")
-          lines = [f"{module}: {'present' if find_spec(module) else 'missing'}" for module in modules]
-          Path("education-ci-diagnostics.txt").write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
-          print(chr(10).join(lines))
-          PY
+          {
+            echo "Python executable and version:"
+            command -v python || true
+            python --version || true
+            echo "uv executable and version:"
+            command -v uv || true
+            uv --version || true
+            echo "Python package environment:"
+            uv pip list --python .venv/bin/python || true
+            echo "Working directory:"
+            pwd
+          } > education-ci-diagnostics.txt 2>&1
+          cat education-ci-diagnostics.txt
       - name: Upload education validation diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0
