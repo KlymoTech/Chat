@@ -33,6 +33,7 @@ jobs:
           echo "Runner architecture: ${{ runner.arch }}"
           echo "Repository: ${{ github.repository }}"
           echo "Commit: ${{ github.sha }}"
+          echo "Education validation job reached the runner" >> "$GITHUB_STEP_SUMMARY"
       - id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
