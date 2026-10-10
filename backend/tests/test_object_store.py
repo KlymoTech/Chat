@@ -716,6 +716,56 @@ async def test_aws_extraction_purge_rejects_bucket_without_enabled_versioning(
     assert client.deleted_batches == []
 
 
+async def test_aws_rollback_deletes_only_the_promoted_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeS3(b"payload")
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+    key = f"knowledge/{uuid4()}/{uuid4()}/2026/10/policy.txt"
+
+    await store.rollback_promoted(key, version_id="copied-version-1")
+    assert client.delete_arguments == [{"Key": key, "VersionId": "copied-version-1"}]
+
+
+async def test_aws_rollback_without_receipt_never_deletes_latest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeS3(b"payload")
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="requires its copied version receipt"):
+        await store.rollback_promoted(f"knowledge/{uuid4()}/file.txt", version_id=None)
+    assert client.deleted == []
+
+
+async def test_static_rollback_keeps_exact_key_purge(monkeypatch: pytest.MonkeyPatch) -> None:
+    key = f"knowledge/{uuid4()}/2026/10/policy.txt"
+    client = _FakeVersionedS3([{"Versions": [{"Key": key, "VersionId": "v1"}]}])
+    store = ObjectStore(get_settings())
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    await store.rollback_promoted(key, version_id=None)
+    assert client.deleted_batches == [[{"Key": key, "VersionId": "v1"}]]
+
+
 async def test_extraction_purge_rejects_version_created_after_enumeration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

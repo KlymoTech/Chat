@@ -383,6 +383,26 @@ class ObjectStore:
 
         return await asyncio.to_thread(purge)
 
+    async def rollback_promoted(self, key: str, *, version_id: str | None) -> None:
+        """Remove only this request's promoted version after a failed DB commit."""
+        if not key.startswith("knowledge/"):
+            raise ValueError("Promoted object key is invalid")
+        if self.settings.s3_auth_mode != "aws-default":
+            await self.purge_exact(key)
+            return
+        if not version_id or version_id.lower() == "null":
+            raise ObjectStoreUnavailable("AWS promoted rollback requires its copied version receipt")
+
+        def remove() -> None:
+            try:
+                self._client().delete_object(Bucket=self.settings.s3_bucket, Key=key, VersionId=version_id)
+            except (BotoCoreError, ClientError) as exc:
+                raise ObjectStoreUnavailable(
+                    "Object storage could not roll back the promoted version"
+                ) from exc
+
+        await asyncio.to_thread(remove)
+
     async def purge_prefix(self, prefix: str) -> int:
         """Remove all artifacts and versions below one validated source prefix."""
         if not prefix.startswith("extractions/") or not prefix.endswith("/"):

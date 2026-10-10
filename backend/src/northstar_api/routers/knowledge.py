@@ -319,7 +319,7 @@ async def add_knowledge(
         await session.rollback()
         if object_key:
             try:
-                await object_store.purge_exact(object_key)
+                await object_store.rollback_promoted(object_key, version_id=uploaded_version)
             except Exception as cleanup_error:
                 logger.warning(
                     "promoted_upload_cleanup_failed",

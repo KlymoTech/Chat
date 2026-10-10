@@ -1294,7 +1294,7 @@ async def create_upload(
         await session.rollback()
         if object_key:
             # A failed DB transaction must not delete a reused or another tenant's object.
-            await object_store.purge_exact(object_key)
+            await object_store.rollback_promoted(object_key, version_id=object_version_id)
         raise
     if not get_settings().background_dispatch_enabled:
         await ingest_source_async(session, source.id)

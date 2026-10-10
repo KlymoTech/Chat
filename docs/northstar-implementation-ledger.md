@@ -750,3 +750,13 @@ do not merge without explicit instruction.
 - This only covers the event-driven cleanup path; concurrent writers can still
   race after the final check. Storage write isolation, periodic orphan scans,
   and live AWS qualification remain required.
+
+## Increment: version-scoped rollback after failed upload transaction (2026-10-10)
+
+- Both knowledge upload routes now use one rollback helper after a failed
+  database transaction. AWS mode deletes only the exact copied S3 version
+  returned by promotion; it refuses to delete latest when that receipt is
+  missing. Static-key MinIO retains the prior exact-key purge behavior.
+- This avoids broad AWS key deletion on a commit failure. It does not solve
+  unknown S3 outcomes, concurrent writes, legal holds or periodic orphan
+  reconciliation. Live AWS and repository-wide CI remain unverified.
