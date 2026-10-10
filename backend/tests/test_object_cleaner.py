@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from northstar_api.workers.event_utils import EventEnvelope
 from northstar_api.workers.object_cleaner import cleanup_object_key, process_cleanup_event
@@ -47,12 +48,14 @@ def test_cleanup_object_key_rejects_missing_object_key() -> None:
         cleanup_object_key(event)
 
 
-
-@pytest.mark.parametrize("malformed", [
-    "extractions/foreign/source/file.zip",
-    123,
-    "",
-])
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "extractions/foreign/source/file.zip",
+        123,
+        "",
+    ],
+)
 def test_invalid_extraction_target_fails_preflight(malformed: object) -> None:
     tenant_id = uuid4()
     event = _deletion_event(
@@ -129,7 +132,10 @@ async def test_valid_cleanup_preserves_exact_and_prefix_purge(monkeypatch) -> No
     store.purge_exact = AsyncMock(return_value=2)
     store.purge_prefix = AsyncMock(return_value=3)
 
-    assert await process_cleanup_event(factory, event, event.payload["objectKey"], store) == 5
+    result = await process_cleanup_event(
+        factory, event, event.payload["objectKey"], store
+    )
+    assert result == 5
     store.purge_exact.assert_awaited_once_with(event.payload["objectKey"])
     store.purge_prefix.assert_awaited_once_with(prefix)
     mark_processed.assert_awaited_once()
