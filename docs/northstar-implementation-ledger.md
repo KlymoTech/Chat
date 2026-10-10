@@ -808,3 +808,11 @@ do not merge without explicit instruction.
   failed on an India-locale development machine despite correct usage data.
   No billing logic, plan limit or displayed value was changed.
 - The broader frontend suite and billing/provider qualification remain open.
+
+## Increment: session-scoped delivery API test context (2026-10-10)
+
+- Three delivery API tests now use the existing workspace-selection API rather
+  than an obsolete localStorage key. They again assert that list, history and
+  requeue requests include the active workspace header and bearer context.
+  No duplicate selection state or production API behavior was added.
+- The wider frontend suite and live channel-provider qualification remain open.
