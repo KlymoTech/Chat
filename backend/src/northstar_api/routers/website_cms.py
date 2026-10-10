@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
 from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession, require_roles
 from northstar_api.models import Agent, AgentStatus, Role, Workspace, WorkspaceStatus
@@ -1003,6 +1004,12 @@ async def website_content_preflight(
         if agent is None or agent.status != AgentStatus.ACTIVE:
             flag("INACTIVE_FORM_AGENT", "blocker", "form", form.slug,
                  "Activate the form's lead-generation agent before accepting visitors.")
+        elif await get_agent_purpose(
+            session, tenant_id=tenant_id, workspace_id=workspace_id,
+            agent_id=form.agent_id,
+        ) is not AgentPurpose.LEAD_GENERATION:
+            flag("INVALID_FORM_AGENT_PURPOSE", "blocker", "form", form.slug,
+                 "Published forms must use a lead-generation agent.")
         else:
             valid_forms.add(form.slug)
 
