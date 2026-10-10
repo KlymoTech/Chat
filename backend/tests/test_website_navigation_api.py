@@ -241,3 +241,59 @@ async def test_menu_rejects_unsafe_urls_and_duplicate_or_unbounded_links(
         ]},
     })
     assert overflow.status_code == 422
+
+
+async def test_preflight_flags_navigation_to_archived_pages(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    workspace_id = workspace.json()["id"]
+    slug = "preflight-target-" + uuid4().hex[:8]
+    page_id = await _page(client, auth_headers, slug, "Preflight target")
+    await _publish_page(client, auth_headers, page_id)
+    menu_url = "/api/v1/site-cms/menu"
+    prior = await client.get(menu_url, headers=auth_headers)
+    assert prior.status_code == 200, prior.text
+    baseline = prior.json()
+    saved = await client.put(menu_url, headers=auth_headers, json={
+        "expected_version": baseline["draftVersion"],
+        "document": {
+            "items": [{"id": "preflight-item", "label": "Old menu link", "slug": slug}],
+        },
+    })
+    assert saved.status_code == 200, saved.text
+    new_version = saved.json()["draftVersion"]
+    promoted = await client.post(
+        menu_url + "/publish", headers=auth_headers,
+        json={"expected_version": new_version},
+    )
+    assert promoted.status_code == 200, promoted.text
+    retired = await client.post(
+        f"/api/v1/site-cms/pages/{page_id}/archive", headers=auth_headers,
+    )
+    assert retired.status_code == 200, retired.text
+    preflight = await client.get("/api/v1/site-cms/preflight", headers=auth_headers)
+    assert preflight.status_code == 200, preflight.text
+    report = preflight.json()
+    assert report["scope"] == "cms-content-only"
+    assert report["contentReady"] is False
+    assert any(
+        issue["code"] == "BROKEN_MENU_LINK" and issue["slug"] == slug
+        and issue["severity"] == "blocker"
+        for issue in report["issues"]
+    )
+    assert report["releaseCertified"] is False
+    assert str(workspace_id) not in str(report["issues"])
+
+    # Restore the previously saved menu as a new version so this shared
+    # test workspace does not leave a broken public navigation pointer.
+    restored = await client.put(menu_url, headers=auth_headers, json={
+        "expected_version": new_version,
+        "document": baseline["document"],
+    })
+    assert restored.status_code == 200, restored.text
+    restore_published = await client.post(
+        menu_url + "/publish", headers=auth_headers,
+        json={"expected_version": restored.json()["draftVersion"]},
+    )
+    assert restore_published.status_code == 200, restore_published.text
