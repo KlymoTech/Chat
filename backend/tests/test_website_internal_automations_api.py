@@ -124,6 +124,7 @@ async def test_internal_review_preview_execute_and_idempotent_replay(
     info = preview.json()
     assert info["externalDelivery"] is False
     assert info["eligibleLeads"] == 1
+    assert len(info["eligibleFingerprint"]) == 64
     assert info["blockedByConsentOrStatus"] == 1
     assert info["remainingEligible"] == 1
     assert info["truncated"] is False
@@ -139,7 +140,13 @@ async def test_internal_review_preview_execute_and_idempotent_replay(
         "expected_policy_version": info["policyVersion"],
         "expected_segment_version": info["segmentVersion"],
         "expected_eligible_leads": info["eligibleLeads"],
+        "expected_eligible_fingerprint": info["eligibleFingerprint"],
     }
+    stale_same_count = await client.post(
+        execute_link, headers=headers,
+        json={**payload, "expected_eligible_fingerprint": "0" * 64},
+    )
+    assert stale_same_count.status_code == 409
     assert (await client.post(execute_link, json=payload)).status_code == 401
     executed = await client.post(execute_link, headers=headers, json=payload)
     assert executed.status_code == 200, executed.text
