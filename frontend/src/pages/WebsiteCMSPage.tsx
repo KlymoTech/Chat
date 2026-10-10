@@ -163,6 +163,8 @@ export function WebsiteCMSPage() {
               <div><strong>{metrics?.pages.length ?? '—'}</strong><span>Viewed pages</span></div>
             </div>
             {metrics && metrics.pages.length > 0 ? <p>Top page: /{metrics.pages[0]?.slug} · {metrics.pages[0]?.pageViews} views</p> : null}
+            <a className="site-cms-public-link" href={apiConfig.baseUrl + '/site-discovery/sitemap/' + activeWorkspace.id + '.xml'}
+              target="_blank" rel="noopener noreferrer">View published XML sitemap <ExternalLink size={15} aria-hidden="true" /></a>
           </Card>
           {!draft || !selected ? <Card><h3>Select a page</h3><p>Choose an existing page or create a draft.</p></Card> : <>
             <Card><div className="site-cms-toolbar"><div><strong>{selected.title}</strong> <Badge tone={selected.status === 'published' ? 'success' : 'warning'}>{selected.status}</Badge>
