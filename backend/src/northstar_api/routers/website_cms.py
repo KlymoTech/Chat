@@ -6,6 +6,7 @@ is a database transaction with an actor-attributed audit record.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import quote
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession, require_roles
 from northstar_api.models import Role, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
@@ -219,7 +221,16 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
     revision = await _revision(session, page, page.published_version)
     validated = BuilderPageDocument.model_validate(revision.document_json)
     return HTMLResponse(
-        content=render_page(validated),
+        content=render_page(
+            validated,
+            privacy_path=(
+                f"/privacy/site/{workspace_id}?returnTo="
+                + quote(
+                    f"{get_settings().app_api_prefix.rstrip('/')}/site-cms/public/{workspace_id}/{slug}",
+                    safe="",
+                )
+            ),
+        ),
         headers={
             "Cache-Control": "no-store",
             "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
