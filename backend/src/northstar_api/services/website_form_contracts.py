@@ -92,6 +92,11 @@ class SiteFormDocument(BaseModel):
             raise ValueError("An explicit processing consent control is required")
         if not any(field.kind in {"email", "phone"} and field.required for field in self.fields):
             raise ValueError("Require at least one contact method")
+        if any(field.key == "marketing_opt_in" for field in self.fields) and not any(
+            field.kind == "email" and field.required and field.condition is None
+            for field in self.fields
+        ):
+            raise ValueError("Email marketing permission requires a required email field")
         if any(field.key in {"_submission_key", "_version", "_website"} for field in self.fields):
             raise ValueError("Reserved transport field")
         if any(not label.strip() or len(label) > 90 for label in self.steps):
