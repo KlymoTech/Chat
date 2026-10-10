@@ -147,6 +147,21 @@ async def test_published_form_writes_exactly_one_existing_lead_with_consents_and
     assert owner_receipts.json()[0]["receiptId"] == receipt["receiptId"]
     assert "hanako@example.com" not in owner_receipts.text
 
+    closed = await client.post(
+        f"/api/v1/site-forms/{form_id}/unpublish", headers=auth_headers,
+        json={"expected_version":1},
+    )
+    assert closed.status_code == 200
+    same_after_close = await client.post(
+        public, data=data, headers={"Accept":"application/json"},
+    )
+    assert same_after_close.status_code == 200
+    assert same_after_close.json() == receipt
+    new_after_close = await client.post(
+        public, data=_values(str(uuid4())), headers={"Accept":"application/json"},
+    )
+    assert new_after_close.status_code == 410
+
 
 async def test_draft_edits_never_mutate_published_form_and_publishing_requires_fresh_version(
     client: AsyncClient, auth_headers: dict[str, str],
