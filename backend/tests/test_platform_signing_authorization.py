@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -13,6 +13,11 @@ from northstar_api.modules.platform_runtime.queue_notification_signing_authoriza
     ProtectedSigningPlan, SigningAuthorizationRejected,
     verify_protected_signing_authorization,
 )
+
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
+        return None
 
 
 def _token(key, plan, at, **changes):
@@ -152,7 +157,7 @@ def test_invalid_signing_clock_fails_closed():
 
 
 
-@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}])
+@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}, datetime(2026, 10, 10, tzinfo=NoOffsetTZ())])
 def test_falsey_clock_never_falls_back_to_current_time(bad_clock):
     key, at, plan, public = _fixture()
     with pytest.raises(SigningAuthorizationRejected, match="timezone-aware"):
