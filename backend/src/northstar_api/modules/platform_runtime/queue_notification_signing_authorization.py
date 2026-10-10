@@ -71,7 +71,7 @@ def verify_protected_signing_authorization(
     an independently enforced replay decision before key retrieval.
     """
     instant = datetime.now(UTC) if now is None else now
-    if not isinstance(instant, datetime) or instant.tzinfo is None:
+    if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
         raise SigningAuthorizationRejected("timezone-aware authorization required")
     if not isinstance(token, str) or len(token) > 4096 or token.count(".") != 1:
         raise SigningAuthorizationRejected("invalid authorization token")
