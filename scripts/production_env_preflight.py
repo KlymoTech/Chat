@@ -103,6 +103,8 @@ def valid_postgres_url(value: str) -> bool:
         parsed = urlparse(value)
         options = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
         allowed_options = {"sslmode", "ssl"}
+        if not options:
+            return False
         if len({key for key, _ in options}) != len(options):
             return False
         if {key for key, _ in options} == {"ssl", "sslmode"}:

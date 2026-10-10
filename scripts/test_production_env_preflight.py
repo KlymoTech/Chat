@@ -13,7 +13,7 @@ class ProductionPreflightTests(unittest.TestCase):
             "APP_ENV": "production",
             "JWT_SECRET": "N6p9!aB2xQ7#vR4kL8@tY5mZ1wC3sD0eF",
             "MFA_ENCRYPTION_KEY": "R8v2@pL6tH4!cK9qD5#sW1zY7mN3fA0bG",
-            "DATABASE_URL": "postgresql://user:password@db.internal:5432/app",
+            "DATABASE_URL": "postgresql://user:password@db.internal:5432/app?sslmode=require",
             "APP_CORS_ORIGINS": '["https://app.company.test"]',
             "APP_AUTO_CREATE_SCHEMA": "false",
             "ALLOW_PRODUCTION_SEED": "false",
@@ -89,7 +89,7 @@ class ProductionPreflightTests(unittest.TestCase):
 
 
     def test_database_password_containing_example_word_allowed(self):
-        self.valid["DATABASE_URL"] = "postgresql://user:myexamplepassword@db.internal/app"
+        self.valid["DATABASE_URL"] = "postgresql://user:myexamplepassword@db.internal/app?sslmode=require"
         self.assertEqual(validate(self.valid), [])
 
 
@@ -148,24 +148,24 @@ class ProductionPreflightTests(unittest.TestCase):
 
 
     def test_postgres_sslmode_require_allowed(self):
-        self.valid["DATABASE_URL"] += "?sslmode=require"
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:5432/app?sslmode=require"
         self.assertEqual(validate(self.valid), [])
 
     def test_postgres_sslmode_disable_rejected(self):
-        self.valid["DATABASE_URL"] += "?sslmode=disable"
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:5432/app?sslmode=disable"
         self.assertTrue(validate(self.valid))
 
     def test_postgres_unexpected_query_option_rejected(self):
-        self.valid["DATABASE_URL"] += "?application_name=debug"
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:5432/app?application_name=debug"
         self.assertTrue(validate(self.valid))
 
     def test_postgres_duplicate_tls_option_rejected(self):
-        self.valid["DATABASE_URL"] += "?sslmode=require&sslmode=disable"
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:5432/app?sslmode=require&sslmode=disable"
         self.assertTrue(validate(self.valid))
 
 
     def test_postgres_ambiguous_tls_options_rejected(self):
-        self.valid["DATABASE_URL"] += "?ssl=true&sslmode=require"
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:5432/app?ssl=true&sslmode=require"
         self.assertTrue(validate(self.valid))
 
 
@@ -178,7 +178,12 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
     def test_psycopg_ssl_option_rejected(self):
-        self.valid["DATABASE_URL"] += "?ssl=true"
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal:5432/app?ssl=true"
+        self.assertTrue(validate(self.valid))
+
+
+    def test_postgres_missing_tls_option_rejected(self):
+        self.valid["DATABASE_URL"] = "postgresql://user:password@db.internal/app"
         self.assertTrue(validate(self.valid))
 
 
