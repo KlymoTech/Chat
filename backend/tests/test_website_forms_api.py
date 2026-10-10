@@ -298,6 +298,25 @@ async def test_site_page_form_blocks_require_published_same_workspace_form(
     assert 'sandbox="allow-forms allow-same-origin"' in public_page.text
     assert "frame-src 'self'" in public_page.headers["content-security-policy"]
 
+    unsafe_unpublish = await client.post(
+        f"/api/v1/site-forms/{form_id}/unpublish",
+        headers=auth_headers, json={"expected_version":1},
+    )
+    assert unsafe_unpublish.status_code == 409, unsafe_unpublish.text
+    assert site_slug in unsafe_unpublish.text
+    assert (await client.get(f"/api/v1/site-forms/public/{workspace_id}/{slug}")).status_code == 200
+
+    archived_page = await client.post(
+        f"/api/v1/site-cms/pages/{page_id}/archive", headers=auth_headers,
+    )
+    assert archived_page.status_code == 200, archived_page.text
+    safe_unpublish = await client.post(
+        f"/api/v1/site-forms/{form_id}/unpublish",
+        headers=auth_headers, json={"expected_version":1},
+    )
+    assert safe_unpublish.status_code == 200, safe_unpublish.text
+    assert (await client.get(f"/api/v1/site-forms/public/{workspace_id}/{slug}")).status_code == 404
+
     # An owned page may not embed a different workspace's public form.
     foreign_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     wrong = dict(document)
