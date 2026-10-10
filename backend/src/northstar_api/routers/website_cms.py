@@ -223,3 +223,73 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/pages/{page_id}/revisions")
+async def list_revisions(page_id: UUID, principal: CmsAdmin, session: DBSession,
+                         response: Response) -> list[dict[str, Any]]:
+    """Owner-only immutable revision listing, without exposing drafts to visitors."""
+    response.headers["Cache-Control"] = "private, no-store"
+    page = await _get_page(session, principal, page_id)
+    rows = (await session.scalars(
+        select(WebsiteRevision).where(WebsiteRevision.page_id == page.id)
+        .order_by(WebsiteRevision.version.desc())
+    )).all()
+    return [{
+        "version": row.version,
+        "title": str(row.document_json.get("title", "")),
+        "createdAt": row.created_at.isoformat(),
+        "isPublished": row.version == page.published_version,
+    } for row in rows]
+
+
+@router.post("/pages/{page_id}/restore/{version}")
+async def restore_revision(page_id: UUID, version: int, payload: PageEdit,
+                           principal: CmsAdmin, session: DBSession,
+                           response: Response) -> dict[str, Any]:
+    """Restore by appending a new draft; never rewrite or discard the old revision."""
+    response.headers["Cache-Control"] = "private, no-store"
+    page = await _get_page(session, principal, page_id)
+    if version < 1 or page.draft_version != payload.expected_version:
+        raise HTTPException(409, "Stale draft version or invalid revision")
+    original = await _revision(session, page, version)
+    document = BuilderPageDocument.model_validate(original.document_json)
+    if document.slug != page.slug:
+        raise HTTPException(409, "Restored URL differs from this page URL")
+    next_version = page.draft_version + 1
+    changed = await session.execute(
+        update(WebsitePage).where(
+            WebsitePage.id == page.id, *_query(principal),
+            WebsitePage.draft_version == payload.expected_version,
+        ).values(title=document.title, draft_version=next_version, status="draft", updated_at=datetime.now(UTC))
+    )
+    if changed.rowcount != 1:
+        await session.rollback()
+        raise HTTPException(409, "Concurrent CMS edit; reload page")
+    page.title = document.title
+    page.draft_version = next_version
+    page.status = "draft"
+    session.add(WebsiteRevision(
+        page_id=page.id, version=next_version,
+        document_json=document.model_dump(mode="json"), created_by=principal.user_id,
+    ))
+    session.add(_audit(page, principal, "restore"))
+    await session.commit()
+    return _info(page, document.model_dump(mode="json"))
+
+
+@router.get("/pages/{page_id}/preview", response_class=HTMLResponse)
+async def preview_draft(page_id: UUID, principal: CmsAdmin, session: DBSession) -> HTMLResponse:
+    """Authenticated and non-indexable server preview, free of tracking scripts."""
+    page = await _get_page(session, principal, page_id)
+    revision = await _revision(session, page, page.draft_version)
+    content = render_page(BuilderPageDocument.model_validate(revision.document_json))
+    return HTMLResponse(
+        content,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Robots-Tag": "noindex, nofollow, noarchive",
+            "Content-Security-Policy": "default-src 'none'; img-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
