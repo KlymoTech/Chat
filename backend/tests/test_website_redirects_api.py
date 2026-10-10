@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
+from northstar_api.models import OutboxEvent
 from northstar_api.website_cms_models import WebsiteRedirect, WebsiteRedirectAudit
 
 
@@ -108,7 +109,12 @@ async def test_internal_301_equivalent_redirects_are_safe_and_versioned(
         redirect = await session.scalar(select(WebsiteRedirect).where(
             WebsiteRedirect.id == UUID(redirect_id),
         ))
+        outbox_count = await session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.aggregate_type == "website_redirect",
+            OutboxEvent.aggregate_id == redirect_id,
+        ))
     assert audit_count == 3
+    assert outbox_count == 3
     assert redirect is not None and redirect.source_slug == old_slug
 
     # Do not redirect to a page after its publication was archived.
