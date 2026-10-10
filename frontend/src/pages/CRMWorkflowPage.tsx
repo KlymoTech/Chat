@@ -295,7 +295,7 @@ export function CRMWorkflowPage() {
       </div> : <EmptyState icon={Clock3} title="No CRM deliveries yet" description="Resolve a Lead Generation conversation or manually sync a local Lead to start the durable delivery workflow." />}
     </Card>
 
-    <LeadScoringPanel journeys={workflow.recentJourneys} onApplied={() => { void load(true); }} />
+    <LeadScoringPanel key={workflow.workspaceId} journeys={workflow.recentJourneys} onApplied={() => { void load(true); }} />
 
     <Card className="crm-workflow-journeys">
       <div className="crm-workflow-section-heading">
