@@ -64,3 +64,22 @@
 .site-cms-recovery-form strong{color:#78350f}
 .site-cms-recovery-form label{color:#334155}
 .site-cms-recovery-form button{justify-self:start}
+
+
+/* Site menu editor reuses the established CMS page/card layout. */
+.site-cms-navigation-heading{display:flex;align-items:start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.site-cms-navigation-heading h3{margin:0}
+.site-cms-navigation-heading p,.site-cms-menu-meta{color:#475569;margin:8px 0 16px}
+.site-cms-menu-list{display:grid;gap:10px;margin:16px 0}
+.site-cms-menu-item{display:grid;grid-template-columns:minmax(170px,1.7fr) minmax(120px,1fr) auto;gap:12px;align-items:end;border:1px solid #e2e8f0;padding:12px;border-radius:9px;background:#f8fafc}
+.site-cms-menu-item label,.site-cms-menu-add label{display:grid;gap:5px;min-width:0}
+.site-cms-menu-item input{width:100%;min-width:0;padding:10px;border:1px solid #cbd5e1;border-radius:7px}
+.site-cms-menu-target{font-size:.85rem;color:#475569;overflow-wrap:anywhere;padding:9px 0}
+.site-cms-menu-controls{display:flex;gap:5px}
+.site-cms-menu-controls button{min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;border:1px solid #cbd5e1;background:#fff;border-radius:7px;color:#334155}
+.site-cms-menu-controls button:disabled{opacity:.45;cursor:not-allowed}
+.site-cms-menu-add{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:16px 0}
+.site-cms-menu-add label{flex:1;min-width:180px}
+.site-cms-menu-history{display:grid;gap:8px;margin-top:20px;border-top:1px solid #e2e8f0;padding-top:12px}
+.site-cms-menu-history>div{display:flex;justify-content:space-between;align-items:center;gap:12px}
+@media(max-width:700px){.site-cms-menu-item{grid-template-columns:1fr}.site-cms-menu-target{padding:0}}
