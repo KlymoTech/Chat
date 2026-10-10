@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
@@ -23,7 +23,7 @@ from northstar_api.dependencies import DBSession, require_roles
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.lead_crm.models import LeadConsent
-from northstar_api.lead_crm.website_marketing_suppression import MARKETING_STOP_STATUSES
+from northstar_api.lead_crm.website_marketing_suppression import has_workspace_marketing_suppression
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.models import Agent, AgentStatus, Lead, Role, Workspace, WorkspaceStatus
 from northstar_api.routers.website_consent import _same_origin
@@ -635,21 +635,14 @@ async def submit_public_form(
         # marketing grant here. Required enquiry-processing consent never
         # grants marketing permission. Preserve suppression across duplicate
         # Lead records with the same workspace and normalized email.
-        earlier_suppression = await session.scalar(
-            select(LeadConsent.id)
-            .join(Lead, Lead.id == LeadConsent.lead_id)
-            .where(
-                Lead.tenant_id == workspace.tenant_id,
-                Lead.workspace_id == workspace_id,
-                Lead.id != lead.id,
-                func.lower(Lead.email) == (lead.email or "").strip().lower(),
-                LeadConsent.tenant_id == workspace.tenant_id,
-                LeadConsent.consent_type == "marketing",
-                func.lower(LeadConsent.status).in_(MARKETING_STOP_STATUSES),
-            )
-            .limit(1)
+        earlier_suppression = await has_workspace_marketing_suppression(
+            session,
+            tenant_id=workspace.tenant_id,
+            workspace_id=workspace_id,
+            email=lead.email,
+            exclude_lead_id=lead.id,
         )
-        marketing_status = "pending_verification" if earlier_suppression is not None else "granted"
+        marketing_status = "pending_verification" if earlier_suppression else "granted"
         marketing_field = next(
             field for field in document.fields if field.key == "marketing_opt_in"
         )
