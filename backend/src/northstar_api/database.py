@@ -49,6 +49,11 @@ def build_engine(settings: Settings | None = None, *, apply_runtime_role: bool =
     return selected
 
 
+def sleeping_job_database_settings(settings: Settings) -> Settings:
+    """One-shot Lambda jobs must not carry a ten-connection API pool."""
+    return settings.model_copy(update={"database_pool_size": 1, "database_max_overflow": 0})
+
+
 settings = get_settings()
 engine = build_engine(
     settings,

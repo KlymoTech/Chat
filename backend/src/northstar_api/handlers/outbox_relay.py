@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
-from northstar_api.database import build_engine
+from northstar_api.database import build_engine, sleeping_job_database_settings
 from northstar_api.models import OutboxEvent
 from northstar_api.services.outbox import send_outbox_nudge
 
@@ -73,7 +73,7 @@ async def run_once() -> int:
     settings = get_settings()
     if not settings.kafka_enabled:
         raise ValueError("KAFKA_ENABLED must be true for the outbox relay")
-    engine = build_engine(settings)
+    engine = build_engine(sleeping_job_database_settings(settings))
     producer = AIOKafkaProducer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         acks="all",

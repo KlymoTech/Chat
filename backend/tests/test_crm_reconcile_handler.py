@@ -32,14 +32,18 @@ async def test_active_crm_schedule_runs_and_disposes_engine(monkeypatch: pytest.
     context.__aenter__.return_value = session
     factory = Mock(return_value=context)
     worker = AsyncMock(return_value={"recovered": 0, "verified": 1, "deferred": 0})
+    engine_builder = Mock(return_value=engine)
     monkeypatch.setenv("PLATFORM_ACTIVITY_TABLE", "activity")
     monkeypatch.setenv("PLATFORM_ACTIVITY_KEY", "northstar:dev")
     monkeypatch.setattr(crm_reconcile.boto3, "client", Mock(return_value=Mock()))
     monkeypatch.setattr(crm_reconcile, "DynamoDbActivityMarker", Mock(return_value=marker))
-    monkeypatch.setattr(crm_reconcile, "build_engine", Mock(return_value=engine))
+    monkeypatch.setattr(crm_reconcile, "build_engine", engine_builder)
     monkeypatch.setattr(crm_reconcile, "async_sessionmaker", Mock(return_value=factory))
     monkeypatch.setattr(crm_reconcile, "run_once", worker)
 
     assert await crm_reconcile.run() == {"recovered": 0, "verified": 1, "deferred": 0}
     worker.assert_awaited_once_with(session)
     engine.dispose.assert_awaited_once()
+    scoped_settings = engine_builder.call_args.args[0]
+    assert scoped_settings.database_pool_size == 1
+    assert scoped_settings.database_max_overflow == 0

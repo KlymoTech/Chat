@@ -11,7 +11,7 @@ import boto3
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from northstar_api.config import get_settings
-from northstar_api.database import build_engine
+from northstar_api.database import build_engine, sleeping_job_database_settings
 from northstar_api.modules.platform_runtime.activity_gate import run_if_recently_active
 from northstar_api.modules.platform_runtime.dynamodb_activity_marker import DynamoDbActivityMarker
 from northstar_api.workers.crm_reconciliation import run_once
@@ -27,7 +27,7 @@ async def run() -> dict[str, int] | None:
     # SQLAlchemy engine creation does not connect, but keep even construction
     # inside the gated path to make the no-database-on-idle rule explicit.
     async def gated_operation() -> dict[str, int]:
-        engine = build_engine(get_settings())
+        engine = build_engine(sleeping_job_database_settings(get_settings()))
         try:
             factory = async_sessionmaker(engine, expire_on_commit=False)
             async with factory() as session:

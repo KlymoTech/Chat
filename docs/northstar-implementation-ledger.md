@@ -56,6 +56,24 @@ implementation master plan.
   are **not** claims about this deployment; no corresponding load evidence is
   present. This ledger is not a complete requirement-by-requirement sign-off.
 
+## Playbook conformance audit increment (2026-10-10)
+
+- `make conformance` now invokes a fail-closed, read-only 23-rule audit. It
+  checks manifest structure, declared handlers, scheduled activity gates,
+  image declarations and standard Make targets, and labels the remaining
+  dynamic requirements **unverified**. `--report-only` is available for CI
+  visibility, not acceptance. A structurally valid manifest is no longer
+  presented as full conformance.
+- One-shot CRM reconciliation and outbox relay now construct PostgreSQL
+  engines with a one-connection pool and zero overflow; the normal API pool
+  is unchanged. Focused tests cover the CRM engine parameters.
+- `local-up` and `local-down` now reuse the existing Compose-backed `up` and
+  `down` targets without changing their behavior. The audit still reports
+  missing deploy/image-push targets and an Arm64-only API image declaration.
+  Adding placeholder targets or an unbuilt x86 label would not satisfy the
+  corresponding runtime and image qualification rules. Keep these gaps open
+  until real workflows and builds are implemented and tested.
+
 ## Safety obligations / current blockers
 
 - Locked controls must stay enforced, including authentication,
