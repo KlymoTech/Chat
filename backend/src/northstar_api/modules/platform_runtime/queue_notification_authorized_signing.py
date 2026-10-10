@@ -42,8 +42,12 @@ async def sign_with_protected_authorization(
 ):
     """Verify authorization, burn its one-time grant, then verify custody."""
     instant = datetime.now(UTC) if now is None else now
-    if authorization_consumption is None:
-        raise PermissionError("committed one-use authorization is required")
+    if authorization_consumption is None or signing_claims is None:
+        raise PermissionError("committed authorization and signing replay guards are required")
+    if not callable(getattr(authorization_consumption, "consume", None)):
+        raise PermissionError("authorization consumption service unavailable")
+    if not callable(getattr(signing_claims, "claim", None)):
+        raise PermissionError("signing claim service unavailable")
     grant_id = verify_protected_signing_authorization(
         authorization_token,
         pinned_issuer_public_key_pem=authorization_public_key_pem,
