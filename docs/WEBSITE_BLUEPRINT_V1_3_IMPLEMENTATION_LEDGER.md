@@ -196,3 +196,8 @@ Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found 
 - Actual GitHub Actions executions still fail at runner assignment, with no steps/logs. No production database migration, browser end-to-end acceptance, real notification delivery, CRM provider write/read-back or recovery drill has passed for this increment.
 - File uploads need the existing upload-quarantine and object-authorization pipeline before field activation; conditional/multi-step forms, retention deletion jobs, abuse false-positive review, advanced contact deduplication and owner acceptance remain incomplete.
 - Blueprint CAP-038 and all other 120 traceability IDs remain **not verified** until observable acceptance evidence is recorded.
+
+### Audit and purpose-consent correctness review
+- Accepted public form submissions now create a dedicated, PII-minimized `IntegrationAuditEvent` in the **same transaction** as the submission, existing Lead/LeadProfile, processing consent, conversion receipt and outbox messages. Receipt IDs, approved schema version and conversion IDs are recorded; visitor contact details are not copied into the audit.
+- The consent control must use the stable `processing_consent` key and explicit required affirmative input. Arbitrary "consent" controls cannot be silently reinterpreted as processing permission. This prevents ambiguous owner-selected labels from granting a broader purpose accidentally.
+- Regression tests assert that a submission audit exists without contact PII and the processing-consent key is enforced.
