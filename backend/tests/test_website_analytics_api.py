@@ -107,6 +107,7 @@ async def test_published_pages_load_only_the_server_owned_consent_first_collecto
     assert "/site-analytics/client.js" in public.text
     assert 'data-site-slug="' + slug + '"' in public.text
     assert "script-src 'nonce-" in public.headers["content-security-policy"]
+    assert "connect-src 'self'" in public.headers["content-security-policy"]
 
     sdk = await client.get("/api/v1/site-analytics/client.js")
     assert sdk.status_code == 200, sdk.text
