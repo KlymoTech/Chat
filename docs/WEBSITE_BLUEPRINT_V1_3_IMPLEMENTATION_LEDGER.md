@@ -175,3 +175,24 @@ Source requirements: Chapter 04.1 (task-oriented routes and working navigation),
 - Existing CRM Workflow page now includes the scoring policy editor, rule configuration, preview, and confirmed apply button. The existing CRM API client was extended rather than replaced.
 - Committed `test_website_lead_scoring.py`, `test_website_lead_scoring_api.py`, and `LeadScoringPanel.test.tsx`, and updated existing `CRMWorkflowPage.test.tsx` and branch CI gates.
 - **Verification is incomplete.** The GitHub Actions branch jobs have been failing without running on a runner; these tests cannot be marked passed. CAP-040 automation timers/simulations and CAP-041 batch scoring/manual overrides remain open.
+
+
+## CAP-038 first-party forms increment — 2026-10-10
+
+Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found an existing authoritative Lead, LeadProfile, LeadConsent, agent-purpose guard, transactional outbox, Redis rate limiter and Website CMS page builder. There was no existing first-party website forms module or published form owner UI. Rather than adding another Lead or CRM store, the implementation reuses those existing services.
+
+### Committed integration
+- `services/website_form_contracts.py`: strict field schema, stable keys, label/purpose/required state, allowed choices, retention/sensitivity declarations and server-authoritative checks. Activated controls: text/long answer, email, phone, select, radio, checkbox, date and affirmative processing consent. Unicode names are not restricted to English.
+- `website_form_models.py` and additive Alembic migration `0084_website_forms.py`: workspace-scoped form definition, immutable numbered revisions and transactional submission/receipt with a unique form-scoped idempotency key. The shared ORM metadata is extended; no parallel Leads or agent schema created.
+- `routers/website_forms.py`: authenticated owner form list/create/update/publish/unpublish and safe submission receipt listing; unauthenticated public same-origin HTML form and native URL-encoded submission. The public page is noindex and includes an accessible error summary, strict CSP, anti-spam honeypot and scoped Redis request budget.
+- New public submissions reject unknown inputs and unsupported types, require purpose consent and active lead-generation ownership, and commit submission, existing Lead/LeadProfile, LeadConsent, first-party conversion event and existing CRM-routing outbox messages as one unit. The public receipt contains only opaque IDs. Identical repeated keys return the same receipt; changed bodies under a reused key are rejected.
+- Replayed identical receipts remain recoverable after safe form unpublication, while new submissions are blocked. Published form revisions remain live while later drafts are edited.
+- `WebsiteFormsPanel.tsx` mounts inside the **existing WebsiteCMSPage**, reuses authenticated `request` and existing agent enumeration, and offers field editing, revision save, explicit publication, accessible public URL, and restricted receipt metadata.
+- Existing `BuilderNode` and renderer gained one `form` node kind. The page editor inserts an already-published form with an allowlisted same-origin URL. Page publishing verifies that the form exists, is published and belongs to the same tenant/workspace. Public HTML uses a sandboxed, no-referrer iframe and a constrained `frame-src 'self'` CSP. The private builder preview shows a non-submitting placeholder.
+- Tests committed: `test_website_form_contracts.py`, `test_website_forms_api.py`, `WebsiteFormsPanel.test.tsx`, `WebsiteCMSPage.forms.test.tsx`, plus builder document/renderer tests. Existing CMS tests were updated for the new panel's read-only owner load.
+- CI branch workflow now includes new form contract/router/model lint and new API tests. The form editor and embed UI are covered by the existing frontend `npm test` command.
+
+### Not claimed complete or verified
+- Actual GitHub Actions executions still fail at runner assignment, with no steps/logs. No production database migration, browser end-to-end acceptance, real notification delivery, CRM provider write/read-back or recovery drill has passed for this increment.
+- File uploads need the existing upload-quarantine and object-authorization pipeline before field activation; conditional/multi-step forms, retention deletion jobs, abuse false-positive review, advanced contact deduplication and owner acceptance remain incomplete.
+- Blueprint CAP-038 and all other 120 traceability IDs remain **not verified** until observable acceptance evidence is recorded.
