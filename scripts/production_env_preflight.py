@@ -122,6 +122,10 @@ def validate(values: dict[str, str]) -> list[str]:
         errors.append("MFA_ENCRYPTION_KEY must have at least 32 characters")
     if jwt and mfa and jwt == mfa:
         errors.append("JWT_SECRET and MFA_ENCRYPTION_KEY must be distinct")
+    if jwt and len(set(jwt)) < 8:
+        errors.append("JWT_SECRET must not be a repeated or low-diversity value")
+    if mfa and len(set(mfa)) < 8:
+        errors.append("MFA_ENCRYPTION_KEY must not be a repeated or low-diversity value")
     if values.get("APP_AUTO_CREATE_SCHEMA", "false").lower() != "false":
         errors.append("APP_AUTO_CREATE_SCHEMA must be false")
     if values.get("ALLOW_PRODUCTION_SEED", "false").lower() != "false":
