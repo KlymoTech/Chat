@@ -69,7 +69,13 @@ def _render_node(node: BuilderNode) -> str:
     return f'<{tag} data-builder-id="{_attr(node.id)}">{children}</{tag}>'
 
 
-def render_page(document: BuilderPageDocument, *, privacy_path: str | None = None) -> str:
+def render_page(
+    document: BuilderPageDocument,
+    *,
+    privacy_path: str | None = None,
+    analytics_context: tuple[str, str] | None = None,
+    analytics_nonce: str | None = None,
+) -> str:
     """Render only validated builder data, never arbitrary user-provided markup."""
     if not isinstance(document, BuilderPageDocument):
         raise TypeError("Expected validated BuilderPageDocument")
@@ -80,6 +86,17 @@ def render_page(document: BuilderPageDocument, *, privacy_path: str | None = Non
         '">Privacy and tracking preferences</a></footer>'
         if privacy_path else ""
     )
+    analytics_script = ""
+    if analytics_context is not None and analytics_nonce is not None:
+        workspace_id, api_prefix = analytics_context
+        script_src = api_prefix.rstrip("/") + "/site-analytics/client.js"
+        analytics_script = (
+            '<script defer nonce="' + _attr(analytics_nonce) +
+            '" src="' + _attr(script_src) +
+            '" data-site-workspace="' + _attr(workspace_id) +
+            '" data-site-slug="' + _attr(document.slug) +
+            '" data-api-prefix="' + _attr(api_prefix) + '"></script>'
+        )
     return (
         "<!doctype html>\n"
         '<html lang="en"><head><meta charset="utf-8">'
@@ -90,5 +107,6 @@ def render_page(document: BuilderPageDocument, *, privacy_path: str | None = Non
         f'<header class="site-header"><p class="site-eyebrow">Welcome</p><h1>{title}</h1></header>'
         f'<main id="site-main">{sections}</main>'
         f"{privacy_footer}"
+        f"{analytics_script}"
         "</body></html>"
     )
