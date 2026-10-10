@@ -30,6 +30,7 @@ from northstar_api.routers.website_cms import _lock_public_route_namespace
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.rate_limit import redis_services
+from northstar_api.services.website_automation_runtime import enrol_website_lead
 from northstar_api.services.website_builder_document import BuilderPageDocument
 from northstar_api.services.website_form_client import SITE_FORM_CLIENT_JS
 from northstar_api.website_cms_models import WebsitePage, WebsiteRevision
@@ -648,6 +649,14 @@ async def submit_public_form(
         payload=event_payload,
     )
     conversion.workspace_id = workspace_id
+    # The same commit reserves any explicitly published internal workflow run.
+    # No automation can contact a customer; CRM outbox dispatch is unchanged.
+    await enrol_website_lead(
+        session,
+        tenant_id=workspace.tenant_id, workspace_id=workspace_id,
+        lead_id=lead.id, source_category="form",
+        event_key="website-form:" + str(submission.id),
+    )
     await session.flush()
     submission.lead_id = lead.id
     submission.conversion_event_id = conversion.id
