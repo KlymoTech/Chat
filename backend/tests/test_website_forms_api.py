@@ -239,3 +239,73 @@ async def test_public_form_rejects_unsafe_fields_and_owner_endpoints_require_aut
         public, data=_values(str(uuid4())),
         headers={"Origin":"https://different.example", "Accept":"application/json"},
     )).status_code == 403
+
+
+
+async def test_site_page_form_blocks_require_published_same_workspace_form(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    form_id, workspace_id, slug = await _create_form(client, auth_headers)
+    site_slug = "site-contact-" + uuid4().hex[:8]
+    form_url = f"/api/v1/site-forms/public/{workspace_id}/{slug}"
+    document = {
+        "schema_version":1, "slug":site_slug, "title":"Enquiry",
+        "nodes":[{"id":"section","kind":"section","children":[
+            {"id":"enquiry","kind":"form","text":"Talk to our team","url":form_url},
+        ]}],
+    }
+    created = await client.post(
+        "/api/v1/site-cms/pages", headers=auth_headers, json=document,
+    )
+    assert created.status_code == 201, created.text
+    page_id = created.json()["id"]
+    for action in ("submit", "approve"):
+        transitioned = await client.post(
+            f"/api/v1/site-cms/pages/{page_id}/{action}", headers=auth_headers,
+        )
+        assert transitioned.status_code == 200, transitioned.text
+
+    cannot_publish = await client.post(
+        f"/api/v1/site-cms/pages/{page_id}/publish", headers=auth_headers,
+    )
+    assert cannot_publish.status_code == 409, cannot_publish.text
+
+    form_published = await client.post(
+        f"/api/v1/site-forms/{form_id}/publish",
+        headers=auth_headers, json={"expected_version":1},
+    )
+    assert form_published.status_code == 200, form_published.text
+    page_published = await client.post(
+        f"/api/v1/site-cms/pages/{page_id}/publish", headers=auth_headers,
+    )
+    assert page_published.status_code == 200, page_published.text
+    public_page = await client.get(
+        f"/api/v1/site-cms/public/{workspace_id}/{site_slug}",
+    )
+    assert public_page.status_code == 200, public_page.text
+    assert form_url in public_page.text
+    assert 'sandbox="allow-forms allow-same-origin"' in public_page.text
+    assert "frame-src 'self'" in public_page.headers["content-security-policy"]
+
+    # An owned page may not embed a different workspace's public form.
+    foreign_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    wrong = dict(document)
+    wrong["slug"] = "foreign-" + uuid4().hex[:8]
+    wrong["nodes"] = [{"id":"section","kind":"section","children":[
+        {"id":"foreign","kind":"form","text":"Wrong workspace",
+         "url":f"/api/v1/site-forms/public/{foreign_id}/{slug}"},
+    ]}]
+    foreign_page = await client.post(
+        "/api/v1/site-cms/pages", headers=auth_headers, json=wrong,
+    )
+    assert foreign_page.status_code == 201, foreign_page.text
+    foreign_page_id = foreign_page.json()["id"]
+    for action in ("submit", "approve"):
+        transitioned = await client.post(
+            f"/api/v1/site-cms/pages/{foreign_page_id}/{action}", headers=auth_headers,
+        )
+        assert transitioned.status_code == 200, transitioned.text
+    assert (await client.post(
+        f"/api/v1/site-cms/pages/{foreign_page_id}/publish",
+        headers=auth_headers,
+    )).status_code == 409
