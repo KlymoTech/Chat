@@ -111,6 +111,19 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
     if (kind === 'select' || kind === 'radio') created.choices = ['Option A', 'Option B'];
     setDraft((current) => ({ ...current, fields: [...current.fields, created] }));
   };
+  const addMarketingOptIn = () => {
+    if (draft.fields.some((item) => item.key === 'marketing_opt_in')
+      || draft.fields.length >= 30) return;
+    const optional = field(
+      'marketing_opt_in',
+      'I agree to receive marketing emails',
+      'checkbox',
+      false,
+    );
+    optional.purpose = 'Receive optional marketing emails and updates from this organization';
+    optional.step = draft.steps?.length ?? 1;
+    setDraft((current) => ({ ...current, fields: [...current.fields, optional] }));
+  };
   const addStep = () => {
     if ((draft.steps?.length ?? 1) >= 5 || draft.fields.length >= 30) return;
     setDraft((current) => {
@@ -149,6 +162,15 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
         && (index === 0 || currentStep >= (draft.fields[index - 1]!.step ?? 1))
         && (item.kind !== 'consent' || (item.required && item.key === 'processing_consent'))
         && (item.kind === 'consent' || item.key !== 'processing_consent')
+        && (item.key !== 'marketing_opt_in' || (
+          item.kind === 'checkbox' && !item.required && !item.condition
+          && item.label.toLowerCase().includes('marketing')
+          && item.purpose.toLowerCase().includes('marketing')
+          && draft.fields.some((candidate) =>
+            candidate.kind === 'email' && candidate.required && !candidate.condition)
+        ))
+        && (item.kind !== 'checkbox' || item.key === 'marketing_opt_in'
+          || !item.purpose.toLowerCase().includes('marketing'))
         && (item.kind === 'select' || item.kind === 'radio'
           ? item.choices.length > 0 && new Set(item.choices).size === item.choices.length
           : item.choices.length === 0)
@@ -308,6 +330,17 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
         </div>
       </div>
       <h4>Form fields</h4>
+      <div className="site-forms-marketing-opt-in">
+        <div>
+          <strong>Optional email marketing consent</strong>
+          <p>Marketing permission is separate from the mandatory enquiry-processing consent.
+            The visitor must check the box; it is never preselected.</p>
+        </div>
+        <Button variant="secondary" size="sm" icon={Plus}
+          disabled={busy || draft.fields.length >= 30
+            || draft.fields.some((item) => item.key === 'marketing_opt_in')}
+          onClick={addMarketingOptIn}>Add marketing opt-in</Button>
+      </div>
       <p className="site-forms-subtitle">Fields require a stable key, explicit purpose, retention period and sensitivity. Sensitive and file fields require separate verified activation.</p>
       <div className="site-forms-fields">
         {draft.fields.map((item, index) => <fieldset className="site-forms-field" key={index}>
@@ -321,6 +354,7 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
             </label>
             <label>Stable key
               <input maxLength={60} pattern="[a-z][a-z0-9_]*" value={item.key}
+                readOnly={item.key === 'marketing_opt_in'}
                 onChange={(event) => changeField(index, { key: event.target.value })}/>
             </label>
             <label>Visitor label
@@ -328,7 +362,8 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
                 onChange={(event) => changeField(index, { label: event.target.value })}/>
             </label>
             <label>Control type
-              <select value={item.kind} onChange={(event) => {
+              <select value={item.kind} disabled={item.key === 'marketing_opt_in'}
+                onChange={(event) => {
                 const kind = event.target.value as FieldKind;
                 changeField(index, {
                   kind, required: kind === 'consent' ? true : item.required,
@@ -340,7 +375,8 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
                 {kinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
               </select>
             </label>
-            {item.kind !== 'consent' && !(item.required && (item.kind === 'email' || item.kind === 'phone')) &&
+            {item.kind !== 'consent' && item.key !== 'marketing_opt_in'
+              && !(item.required && (item.kind === 'email' || item.kind === 'phone')) &&
               <label>Display condition
                 <select value={item.condition?.field_key ?? ''}
                   onChange={(event) => {
@@ -387,7 +423,7 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
                 onChange={(event) => changeField(index, { max_length: Number(event.target.value) })}/>
             </label>
             <label className="site-forms-checkbox">
-              <input type="checkbox" checked={item.required} disabled={item.kind === 'consent'}
+              <input type="checkbox" checked={item.required} disabled={item.kind === 'consent' || item.key === 'marketing_opt_in'}
                 onChange={(event) => changeField(index, { required: event.target.checked })}/>
               Required
             </label>
@@ -433,6 +469,7 @@ export function WebsiteFormsPanel({ workspaceId, onFormsChanged }: { workspaceId
       {!draftValid ? <p role="status" className="site-forms-warning">
         A form needs valid step labels and ordering, unique field keys, a required email or phone,
         required processing consent and valid references to prior unconditional choices.
+        Email marketing opt-in, when offered, must remain optional and clearly labeled.
       </p> : null}
       {url && <>
         <div className="site-forms-public">
