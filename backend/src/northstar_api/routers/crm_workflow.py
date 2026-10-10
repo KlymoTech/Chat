@@ -367,7 +367,10 @@ async def preview_lead_segment(
         )).all()
         for receipt in consent_rows:
             # First row for each lead is the latest signed marketing decision.
-            latest_marketing_consent.setdefault(receipt.lead_id, receipt.status)
+            latest_marketing_consent.setdefault(
+                receipt.lead_id,
+                "withdrawn" if receipt.withdrawn_at is not None else receipt.status.strip().casefold(),
+            )
 
     matched_count = 0
     missing_count = 0
