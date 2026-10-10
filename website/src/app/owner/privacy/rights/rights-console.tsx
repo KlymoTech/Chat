@@ -6,6 +6,7 @@ import {
  RIGHT_KINDS,validCaseKind,allowedCaseTransition,CASE_STATES,CASE_REASONS,
  type RightKind,type CaseState,type CaseReason,
 } from "../../../../lib/privacy-rights-contract";
+type HistoryItem={revision:number;fromStatus:string|null;toStatus:string;reasonCode:string;recordedAt:string;evidenceLinked:boolean};
 type RightsCase={
  id:string;requestKind:RightKind;status:CaseState;revision:number;
  createdAt:string;updatedAt:string;
@@ -26,6 +27,7 @@ export default function PrivacyRightsConsole(){
   const [status,setStatus]=useState("Loading restricted privacy cases…");
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [history,setHistory]=useState<Record<string,HistoryItem[]>>({});
   const [decision,setDecision]=useState<Record<string,{to:CaseState;reason:CaseReason;evidenceRef:string}>>({});
   async function refresh(){
     try{
@@ -57,6 +59,14 @@ export default function PrivacyRightsConsole(){
       }
     }
     return choices;
+  }
+  async function loadHistory(id:string){
+    try{
+      const response=await call("/api/owner/privacy/rights/"+encodeURIComponent(id)+"/history",
+        "GET") as {history?:HistoryItem[]};
+      if(!Array.isArray(response.history))throw Error("Invalid history response");
+      setHistory(old=>({...old,[id]:response.history??[]}));
+    }catch(e){setError(e instanceof Error?e.message:"History unavailable");}
   }
   async function submit(row:RightsCase){
     if(busy)return;
@@ -105,6 +115,17 @@ export default function PrivacyRightsConsole(){
           <h2>{row.requestKind} · {row.id.slice(0,8)}</h2>
           <p>State: <strong>{row.status}</strong> · revision {row.revision}
              · last updated {new Date(row.updatedAt).toLocaleString()}</p>
+          <button type="button" className="button secondary"
+            onClick={()=>void loadHistory(row.id)}>
+            View immutable status history
+          </button>
+          {history[row.id]&&<ol aria-label="Case status history">
+            {history[row.id].map(entry=><li key={entry.revision}>
+              <strong>Revision {entry.revision}</strong>: {entry.fromStatus??"opened"}
+              {" → "}{entry.toStatus} ({entry.reasonCode.replaceAll("_"," ")})
+              {entry.evidenceLinked?" · evidence reference recorded":""}
+            </li>)}
+          </ol>}
           {steps.length>0?<div style={{display:"grid",gap:8}}>
             <label>Next review decision
               <select value={chosen?.to??""} onChange={e=>{
