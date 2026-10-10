@@ -29,7 +29,8 @@ const validAutomation = {
 const savedRegister = { version: 2, automations: [validAutomation] };
 const simulation = {
   automationId, policyVersion: 2, segmentVersion: 4,
-  eligibleLeads: 3, alreadyQueued: 1, remainingEligible: 2,
+  eligibleLeads: 3, eligibleFingerprint: 'a'.repeat(64),
+  alreadyQueued: 1, remainingEligible: 2,
   blockedByConsentOrStatus: 4, unknownInputLeads: 1,
   examinedLeads: 9, truncated: false, maxPerRun: 5,
   action: 'notify_admins' as const, externalDelivery: false as const,
