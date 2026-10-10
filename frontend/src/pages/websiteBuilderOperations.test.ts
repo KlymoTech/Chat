@@ -175,3 +175,22 @@ describe('readable editor conflict comparison', () => {
     expect(server.nodes).toHaveLength(1);
   });
 });
+
+
+describe('appearance tokens and existing editor history', () => {
+  it('preserves bounded styling across duplication and undo/redo without mutating the source', () => {
+    const initial = sample();
+    const styled = initial.map((section) => section.id === 'section-one' ? {
+      ...section,
+      appearance: { alignment: 'center' as const, spacing: 'spacious' as const, tone: 'accent' as const },
+    } : section);
+    const history = reviseDraftHistory(startDraftHistory(initial), styled);
+    const back = undoDraftHistory(history);
+    expect(back.present?.[0]?.appearance).toBeUndefined();
+    expect(redoDraftHistory(back).present?.[0]?.appearance?.tone).toBe('accent');
+    const copied = duplicateNode(styled[0]!, () => 'new-section');
+    expect(copied.appearance).toEqual(styled[0]!.appearance);
+    expect(copied.id).not.toBe(styled[0]!.id);
+    expect(initial[0]!.appearance).toBeUndefined();
+  });
+});
