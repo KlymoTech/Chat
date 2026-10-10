@@ -3,8 +3,9 @@ import { ArrowDown, ArrowUp, Check, Copy, ExternalLink, FilePlus2, GripVertical,
 import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { ApiError, apiConfig, request } from '@/lib/api';
-import { compareDraftDocuments, duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
+import { appearanceClass, compareDraftDocuments, duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
 import { WebsiteContentPreflight } from './WebsiteContentPreflight';
+import { WebsiteNodeStyleEditor } from './WebsiteNodeStyleEditor';
 import { WebsiteFormsPanel } from './WebsiteFormsPanel';
 import './WebsiteCMSPage.css';
 
@@ -61,13 +62,13 @@ function move(items: Node[], identifier: string, delta: number): Node[] {
   return reorderNodes(items, identifier, delta);
 }
 function render(node: Node): ReactNode {
-  if (node.kind === 'heading') return <h2 key={node.id}>{node.text}</h2>;
-  if (node.kind === 'paragraph') return <p key={node.id}>{node.text}</p>;
-  if (node.kind === 'image') return <img key={node.id} src={node.url ?? ''} alt={node.text ?? ''} loading="lazy"/>;
-  if (node.kind === 'button') return <span className="button button--primary" key={node.id}>{node.text}</span>;
-  if (node.kind === 'form') return <div key={node.id} className="site-cms-form-placeholder"
+  if (node.kind === 'heading') return <h2 key={node.id} className={appearanceClass(node)}>{node.text}</h2>;
+  if (node.kind === 'paragraph') return <p key={node.id} className={appearanceClass(node)}>{node.text}</p>;
+  if (node.kind === 'image') return <img key={node.id} className={appearanceClass(node)} src={node.url ?? ''} alt={node.text ?? ''} loading="lazy"/>;
+  if (node.kind === 'button') return <span className={'button button--primary ' + appearanceClass(node)} key={node.id}>{node.text}</span>;
+  if (node.kind === 'form') return <div key={node.id} className={'site-cms-form-placeholder ' + appearanceClass(node)}
     role="note">First-party form: {node.text}. Live submissions are disabled in this private preview.</div>;
-  return <section key={node.id} className="site-cms-preview-section">{(node.children ?? []).map(render)}</section>;
+  return <section key={node.id} className={'site-cms-preview-section ' + appearanceClass(node)}>{(node.children ?? []).map(render)}</section>;
 }
 function message(reason: unknown): string {
   if (reason && typeof reason === 'object' && 'detail' in reason) {
@@ -1066,6 +1067,8 @@ export function WebsiteCMSPage() {
                 </div>)}
               </div>
               <Button variant="secondary" size="sm" icon={Plus} onClick={addSection}>Add section</Button>
+              {currentSection && <WebsiteNodeStyleEditor node={currentSection}
+                onChange={(appearance) => edit(currentSection.id, (item) => ({ ...item, appearance }))}/>}
               <h4>Add content block</h4><div className="site-cms-add" role="group" aria-label="Add block">
                 {(['heading', 'paragraph', 'image', 'button'] as const).map((kind) =>
                   <Button key={kind} size="sm" variant="secondary" icon={Plus} onClick={() => addBlock(kind)}>{kind}</Button>)}
@@ -1112,6 +1115,8 @@ export function WebsiteCMSPage() {
                     onChange={(event) => edit(node.id, (item) => ({ ...item, text: event.target.value }))}/></label>
                 {(node.kind === 'image' || node.kind === 'button') && <label>URL
                   <input value={node.url ?? ''} onChange={(event) => edit(node.id, (item) => ({ ...item, url: event.target.value }))}/></label>}
+                <WebsiteNodeStyleEditor node={node}
+                  onChange={(appearance) => edit(node.id, (item) => ({ ...item, appearance }))}/>
               </div>)}
             </Card><Card><h3>Draft preview</h3><p>Private preview. Tracking scripts are not loaded.</p>
               <div className="site-cms-preview">{draft.nodes.map(render)}</div>
