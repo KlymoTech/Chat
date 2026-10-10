@@ -18,6 +18,9 @@ interface PageDocument {
 interface WebsiteMetrics { days: number; pageViews: number; ctaClicks: number; pages: Array<{ slug: string; pageViews: number }> }
 interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
+interface SiteMenuLink { id: string; label: string; slug: string }
+interface SiteMenu { draftVersion: number; publishedVersion: number | null; document: { items: SiteMenuLink[] } }
+interface SiteMenuRevision { version: number; createdAt: string; isPublished: boolean }
 const id = () => crypto.randomUUID();
 const defaultSEO: PageSEO = { description: '', canonical_url: null, indexable: false };
 const newDocument = (
@@ -77,6 +80,13 @@ export function WebsiteCMSPage() {
   const [pages, setPages] = useState<CMSPage[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [metrics, setMetrics] = useState<WebsiteMetrics | null>(null);
+  const [siteMenu, setSiteMenu] = useState<SiteMenu | null>(null);
+  const [menuDraft, setMenuDraft] = useState<SiteMenuLink[]>([]);
+  const [menuHistory, setMenuHistory] = useState<SiteMenuRevision[]>([]);
+  const [menuChoice, setMenuChoice] = useState('');
+  const [menuBusy, setMenuBusy] = useState(false);
+  const [menuError, setMenuError] = useState('');
+  const [menuNote, setMenuNote] = useState('');
   const [selected, setSelected] = useState<CMSPage | null>(null);
   const [editing, setEditing] = useState(() => startDraftHistory<PageDocument>(null));
   const draft = editing.present;
@@ -116,12 +126,108 @@ export function WebsiteCMSPage() {
     try {
       const saved = await request<CMSPage[]>('/site-cms/pages');
       setPages(saved);
+      try {
+        const menu = await request<SiteMenu>('/site-cms/menu');
+        setSiteMenu(menu);
+        setMenuDraft(menu.document.items);
+        setMenuHistory(menu.draftVersion
+          ? await request<SiteMenuRevision[]>('/site-cms/menu/revisions') : []);
+        setMenuError('');
+      } catch (reason) {
+        setSiteMenu(null);
+        setMenuError('Navigation could not be loaded: ' + message(reason));
+      }
       setMetrics(await request<WebsiteMetrics>('/site-analytics/summary?days=30').catch(() => null));
       setSelected((current) => current && saved.some((page) => page.id === current.id) ? current : null);
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   }, [workspaceId]);
-  useEffect(() => { setPages([]); setSelected(null); resetDraft(null); void load(); }, [load, resetDraft]);
+  useEffect(() => { setPages([]); setSelected(null); resetDraft(null); setSiteMenu(null); setMenuDraft([]); setMenuHistory([]); void load(); }, [load, resetDraft]);
+  const menuDirty = !!siteMenu && !sameDraftContent(menuDraft, siteMenu.document.items);
+  const updateMenu = (next: SiteMenuLink[]) => {
+    setMenuDraft(next);
+    setMenuNote('');
+    setMenuError('');
+  };
+  const addMenuLink = () => {
+    const page = pages.find((entry) =>
+      entry.publishedVersion !== null && entry.slug === menuChoice);
+    if (!page || !siteMenu || menuDraft.some((item) => item.slug === page.slug) || menuDraft.length >= 20) return;
+    updateMenu([...menuDraft, { id: id(), label: page.title, slug: page.slug }]);
+    setMenuChoice('');
+  };
+  const removeMenuLink = (linkId: string) => {
+    updateMenu(menuDraft.filter((entry) => entry.id !== linkId));
+  };
+  const moveMenuLink = (linkId: string, offset: number) => {
+    const index = menuDraft.findIndex((entry) => entry.id === linkId);
+    const nextIndex = index + offset;
+    if (index < 0 || nextIndex < 0 || nextIndex >= menuDraft.length) return;
+    const moved = [...menuDraft];
+    [moved[index], moved[nextIndex]] = [moved[nextIndex]!, moved[index]!];
+    updateMenu(moved);
+  };
+  const refreshSiteMenu = async () => {
+    if (menuDirty && !window.confirm('Discard unsaved navigation edits and reload the latest server revision?')) return;
+    setMenuBusy(true); setMenuError('');
+    try {
+      const current = await request<SiteMenu>('/site-cms/menu');
+      setSiteMenu(current);
+      setMenuDraft(current.document.items);
+      setMenuHistory(current.draftVersion
+        ? await request<SiteMenuRevision[]>('/site-cms/menu/revisions') : []);
+      setMenuNote('Navigation reloaded from the server.');
+    } catch (reason) { setMenuError(message(reason)); }
+    finally { setMenuBusy(false); }
+  };
+  const saveSiteMenu = async () => {
+    if (!siteMenu || !menuDirty || menuBusy) return;
+    setMenuBusy(true); setMenuError(''); setMenuNote('Saving navigation…');
+    try {
+      const saved = await request<SiteMenu>('/site-cms/menu', {
+        method: 'PUT',
+        body: JSON.stringify({ expected_version: siteMenu.draftVersion, document: { items: menuDraft } }),
+      });
+      setSiteMenu(saved);
+      setMenuDraft(saved.document.items);
+      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
+      setMenuNote('Navigation draft saved as version ' + saved.draftVersion + '.');
+    } catch (reason) {
+      setMenuError(message(reason) + ' Your unsaved navigation edits remain in this tab.');
+      setMenuNote('Navigation save was not acknowledged.');
+    } finally { setMenuBusy(false); }
+  };
+  const publishSiteMenu = async () => {
+    if (!siteMenu || menuDirty || menuBusy || !siteMenu.draftVersion) return;
+    setMenuBusy(true); setMenuError(''); setMenuNote('Validating linked pages…');
+    try {
+      const published = await request<SiteMenu>('/site-cms/menu/publish', {
+        method: 'POST',
+        body: JSON.stringify({ expected_version: siteMenu.draftVersion }),
+      });
+      setSiteMenu(published);
+      setMenuDraft(published.document.items);
+      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
+      setMenuNote('Navigation revision ' + published.publishedVersion + ' is live.');
+    } catch (reason) {
+      setMenuError(message(reason));
+      setMenuNote('Navigation publication was not acknowledged.');
+    } finally { setMenuBusy(false); }
+  };
+  const restoreSiteMenu = async (version: number) => {
+    if (!siteMenu || menuDirty || menuBusy || !window.confirm('Restore menu version ' + version + ' as a new private draft?')) return;
+    setMenuBusy(true); setMenuError('');
+    try {
+      const saved = await request<SiteMenu>('/site-cms/menu/restore/' + version, {
+        method: 'POST', body: JSON.stringify({ expected_version: siteMenu.draftVersion }),
+      });
+      setSiteMenu(saved);
+      setMenuDraft(saved.document.items);
+      setMenuHistory(await request<SiteMenuRevision[]>('/site-cms/menu/revisions'));
+      setMenuNote('Historical menu copied as draft version ' + saved.draftVersion + '. Review before publishing.');
+    } catch (reason) { setMenuError(message(reason)); }
+    finally { setMenuBusy(false); }
+  };
   const refreshRevisions = async (pageId: string) => {
     try { setRevisions(await request<Revision[]>('/site-cms/pages/' + pageId + '/revisions')); }
     catch (reason) { setError(message(reason)); }
@@ -481,6 +587,72 @@ export function WebsiteCMSPage() {
           </form>
         </div></Card>
         <div className="site-cms-workspace">
+          <Card>
+            <div className="site-cms-navigation-heading">
+              <div><h3>Public navigation</h3>
+                <p>Choose published pages for your site's primary menu. A menu becomes public only after you publish its saved revision.</p>
+              </div>
+              <Button variant="secondary" size="sm" icon={RefreshCw}
+                disabled={menuBusy} onClick={() => { void refreshSiteMenu(); }}>Reload menu</Button>
+            </div>
+            {menuError ? <p role="alert" className="form-error">{menuError}</p> : null}
+            {menuNote ? <p role="status" className="site-cms-save-note">{menuNote}</p> : null}
+            {!siteMenu ? <p>Public navigation is not available until its owner settings load.</p> : <>
+              <p className="site-cms-menu-meta">Draft revision {siteMenu.draftVersion || 'not created'} · Live revision {siteMenu.publishedVersion ?? 'none'}</p>
+              <div className="site-cms-menu-list">
+                {menuDraft.map((entry, index) => <div className="site-cms-menu-item" key={entry.id}>
+                  <label>Link {index + 1} label
+                    <input value={entry.label} maxLength={80} disabled={menuBusy}
+                      onChange={(event) => updateMenu(menuDraft.map((item) =>
+                        item.id === entry.id ? { ...item, label: event.target.value } : item))} />
+                  </label>
+                  <span className="site-cms-menu-target">/{entry.slug}{!pages.some((page) =>
+                    page.slug === entry.slug && page.publishedVersion !== null)
+                    ? ' · Not currently published' : ''}</span>
+                  <div className="site-cms-menu-controls">
+                    <button type="button" aria-label={'Move menu link ' + (index + 1) + ' up'}
+                      disabled={menuBusy || index === 0} onClick={() => moveMenuLink(entry.id, -1)}><ArrowUp size={17}/></button>
+                    <button type="button" aria-label={'Move menu link ' + (index + 1) + ' down'}
+                      disabled={menuBusy || index === menuDraft.length - 1} onClick={() => moveMenuLink(entry.id, 1)}><ArrowDown size={17}/></button>
+                    <button type="button" aria-label={'Remove menu link ' + (index + 1)}
+                      disabled={menuBusy} onClick={() => removeMenuLink(entry.id)}><Trash2 size={17}/></button>
+                  </div>
+                </div>)}
+                {menuDraft.length === 0 ? <p>No navigation links configured yet.</p> : null}
+              </div>
+              <div className="site-cms-menu-add">
+                <label>Published page to add
+                  <select value={menuChoice} disabled={menuBusy || menuDraft.length >= 20}
+                    onChange={(event) => setMenuChoice(event.target.value)}>
+                    <option value="">Select a published page…</option>
+                    {pages.filter((page) => page.publishedVersion !== null
+                      && !menuDraft.some((item) => item.slug === page.slug))
+                      .map((page) => <option key={page.id} value={page.slug}>{page.title} (/{page.slug})</option>)}
+                  </select>
+                </label>
+                <Button icon={Plus} variant="secondary" size="sm"
+                  disabled={!menuChoice || menuBusy || menuDraft.length >= 20}
+                  onClick={addMenuLink}>Add link</Button>
+              </div>
+              <div className="site-cms-actions">
+                <Button icon={Save} disabled={menuBusy || !menuDirty || menuDraft.some((item) => !item.label.trim())}
+                  onClick={() => { void saveSiteMenu(); }}>Save menu draft</Button>
+                <Button icon={ShieldCheck} variant="secondary"
+                  disabled={menuBusy || menuDirty || siteMenu.draftVersion === 0
+                    || siteMenu.publishedVersion === siteMenu.draftVersion}
+                  onClick={() => { void publishSiteMenu(); }}>Publish navigation</Button>
+              </div>
+              {menuHistory.length > 0 ? <div className="site-cms-menu-history">
+                <strong>Navigation revision history</strong>
+                {menuHistory.slice(0, 10).map((revision) => <div key={revision.version}>
+                  <span>Version {revision.version} {revision.isPublished ? '· live' : ''}</span>
+                  <Button variant="secondary" size="sm"
+                    disabled={menuBusy || menuDirty || revision.version === siteMenu.draftVersion}
+                    onClick={() => { void restoreSiteMenu(revision.version); }}>Restore as draft</Button>
+                </div>)}
+              </div> : null}
+            </>}
+          </Card>
           <Card><h3>Website engagement</h3><p>First-party, consent-eligible events from published pages (last 30 days).</p>
             <div className="site-cms-metrics">
               <div><strong>{metrics?.pageViews ?? '—'}</strong><span>Page views</span></div>
