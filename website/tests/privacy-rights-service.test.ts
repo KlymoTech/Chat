@@ -25,6 +25,8 @@ beforeEach(()=>{
     if(String(sql).includes("FOR UPDATE"))return {rowCount:1,rows:[{
       status:"under_review",revision:3,created_by_actor_id:actor.id,
     }]};
+    if(String(sql).includes("SELECT actor_id::text"))
+      return {rowCount:1,rows:[{actor_id:actor.id}]};
     return {rowCount:1,rows:[]};
   });
 });
@@ -44,6 +46,19 @@ describe("private rights ledger controls",()=>{
     expect(fake.query.mock.calls.map(c=>c[0])).toContain("ROLLBACK");
     expect(fake.query.mock.calls.some(c=>String(c[0])
       .includes("UPDATE website_cms.privacy_rights_cases"))).toBe(false);
+  });
+  it("blocks sensitive transitions when the prior reviewer is also the current actor",async()=>{
+    fake.query.mockImplementation(async(sql:string)=>{
+      if(String(sql).includes("FOR UPDATE"))return {rowCount:1,rows:[{
+        status:"under_review",revision:3,created_by_actor_id:actor.id,
+      }]};
+      if(String(sql).includes("SELECT actor_id::text"))
+        return {rowCount:1,rows:[{actor_id:reviewer.id}]};
+      return {rowCount:1,rows:[]};
+    });
+    await expect(advanceRightsCase(reviewer,caseId,3,"approved","scope_approved"))
+      .rejects.toThrow(/second independent reviewer/);
+    expect(fake.query.mock.calls.map(c=>c[0])).toContain("ROLLBACK");
   });
   it("enforces optimistic revision protection before storing history",async()=>{
     await expect(advanceRightsCase(reviewer,caseId,2,"approved","scope_approved"))
