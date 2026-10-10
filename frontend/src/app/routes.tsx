@@ -45,6 +45,7 @@ const StudentsPage = lazy(() => import('@/pages/StudentsPage').then((module) => 
 const VerifyEmailPageView = lazy(() => import('@/features/website/pages/VerifyEmailPage').then((module) => ({ default: module.VerifyEmailPage })));
 const WorkspaceInvitationPageView = lazy(() => import('@/features/website/pages/WorkspaceInvitationPage').then((module) => ({ default: module.WorkspaceInvitationPage })));
 const WorkspaceSettingsPageView = lazy(() => import('@/features/admin').then((module) => ({ default: module.WorkspaceSettingsPage })));
+const WebsiteCMSPageView = lazy(() => import('@/pages/WebsiteCMSPage').then((module) => ({ default: module.WebsiteCMSPage })));
 const WidgetDemoPageView = lazy(() => import('@/features/website/pages/WidgetDemoPage').then((module) => ({ default: module.WidgetDemoPage })));
 
 const OrganizationsPage = lazy(() => import('@/pages/OrganizationsPage').then((module) => ({ default: module.OrganizationsPage })));
@@ -88,6 +89,7 @@ export function AppRoutes() {
       <Route path="crm-workflow" element={<CRMWorkflowPage />} />
       <Route path="workflows" element={<BotWorkflowBuilderPage />} />
       <Route path="analytics" element={<AnalyticsPage />} />
+      <Route path="site-cms" element={<WebsiteCMSPageView />} />
       <Route path="audit" element={<AuditPage />} />
       <Route path="integrations" element={<IntegrationsHubPage />} />
       <Route path="integrations/advanced" element={<IntegrationManagementPage />} />
