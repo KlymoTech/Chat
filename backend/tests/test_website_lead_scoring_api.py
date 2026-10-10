@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
+from northstar_api.lead_crm.audit_models import IntegrationAuditEvent
 from northstar_api.lead_crm.models import LeadActivityEvent, LeadConsent, LeadProfile
 from northstar_api.notifications import Notification
 from northstar_api.models import (
@@ -304,3 +305,101 @@ async def test_segment_registration_rejects_sensitive_fields_and_preserves_setti
         assert workspace is not None
         assert workspace.settings_json["untouched"] == "preserve"
         assert workspace.settings_json["website_lead_segments"]["version"] == 1
+
+
+
+async def test_marketing_unsubscribe_preserves_processing_and_is_replay_safe(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    headers, lead_id, workspace_id = await _workspace_and_lead(client, auth_headers)
+    async with SessionFactory() as session:
+        lead = await session.get(Lead, lead_id)
+        assert lead is not None
+        session.add(LeadConsent(
+            tenant_id=lead.tenant_id, lead_id=lead.id,
+            consent_type="marketing", status="granted",
+            source="explicit_double_opt_in", channel="email",
+        ))
+        await session.commit()
+    owner_url = f"/api/v1/site-marketing/leads/{lead_id}"
+    public = "/api/v1/site-marketing"
+
+    assert (await client.get(owner_url + "/preferences")).status_code == 401
+    first = await client.get(owner_url + "/preferences", headers=headers)
+    assert first.status_code == 200, first.text
+    assert first.json()["marketingAllowed"] is True
+
+    signed = await client.post(owner_url + "/unsubscribe-link", headers=headers)
+    assert signed.status_code == 200, signed.text
+    path = signed.json()["path"]
+    assert path.startswith(public + "/unsubscribe/")
+    assert "@" not in path
+    get_only = await client.get(path)
+    assert get_only.status_code == 200, get_only.text
+    assert "Unsubscribe from marketing" in get_only.text
+    still_active = await client.get(owner_url + "/preferences", headers=headers)
+    assert still_active.json()["marketingAllowed"] is True
+
+    changed = await client.post(path)
+    assert changed.status_code == 200, changed.text
+    assert "You are unsubscribed" in changed.text
+    after = await client.get(owner_url + "/preferences", headers=headers)
+    assert after.status_code == 200
+    assert after.json()["marketingAllowed"] is False
+    assert after.json()["marketingStatus"] == "withdrawn"
+    assert after.json()["processingConsentPreserved"] is True
+    retry = await client.post(path)
+    assert retry.status_code == 200, retry.text
+
+    owner_retry = await client.post(owner_url + "/withdraw", headers=headers)
+    assert owner_retry.status_code == 200
+    assert owner_retry.json()["changed"] is False
+
+    async with SessionFactory() as session:
+        lead = await session.get(Lead, lead_id)
+        profile = await session.scalar(select(LeadProfile).where(
+            LeadProfile.lead_id == lead_id,
+        ))
+        assert lead is not None and lead.consent is True
+        assert profile is not None and profile.consent_status == "granted"
+        withdrawn_count = await session.scalar(select(func.count()).select_from(LeadConsent).where(
+            LeadConsent.lead_id == lead_id,
+            LeadConsent.consent_type == "marketing",
+            LeadConsent.status == "withdrawn",
+        ))
+        message_count = await session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.aggregate_type == "lead",
+            OutboxEvent.aggregate_id == str(lead_id),
+            OutboxEvent.event_type == "lead.marketing.consent.withdrawn.v1",
+        ))
+        audits = (await session.scalars(select(IntegrationAuditEvent).where(
+            IntegrationAuditEvent.entity_type == "lead",
+            IntegrationAuditEvent.entity_id == str(lead_id),
+            IntegrationAuditEvent.action == "website.marketing.consent.withdrawn",
+        ))).all()
+    assert withdrawn_count == 1
+    assert message_count == 1
+    assert len(audits) == 1
+    assert audits[0].after_json["marketingConsent"] == "withdrawn"
+    assert "email" not in str(audits[0].after_json).lower()
+    assert len(path) < 800
+    assert str(workspace_id) not in path  # UUIDs are signed inside the opaque payload.
+
+
+async def test_marketing_unsubscribe_is_workspace_scoped_and_rejects_bad_tokens(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    headers, lead_id, _ = await _workspace_and_lead(client, auth_headers)
+    owner_url = f"/api/v1/site-marketing/leads/{lead_id}"
+    foreign_headers, _, _ = await _workspace_and_lead(client, auth_headers)
+    assert (await client.get(owner_url + "/preferences", headers=foreign_headers)).status_code == 404
+    assert (await client.post(owner_url + "/withdraw", headers=foreign_headers)).status_code == 404
+    assert (await client.post(owner_url + "/unsubscribe-link", headers=foreign_headers)).status_code == 404
+    bad = await client.post("/api/v1/site-marketing/unsubscribe/not-valid")
+    assert bad.status_code == 400
+    # An owner can register a withdrawal without waiting for outbound marketing.
+    withdrawn = await client.post(owner_url + "/withdraw", headers=headers)
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["changed"] is True
+    second = await client.post(owner_url + "/withdraw", headers=headers)
+    assert second.json()["changed"] is False
