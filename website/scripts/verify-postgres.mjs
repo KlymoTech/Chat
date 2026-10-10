@@ -24,8 +24,8 @@ const pool=new Pool({connectionString:raw,max:2,connectionTimeoutMillis:3000});
 const client=await pool.connect();
 const dbDir=join(dirname(fileURLToPath(import.meta.url)),"../db");
 const migrationFiles=readdirSync(dbDir).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort();
-const expected=Array.from({length:16},(_,index)=>String(index+1).padStart(3,"0"));
-assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 016 must be contiguous");
+const expected=Array.from({length:17},(_,index)=>String(index+1).padStart(3,"0"));
+assert.deepEqual(migrationFiles.map(x=>x.slice(0,3)),expected,"Migrations 001 through 017 must be contiguous");
 const uuid=()=>randomUUID();
 const count=async(sql,params=[])=>Number((await client.query(sql,params)).rows[0].total);
 async function mustReject(sql,params=[],code="23514"){
@@ -232,6 +232,18 @@ try {
     "(id,site_id,consent_id,event_name,action_key,route_path) "+
     "VALUES($1,$2,$3,'cta_click','cta_contact','/contact')",
     [uuid(),otherSiteId,consentId],"23503");
+  // New migration 017 rejects fabricated event/action pairs at the DB layer.
+  await mustReject(
+    "INSERT INTO website_cms.analytics_events "+
+    "(id,site_id,consent_id,event_name,action_key,route_path) "+
+    "VALUES($1,$2,$3,'faq_open','cta_contact','/contact')",
+    [uuid(),siteId,consentId],"23514");
+  await client.query(
+    "INSERT INTO website_cms.analytics_events "+
+    "(id,site_id,consent_id,event_name,action_key,route_path) "+
+    "VALUES($1,$2,$3,'faq_open',$4,'/contact')",
+    [uuid(),siteId,consentId,
+      "faq_550e8400-e29b-41d4-a716-446655440000_0"]);
   await client.query(
     "UPDATE website_cms.consent_choices SET withdrawn_at=now() WHERE id=$1",
     [consentId]);
@@ -312,7 +324,7 @@ try {
     "SELECT COUNT(*) AS total FROM website_cms.automation_internal_runs "+
     "WHERE id=$1 AND status='completed' AND processed_steps=2",[runId]),1,
     "Completed synthetic run should preserve its state and budget");
-  console.log(JSON.stringify({database:"website_test",migrations:16,checks:[
+  console.log(JSON.stringify({database:"website_test",migrations:17,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
     "independent-approval-record","audit-append-only","no-revision-delete",
     "cross-page-publication-blocked","published-blog-discovery","rollback-appends-snapshot","trash-invisible","restore-unpublished",
@@ -320,6 +332,7 @@ try {
     "media-quarantine-initial","media-no-self-approval","media-usage-site-boundary",
     "unpublished-media-default","media-public-view-excludes-quarantine","no-unapproved-media-publication",
     "anonymous-consent-record","analytics-no-form-values","analytics-site-isolation",
+    "analytics-event-action-pair-database-enforced",
     "consent-withdrawn","automation-immutable-revision","automation-site-isolation",
     "synthetic-run-durable","synthetic-enrollment-deduplicated",
     "internal-tasks-idempotent","internal-run-site-scope","completed-run-state-consistent"
