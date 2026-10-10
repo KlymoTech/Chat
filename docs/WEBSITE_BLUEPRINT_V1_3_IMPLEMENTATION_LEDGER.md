@@ -20,9 +20,9 @@ domain contract does not imply that the UI, API, persistence or end-to-end flow 
 | CMS-01 | Visual builder page contract | Document validator and `frontend/src/pages/WebsiteCMSPage.tsx` with section/block controls | Drag-and-drop editor, full owner journeys, browser/E2E checks |
 | CMS-02 | Public rendering and preview | Responsive hashed-CSP HTML, authenticated preview and public-published-revision route | Live host/domain integration, deployment smoke test, cache invalidation proof |
 | CMS-03 | Editorial publication | API, revision history/restore, owner UI, admin-only RBAC, audit, transactional outbox | Separate approval roles, scheduling worker, published content indexing/rollback smoke tests |
-| WEB-01 | Public pages and navigation | Not audited | Responsive routes, links, content, SEO and accessibility checks |
+| WEB-01 | Public pages and navigation | Existing public routes and CMS HTML output partially integrated | Responsive real-business site brief, public navigation, forms, route checks, and accessibility testing remain |
 | CMS-04 | Blog, media and preservation | Not audited | Manual-only deletion, restore, rights, authoring, export |
-| MKT-01 | Campaign link builder | `website_campaign_links.py` | Campaign UI, automation worker, scheduling, delivery and analytics |
+| MKT-01 | Campaign link builder | Protected `site-campaigns/url` API, React owner UI, validation and API tests committed | CI test evidence missing; visual automation, durable campaigns and provider reporting remain |
 | EVT-01 | Consent-gated website page events | `website_analytics.py`, `website_page_events` migration, nonce-scoped first-party SDK, owner summary | Event/consent integration tests committed but not passed; broader attribution, destination egress and reconciliation remain |
 | PRIV-01 | Website consent choices | Policy engine, public React preference center, append-only receipts migration, GPC and withdrawal, analytics ingestion gate | Full banner, retention/rights, all third-party integrations, legal review, cross-browser/E2E tests remain |
 | SEC-01 | Production admin auth | Existing auth routes identified | Admin UI, RBAC, MFA, cookie/CSRF/session E2E security |
@@ -74,3 +74,15 @@ Do not claim it is complete until frontend, backend and database all work togeth
 - New migrations: \`0080_website_consent_receipts\`, \`0081_website_page_events\`. New API regression tests and CI workflow gates have been committed.
 - This is not full site measurement, ad-platform conversion delivery, privacy rights automation, or complete cross-module consent enforcement. Those are **unverified and remaining**.
 - CI workflow executions currently report failure without job step evidence. Do not classify any of these tests as passed until actual results are obtainable.
+
+
+## Implementation checkpoint — 2026-10-10, continued
+
+- The newest uploaded blueprint file matches the prior v1.3 document by SHA-256; its CAP-001–CAP-120 register is preserved in \`docs/WEBSITE_BLUEPRINT_120_CAPABILITY_TRACEABILITY.md\`.
+- Corrected a consent cookie path that prevented first-party analytics requests from receiving the consent token. Corrected the published-page CSP to allow same-origin event requests. Regression assertions added.
+- Added role-protected campaign-link API \`POST /api/v1/site-campaigns/url\` and owner React route \`/site-campaigns\`. This validates/encodes UTM parameters, provides copy/preview actions, and preserves non-UTM query parameters.
+- Extended CMS revision JSON with explicit search metadata: meta description, approved HTTPS canonical URL and indexability flag. Missing approval defaults to \`noindex\`.
+- Published-page HTML emits escaped description/canonical/robots metadata. A public sitemap at \`/api/v1/site-discovery/sitemap/{workspace_id}.xml\` includes only current published revisions with explicit indexing enabled; the owner dashboard links to it.
+- Added backend regression tests for campaign links, SEO metadata, and sitemap published/draft isolation. These tests are **committed but not yet demonstrated passing**.
+- Still unverified: a complete deployable public website with approved business content, CI, browser E2E, worker processing, full marketing automation, advanced builder, data/privacy rights, specialist transactions, live provider integrations, audits, backup/restore and production owner sign-off.
+- Github Actions branch jobs were failing before usable test logs/steps were available in this environment. Do not label this implementation release-ready.
