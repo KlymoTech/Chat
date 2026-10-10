@@ -128,3 +128,29 @@ Scope rule: audit existing routes, components and services before adding anythin
 - Existing JSON import/export helper and existing backend transaction are reused, with no duplicate page-persistence subsystem.
 - `websiteBuilderOperations.test.ts` now covers undo/redo, branching, limits, reordered JSON properties and readable diff; `WebsiteCMSPage.autosave.test.tsx` adds debounced save, 409 recovery and independent draft tests.
 - CI still has not produced trusted passing executions, so CAP-005 stays **not verified**. Offline local persistence with a reviewed device-sharing/expiry/logout-clearing policy and browser accessibility acceptance remain missing.
+
+
+## No-duplicate gap-closure increment — 2026-10-10, public navigation and redirects
+
+Source requirements: Chapter 04.1 (task-oriented routes and working navigation), Chapter 07.1–07.4 (owner-managed menus and redirects) and Chapter 08.3 (published revision integrity). Reused the **existing** `website_cms.py` router, owner `WebsiteCMSPage.tsx`, page status model, shared ORM metadata, transaction/outbox helpers and public renderer. No parallel CMS, route-service application or duplicate owner console was added.
+
+### First-party public navigation
+- Additive migration `0082_website_site_navigation.py` adds a workspace-scoped navigation document, immutable versions and actor-attributed audit records in existing CMS model code.
+- GET/PUT `/api/v1/site-cms/menu`; POST `/api/v1/site-cms/menu/publish`; GET `/api/v1/site-cms/menu/revisions`; POST `/api/v1/site-cms/menu/restore/{version}`.
+- Validates stable IDs, labels, internal slugs, bounded item counts, unique destinations and optimistic versions. Publication checks every target is a currently published page. Publishing is idempotent and records an outbox event.
+- Public page renderer outputs a responsive, semantic primary navigation landmark, escaping text/attributes. It filters destination links which later become unpublished, while keeping the immutable published menu revision.
+- Existing CMS owner screen provides published-page selection, editable labels, keyboard-operable ordering/removal, draft save, explicit publish and history-based restore.
+- `test_website_navigation_api.py`, `WebsiteCMSPage.navigation.test.tsx` and renderer tests cover authorization, public/draft isolation, stale versions, unsafe inputs and archival safety.
+
+### Controlled URL redirects
+- Searched for existing owner website redirect managers and data models before implementation; none were found. Added `0083_website_cms_redirects.py` to the same CMS model family.
+- GET/POST `/api/v1/site-cms/redirects` and PUT `/api/v1/site-cms/redirects/{redirect_id}` are role- and tenant-scoped, require published internal targets, preserve revisions and actor history, and reject stale writes.
+- Public page resolver may return a same-origin 307 or 308 on an old/archived slug. Active pages and unfinished drafts cannot be displaced, source slug reservation prevents collisions, and redirects to archived targets fail closed.
+- Changes emit existing transactional outbox records; the public route returns `Cache-Control: no-store`.
+- Existing CMS screen now includes creation, target changes, 307/308 selection, audited disable/enable and visible errors. Disabling never erases the previous rule.
+- `test_website_redirects_api.py` and `WebsiteCMSPage.redirects.test.tsx` include recovery, open-redirect rejection, version conflict, retired URL, and active-page protection.
+
+### Release evidence limits
+- No live environment migration, frontend compilation, DB integration execution, end-to-end browser run or owner acceptance is certified by this ledger.
+- GitHub-hosted workflow jobs still fail without assignment to a runner or execution steps; investigate repository/org Actions billing, availability and policy before a release gate can pass.
+- CAP-002, CAP-004, CAP-007, CAP-011 and CAP-012 remain **not verified**. The rest of the 120-capability catalogue remains in scope and cannot be considered delivered solely because adjacent components now exist.
