@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const actor = await requireOwner(request, "cms:read");
   if (actor instanceof NextResponse) return actor;
   try {
-    return ownerResponse({ pages: await listOwnerPages(actor) });
+    return ownerResponse({ pages: await listOwnerPages(actor),actorId:actor.id,siteId:actor.siteId });
   } catch {
     return ownerResponse({ error: "Unable to list pages" }, 503);
   }
