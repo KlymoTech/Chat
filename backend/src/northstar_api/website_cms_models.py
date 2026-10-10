@@ -119,3 +119,45 @@ class WebsiteSiteMenuAudit(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(),
     )
+
+
+class WebsiteRedirect(Base):
+    """Per-site immutable source slug with editable, audited destination."""
+
+    __tablename__ = "website_cms_redirects"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "source_slug", name="uq_website_cms_redirect_workspace_source"),
+        Index("ix_website_cms_redirect_tenant_workspace", "tenant_id", "workspace_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    source_slug: Mapped[str] = mapped_column(String(160), nullable=False)
+    target_slug: Mapped[str] = mapped_column(String(160), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False, default=308)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+
+
+class WebsiteRedirectAudit(Base):
+    """Preserve every redirection rule change without deleting source history."""
+
+    __tablename__ = "website_cms_redirect_audit"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    redirect_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("website_cms_redirects.id", ondelete="RESTRICT"), nullable=False, index=True,
+    )
+    actor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    details_json: Mapped[dict[str, Any]] = mapped_column(DocumentJSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(),
+    )
