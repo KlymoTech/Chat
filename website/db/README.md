@@ -44,3 +44,25 @@ The isolated database script now expects migrations 001–011 and checks that ne
 ## Migration 016 — synthetic-only automation durability
 
 `016_internal_automation_runs.sql` adds immutable-version-bound, site-scoped `automation_internal_runs`, per-step records and idempotent internal tasks. Composite foreign keys prevent assigning a task or step to a run in another site. Runs are bounded to 14 days and at most 60 executed nodes; a completed/failed/cancelled run must have `finished_at`. No trigger enrolls accepted customers by default; all owner runs carry `subject_type=synthetic`. The one-shot runner uses short transactions and `FOR UPDATE SKIP LOCKED` to avoid duplicate concurrent workers. SQL role grants, tenant isolation, reader restrictions and PostgreSQL 16 integration must be independently verified. This is not a CRM or outbound marketing sender.
+
+
+## Migration 018 — privacy rights case ledger (not automated fulfilment)
+
+`018_privacy_rights_cases.sql` introduces private site-scoped cases and immutable
+append-only history for access, correction, erasure, objection and restriction
+requests. It intentionally stores no requester name, email, address, uploaded
+identity proof, sensitive free-form text or erasure payload. Sensitive decisions
+require an external evidence-reference UUID. Case details and identity checks
+remain in an approved separate system and must be independently verified.
+
+The owner API requires a distinct `cms:privacy` IdP permission, a verified DB
+grant flag, and operator-approved activation. The domain service checks legal
+workflow transitions, revision conflicts, and a different actor for identity
+verification, legal hold, approvals, denials, execution and closure.
+The isolated PostgreSQL verifier now expects migrations 001–018 and tests
+append-only history, evidence constraints, and cross-site FK restrictions.
+
+This does NOT execute deletion/anonymization, propagate rights to processors,
+apply legal hold across all systems, verify requester identity, or satisfy
+jurisdiction-specific deadlines; those remain release blockers. No new public
+database grants or automatic data-purging jobs are created.
