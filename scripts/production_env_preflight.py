@@ -25,7 +25,18 @@ def load_env(path: Path) -> dict[str, str]:
         if "=" not in line:
             raise ValueError(f"Invalid environment entry at line {number}")
         key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
+        key = key.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            raise ValueError(f"Invalid environment key at line {number}")
+        if key in values:
+            raise ValueError(f"Duplicate environment key {key} at line {number}")
+        value = value.strip()
+        if value.startswith(('"', "'")):
+            quote = value[0]
+            if len(value) < 2 or not value.endswith(quote):
+                raise ValueError(f"Unterminated quoted value at line {number}")
+            value = value[1:-1]
+        values[key] = value
     return values
 
 
