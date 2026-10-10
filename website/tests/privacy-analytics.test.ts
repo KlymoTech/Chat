@@ -23,7 +23,7 @@ describe("versioned consent and minimal first-party analytics",()=>{
     expect(parseAnalyticsEvent({...base,actionKey:"hidden_customer_identifier"})).toBeNull();
     expect(parseAnalyticsEvent({...base,
       actionKey:"cta_550e8400-e29b-41d4-a716-446655440000"})).not.toBeNull();
-    expect(parseAnalyticsEvent({...base,
+    expect(parseAnalyticsEvent({...base,eventName:"faq_open",
       actionKey:"faq_550e8400-e29b-41d4-a716-446655440000_3"})).not.toBeNull();
   });
   it("rejects mismatched event/action pairs that would inflate reporting",()=>{
