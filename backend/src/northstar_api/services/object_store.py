@@ -327,12 +327,15 @@ class ObjectStore:
 
         await asyncio.to_thread(remove)
 
+    def _require_aws_versioning(self, status: str | None) -> None:
+        if self.settings.s3_auth_mode == "aws-default" and status != "Enabled":
+            raise ObjectStoreUnavailable("AWS object purge requires enabled bucket versioning")
+
     def _purge_exact_sync(self, client: Any, key: str) -> int:
         bucket = self.settings.s3_bucket
         try:
             versioning = client.get_bucket_versioning(Bucket=bucket)
-            if self.settings.s3_auth_mode == "aws-default" and versioning.get("Status") != "Enabled":
-                raise ObjectStoreUnavailable("AWS object purge requires enabled bucket versioning")
+            self._require_aws_versioning(versioning.get("Status"))
             if versioning.get("Status") not in {"Enabled", "Suspended"}:
                 client.delete_object(Bucket=bucket, Key=key)
                 return 1
@@ -389,6 +392,7 @@ class ObjectStore:
             client = self._client()
             bucket = self.settings.s3_bucket
             versioning = client.get_bucket_versioning(Bucket=bucket)
+            self._require_aws_versioning(versioning.get("Status"))
             objects: list[dict[str, str]] = []
             if versioning.get("Status") in {"Enabled", "Suspended"}:
                 pages = client.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=prefix)
@@ -416,6 +420,21 @@ class ObjectStore:
                 )
                 if result.get("Errors"):
                     raise ObjectStoreUnavailable("Object storage could not purge extraction evidence")
+            operation = (
+                "list_object_versions"
+                if versioning.get("Status") in {"Enabled", "Suspended"}
+                else "list_objects_v2"
+            )
+            for page in client.get_paginator(operation).paginate(Bucket=bucket, Prefix=prefix):
+                collections = (
+                    ("Versions", "DeleteMarkers") if operation == "list_object_versions" else ("Contents",)
+                )
+                if any(
+                    isinstance(item.get("Key"), str) and item["Key"].startswith(prefix)
+                    for collection in collections
+                    for item in page.get(collection, [])
+                ):
+                    raise ObjectStoreUnavailable("Object storage still contains extraction evidence")
             return len(objects)
 
         return await asyncio.to_thread(purge)

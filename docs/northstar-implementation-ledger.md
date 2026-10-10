@@ -740,3 +740,13 @@ do not merge without explicit instruction.
   existing deletion path. Focused regressions cover both AWS drift states.
 - This is a fail-closed guard, not a complete retention, legal-hold, or orphan
   reconciliation system; real S3 bucket policy and IAM qualification remain.
+
+## Increment: consistent extraction cleanup guard (2026-10-10)
+
+- Exact-key and extraction-prefix purges now share the AWS enabled-versioning
+  precondition. The prefix purge also re-lists after deletion and refuses to
+  report success if a version or delete marker appears or survives. Existing
+  local MinIO behavior is retained.
+- This only covers the event-driven cleanup path; concurrent writers can still
+  race after the final check. Storage write isolation, periodic orphan scans,
+  and live AWS qualification remain required.
