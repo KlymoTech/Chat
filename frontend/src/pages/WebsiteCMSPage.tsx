@@ -9,6 +9,7 @@ type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
 type Action = 'submit' | 'approve' | 'publish';
 interface Node { id: string; kind: Kind; text?: string | null; url?: string | null; children?: Node[] }
 interface PageDocument { schema_version: 1; title: string; slug: string; nodes: Node[] }
+interface Revision { version: number; title: string; createdAt: string; isPublished: boolean }
 interface CMSPage { id: string; slug: string; title: string; status: string; draftVersion: number; publishedVersion: number | null; document: PageDocument }
 const id = () => crypto.randomUUID();
 const newDocument = (title: string, slug: string): PageDocument => ({ schema_version: 1, title, slug, nodes: [
@@ -46,6 +47,7 @@ function message(reason: unknown): string {
 export function WebsiteCMSPage() {
   const { activeWorkspace } = useWorkspace();
   const [pages, setPages] = useState<CMSPage[]>([]);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
   const [selected, setSelected] = useState<CMSPage | null>(null);
   const [draft, setDraft] = useState<PageDocument | null>(null);
   const [sectionId, setSectionId] = useState<string | null>(null);
@@ -65,8 +67,14 @@ export function WebsiteCMSPage() {
     finally { setBusy(false); }
   }, [activeWorkspace?.id]);
   useEffect(() => { setPages([]); setSelected(null); setDraft(null); void load(); }, [load]);
+  const refreshRevisions = async (pageId: string) => {
+    try { setRevisions(await request<Revision[]>('/site-cms/pages/' + pageId + '/revisions')); }
+    catch (reason) { setError(message(reason)); }
+  };
   const open = (page: CMSPage) => {
+    if (dirty && !window.confirm('Discard unsaved content changes?')) return;
     setSelected(page); setDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
+    void refreshRevisions(page.id);
   };
   const create = async () => {
     setBusy(true); setError('');
@@ -91,6 +99,7 @@ export function WebsiteCMSPage() {
   const dirty = !!selected && !!draft && JSON.stringify(draft) !== JSON.stringify(selected.document);
   const replace = (page: CMSPage) => {
     setSelected(page); setDraft(page.document); setPages((items) => items.map((item) => item.id === page.id ? page : item));
+    void refreshRevisions(page.id);
   };
   const save = async () => {
     if (!selected || !draft) return;
@@ -107,6 +116,17 @@ export function WebsiteCMSPage() {
     setBusy(true); setError('');
     try { replace(await request<CMSPage>('/site-cms/pages/' + selected.id + '/' + action, { method: 'POST' })); }
     catch (reason) { setError(message(reason)); }
+    finally { setBusy(false); }
+  };
+  const restore = async (version: number) => {
+    if (!selected || dirty || busy || version === selected.draftVersion) return;
+    if (!window.confirm('Restore revision ' + version + ' as a new draft? The current published page will remain unchanged.')) return;
+    setBusy(true); setError('');
+    try {
+      replace(await request<CMSPage>('/site-cms/pages/' + selected.id + '/restore/' + version, {
+        method: 'POST', body: JSON.stringify({ expected_version: selected.draftVersion }),
+      }));
+    } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   };
   const publicUrl = selected && activeWorkspace
@@ -169,6 +189,15 @@ export function WebsiteCMSPage() {
             </Card><Card><h3>Draft preview</h3><p>Private preview. Tracking scripts are not loaded.</p>
               <div className="site-cms-preview">{draft.nodes.map(render)}</div>
             </Card></div>
+            <Card><h3>Revision history</h3><p>Restore any prior revision as a new private draft. No version is deleted.</p>
+              <div className="site-cms-history">
+                {revisions.map((revision) => <div key={revision.version}>
+                  <span><strong>Version {revision.version}</strong> · {revision.title} {revision.isPublished ? '(published)' : ''}</span>
+                  <Button size="sm" variant="secondary" disabled={busy || dirty || revision.version === selected.draftVersion}
+                    onClick={() => void restore(revision.version)}>Restore</Button>
+                </div>)}
+              </div>
+            </Card>
           </>}
         </div>
       </div>}
