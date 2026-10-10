@@ -86,6 +86,7 @@ export function WebsiteCMSPage() {
   const setDraft = useCallback((change: SetStateAction<PageDocument | null>) => {
     setEditing((history) => reviseDraftHistory(history, change));
   }, []);
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
   const [saveBlocked, setSaveBlocked] = useState(false);
   const [saveConflict, setSaveConflict] = useState(false);
   const [serverConflict, setServerConflict] = useState<CMSPage | null>(null);
@@ -281,7 +282,7 @@ export function WebsiteCMSPage() {
     void refreshRevisions(page.id);
   };
   const save = async () => {
-    if (!selected || !draft || busy || saveConflict) return;
+    if (!selected || !draft || busy || saveConflict || !online) return;
     const snapshot = draft;
     const pageId = selected.id;
     setBusy(true); setError(''); setSaveNote('Saving to the server…');
@@ -316,13 +317,31 @@ export function WebsiteCMSPage() {
       setError(message(reason));
     } finally { setBusy(false); }
   };
+  useEffect(() => {
+    const handleOffline = () => {
+      setOnline(false);
+      setSaveNote('You are offline. Local edits remain in this tab; they have not reached the server.');
+    };
+    const handleOnline = () => {
+      setOnline(true);
+      setSaveNote('Connection restored. Pending edits can be saved to the server.');
+      // A known 409 conflict still requires deliberate reconciliation.
+      if (!saveConflict) setSaveBlocked(false);
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [saveConflict]);
   useEffect(() => { saveRef.current = save; });
   // Debounced database autosave uses the same optimistic-version API as manual Save.
   useEffect(() => {
-    if (!dirty || !draft || !selected || busy || saveBlocked || saveConflict) return;
+    if (!dirty || !draft || !selected || busy || saveBlocked || saveConflict || !online) return;
     const timer = window.setTimeout(() => { void saveRef.current(); }, 3000);
     return () => window.clearTimeout(timer);
-  }, [selected?.id, selected?.draftVersion, draft, dirty, busy, saveBlocked, saveConflict]);
+  }, [selected?.id, selected?.draftVersion, draft, dirty, busy, saveBlocked, saveConflict, online]);
   useEffect(() => {
     if (!dirty && !busy) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -495,6 +514,7 @@ export function WebsiteCMSPage() {
                   onClick={() => void transition('restore_draft')}>Restore draft</Button>
               </div></div>
               {dirty ? <p className="site-cms-unsaved" role="status">Unsaved edits. {saveBlocked ? 'Autosave is paused.' : 'Autosave will run after a short pause.'}</p> : null}
+              {!online ? <p role="status" className="site-cms-save-note">Offline — nothing is being sent. Keep this tab open until the connection returns.</p> : null}
               {saveNote ? <p role="status" className="site-cms-save-note">{saveNote}</p> : null}
               {saveBlocked && !saveConflict && dirty ? <Button variant="secondary" disabled={busy}
                 onClick={() => { setSaveBlocked(false); void save(); }}>Retry save</Button> : null}
