@@ -103,6 +103,40 @@ def _audit(page: WebsitePage, principal: Principal, action: str) -> WebsiteAudit
     return WebsiteAudit(page_id=page.id, actor_id=principal.user_id, action=action, revision_version=page.draft_version)
 
 
+async def _create_draft_page(
+    session: DBSession,
+    principal: Principal,
+    document: BuilderPageDocument,
+    *,
+    action: Literal["create", "duplicate", "import"],
+) -> dict[str, Any]:
+    """One transactional path for all new drafts, revisions, and actor audit rows."""
+    page = WebsitePage(
+        tenant_id=principal.tenant_id,
+        workspace_id=_scope(principal),
+        slug=document.slug,
+        title=document.title,
+        status="draft",
+        draft_version=1,
+    )
+    session.add(page)
+    try:
+        await session.flush()
+        serialized = document.model_dump(mode="json")
+        session.add(WebsiteRevision(
+            page_id=page.id,
+            version=1,
+            document_json=serialized,
+            created_by=principal.user_id,
+        ))
+        session.add(_audit(page, principal, action))
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(409, "The destination page URL is already in use") from None
+    return _info(page, serialized)
+
+
 @router.get("/pages")
 async def list_pages(principal: CmsAdmin, session: DBSession, response: Response) -> list[dict[str, Any]]:
     response.headers["Cache-Control"] = "private, no-store"
@@ -117,34 +151,19 @@ async def list_pages(principal: CmsAdmin, session: DBSession, response: Response
 
 
 @router.post("/pages", status_code=201)
-async def create_page(payload: BuilderPageDocument, principal: CmsAdmin, session: DBSession,
-                      response: Response) -> dict[str, Any]:
+async def create_page(
+    payload: BuilderPageDocument, principal: CmsAdmin, session: DBSession,
+    response: Response,
+) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
-    page = WebsitePage(
-        tenant_id=principal.tenant_id, workspace_id=_scope(principal),
-        slug=payload.slug, title=payload.title, status="draft", draft_version=1,
-    )
-    session.add(page)
-    try:
-        await session.flush()
-        document = payload.model_dump(mode="json")
-        session.add(WebsiteRevision(
-            page_id=page.id, version=1, document_json=document, created_by=principal.user_id,
-        ))
-        session.add(_audit(page, principal, "create"))
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(409, "This workspace already has a page with that URL slug") from None
-    return _info(page, document)
-
+    return await _create_draft_page(session, principal, payload, action="create")
 
 @router.post("/pages/{page_id}/duplicate", status_code=201)
 async def duplicate_page(
     page_id: UUID, payload: PageDuplicate, principal: CmsAdmin,
     session: DBSession, response: Response,
 ) -> dict[str, Any]:
-    """Copy any authorized page as an independent private draft with fresh node IDs."""
+    """Copy an authorized page into an independent, private draft."""
     response.headers["Cache-Control"] = "private, no-store"
     source = await _get_page(session, principal, page_id)
     original = await _revision(session, source, source.draft_version)
@@ -152,24 +171,7 @@ async def duplicate_page(
         BuilderPageDocument.model_validate(original.document_json),
         new_slug=payload.slug, new_title=payload.title,
     )
-    page = WebsitePage(
-        tenant_id=principal.tenant_id, workspace_id=_scope(principal),
-        slug=document.slug, title=document.title, status="draft", draft_version=1,
-    )
-    session.add(page)
-    try:
-        await session.flush()
-        data = document.model_dump(mode="json")
-        session.add(WebsiteRevision(
-            page_id=page.id, version=1, document_json=data, created_by=principal.user_id,
-        ))
-        session.add(_audit(page, principal, "duplicate"))
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(409, "The destination page URL is already in use") from None
-    return _info(page, data)
-
+    return await _create_draft_page(session, principal, document, action="duplicate")
 
 @router.get("/pages/{page_id}/export")
 async def export_page_document(
@@ -193,38 +195,14 @@ async def import_page_document(
     manifest: SiteImportManifest, principal: CmsAdmin,
     session: DBSession, response: Response,
 ) -> dict[str, Any]:
-    """Import as a separate private draft; regenerate block IDs and canonical identity."""
+    """Import a validated manifest as a new, non-indexable draft."""
     response.headers["Cache-Control"] = "private, no-store"
     copied = duplicate_page_document(
         manifest.page,
         new_slug=manifest.new_slug,
         new_title=manifest.new_title,
     )
-    page = WebsitePage(
-        tenant_id=principal.tenant_id,
-        workspace_id=_scope(principal),
-        slug=copied.slug,
-        title=copied.title,
-        status="draft",
-        draft_version=1,
-    )
-    session.add(page)
-    try:
-        await session.flush()
-        serialized = copied.model_dump(mode="json")
-        session.add(WebsiteRevision(
-            page_id=page.id,
-            version=1,
-            document_json=serialized,
-            created_by=principal.user_id,
-        ))
-        session.add(_audit(page, principal, "import"))
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(409, "Import destination slug already exists") from None
-    return _info(page, serialized)
-
+    return await _create_draft_page(session, principal, copied, action="import")
 
 @router.put("/pages/{page_id}")
 async def save_page(page_id: UUID, payload: PageEdit, principal: CmsAdmin,
