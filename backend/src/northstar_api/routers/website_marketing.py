@@ -139,7 +139,10 @@ async def owner_marketing_preferences(
     receipt = await _current_marketing_consent(
         session, tenant_id=lead.tenant_id, lead_id=lead.id,
     )
-    status = receipt.status.lower() if receipt is not None else "unknown"
+    status = (
+        "withdrawn" if receipt is not None and receipt.withdrawn_at is not None
+        else receipt.status.strip().casefold() if receipt is not None else "unknown"
+    )
     return {
         "leadId": str(lead.id), "marketingStatus": status,
         "marketingAllowed": status == "granted",
