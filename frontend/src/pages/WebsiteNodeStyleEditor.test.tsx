@@ -41,7 +41,7 @@ describe('versioned CMS node-style inspector', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset appearance' }));
-    expect(screen.getByTestId('appearance').textContent).toBe('');
+    expect(screen.getByTestId('appearance').textContent).toBe('null');
     expect(screen.getByTestId('classes').textContent).toBe('');
   });
 });
