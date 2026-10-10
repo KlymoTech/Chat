@@ -114,7 +114,7 @@ jobs:
           tests/test_education_student_identities.py
           -q
       - name: Capture Python environment diagnostics
-        if: always()
+        if: ${{ always() && steps.checkout.outcome == 'success' }}
         shell: bash
         run: |
           {
