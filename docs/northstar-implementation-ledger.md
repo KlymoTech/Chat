@@ -790,3 +790,13 @@ do not merge without explicit instruction.
   repo-wide Ruff reported 219 findings, and the full frontend test run showed
   additional failures before being stopped. These are not waived or counted
   as passing CI. Docker, PostgreSQL integration and live AWS remain untested.
+
+## Increment: stable workspace branding fetch identity (2026-10-10)
+
+- Workspace branding now depends on the active workspace ID, not the identity
+  of its context object. This prevents duplicate fetches when the provider
+  returns a new object for the same workspace while retaining immediate
+  cross-workspace brand isolation and late-response rejection. Focused tests
+  cover same-ID rerenders and workspace switches.
+- This resolves one observed frontend test failure, not the other frontend
+  lint/test findings or production browser qualification.

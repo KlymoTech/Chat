@@ -12,27 +12,27 @@ type WorkspaceBrandSnapshot = {
 
 export function WorkspaceBrandRuntime({ children }: { children: ReactNode }) {
   const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id;
   const [brandSnapshot, setBrandSnapshot] = useState<WorkspaceBrandSnapshot | null>(null);
   // A previous workspace's published brand must not remain visible while the
   // next workspace's asynchronous branding request is still in flight.
   const branding = (() => {
-    if (!brandSnapshot || brandSnapshot.workspaceId !== activeWorkspace?.id) return null;
+    if (!brandSnapshot || brandSnapshot.workspaceId !== workspaceId) return null;
     return brandSnapshot.branding;
   })();
 
   useEffect(() => {
     let current = true;
-    if (!activeWorkspace) {
+    if (!workspaceId) {
       return () => { current = false; };
     }
-    const workspaceId = activeWorkspace.id;
     workspaceSettingsApi.runtimeBranding().then((value) => {
       if (current) setBrandSnapshot({ workspaceId, branding: value });
     }).catch(() => {
       if (current) setBrandSnapshot({ workspaceId, branding: null });
     });
     return () => { current = false; };
-  }, [activeWorkspace]);
+  }, [workspaceId]);
 
   useEffect(() => {
     const activeBranding = branding;

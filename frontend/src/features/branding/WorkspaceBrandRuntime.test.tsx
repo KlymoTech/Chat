@@ -44,6 +44,18 @@ function CurrentBrand() {
 }
 
 describe('WorkspaceBrandRuntime workspace isolation', () => {
+  it('does not refetch branding when the workspace object is recreated with the same ID', async () => {
+    vi.mocked(useWorkspace).mockImplementation(() => ({
+      activeWorkspace: { id: 'workspace-a' },
+    } as unknown as ReturnType<typeof useWorkspace>));
+    vi.mocked(workspaceSettingsApi.runtimeBranding).mockResolvedValue(brand('Workspace A'));
+
+    const view = render(<WorkspaceBrandRuntime><CurrentBrand /></WorkspaceBrandRuntime>);
+    await screen.findByText('Workspace A');
+    view.rerender(<WorkspaceBrandRuntime><CurrentBrand /></WorkspaceBrandRuntime>);
+    expect(workspaceSettingsApi.runtimeBranding).toHaveBeenCalledTimes(1);
+  });
+
   it('clears the previous brand immediately and ignores a late response after switching workspaces', async () => {
     let activeWorkspaceId = 'workspace-a';
     vi.mocked(useWorkspace).mockImplementation(() => ({
