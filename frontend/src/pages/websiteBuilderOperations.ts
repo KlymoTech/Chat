@@ -153,3 +153,61 @@ export function sameDraftContent(left: unknown, right: unknown): boolean {
   };
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
+
+export interface DraftDifference {
+  field: string;
+  local: string;
+  server: string;
+}
+
+/** Summarize safe, human-readable document differences without guessing a merge. */
+export function compareDraftDocuments(
+  local: { title: string; nodes: BuilderNode[]; seo?: unknown; blog?: unknown },
+  server: { title: string; nodes: BuilderNode[]; seo?: unknown; blog?: unknown },
+): DraftDifference[] {
+  const changes: DraftDifference[] = [];
+  const describe = (value: unknown): string => {
+    if (value === undefined || value === null) return '(empty)';
+    if (typeof value === 'string') return value.slice(0, 160);
+    return (JSON.stringify(value) ?? '').slice(0, 160);
+  };
+  const push = (field: string, a: unknown, b: unknown) => {
+    if (!sameDraftContent(a, b) && changes.length < 40) {
+      changes.push({ field, local: describe(a), server: describe(b) });
+    }
+  };
+  push('Page title', local.title, server.title);
+  push('SEO settings', local.seo, server.seo);
+  push('Article metadata', local.blog, server.blog);
+
+  const flatten = (nodes: BuilderNode[]): Map<string, BuilderNode> => {
+    const values = new Map<string, BuilderNode>();
+    const walk = (node: BuilderNode): void => {
+      values.set(node.id, node);
+      (node.children ?? []).forEach(walk);
+    };
+    nodes.forEach(walk);
+    return values;
+  };
+  const localNodes = flatten(local.nodes);
+  const serverNodes = flatten(server.nodes);
+  const identifiers = [...new Set([...localNodes.keys(), ...serverNodes.keys()])];
+  for (const id of identifiers) {
+    const a = localNodes.get(id);
+    const b = serverNodes.get(id);
+    if (!a || !b) push('Block ' + id, a ? 'Present' : 'Removed', b ? 'Present' : 'Removed');
+    else {
+      push('Block ' + id + ' text', a.text, b.text);
+      push('Block ' + id + ' URL', a.url, b.url);
+      push('Block ' + id + ' type', a.kind, b.kind);
+      push(
+        'Block ' + id + ' child order',
+        (a.children ?? []).map((child) => child.id),
+        (b.children ?? []).map((child) => child.id),
+      );
+    }
+    if (changes.length >= 40) break;
+  }
+  push('Section order', local.nodes.map((node) => node.id), server.nodes.map((node) => node.id));
+  return changes;
+}
