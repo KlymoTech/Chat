@@ -228,3 +228,93 @@ async def test_duplicate_page_is_independent_private_and_search_safe(
         )
     assert copied_revisions == 1
     assert audits == 1
+
+
+
+async def test_owner_export_import_creates_independent_unpublished_page(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid4().hex[:12]
+    source_slug = "export-source-" + suffix
+    destination_slug = "import-destination-" + suffix
+    document = page_document(source_slug, "Source content")
+    document["seo"] = {
+        "indexable": True,
+        "canonical_url": "https://example.org/" + source_slug,
+        "description": "Approved information",
+    }
+    created = await client.post(
+        "/api/v1/site-cms/pages", headers=auth_headers, json=document,
+    )
+    assert created.status_code == 201, created.text
+    page_id = created.json()["id"]
+    export_path = f"/api/v1/site-cms/pages/{page_id}/export"
+    unauth_export = await client.get(export_path)
+    assert unauth_export.status_code == 401
+
+    exported = await client.get(export_path, headers=auth_headers)
+    assert exported.status_code == 200, exported.text
+    assert exported.headers["cache-control"] == "private, no-store"
+    manifest = exported.json()
+    assert manifest["format"] == "northstar.site-page"
+    assert manifest["version"] == 1
+    assert manifest["page"]["slug"] == source_slug
+    assert manifest["page"]["seo"]["indexable"] is True
+
+    payload = {
+        **manifest, "new_slug": destination_slug, "new_title": "Imported private page",
+    }
+    unauth_import = await client.post("/api/v1/site-cms/pages/import", json=payload)
+    assert unauth_import.status_code == 401
+
+    imported = await client.post(
+        "/api/v1/site-cms/pages/import", headers=auth_headers, json=payload,
+    )
+    assert imported.status_code == 201, imported.text
+    copy = imported.json()
+    assert copy["id"] != page_id
+    assert copy["slug"] == destination_slug
+    assert copy["status"] == "draft"
+    assert copy["publishedVersion"] is None
+    assert copy["document"]["seo"]["canonical_url"] is None
+    assert copy["document"]["seo"]["indexable"] is False
+    assert copy["document"]["nodes"][0]["children"][0]["text"] == "Source content"
+    assert copy["document"]["nodes"][0]["id"] != manifest["page"]["nodes"][0]["id"]
+
+    repeated = await client.post(
+        "/api/v1/site-cms/pages/import", headers=auth_headers, json=payload,
+    )
+    assert repeated.status_code == 409
+    bad_format = await client.post(
+        "/api/v1/site-cms/pages/import",
+        headers=auth_headers,
+        json={**payload, "format": "unknown-format"},
+    )
+    assert bad_format.status_code == 422
+    extra_field = await client.post(
+        "/api/v1/site-cms/pages/import",
+        headers=auth_headers,
+        json={**payload, "untrusted_html": "<script>bad()</script>"},
+    )
+    assert extra_field.status_code == 422
+
+    workspace = await client.get("/api/v1/workspace", headers=auth_headers)
+    assert workspace.status_code == 200, workspace.text
+    public = await client.get(
+        f"/api/v1/site-cms/public/{workspace.json()['id']}/{destination_slug}"
+    )
+    assert public.status_code == 404
+    unmodified_source = await client.get(export_path, headers=auth_headers)
+    assert unmodified_source.json()["page"]["seo"]["indexable"] is True
+
+    async with SessionFactory() as session:
+        saved_revisions = await session.scalar(
+            select(func.count()).select_from(WebsiteRevision)
+            .where(WebsiteRevision.page_id == UUID(copy["id"]))
+        )
+        events = await session.scalar(
+            select(func.count()).select_from(WebsiteAudit)
+            .where(WebsiteAudit.page_id == UUID(copy["id"]), WebsiteAudit.action == "import")
+        )
+    assert saved_revisions == 1
+    assert events == 1
