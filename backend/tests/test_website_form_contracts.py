@@ -179,3 +179,85 @@ def test_multistep_schema_rejects_blank_steps_and_undefined_step_numbers():
     form["fields"][-1]["step"] = 4
     with pytest.raises(ValidationError):
         SiteFormDocument.model_validate(form)
+
+
+def test_separate_marketing_consent_is_optional_and_explicit():
+    base = document().model_dump(mode="json")
+    base["fields"].append({
+        "key": "marketing_opt_in",
+        "label": "I agree to receive marketing email updates",
+        "kind": "checkbox",
+        "required": False,
+        "purpose": "Optional email marketing updates",
+    })
+    form = SiteFormDocument.model_validate(base)
+    for submitted, expected in [
+        ({}, False),
+        ({"marketing_opt_in": ""}, False),
+        ({"marketing_opt_in": "on"}, True),
+    ]:
+        answers, errors = validate_answers(form, {
+            "name": "Jane", "email": "jane@example.org", "topic": "Sales",
+            "processing_consent": "on", **submitted,
+        })
+        assert not errors
+        assert answers["processing_consent"] is True
+        assert answers["marketing_opt_in"] is expected
+
+
+def test_marketing_cannot_be_forced_required_or_hidden_in_conditions():
+    base = document().model_dump(mode="json")
+    marketing = {
+        "key": "marketing_opt_in",
+        "label": "I agree to receive marketing email updates",
+        "kind": "checkbox",
+        "required": False,
+        "purpose": "Optional marketing emails",
+    }
+    for modifications in [
+        {"required": True},
+        {"kind": "consent"},
+        {"kind": "text"},
+        {"condition": {"field_key": "topic", "equals": "Sales"}},
+        {"label": "I accept"},
+        {"purpose": "General enquiry"},
+    ]:
+        changed = dict(marketing)
+        changed.update(modifications)
+        with pytest.raises(ValidationError):
+            SiteFormDocument.model_validate({
+                **base, "fields": [*base["fields"], changed],
+            })
+
+
+def test_marketing_opt_in_requires_email_and_cannot_repurpose_other_checkbox():
+    base = document().model_dump(mode="json")
+    marketing = {
+        "key": "marketing_opt_in",
+        "label": "I agree to receive marketing email updates",
+        "kind": "checkbox",
+        "required": False,
+        "purpose": "Optional marketing emails",
+    }
+    fields = [field for field in base["fields"] if field["key"] != "email"]
+    fields.append({
+        "key": "phone", "label": "Phone", "kind": "phone",
+        "purpose": "Respond to enquiry", "required": True,
+    })
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate({**base, "fields": [*fields, marketing]})
+
+    wrong = dict(base)
+    wrong["fields"] = [
+        {**field, "purpose": "Optional marketing messages"}
+        if field["key"] == "topic" else field
+        for field in base["fields"]
+    ]
+    # Repurpose a checkbox to request marketing without using the consent
+    # identifier. The schema must fail closed.
+    wrong["fields"].append({
+        "key": "newsletter", "label": "Sign up",
+        "kind": "checkbox", "purpose": "Optional marketing messages",
+    })
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(wrong)
