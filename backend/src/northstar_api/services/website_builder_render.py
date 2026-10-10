@@ -32,6 +32,7 @@ SITE_CSS = (
     "a.site-action{display:inline-flex;align-items:center;justify-content:center;background:#1d4ed8;"
     "border-radius:10px;color:#fff;font-weight:650;padding:12px 24px;text-decoration:none;margin:8px 0}"
     "a.site-action:hover{background:#1e40af}"
+    ".site-form-frame{display:block;width:100%;min-height:670px;border:1px solid #cbd5e1;border-radius:12px;background:#fff}"
     ".site-footer{max-width:1100px;margin:auto;padding:22px 24px 64px;border-top:1px solid #cbd5e1;color:#475569}"
     ".site-footer a{color:#1d4ed8;font-weight:650}"
     ".site-byline{color:#334155;font-weight:600}.site-summary{max-width:65ch;color:#475569}"
@@ -67,6 +68,12 @@ def _render_node(node: BuilderNode) -> str:
         return (
             f'<a class="site-action" data-builder-id="{_attr(node.id)}" href="{_attr(url)}"'
             f'{protection}>{escape(node.text or "")}</a>'
+        )
+    if node.kind == "form":
+        return (
+            f'<iframe class="site-form-frame" data-builder-id="{_attr(node.id)}" '
+            f'src="{_attr(node.url or "")}" title="{_attr(node.text or "Contact form")}" '
+            'loading="lazy" sandbox="allow-forms allow-same-origin" referrerpolicy="no-referrer"></iframe>'
         )
     tag = "section" if node.kind == "section" else "div"
     children = "".join(_render_node(child) for child in node.children)
