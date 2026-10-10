@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 
 from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession, require_roles
-from northstar_api.models import Role, Workspace, WorkspaceStatus
+from northstar_api.models import Agent, AgentStatus, Role, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.website_builder_document import BuilderPageDocument
@@ -28,7 +28,6 @@ from northstar_api.services.website_builder_render import render_page, style_csp
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
 from northstar_api.website_form_models import WebsiteForm, WebsiteFormRevision
 from northstar_api.services.website_form_contracts import SiteFormDocument
-from northstar_api.models import Agent, AgentStatus
 from northstar_api.website_cms_models import (
     WebsiteAudit, WebsitePage, WebsiteRevision, WebsiteSiteMenu,
     WebsiteSiteMenuAudit, WebsiteSiteMenuRevision,
