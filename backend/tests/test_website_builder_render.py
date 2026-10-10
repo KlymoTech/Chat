@@ -62,3 +62,22 @@ def test_nested_layout_renders():
     ]}])
     html = render_page(page)
     assert '<div data-builder-id="container"><p data-builder-id="body">Hello &amp; welcome</p></div>' in html
+
+
+def test_noindex_until_owner_approves_search_metadata():
+    assert '<meta name="robots" content="noindex, nofollow">' in render_page(build([]))
+
+
+def test_approved_search_metadata_is_escaped_and_rendered():
+    doc = BuilderPageDocument.model_validate({
+        "slug": "products", "title": "Products",
+        "seo": {
+            "description": 'Great products & "clear" pricing',
+            "canonical_url": "https://example.org/products",
+            "indexable": True,
+        },
+    })
+    html = render_page(doc)
+    assert '<meta name="robots" content="index, follow">' in html
+    assert '<meta name="description" content="Great products &amp; &quot;clear&quot; pricing">' in html
+    assert '<link rel="canonical" href="https://example.org/products">' in html
