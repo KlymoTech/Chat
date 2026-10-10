@@ -24,6 +24,38 @@ implementation master plan.
 | 14 | Load qualification and quotas | Not tested |
 | 15 | Launch | Blocked pending signed readiness |
 
+## Scope audit and outbox increment (2026-10-10)
+
+- The two `Production_Grade_Pluggable_AWS_Platform_Master_Implementation_Specification`
+  DOCX copies supplied for this request have the same SHA-256 digest
+  (`73140DBF8DC17330D9CF4EC94D077BAE1C092805F528346A6D1E51615EFDEC37`).
+  The other supplied standards are distinct and add requirements; identical
+  headings or opening text must not be treated as complete overlap.
+- `platform.yaml` remains `deployment_status: planned`. It now identifies the
+  bounded outbox relay and activity-gated recovery schedule instead of pointing
+  a queue process at the legacy infinite polling worker.
+- The shared outbox service emits one opt-in, best-effort SQS nudge **after** a
+  successful transaction commit and updates the DynamoDB activity marker.
+  Rollbacks do not signal. The relay handles one bounded batch; the recovery
+  schedule checks the marker before constructing a PostgreSQL engine. Full
+  batches enqueue continuations. The existing polling worker is retained.
+- The isolated `scale_to_zero_outbox` Terraform module defines SQS + encrypted
+  DLQ, an on-demand DynamoDB marker, SQS event mapping, 15-minute recovery rule
+  and least-privilege policy outputs. It is not instantiated or applied. Local
+  Terraform validate and one mocked topology test passed; live AWS and CI
+  evidence remain absent. Terraform 1.16.5 reports a deprecation warning in
+  the account/region precondition inherited from the module style.
+- Remaining outbox cutover gates: create/review the Lambda images and IAM roles,
+  wire network and broker access, deploy the module in an approved account,
+  qualify retry/DLQ/marker-failure behavior and consumer `eventId`
+  deduplication, then stop the legacy relay before enabling the event mapping.
+  No such cutover has occurred.
+- The standards also require independent work across tenant isolation, provider
+  migrations, frontend contracts, load/capacity, security, backup/restore and
+  disaster recovery. The requested 10,000 and 50,000 RPS reference contracts
+  are **not** claims about this deployment; no corresponding load evidence is
+  present. This ledger is not a complete requirement-by-requirement sign-off.
+
 ## Safety obligations / current blockers
 
 - Locked controls must stay enforced, including authentication,

@@ -15,12 +15,12 @@ override_data {
 }
 
 variables {
-  name_prefix          = "northstar"
-  environment          = "qualification"
-  aws_account_id       = "123456789012"
-  aws_region           = "us-east-1"
-  relay_lambda_arn     = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-relay"
-  recovery_lambda_arn  = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-recovery"
+  name_prefix           = "northstar"
+  environment           = "qualification"
+  aws_account_id        = "123456789012"
+  aws_region            = "us-east-1"
+  relay_lambda_arn      = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-relay"
+  recovery_lambda_arn   = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-recovery"
   relay_timeout_seconds = 60
 }
 

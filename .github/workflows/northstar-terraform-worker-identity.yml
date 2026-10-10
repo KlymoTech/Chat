@@ -53,3 +53,9 @@ jobs:
         run: terraform -chdir=infrastructure/terraform/examples/worker-network init -backend=false -input=false -no-color
       - name: Validate private network reference integration
         run: terraform -chdir=infrastructure/terraform/examples/worker-network validate -no-color
+      - name: Initialize scale-to-zero outbox module
+        run: terraform -chdir=infrastructure/terraform/modules/scale_to_zero_outbox init -backend=false -input=false -no-color
+      - name: Validate scale-to-zero outbox module
+        run: terraform -chdir=infrastructure/terraform/modules/scale_to_zero_outbox validate -no-color
+      - name: Test outbox topology using mocked AWS provider
+        run: terraform -chdir=infrastructure/terraform/modules/scale_to_zero_outbox test -no-color

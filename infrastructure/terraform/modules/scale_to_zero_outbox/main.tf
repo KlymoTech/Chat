@@ -110,7 +110,7 @@ data "aws_iam_policy_document" "writer" {
 
 data "aws_iam_policy_document" "relay" {
   statement {
-    actions = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"]
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"]
     resources = [aws_sqs_queue.nudge.arn]
   }
   statement {
