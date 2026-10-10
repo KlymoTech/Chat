@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 
 import pytest
 
 from northstar_api.modules.platform_runtime.queue_notification_custody_signing_claims import (
     CommittedPostgresSigningClaims,
 )
+
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
+        return None
 
 
 class FakeTransaction:
@@ -114,4 +119,25 @@ async def test_database_factory_failure_blocks_signing():
             run_id="run-12345678",
             witness_sha256="a" * 64,
             now=datetime(2026, 10, 10, tzinfo=UTC),
+        )
+
+
+def test_invalid_claim_session_factory_is_rejected():
+    with pytest.raises(TypeError, match="session factory required"):
+        CommittedPostgresSigningClaims(None)
+
+
+@pytest.mark.asyncio
+async def test_offsetless_timezone_is_rejected_before_claim_database():
+    class NeverFactory:
+        def __call__(self):
+            raise AssertionError("database must not be used")
+
+    store = CommittedPostgresSigningClaims(NeverFactory())
+    with pytest.raises(PermissionError, match="invalid custody"):
+        await store.claim(
+            release_id="release-12345678",
+            run_id="run-12345678",
+            witness_sha256="a" * 64,
+            now=datetime(2026, 10, 10, tzinfo=NoOffsetTZ()),
         )
