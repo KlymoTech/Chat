@@ -78,6 +78,7 @@ from northstar_api.routers import (
     website_campaigns,
     website_blog,
     website_cms,
+    website_forms,
     website_discovery,
     website_consent,
     website_analytics,
