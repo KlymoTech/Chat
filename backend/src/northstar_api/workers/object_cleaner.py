@@ -28,6 +28,25 @@ MAX_OBJECT_KEY_BYTES = 1_024
 MAX_RETRY_DELAY_SECONDS = 30.0
 
 
+def cleanup_extraction_prefix(event: EventEnvelope) -> str | None:
+    """Validate optional extraction evidence before ANY object deletion."""
+    key = event.payload.get("extractionKey")
+    if key is None:
+        return None
+    try:
+        source_id = UUID(str(event.payload["sourceId"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("event payload is missing a valid sourceId") from exc
+    expected_prefix = f"extractions/{event.tenant_id}/{source_id}/"
+    if not isinstance(key, str) or not key.startswith(expected_prefix) or len(key) == len(expected_prefix):
+        raise ValueError("event payload extractionKey is outside its source prefix")
+    if len(key.encode("utf-8")) > MAX_OBJECT_KEY_BYTES or any(
+        ord(character) < 32 or ord(character) == 127 for character in key
+    ):
+        raise ValueError("event payload extractionKey is invalid")
+    return expected_prefix
+
+
 def cleanup_object_key(event: EventEnvelope) -> str | None:
     if event.event_type != TOPIC:
         raise ValueError("event type is not supported by this consumer")
@@ -37,17 +56,19 @@ def cleanup_object_key(event: EventEnvelope) -> str | None:
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("event payload is missing a valid sourceId or objectKey") from exc
 
-    if object_key is None:
-        return None
-    if not isinstance(object_key, str):
-        raise ValueError("event payload objectKey is invalid")
-    expected_prefix = f"knowledge/{event.tenant_id}/"
-    if not object_key.startswith(expected_prefix) or len(object_key) == len(expected_prefix):
-        raise ValueError("event payload objectKey is outside its tenant prefix")
-    if len(object_key.encode("utf-8")) > MAX_OBJECT_KEY_BYTES or any(
-        ord(character) < 32 or ord(character) == 127 for character in object_key
-    ):
-        raise ValueError("event payload objectKey is invalid")
+    if object_key is not None:
+        if not isinstance(object_key, str):
+            raise ValueError("event payload objectKey is invalid")
+        expected_prefix = f"knowledge/{event.tenant_id}/"
+        if not object_key.startswith(expected_prefix) or len(object_key) == len(expected_prefix):
+            raise ValueError("event payload objectKey is outside its tenant prefix")
+        if len(object_key.encode("utf-8")) > MAX_OBJECT_KEY_BYTES or any(
+            ord(character) < 32 or ord(character) == 127 for character in object_key
+        ):
+            raise ValueError("event payload objectKey is invalid")
+    # The Kafka and one-shot handlers both call this preflight. A poison
+    # extraction target must be rejected BEFORE a valid knowledge key is purged.
+    cleanup_extraction_prefix(event)
     return object_key
 
 
@@ -80,17 +101,19 @@ async def process_cleanup_event(
     object_key: str | None,
     store: ObjectStore = object_store,
 ) -> int | None:
+    # Revalidate at the effect boundary as well as at the Kafka/SQS parser:
+    # direct callers may not substitute an unverified object key.
+    verified_object_key = cleanup_object_key(event)
+    if object_key != verified_object_key:
+        raise ValueError("cleanup object key differs from event payload")
+    extraction_prefix = cleanup_extraction_prefix(event)
     async with factory() as session:
         if await _was_processed(session, event_id=event.event_id):
             return None
 
-    deleted = await store.purge_exact(object_key) if object_key is not None else 0
-    extraction_key = event.payload.get("extractionKey")
-    if extraction_key is not None:
-        expected = f"extractions/{event.tenant_id}/{event.payload['sourceId']}/"
-        if not isinstance(extraction_key, str) or not extraction_key.startswith(expected):
-            raise ValueError("event payload extractionKey is outside its source prefix")
-        deleted += await store.purge_prefix(expected)
+    deleted = await store.purge_exact(verified_object_key) if verified_object_key is not None else 0
+    if extraction_prefix is not None:
+        deleted += await store.purge_prefix(extraction_prefix)
 
     # Purging is intentionally completed before this insert. If the process exits
     # between the two operations, Kafka redelivers and the idempotent purge repeats.
