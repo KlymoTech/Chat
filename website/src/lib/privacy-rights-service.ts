@@ -135,3 +135,28 @@ export async function advanceRightsCase(actor:CmsActor,id:string,
     throw error;
   }finally{client.release();}
 }
+
+export type RightsCaseHistory=Readonly<{
+ revision:number;fromStatus:CaseState|null;toStatus:CaseState;
+ reasonCode:CaseReason|"intake_recorded";recordedAt:string;
+ evidenceLinked:boolean;
+}>;
+/** Expose an actor-redacted, evidence-redacted immutable case history. */
+export async function readRightsCaseHistory(actor:CmsActor,id:string):
+Promise<RightsCaseHistory[]|null>{
+  requirePrivacyOwner(actor);
+  if(!uuid.test(id))throw new Error("Invalid rights case ID");
+  const allowed=await storage().query(
+    `SELECT id FROM website_cms.privacy_rights_cases
+       WHERE site_id=$1 AND id=$2`,[actor.siteId,id]);
+  if(allowed.rowCount!==1)return null;
+  const result=await storage().query<RightsCaseHistory>(
+    `SELECT revision,
+           from_status AS "fromStatus",to_status AS "toStatus",
+           reason_code AS "reasonCode",recorded_at::text AS "recordedAt",
+           (evidence_ref IS NOT NULL) AS "evidenceLinked"
+      FROM website_cms.privacy_rights_history
+     WHERE site_id=$1 AND case_id=$2
+     ORDER BY revision ASC LIMIT 200`,[actor.siteId,id]);
+  return result.rows;
+}
