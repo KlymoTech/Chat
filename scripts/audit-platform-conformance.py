@@ -88,6 +88,20 @@ def _finding(rule: int, state: str, location: str, detail: str) -> Finding:
     return Finding(rule, state, location, detail)
 
 
+def _valid_route_list(value: object, *, allow_empty: bool = False) -> bool:
+    """Only explicit absolute paths/patterns may enter the platform route manifest."""
+    return (
+        isinstance(value, list)
+        and (allow_empty or bool(value))
+        and all(
+            isinstance(route, str)
+            and route.startswith("/")
+            and not any(character.isspace() for character in route)
+            for route in value
+        )
+    )
+
+
 def _handler_finding(root: Path, value: object, process: str) -> Finding | None:
     if not isinstance(value, str) or not re.fullmatch(r"northstar_api(?:\.[A-Za-z_]\w*)+:[A-Za-z_]\w*", value):
         return _finding(7, "fail", "platform.yaml", f"{process}: invalid handler reference")
@@ -119,7 +133,7 @@ def audit(root: Path) -> list[Finding]:
     extra = data.keys() - TOP_LEVEL
     for key in sorted(missing):
         findings.append(_finding(1, "fail", "platform.yaml", f"required field missing: {key}"))
-    for key in sorted(extra):
+    for key in sorted(extra, key=str):
         findings.append(_finding(1, "fail", "platform.yaml", f"unknown field: {key}"))
     if data.get("apiVersion") != "platform/v1":
         findings.append(_finding(1, "fail", "platform.yaml", "unsupported apiVersion"))
@@ -140,8 +154,20 @@ def audit(root: Path) -> list[Finding]:
         return findings
     if not processes:
         findings.append(_finding(1, "fail", "platform.yaml", "at least one process is required"))
-    if not isinstance(data.get("secrets"), list):
+    secrets = data.get("secrets")
+    if not isinstance(secrets, list):
         findings.append(_finding(1, "fail", "platform.yaml", "secrets must be a list"))
+    elif (
+        any(
+            not isinstance(secret, str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", secret)
+            for secret in secrets
+        )
+        or len(set(secrets)) != len(secrets)
+    ):
+        findings.append(
+            _finding(11, "fail", "platform.yaml", "secrets must contain unique valid environment variable names")
+        )
     queues = resources.get("queues")
     if not isinstance(queues, list):
         findings.append(_finding(1, "fail", "platform.yaml", "resources.queues must be a list"))
@@ -174,13 +200,15 @@ def audit(root: Path) -> list[Finding]:
         names.add(str(name))
         if not isinstance(kind, str) or kind not in PROCESS_KINDS:
             findings.append(_finding(2, "fail", location, f"unknown process kind: {kind}"))
-        for field in sorted(process.keys() - PROCESS_FIELDS):
+        for field in sorted(process.keys() - PROCESS_FIELDS, key=str):
             findings.append(_finding(1, "fail", location, f"unknown process field: {field}"))
         image_name = process.get("image")
         if not isinstance(image_name, str) or image_name not in images:
             findings.append(_finding(1, "fail", location, "process image is undeclared"))
-        if kind == "http" and not process.get("routes"):
-            findings.append(_finding(1, "fail", location, "HTTP routes missing"))
+        if kind == "http" and not _valid_route_list(process.get("routes")):
+            findings.append(_finding(3, "fail", location, "HTTP routes must be a nonempty list of absolute paths"))
+        if kind == "http" and not _valid_route_list(process.get("streaming_routes", []), allow_empty=True):
+            findings.append(_finding(5, "fail", location, "HTTP streaming routes must be a list of absolute paths"))
         if kind == "queue" and process.get("queue") not in queues:
             findings.append(_finding(1, "fail", location, "queue resource is undeclared"))
         event_topic = process.get("topic")
@@ -188,6 +216,8 @@ def audit(root: Path) -> list[Finding]:
             findings.append(_finding(1, "fail", location, "event topic resource is undeclared"))
         if kind == "schedule" and (not isinstance(process.get("activity_gate"), str) or not process["activity_gate"].strip()):
             findings.append(_finding(9, "fail", location, "scheduled job requires a nonempty activity gate"))
+        if kind == "schedule" and (not isinstance(process.get("rate"), str) or not process["rate"].strip()):
+            findings.append(_finding(9, "fail", location, "scheduled job requires a nonempty rate"))
         if kind in {"queue", "event", "schedule"}:
             issue = _handler_finding(root, process.get("handler"), str(name))
             if issue:

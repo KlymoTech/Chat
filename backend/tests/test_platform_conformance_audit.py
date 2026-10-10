@@ -182,3 +182,116 @@ def test_scheduled_activity_gate_must_be_a_nonempty_string(tmp_path: Path) -> No
     )
     result = run_audit(root)
     assert "scheduled job requires a nonempty activity gate" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "secret_list",
+    ["[JWT_SECRET, JWT_SECRET]", "[123]", "[{bad: value}]", '["bad name"]'],
+)
+def test_secret_declarations_must_be_unique_valid_names(
+    tmp_path: Path, secret_list: str
+) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "secrets: []", f"secrets: {secret_list}"
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert (
+        "secrets must contain unique valid environment variable names" in result.stdout
+    )
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "route_decl",
+    ['{path: /api/*}', '["relative/path"]', '[123]', '[]'],
+)
+def test_http_route_declaration_must_be_an_absolute_path_list(
+    tmp_path: Path, route_decl: str
+) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    source = manifest.read_text(encoding="utf-8")
+    manifest.write_text(
+        source.replace(
+            "    kind: schedule\n",
+            f"    kind: http\n    routes: {route_decl}\n",
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "HTTP routes must be a nonempty list of absolute paths" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("stream_decl", ['{path: /stream}', '["stream"]', '[true]'])
+def test_http_streaming_routes_reject_invalid_shapes(
+    tmp_path: Path, stream_decl: str
+) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    source = manifest.read_text(encoding="utf-8")
+    manifest.write_text(
+        source.replace(
+            "    kind: schedule\n",
+            f"    kind: http\n    routes: [/api/*]\n"
+            f"    streaming_routes: {stream_decl}\n",
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "HTTP streaming routes must be a list of absolute paths" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("invalid_rate", ["[]", "true", '""'])
+def test_schedule_requires_nonempty_string_rate(
+    tmp_path: Path, invalid_rate: str
+) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    rate: 15 minutes", f"    rate: {invalid_rate}"
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "scheduled job requires a nonempty rate" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "invalid_field",
+    ["2026: unexpected", '"": unexpected'],
+)
+def test_nonstandard_yaml_keys_report_findings_without_crashing(
+    tmp_path: Path, invalid_field: str
+) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + invalid_field + "\n",
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "unknown field:" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_numeric_process_field_reports_without_crashing(tmp_path: Path) -> None:
+    root = fixture_root(tmp_path)
+    manifest = root / "platform.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "    kind: schedule\n", "    kind: schedule\n    2026: unexpected\n"
+        ),
+        encoding="utf-8",
+    )
+    result = run_audit(root)
+    assert "unknown process field: 2026" in result.stdout
+    assert "Traceback" not in result.stderr
