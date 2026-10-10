@@ -44,7 +44,7 @@ def test_unknown_fields_missing_permission_invalid_phone_and_choices_are_rejecte
         "name": "Jane", "email": "not-email", "topic": "Unknown",
         "unexpected": "<script>", "processing_consent": "",
     })
-    assert answers["consent"] is False
+    assert answers["processing_consent"] is False
     assert "email" in errors
     assert "topic" in errors
     assert "processing_consent" in errors
