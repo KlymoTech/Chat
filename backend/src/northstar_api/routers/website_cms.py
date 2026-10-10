@@ -20,7 +20,7 @@ from northstar_api.models import Role, Workspace, WorkspaceStatus
 from northstar_api.security import Principal
 from northstar_api.services.outbox import enqueue_event
 from northstar_api.services.website_builder_document import BuilderPageDocument
-from northstar_api.services.website_builder_render import render_page
+from northstar_api.services.website_builder_render import render_page, style_csp_hash
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
 from northstar_api.website_cms_models import WebsiteAudit, WebsitePage, WebsiteRevision
 
@@ -222,7 +222,7 @@ async def public_page(workspace_id: UUID, slug: str, session: DBSession) -> HTML
         content=render_page(validated),
         headers={
             "Cache-Control": "no-store",
-            "Content-Security-Policy": "default-src 'none'; img-src 'self' https:; style-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
             "X-Content-Type-Options": "nosniff",
         },
     )
@@ -292,7 +292,7 @@ async def preview_draft(page_id: UUID, principal: CmsAdmin, session: DBSession) 
         headers={
             "Cache-Control": "private, no-store",
             "X-Robots-Tag": "noindex, nofollow, noarchive",
-            "Content-Security-Policy": "default-src 'none'; img-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+            "Content-Security-Policy": f"default-src 'none'; img-src 'self' https:; style-src '{style_csp_hash()}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
             "X-Content-Type-Options": "nosniff",
         },
     )
