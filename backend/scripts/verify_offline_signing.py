@@ -47,7 +47,7 @@ POSTGRES_TESTS = (
 
 
 def _execute(arguments: list[str]) -> int:
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed module entrypoints, no shell or untrusted command
         [sys.executable, "-m", *arguments],
         cwd=BACKEND,
         check=False,
