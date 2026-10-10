@@ -314,7 +314,7 @@ export function WebsiteCMSPage() {
       if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
       event.preventDefault();
       setSaveBlocked(false);
-      setEditing(event.shiftKey ? redoDraftHistory : undoDraftHistory);
+      setEditing((history) => event.shiftKey ? redoDraftHistory(history) : undoDraftHistory(history));
     };
     window.addEventListener('keydown', onHistoryShortcut);
     return () => window.removeEventListener('keydown', onHistoryShortcut);
@@ -445,9 +445,9 @@ export function WebsiteCMSPage() {
               <small>{draft.content_type === 'article' ? 'Article' : 'Page'} · Draft revision {selected.draftVersion} · Published {selected.publishedVersion ?? 'never'}</small></div>
               <div className="site-cms-actions">
                 <Button icon={Undo2} variant="secondary" disabled={busy || editing.past.length === 0}
-                  onClick={() => { setSaveBlocked(false); setEditing(undoDraftHistory); }}>Undo</Button>
+                  onClick={() => { setSaveBlocked(false); setEditing((history) => undoDraftHistory(history)); }}>Undo</Button>
                 <Button icon={Redo2} variant="secondary" disabled={busy || editing.future.length === 0}
-                  onClick={() => { setSaveBlocked(false); setEditing(redoDraftHistory); }}>Redo</Button>
+                  onClick={() => { setSaveBlocked(false); setEditing((history) => redoDraftHistory(history)); }}>Redo</Button>
                 <Button icon={Save} disabled={busy || !dirty || saveConflict}
                   onClick={() => { setSaveBlocked(false); void save(); }}>Save now</Button>
                 <Button variant="secondary" icon={Send} disabled={busy || dirty || selected.status !== 'draft'} onClick={() => void transition('submit')}>Submit review</Button>
