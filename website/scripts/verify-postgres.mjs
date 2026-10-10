@@ -380,7 +380,7 @@ try {
   assert.equal(await count(
     "SELECT COUNT(*) AS total FROM website_cms.public_approved_content_redirects "+
     "WHERE site_slug=$1 AND source_path=$2 AND target_path='/services'",
-    [siteSlug,oldPath]),1,"Approved safe redirect must be publicly visible");
+    [slug,oldPath]),1,"Approved safe redirect must be publicly visible");
   await mustReject(
     "INSERT INTO website_cms.pages (id,site_id,path) VALUES($1,$2,$3)",
     [uuid(),siteId,oldPath],"23514");
@@ -390,7 +390,7 @@ try {
   assert.equal(await count(
     "SELECT COUNT(*) AS total FROM website_cms.public_approved_content_redirects "+
     "WHERE site_slug=$1 AND source_path=$2",
-    [siteSlug,oldPath]),0,
+    [slug,oldPath]),0,
     "Suspended redirect must be hidden from public lookups");
   console.log(JSON.stringify({database:"website_test",migrations:19,checks:[
     "draft-isolation","site-isolation","published-visibility","revision-immutable",
