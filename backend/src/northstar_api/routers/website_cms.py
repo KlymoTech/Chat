@@ -26,7 +26,9 @@ from northstar_api.services.website_builder_document import BuilderPageDocument
 from northstar_api.services.website_builder_duplicate import duplicate_page_document
 from northstar_api.services.website_builder_render import render_page, style_csp_hash
 from northstar_api.services.website_cms_lifecycle import EditorialAction, EditorialState, next_editorial_state
-from northstar_api.website_form_models import WebsiteForm
+from northstar_api.website_form_models import WebsiteForm, WebsiteFormRevision
+from northstar_api.services.website_form_contracts import SiteFormDocument
+from northstar_api.models import Agent, AgentStatus
 from northstar_api.website_cms_models import (
     WebsiteAudit, WebsitePage, WebsiteRevision, WebsiteSiteMenu,
     WebsiteSiteMenuAudit, WebsiteSiteMenuRevision,
@@ -934,3 +936,162 @@ async def preview_draft(page_id: UUID, principal: CmsAdmin, session: DBSession) 
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/preflight")
+async def website_content_preflight(
+    principal: CmsAdmin, session: DBSession, response: Response,
+) -> dict[str, Any]:
+    """Read-only owner preflight for *content integrity*, not production certification.
+
+    Avoids provider/network checks and never exposes drafts, contact data,
+    credentials or tracked visitors to callers outside the active workspace.
+    """
+    response.headers["Cache-Control"] = "private, no-store"
+    workspace_id = _scope(principal)
+    tenant_id = principal.tenant_id
+    problems: list[dict[str, str]] = []
+
+    def flag(code: str, severity: str, kind: str, slug: str, message: str) -> None:
+        problems.append({
+            "code": code, "severity": severity,
+            "resourceType": kind, "slug": slug, "message": message,
+        })
+
+    pages = (await session.scalars(select(WebsitePage).where(
+        WebsitePage.tenant_id == tenant_id,
+        WebsitePage.workspace_id == workspace_id,
+        WebsitePage.published_version.is_not(None),
+    ).order_by(WebsitePage.slug))).all()
+    forms = (await session.scalars(select(WebsiteForm).where(
+        WebsiteForm.tenant_id == tenant_id,
+        WebsiteForm.workspace_id == workspace_id,
+        WebsiteForm.published_version.is_not(None),
+    ).order_by(WebsiteForm.slug))).all()
+    redirects = (await session.scalars(select(WebsiteRedirect).where(
+        WebsiteRedirect.tenant_id == tenant_id,
+        WebsiteRedirect.workspace_id == workspace_id,
+        WebsiteRedirect.enabled.is_(True),
+    ).order_by(WebsiteRedirect.source_slug))).all()
+    public_pages = {page.slug for page in pages}
+    valid_forms: set[str] = set()
+
+    if not pages:
+        flag("NO_PUBLISHED_PAGES", "blocker", "site", "",
+             "Publish at least one page before announcing a public website.")
+
+    for form in forms:
+        revision = await session.scalar(select(WebsiteFormRevision).where(
+            WebsiteFormRevision.form_id == form.id,
+            WebsiteFormRevision.version == form.published_version,
+        ))
+        if revision is None:
+            flag("MISSING_FORM_REVISION", "blocker", "form", form.slug,
+                 "Published form revision is missing.")
+            continue
+        try:
+            SiteFormDocument.model_validate(revision.document_json)
+        except ValueError:
+            flag("INVALID_FORM_SCHEMA", "blocker", "form", form.slug,
+                 "Published form no longer passes its field and consent rules.")
+            continue
+        agent = await session.scalar(select(Agent).where(
+            Agent.id == form.agent_id,
+            Agent.tenant_id == tenant_id,
+            Agent.workspace_id == workspace_id,
+            Agent.deleted_at.is_(None),
+        ))
+        if agent is None or agent.status != AgentStatus.ACTIVE:
+            flag("INACTIVE_FORM_AGENT", "blocker", "form", form.slug,
+                 "Activate the form's lead-generation agent before accepting visitors.")
+        else:
+            valid_forms.add(form.slug)
+
+    for page in pages:
+        revision = await session.scalar(select(WebsiteRevision).where(
+            WebsiteRevision.page_id == page.id,
+            WebsiteRevision.version == page.published_version,
+        ))
+        if revision is None:
+            flag("MISSING_PAGE_REVISION", "blocker", "page", page.slug,
+                 "Published page version is missing.")
+            continue
+        try:
+            doc = BuilderPageDocument.model_validate(revision.document_json)
+        except ValueError:
+            flag("INVALID_PUBLISHED_PAGE", "blocker", "page", page.slug,
+                 "Published page cannot be rendered from its current schema.")
+            continue
+        if not doc.nodes:
+            flag("EMPTY_PAGE", "warning", "page", page.slug,
+                 "Page has no published content blocks.")
+        for item in doc.nodes:
+            stack = [item]
+            while stack:
+                node = stack.pop()
+                stack.extend(node.children)
+                if node.kind != "form":
+                    continue
+                parts = (node.url or "").split("/")
+                if (
+                    len(parts) != 7
+                    or parts[3:5] != ["site-forms", "public"]
+                    or parts[5] != str(workspace_id)
+                    or parts[6] not in valid_forms
+                ):
+                    flag("BROKEN_FORM_EMBED", "blocker", "page", page.slug,
+                         "An embedded form is unpublished, inactive or outside this workspace.")
+
+    menu = await _workspace_menu(session, workspace_id, tenant_id)
+    if menu is None or menu.published_version is None:
+        flag("NO_PRIMARY_MENU", "warning", "site", "",
+             "No published primary navigation is configured.")
+    else:
+        menu_version = await session.scalar(select(WebsiteSiteMenuRevision).where(
+            WebsiteSiteMenuRevision.menu_id == menu.id,
+            WebsiteSiteMenuRevision.version == menu.published_version,
+        ))
+        if menu_version is None:
+            flag("MISSING_MENU_REVISION", "blocker", "menu", "",
+                 "Published navigation revision is missing.")
+        else:
+            try:
+                menu_doc = SiteMenuDocument.model_validate(menu_version.document_json)
+            except ValueError:
+                flag("INVALID_MENU", "blocker", "menu", "",
+                     "Published navigation does not pass its schema rules.")
+            else:
+                for item in menu_doc.items:
+                    if item.slug not in public_pages:
+                        flag("BROKEN_MENU_LINK", "blocker", "menu", item.slug,
+                             "Navigation destination is no longer published.")
+
+    for redirect in redirects:
+        if redirect.target_slug not in public_pages:
+            flag("BROKEN_REDIRECT_TARGET", "blocker", "redirect", redirect.source_slug,
+                 "Active redirect no longer has a published destination.")
+        if redirect.source_slug in public_pages:
+            flag("REDIRECT_PAGE_COLLISION", "blocker", "redirect", redirect.source_slug,
+                 "An active redirect is shadowed by a published page.")
+
+    blockers = sum(item["severity"] == "blocker" for item in problems)
+    warnings = sum(item["severity"] == "warning" for item in problems)
+    return {
+        "scope": "cms-content-only",
+        "contentReady": blockers == 0,
+        "releaseCertified": False,
+        "checkedAt": datetime.now(UTC).isoformat(),
+        "summary": {
+            "publishedPages": len(pages),
+            "publishedForms": len(forms),
+            "enabledRedirects": len(redirects),
+            "blockers": blockers,
+            "warnings": warnings,
+        },
+        "issues": problems,
+        "verificationLimits": (
+            "This checks stored website content and published internal references only. "
+            "It cannot certify database migration execution, end-to-end form delivery, "
+            "third-party integrations, backups, accessibility, security or production deployment."
+        ),
+    }
