@@ -36,7 +36,7 @@ def test_signed_unsubscribe_targets_only_one_lead_and_expires():
 
 
 @pytest.mark.parametrize("change", [
-    lambda value: value[:-1] + ("A" if value[-1] != "A" else "B"),
+    lambda value: value[:20] + ("A" if value[20] != "A" else "B") + value[21:],
     lambda value: "invalid",
     lambda value: value + ".extra",
     lambda value: value[:50] + "invalid_" + value[50:],
