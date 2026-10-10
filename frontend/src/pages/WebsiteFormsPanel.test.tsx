@@ -169,4 +169,47 @@ describe('Website CMS site forms editor', () => {
     expect(forms[0]!.publishedVersion).toBeNull();
   });
 
+
+  it('adds a separate optional marketing checkbox without changing processing consent', async () => {
+    render(<WebsiteFormsPanel workspaceId={workspaceId}/>);
+    const slugInput = await screen.findByLabelText('Form URL slug');
+    await waitFor(() => expect(slugInput).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Add marketing opt-in' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add marketing opt-in' }));
+    expect(screen.getByRole('button', { name: 'Add marketing opt-in' })).toBeDisabled();
+
+    const stableKeys = screen.getAllByLabelText('Stable key');
+    expect(stableKeys[stableKeys.length - 1]).toHaveValue('marketing_opt_in');
+    expect(stableKeys[stableKeys.length - 1]).toHaveAttribute('readonly');
+    const required = screen.getAllByLabelText('Required');
+    expect(required[required.length - 1]).toBeDisabled();
+    expect(required[required.length - 1]).not.toBeChecked();
+
+    fireEvent.change(slugInput, { target: { value: 'marketing-contact' } });
+    fireEvent.change(screen.getByLabelText('Lead Generation Agent'), {
+      target: { value: agentId },
+    });
+    const create = screen.getByRole('button', { name: 'Create private form' });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    await waitFor(() => expect(forms).toHaveLength(1));
+
+    const request = mocks.request.mock.calls.find(([path, options]) =>
+      path === '/site-forms' && options?.method === 'POST',
+    );
+    const posted = JSON.parse(request![1].body);
+    const marketing = posted.document.fields.find(
+      (field: { key: string }) => field.key === 'marketing_opt_in',
+    );
+    expect(marketing).toMatchObject({
+      kind: 'checkbox', required: false, condition: null,
+    });
+    expect(marketing.label).toMatch(/marketing/i);
+    expect(marketing.purpose).toMatch(/marketing/i);
+    expect(posted.document.fields.find(
+      (field: { key: string }) => field.key === 'processing_consent',
+    )).toMatchObject({ kind: 'consent', required: true });
+    expect(forms[0]!.publishedVersion).toBeNull();
+  });
+
 });
