@@ -23,6 +23,8 @@ describe('CMS blog article creation', () => {
   beforeEach(() => {
     mocks.request.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
       if (path === '/site-cms/pages' && !options) return [];
+      if (path === '/site-forms' && !options) return [];
+      if (path === '/agents' && !options) return [];
       if (path === '/site-cms/redirects' && !options) return [];
       if (path === '/site-cms/menu') return {
         draftVersion: 0, publishedVersion: null, document: { items: [] },
