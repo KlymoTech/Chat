@@ -331,6 +331,8 @@ class ObjectStore:
         bucket = self.settings.s3_bucket
         try:
             versioning = client.get_bucket_versioning(Bucket=bucket)
+            if self.settings.s3_auth_mode == "aws-default" and versioning.get("Status") != "Enabled":
+                raise ObjectStoreUnavailable("AWS object purge requires enabled bucket versioning")
             if versioning.get("Status") not in {"Enabled", "Suspended"}:
                 client.delete_object(Bucket=bucket, Key=key)
                 return 1

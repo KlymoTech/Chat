@@ -670,6 +670,30 @@ async def test_purge_exact_uses_plain_delete_for_unversioned_bucket(
     assert client.deleted_batches == []
 
 
+@pytest.mark.parametrize("status", [None, "Suspended"])
+async def test_aws_purge_rejects_bucket_without_enabled_versioning(
+    monkeypatch: pytest.MonkeyPatch, status: str | None
+) -> None:
+    key = f"knowledge/{uuid4()}/2026/09/policy.txt"
+    client = _FakeVersionedS3([])
+    client.get_bucket_versioning = lambda **_: {"Status": status} if status else {}
+    store = ObjectStore(
+        Settings(
+            s3_auth_mode="aws-default",
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_endpoint_url=None,
+            s3_public_endpoint_url=None,
+        )
+    )
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(ObjectStoreUnavailable, match="requires enabled bucket versioning"):
+        await store.purge_exact(key)
+    assert client.deleted_unversioned == []
+    assert client.deleted_batches == []
+
+
 async def test_purge_exact_respects_s3_multi_delete_batch_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

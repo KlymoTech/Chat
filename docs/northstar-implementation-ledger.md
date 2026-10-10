@@ -731,3 +731,12 @@ do not merge without explicit instruction.
   Static-key MinIO cleanup retains its existing behavior.
 - The unreceipted object remains a possible orphan; periodic discovery and
   safe reconciliation still need implementation and live AWS qualification.
+
+## Increment: fail-closed AWS exact-key purge versioning (2026-10-10)
+
+- AWS-mode exact-key cleanup now refuses a bucket whose versioning status is
+  absent or suspended instead of issuing an unversioned delete or treating a
+  suspended bucket as fully version-safe. Static-key local MinIO retains its
+  existing deletion path. Focused regressions cover both AWS drift states.
+- This is a fail-closed guard, not a complete retention, legal-hold, or orphan
+  reconciliation system; real S3 bucket policy and IAM qualification remain.
