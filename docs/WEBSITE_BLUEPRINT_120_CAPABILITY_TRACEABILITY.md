@@ -16,17 +16,17 @@
 | ID | Blueprint capability / control | Class | Chapters | Current evidence locator (not a pass) | Verification |
 |---|---|---|---|---|---|
 | CAP-001 | Business brief, audience, outcomes, evidence and scope | F | 02, 42, 43 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-002 | Sitemap, navigation, page/route families and customer journeys | F | 04, 50 | No capability-specific verification evidence assigned | **Not verified** |
+| CAP-002 | Sitemap, navigation, page/route families and customer journeys | F | 04, 50 | Existing CMS adds owner-edited primary navigation, published-only route validation and live HTML links; browser journeys and route crawl evidence remain open | **Not verified** |
 | CAP-003 | Responsive design, semantic HTML, design tokens and accessible components | F | 05, 06, 44 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-004 | CMS, page/section builder, navigation, forms and media ownership | F | 07–09, 44 | Existing CMS builder/edit/archive/import/export plus article authoring and public index (partial; not tested) | **Not verified** |
+| CAP-004 | CMS, page/section builder, navigation, forms and media ownership | F | 07–09, 44 | Existing CMS includes page builder, articles, imports, immutable menu drafts/publish/history and owner-managed redirects; forms/media ownership and full QA remain open | **Not verified** |
 | CAP-005 | Autosave, draft recovery, undo/redo and edit conflict resolution | F | 44 | Existing CMS: bounded undo/redo; debounced version-checked autosave; offline indicator/reconnect; 409 comparison, local export, fork via existing import API; tests committed. Interrupted-tab local storage/recovery and full CI/UX evidence remain open | **Not verified** |
 | CAP-006 | Collection/schema builder with approved fields and templates | G | 44, 63 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-007 | Editorial review, revisions, previews, scheduling and releases | F | 08, 44 | Existing editorial API extended with manual archive, restore, change requests; live revision stays available while draft edited (partial; tests committed) | **Not verified** |
+| CAP-007 | Editorial review, revisions, previews, scheduling and releases | F | 08, 44 | Existing page editorial revision/publish/restore; menu publish and restore with audit/outbox added; scheduling, coordinated releases and real acceptance still missing | **Not verified** |
 | CAP-008 | Import/export, dry runs, manifests, partial failures and migration | F | 44, 62 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-009 | Manual-only blog retention, no-expiry trash and controlled purge | F | 09, 38 | Blog articles use CMS immutable revisions; manual-only trash and protected purge still absent | **Not verified** |
 | CAP-010 | Media rights, quarantine, derivatives, alt text and private downloads | F | 08, 09, 50 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-011 | Technical SEO status/rendering/canonical/index policy | F | 10, 50 | Page SEO schema/editor/HTML metadata (partial) | **Not verified** |
-| CAP-012 | Sitemaps, feeds, pagination, faceting and crawl trap controls | F | 10, 50 | Published sitemap, blog pagination and category filter code; feeds/faceting/crawl controls pending | **Not verified** |
+| CAP-011 | Technical SEO status/rendering/canonical/index policy | F | 10, 50 | SEO metadata/canonical/indexing plus validated internal 307/308 redirects on old or archived URLs; broader crawl, domain routing and full test evidence pending | **Not verified** |
+| CAP-012 | Sitemaps, feeds, pagination, faceting and crawl trap controls | F | 10, 50 | Published-only sitemap, blog pagination/category filters and safe internal URL redirects added; feeds/facets and crawl-trap validation remain | **Not verified** |
 | CAP-013 | Structured-data registry and truthful rich-result eligibility | F | 10, 50 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-014 | Search-intent map, editorial calendar and internal linking | G | 11, 43, 49 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-015 | Local profiles, real branch/service-area pages and reputation | B | 11, 49, 57 | No capability-specific verification evidence assigned | **Not verified** |
