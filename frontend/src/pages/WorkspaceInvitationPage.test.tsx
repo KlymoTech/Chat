@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/components/providers', () => ({
   useAuth: () => mocks.auth,
+  useOptionalWorkspace: () => null,
 }));
 
 vi.mock('@/lib/workspace-team-api', async () => {

@@ -826,3 +826,14 @@ do not merge without explicit instruction.
   behavior or second selection mechanism was added.
 - This does not resolve other stale tests, repo-wide lint findings, or live
   provider and deployment qualification.
+
+## Increment: CRM/channel test context and invitation mock (2026-10-10)
+
+- Channel webhook event, CRM operations health, and CRM dead-letter replay
+  tests now use the existing session-scoped workspace selection. All four
+  focused tests pass without adding duplicate state or changing API behavior.
+- The workspace invitation test provider mock now exposes the optional
+  workspace hook used by branding. All six invitation tests pass again.
+- The interrupted broader frontend run also showed failures in the workspace
+  team panel suite. The complete frontend suite, repo-wide lint, deployment,
+  and live-provider checks remain open; this is not a production sign-off.
