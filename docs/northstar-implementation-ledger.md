@@ -535,3 +535,13 @@ do not merge without explicit instruction.
 - **Not complete:** no live AWS deployment or test of permissions, networking,
   SNS delivery, retries/DLQ, external Zoho idempotency, throughput, or cutover.
   This does not establish complete implementation of the source documents.
+
+## Increment: actionable DLQ visibility (2026-10-10)
+
+- The planned Terraform module now requires an approved same-account/region
+  alert SNS topic and creates CloudWatch nonempty alarms for both nudge and
+  domain-event dead-letter queues. Two mocked plans, formatting, and Terraform
+  validation pass. No queue was redriven or deployed.
+- Alert-topic policy, human subscription/delivery, live metric behavior, and a
+  supervised redrive remain external qualification gates. The alarms do not
+  certify the complete platform.

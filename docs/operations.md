@@ -43,6 +43,10 @@ closed to the queue DLQ. Set `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` and
 `PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` on that Lambda and attach the module's
 consumer IAM policy before a coordinated cutover. The handler has unit tests,
 but no live AWS delivery, retry, idempotency, or load qualification yet.
+The planned Terraform module also requires an approved same-account alert SNS
+topic and creates nonempty alarms for the nudge and domain-event DLQs. The
+topic's policy, subscribers, and real notification delivery need qualification;
+DLQ replay is reviewed and manual, never automatic.
 Do not run both relays simultaneously for the same outbox. AWS deployment and
 production qualification of this cutover remain outstanding.
 

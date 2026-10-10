@@ -10,7 +10,7 @@ override_data {
 override_data {
   target = data.aws_region.current
   values = {
-    name = "us-east-1"
+    region = "us-east-1"
   }
 }
 
@@ -23,6 +23,7 @@ variables {
   recovery_lambda_arn     = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-recovery"
   domain_event_lambda_arn = "arn:aws:lambda:us-east-1:123456789012:function:northstar-domain-events"
   sns_kms_key_arn         = "arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+  alarm_topic_arn         = "arn:aws:sns:us-east-1:123456789012:northstar-operations-alerts"
   relay_timeout_seconds   = 60
 }
 
@@ -67,6 +68,19 @@ run "queue_and_gate_are_low_idle_cost" {
   assert {
     condition     = aws_sqs_queue.domain_events.visibility_timeout_seconds >= 6 * var.domain_event_timeout_seconds
     error_message = "Domain event queue visibility must cover six Lambda timeouts."
+  }
+
+  assert {
+    condition     = length(aws_cloudwatch_metric_alarm.dead_letter_nonempty) == 2
+    error_message = "Both DLQs must have alarms."
+  }
+  assert {
+    condition     = alltrue([for alarm in values(aws_cloudwatch_metric_alarm.dead_letter_nonempty) : alarm.namespace == "AWS/SQS" && alarm.metric_name == "ApproximateNumberOfMessagesVisible" && alarm.threshold == 1])
+    error_message = "Both alarms must detect visible DLQ messages."
+  }
+  assert {
+    condition     = alltrue([for alarm in values(aws_cloudwatch_metric_alarm.dead_letter_nonempty) : length(alarm.alarm_actions) == 1 && contains(alarm.alarm_actions, var.alarm_topic_arn)])
+    error_message = "Both alarms must notify the approved topic."
   }
 }
 

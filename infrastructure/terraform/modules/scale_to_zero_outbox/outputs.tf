@@ -34,6 +34,10 @@ output "domain_events_dead_letter_queue_arn" {
   value = aws_sqs_queue.domain_event_dead_letter.arn
 }
 
+output "dead_letter_alarm_arns" {
+  value = { for name, alarm in aws_cloudwatch_metric_alarm.dead_letter_nonempty : name => alarm.arn }
+}
+
 output "writer_iam_policy_json" {
   value = data.aws_iam_policy_document.writer.json
 }

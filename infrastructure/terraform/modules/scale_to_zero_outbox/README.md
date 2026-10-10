@@ -8,6 +8,12 @@ topic, an SQS-to-relay event source mapping, and a 15-minute EventBridge
 recovery schedule. Destruction of the queue, DLQ, topic, and activity table is
 guarded.
 
+`alarm_topic_arn` is required and must reference an approved alert SNS topic in
+the same account and region. This module creates a CloudWatch nonempty alarm
+for each DLQ and sends ALARM transitions to that topic. The caller owns the
+topic policy, subscriptions, delivery verification, and on-call response. Do
+not treat a passing Terraform plan as proof anyone receives the alert.
+
 The caller must ensure the KMS key policy permits the relay publisher; the
 module's relay policy output grants the exact key ARN. Attach the output
 least-privilege IAM policy documents to the API writer, relay, and recovery
@@ -42,3 +48,10 @@ Zoho Flow webhook's existing idempotency-key contract still requires a receiver
 that honors that key. Run `terraform test` from this module directory for mocked
 topology checks; a live qualification is still required before production
 activation. No AWS resources are deployed by this repository change alone.
+
+For a DLQ alarm, first record the queue name, message ID, failure timestamps,
+and handler error category without placing payloads or secrets in tickets.
+Inspect the quarantined message under approved access, fix the underlying
+failure, then perform a reviewed, bounded redrive to the source queue. Verify
+the existing consumer inbox prevents duplicate effects and confirm both the
+source queue and DLQ drain. There is no automatic redrive in this module.

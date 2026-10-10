@@ -12,6 +12,7 @@ locals {
   })
   lambda_arn_prefix = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:lambda:${var.aws_region}:${var.aws_account_id}:function:"
   kms_arn_prefix    = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:kms:${var.aws_region}:${var.aws_account_id}:key/"
+  sns_arn_prefix    = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:sns:${var.aws_region}:${var.aws_account_id}:"
   # Keep in sync with northstar_api.handlers.domain_events.ROUTED_TYPES.
   # Other outbox events have no legacy subscriber and must not fill the DLQ.
   domain_event_types = [
@@ -41,13 +42,14 @@ resource "aws_sqs_queue" "dead_letter" {
     precondition {
       condition = (
         data.aws_caller_identity.current.account_id == var.aws_account_id &&
-        data.aws_region.current.name == var.aws_region &&
+        data.aws_region.current.region == var.aws_region &&
         startswith(var.relay_lambda_arn, local.lambda_arn_prefix) &&
         startswith(var.recovery_lambda_arn, local.lambda_arn_prefix) &&
         startswith(var.domain_event_lambda_arn, local.lambda_arn_prefix) &&
-        startswith(var.sns_kms_key_arn, local.kms_arn_prefix)
+        startswith(var.sns_kms_key_arn, local.kms_arn_prefix) &&
+        startswith(var.alarm_topic_arn, local.sns_arn_prefix)
       )
-      error_message = "Provider and both Lambda ARNs must match the approved AWS account and region."
+      error_message = "Provider and Lambda, KMS, and alarm topic ARNs must match the approved AWS account and region."
     }
   }
 }
@@ -128,6 +130,29 @@ resource "aws_sqs_queue" "domain_events" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+# Surface exhausted retries for both paths. Alert destination ownership and
+# subscriptions are deliberately outside this isolated foundation module.
+resource "aws_cloudwatch_metric_alarm" "dead_letter_nonempty" {
+  for_each = {
+    nudge         = aws_sqs_queue.dead_letter.name
+    domain_events = aws_sqs_queue.domain_event_dead_letter.name
+  }
+
+  alarm_name          = "${local.name}-${each.key}-dlq-nonempty"
+  alarm_description   = "Investigate messages in the ${each.key} dead-letter queue before replay"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.alarm_topic_arn]
+  dimensions          = { QueueName = each.value }
+  tags                = local.tags
 }
 
 data "aws_iam_policy_document" "domain_event_queue_delivery" {

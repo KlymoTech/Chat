@@ -70,6 +70,11 @@ variable "sns_kms_key_arn" {
   description = "Approved regional KMS key ARN used for SNS FIFO encryption."
 }
 
+variable "alarm_topic_arn" {
+  type        = string
+  description = "Approved same-account, same-region SNS topic ARN for DLQ alarms; topic and delivery policy are managed outside this module."
+}
+
 variable "relay_timeout_seconds" {
   type        = number
   description = "Configured relay Lambda timeout; queue visibility is at least six times this value."
