@@ -539,6 +539,23 @@ async def submit_public_form(
     await session.flush()
     submission.lead_id = lead.id
     submission.conversion_event_id = conversion.id
+    record_audit_event(
+        session,
+        tenant_id=workspace.tenant_id,
+        workspace_id=workspace_id,
+        actor_user_id=None,
+        action="site.form.submission.accepted",
+        entity_type="website_form_submission",
+        entity_id=str(submission.id),
+        category="lead",
+        after={
+            "formId": str(form.id),
+            "formVersion": version,
+            "receiptId": str(submission.id),
+            "conversionEventId": str(conversion.id),
+        },
+        metadata={"source": "first_party_form"},
+    )
     await session.commit()
     if accept_json:
         return JSONResponse(_receipt(submission), status_code=201, headers={"Cache-Control":"no-store"})
