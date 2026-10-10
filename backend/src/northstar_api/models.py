@@ -1023,6 +1023,7 @@ class EventQuarantine(Base, UUIDPrimaryKeyMixin):
 from northstar_api.website_cms_models import (  # noqa: E402,F401
     WebsiteAudit, WebsitePage, WebsiteRevision,
     WebsiteSiteMenu, WebsiteSiteMenuRevision, WebsiteSiteMenuAudit,
+    WebsiteRedirect, WebsiteRedirectAudit,
 )
 
 # Include anonymous site consent receipts in ORM metadata/schema creation.
