@@ -73,6 +73,7 @@ jobs:
           src/northstar_api/modules/platform_runtime/queue_notification_signing_authorization_replay.py
           tests/test_platform_signing_authorization.py
           tests/test_platform_signing_authorization_replay.py
+          tests/test_platform_signing_authorization_migration.py
           tests/test_platform_custody_attestation_signer.py
           tests/test_platform_custody_signing_claims.py
           tests/test_platform_custody_signing_claim_migration.py
@@ -82,6 +83,7 @@ jobs:
           uv run pytest -q
           tests/test_platform_signing_authorization.py
           tests/test_platform_signing_authorization_replay.py
+          tests/test_platform_signing_authorization_migration.py
           tests/test_platform_custody_attestation_signer.py
           tests/test_platform_custody_signing_claims.py
           tests/test_platform_custody_signing_claim_migration.py
