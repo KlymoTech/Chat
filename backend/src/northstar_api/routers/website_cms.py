@@ -129,6 +129,21 @@ def _query(principal: Principal) -> tuple[Any, Any]:
     )
 
 
+async def _lock_public_route_namespace(session: DBSession, principal: Principal) -> None:
+    """Serialize CMS page and redirect claims on the same workspace URL namespace.
+
+    PostgreSQL FOR UPDATE prevents a concurrent page create and redirect create
+    from reserving the same slug in separate tables.
+    """
+    workspace = await session.scalar(select(Workspace.id).where(
+        Workspace.id == _scope(principal),
+        Workspace.tenant_id == principal.tenant_id,
+        Workspace.status == WorkspaceStatus.ACTIVE,
+    ).with_for_update())
+    if workspace is None:
+        raise HTTPException(404, "Workspace unavailable")
+
+
 async def _get_page(session: DBSession, principal: Principal, page_id: UUID) -> WebsitePage:
     page = await session.scalar(select(WebsitePage).where(WebsitePage.id == page_id, *_query(principal)))
     if page is None:
@@ -169,6 +184,7 @@ async def _create_draft_page(
     action: Literal["create", "duplicate", "import"],
 ) -> dict[str, Any]:
     """One transactional path for all new drafts, revisions, and actor audit rows."""
+    await _lock_public_route_namespace(session, principal)
     # The public resolver must never ambiguously choose between a CMS page and a redirect.
     reserved = await session.scalar(select(WebsiteRedirect.id).where(
         WebsiteRedirect.tenant_id == principal.tenant_id,
@@ -320,6 +336,7 @@ async def create_site_redirect(
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     workspace_id = _scope(principal)
+    await _lock_public_route_namespace(session, principal)
     await _ensure_redirect_target(
         session, principal.tenant_id, workspace_id,
         payload.source_slug, payload.target_slug,
