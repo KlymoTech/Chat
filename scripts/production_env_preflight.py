@@ -113,6 +113,10 @@ def valid_postgres_url(value: str) -> bool:
             return False
         if any(key == "ssl" and option.lower() not in {"true", "1"} for key, option in options):
             return False
+        if parsed.scheme == "postgresql+asyncpg" and any(key == "sslmode" for key, _ in options):
+            return False
+        if parsed.scheme == "postgresql" and any(key == "ssl" for key, _ in options):
+            return False
         return (
             parsed.scheme in {"postgresql", "postgresql+asyncpg"}
             and bool(parsed.hostname)
