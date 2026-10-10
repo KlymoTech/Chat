@@ -98,3 +98,81 @@ def test_processing_consent_must_have_dedicated_key():
             field["key"] = "marketing_consent"
     with pytest.raises(ValidationError):
         SiteFormDocument.model_validate(form)
+
+
+def _conditional_document() -> SiteFormDocument:
+    form = document().model_dump(mode="json")
+    form["steps"] = ["About you", "Request details", "Permission"]
+    for item in form["fields"]:
+        if item["key"] == "name":
+            item["step"] = 1
+        elif item["key"] == "email":
+            item["step"] = 1
+        elif item["key"] == "topic":
+            item["step"] = 1
+        elif item["key"] == "date":
+            item["step"] = 2
+            item["required"] = True
+            item["condition"] = {"field_key": "topic", "equals": "Support"}
+        else:
+            item["step"] = 3
+    return SiteFormDocument.model_validate(form)
+
+
+def test_multistep_conditional_controls_only_validate_visible_purpose_fields():
+    form = _conditional_document()
+    assert form.steps == ("About you", "Request details", "Permission")
+    values, errors = validate_answers(form, {
+        "name": "Morgan", "email": "morgan@example.com",
+        "topic": "Sales", "processing_consent": "on",
+    })
+    assert not errors
+    assert "date" not in values
+    assert values["processing_consent"] is True
+
+    _, required_errors = validate_answers(form, {
+        "name": "Morgan", "email": "morgan@example.com",
+        "topic": "Support", "processing_consent": "on",
+    })
+    assert required_errors["date"] == "This field is required"
+
+    _, tamper_errors = validate_answers(form, {
+        "name": "Morgan", "email": "morgan@example.com",
+        "topic": "Sales", "date": "2026-11-05",
+        "processing_consent": "on",
+    })
+    assert tamper_errors["date"] == "This field is not available for the selected choice"
+
+
+def test_multistep_unsafe_conditions_and_forward_references_are_rejected():
+    form = _conditional_document().model_dump(mode="json")
+    form["fields"][0]["condition"] = {"field_key": "topic", "equals": "Support"}
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
+
+    form = _conditional_document().model_dump(mode="json")
+    form["fields"][1]["condition"] = {"field_key": "topic", "equals": "Support"}
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
+
+    form = _conditional_document().model_dump(mode="json")
+    form["fields"][3]["condition"]["equals"] = "Not an available choice"
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
+
+    form = _conditional_document().model_dump(mode="json")
+    form["fields"][3]["step"] = 1
+    form["fields"][1]["step"] = 3
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
+
+
+def test_multistep_schema_rejects_blank_steps_and_undefined_step_numbers():
+    form = _conditional_document().model_dump(mode="json")
+    form["steps"][1] = " "
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
+    form = _conditional_document().model_dump(mode="json")
+    form["fields"][-1]["step"] = 4
+    with pytest.raises(ValidationError):
+        SiteFormDocument.model_validate(form)
