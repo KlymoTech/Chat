@@ -31,6 +31,18 @@ test("owner APIs stay closed until identity and DB grants are activated",async({
   await expect(page.getByRole("heading",{name:"Owner CMS"})).toBeVisible();
   await expect(page.getByText(/activation is blocked/i)).toBeVisible();
 });
+test("retired content URL has no public redirect unless explicitly approved",async({request})=>{
+  const response=await request.get("/content/retired-guide",{maxRedirects:0});
+  expect(response.status()).toBe(404);
+});
+test("redirect management remains private and disabled by default",async({request})=>{
+  const listing=await request.get("/api/owner/redirects");
+  expect(listing.status()).toBe(503);
+  const review=await request.post("/api/owner/redirects",{
+    data:{sourcePath:"/content/old",targetPath:"/resources",reasonCode:"slug_change"},
+  });
+  expect(review.status()).toBe(503);
+});
 test("privacy rights remain owner-only and disabled by default",async({request})=>{
   const rights=await request.get("/api/owner/privacy/rights");
   expect(rights.status()).toBe(503);
