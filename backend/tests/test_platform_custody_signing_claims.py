@@ -2,11 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
-
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from northstar_api.modules.platform_runtime.queue_notification_custody_signing_claims import (
     CommittedPostgresSigningClaims,
 )
@@ -51,18 +47,19 @@ async def test_database_failures_never_confirm_claim(monkeypatch, failing_step):
         fail_execute=failing_step == "execute",
         fail_commit=failing_step == "commit",
     )
-    # Emulate a real AsyncSession instance without database access.
+    # Allow an isolated fake session so both failure stages are exercised.
     monkeypatch.setattr(
         "northstar_api.modules.platform_runtime.queue_notification_custody_signing_claims.AsyncSession",
-        lambda: None,
+        FakeTransaction,
     )
-    # The store refuses non-AsyncSession contexts even when they offer methods.
     store = CommittedPostgresSigningClaims(Factory(transaction))
     with pytest.raises(PermissionError, match="unavailable or already used"):
         await store.claim(
             release_id="release-12345678", run_id="run-12345678",
             witness_sha256="a" * 64, now=datetime(2026, 10, 10, tzinfo=UTC),
         )
+    assert transaction.commits == (1 if failing_step == "commit" else 0)
+    assert len(transaction.inserted) == (1 if failing_step == "commit" else 0)
 
 
 @pytest.mark.asyncio
