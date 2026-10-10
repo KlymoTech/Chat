@@ -128,7 +128,7 @@ export default function PrivacyRightsConsole(){
                 }}))}/>
             </label>}
             <button className="button secondary" type="button"
-              disabled={busy||!chosen||(needsEvidence&&!(active?.evidenceRef?.length===36))}
+              disabled={busy||!chosen||(needsEvidence&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(active?.evidenceRef??""))}
               onClick={()=>void submit({...row})}>
               Submit review transition</button>
           </div>:<p>No permitted further transitions; the case remains auditable.</p>}
