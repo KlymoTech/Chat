@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Check, Copy, ExternalLink, FilePlus2, GripVertical,
 import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { ApiError, apiConfig, request } from '@/lib/api';
-import { duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
+import { compareDraftDocuments, duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
 import './WebsiteCMSPage.css';
 
 type Kind = 'section' | 'heading' | 'paragraph' | 'image' | 'button';
@@ -88,6 +88,9 @@ export function WebsiteCMSPage() {
   }, []);
   const [saveBlocked, setSaveBlocked] = useState(false);
   const [saveConflict, setSaveConflict] = useState(false);
+  const [serverConflict, setServerConflict] = useState<CMSPage | null>(null);
+  const [recoverTitle, setRecoverTitle] = useState('Recovered page');
+  const [recoverSlug, setRecoverSlug] = useState('recovered-page');
   const [saveNote, setSaveNote] = useState('');
   const saveRef = useRef<() => Promise<void>>(async () => {});
   const [sectionId, setSectionId] = useState<string | null>(null);
@@ -126,7 +129,10 @@ export function WebsiteCMSPage() {
     if (!force && busy) return;
     if (!force && dirty && !window.confirm('Discard unsaved content changes?')) return;
     setSelected(page); resetDraft(page.document); setSectionId(page.document.nodes[0]?.id ?? null); setError('');
-    setSaveBlocked(false); setSaveConflict(false); setSaveNote('Loaded the latest acknowledged page revision.');
+    setSaveBlocked(false); setSaveConflict(false); setServerConflict(null);
+    setRecoverTitle('Recovered ' + page.title);
+    setRecoverSlug((page.slug + '-recovered').slice(0, 160));
+    setSaveNote('Loaded the latest acknowledged page revision.');
     setCopyTitle('Copy of ' + page.title);
     setCopySlug((page.slug + '-copy').slice(0, 160));
     void refreshRevisions(page.id);
@@ -163,26 +169,40 @@ export function WebsiteCMSPage() {
     } catch (reason) { setError(message(reason)); }
     finally { setBusy(false); }
   };
+  const createImportedDraft = async (
+    manifest: Record<string, unknown>,
+    newSlug: string,
+    newTitle: string,
+  ): Promise<boolean> => {
+    if (busy) return false;
+    setBusy(true); setError('');
+    try {
+      const result = await request<CMSPage>('/site-cms/pages/import', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...manifest, new_slug: newSlug.trim(), new_title: newTitle.trim(),
+        }),
+      });
+      setPages((items) => [result, ...items]);
+      open(result, true);
+      return true;
+    } catch (reason) {
+      setError(message(reason));
+      return false;
+    } finally { setBusy(false); }
+  };
   const importPage = async () => {
     if (!importContent || busy || dirty) return;
-    setBusy(true); setError('');
     try {
       const imported: unknown = JSON.parse(importContent);
       if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
         throw new Error('Choose a valid site page JSON manifest.');
       }
-      const manifest = imported as Record<string, unknown>;
-      const result = await request<CMSPage>('/site-cms/pages/import', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...manifest, new_slug: importSlug.trim(), new_title: importTitle.trim(),
-        }),
-      });
-      setPages((pages) => [result, ...pages]);
-      setImportContent('');
-      open(result, true);
+      const importedOk = await createImportedDraft(
+        imported as Record<string, unknown>, importSlug, importTitle,
+      );
+      if (importedOk) setImportContent('');
     } catch (reason) { setError(message(reason)); }
-    finally { setBusy(false); }
   };
   const edit = (identifier: string, change: (node: Node) => Node) => {
     setDraft((current) => current ? { ...current, nodes: mapNodes(current.nodes, identifier, change) } : null);
@@ -255,7 +275,7 @@ export function WebsiteCMSPage() {
   const replace = (page: CMSPage) => {
     setSelected(page);
     resetDraft(page.document);
-    setSaveBlocked(false); setSaveConflict(false);
+    setSaveBlocked(false); setSaveConflict(false); setServerConflict(null);
     setSaveNote('Saved as server revision ' + page.draftVersion + '.');
     setPages((items) => items.map((item) => item.id === page.id ? page : item));
     void refreshRevisions(page.id);
@@ -283,7 +303,13 @@ export function WebsiteCMSPage() {
       setSaveBlocked(true);
       if (reason instanceof ApiError && reason.status === 409) {
         setSaveConflict(true);
-        setSaveNote('Another editor changed this page. Autosave stopped. Export your local draft before reloading.');
+        setSaveNote('Another editor changed this page. Autosave stopped. Compare both drafts before choosing a recovery option.');
+        try {
+          const currentPages = await request<CMSPage[]>('/site-cms/pages');
+          setServerConflict(currentPages.find((page) => page.id === pageId) ?? null);
+        } catch {
+          setServerConflict(null);
+        }
       } else {
         setSaveNote('Autosave paused after a failed request. Changes remain in this tab; use Retry save.');
       }
@@ -337,6 +363,14 @@ export function WebsiteCMSPage() {
       format: 'northstar.site-page', version: 1, page: draft,
     }, selected.slug + '-unsaved.site-page.json');
     setSaveNote('Unsaved draft exported for recovery; nothing was sent to the server.');
+  };
+  const recoverAsSeparateDraft = async () => {
+    if (!selected || !draft || !saveConflict || busy) return;
+    if (!window.confirm('Keep the server version unchanged and save local edits as a separate private draft?')) return;
+    await createImportedDraft(
+      { format: 'northstar.site-page', version: 1, page: draft },
+      recoverSlug, recoverTitle,
+    );
   };
   const transition = async (action: Action) => {
     if (!selected || dirty) return;
@@ -467,11 +501,36 @@ export function WebsiteCMSPage() {
               {saveConflict ? <div className="site-cms-conflict" role="alert">
                 <strong>Version conflict — no changes have been overwritten.</strong>
                 <p>Keep this tab open. Export your unsaved draft before replacing it with the current server version.</p>
+                {serverConflict && draft ? <div className="site-cms-compare">
+                  <p>Local draft vs. latest server revision {serverConflict.draftVersion}</p>
+                  <table>
+                    <caption>Unresolved content differences; no automatic merge is performed.</caption>
+                    <thead><tr><th scope="col">Field</th><th scope="col">Your draft</th><th scope="col">Server</th></tr></thead>
+                    <tbody>{compareDraftDocuments(draft, serverConflict.document).slice(0, 25).map((item) =>
+                      <tr key={item.field}><th scope="row">{item.field}</th><td>{item.local}</td><td>{item.server}</td></tr>)}</tbody>
+                  </table>
+                  {compareDraftDocuments(draft, serverConflict.document).length === 0
+                    ? <p>The content matches, but the saved revision differs. Reload to acknowledge it.</p>
+                    : null}
+                </div> : <p>Current server comparison is unavailable. Export your local draft first.</p>}
                 <div className="site-cms-actions">
                   <Button icon={Copy} variant="secondary" onClick={exportLocalDraft}>Export unsaved draft</Button>
                   <Button icon={RefreshCw} variant="secondary" disabled={busy}
                     onClick={() => { void reloadServerPage(); }}>Reload server version</Button>
                 </div>
+                <form className="site-cms-recovery-form" onSubmit={(event) => {
+                  event.preventDefault(); void recoverAsSeparateDraft();
+                }}>
+                  <strong>Save local changes as a separate draft</strong>
+                  <label>Recovery page title<input required maxLength={180} value={recoverTitle}
+                    onChange={(event) => setRecoverTitle(event.target.value)} /></label>
+                  <label>Recovery URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                    maxLength={160} value={recoverSlug}
+                    onChange={(event) => setRecoverSlug(event.target.value)} /></label>
+                  <Button type="submit" variant="secondary" disabled={busy || !recoverTitle.trim() || !recoverSlug.trim()}>
+                    Save as new draft
+                  </Button>
+                </form>
               </div> : null}
               {selected.publishedVersion ? <a className="site-cms-public-link" target="_blank" rel="noreferrer" href={publicUrl}>Open published page <ExternalLink size={15}/></a> : null}
             </Card>
