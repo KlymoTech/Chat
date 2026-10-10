@@ -1,0 +1,41 @@
+# Additive local ClamAV sidecar for knowledge upload promotion.
+# Opt-in: docker compose -f compose.yaml -f compose.knowledge-clamav.yaml up -d
+# Shares ONLY api's network namespace; clamd must bind 127.0.0.1:3310.
+# Never publish a scanner port or attach this sidecar to another network.
+services:
+  api:
+    environment:
+      KNOWLEDGE_CLAMAV_ENABLED: "true"
+      KNOWLEDGE_CLAMAV_PORT: "3310"
+      KNOWLEDGE_CLAMAV_TIMEOUT_SECONDS: ${KNOWLEDGE_CLAMAV_TIMEOUT_SECONDS:-120}
+
+  knowledge-clamav:
+    image: clamav/clamav:1.5.4_base-debian
+    network_mode: "service:api"
+    depends_on:
+      api:
+        condition: service_started
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    # The official image applies CLAMD_CONF_* to /etc/clamav/clamd.conf
+    # and runs FreshClam with the persistent database volume.
+    environment:
+      CLAMD_CONF_TCPAddr: "127.0.0.1"
+      CLAMD_CONF_TCPSocket: "3310"
+      CLAMD_CONF_StreamMaxLength: "500M"
+      CLAMD_CONF_MaxFileSize: "500M"
+      CLAMD_CONF_MaxScanSize: "550M"
+      CLAMD_CONF_AlertExceedsMax: "yes"
+      CLAMD_CONF_ReadTimeout: "180"
+      FRESHCLAM_CHECKS: "4"
+    volumes:
+      - knowledge_clamav_signatures:/var/lib/clamav
+    pids_limit: 512
+    mem_limit: 4g
+    security_opt:
+      - no-new-privileges:true
+    # No ports, no networks: the only listener is loopback inside api.
+
+volumes:
+  knowledge_clamav_signatures:
