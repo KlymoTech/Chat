@@ -101,7 +101,7 @@ export function MarketingPreferencesPanel({ journeys }: { journeys: CRMWorkflowJ
       <p>{preferences.note}</p>
       <div className="crm-marketing-permission__actions">
         <Button variant="secondary" icon={ShieldOff}
-          disabled={busy || ['withdrawn', 'revoked', 'denied', 'opted_out'].includes(preferences.marketingStatus)}
+          disabled={busy || ['withdrawn', 'revoked', 'denied', 'opted_out', 'suppressed'].includes(preferences.marketingStatus)}
           onClick={() => { void withdraw(); }}>Withdraw marketing permission</Button>
         <Button variant="secondary" icon={Copy} disabled={busy}
           onClick={() => { void createLink(); }}>Create unsubscribe link</Button>
