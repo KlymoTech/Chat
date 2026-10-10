@@ -212,3 +212,58 @@ export const leadScoringApi = {
     },
   ),
 };
+
+
+export type LeadSegmentField =
+  | 'source_channel' | 'utm_source' | 'utm_medium' | 'utm_campaign'
+  | 'lifecycle_status' | 'qualification_status';
+export type LeadSegmentPurpose = 'operations' | 'marketing';
+
+export interface LeadSegmentCondition {
+  field: LeadSegmentField;
+  equals: string;
+}
+export interface LeadSegment {
+  id: string;
+  name: string;
+  purpose: LeadSegmentPurpose;
+  enabled: boolean;
+  logic: 'all' | 'any';
+  include: LeadSegmentCondition[];
+  exclude: LeadSegmentCondition[];
+}
+export interface LeadSegmentRegister {
+  version: number;
+  segments: LeadSegment[];
+}
+export interface LeadSegmentPreview {
+  segmentId: string;
+  policyVersion: number;
+  purpose: LeadSegmentPurpose;
+  enabled: boolean;
+  matchedLeads: number;
+  blockedByEligibility: number;
+  unknownInputLeads: number;
+  examinedLeads: number;
+  truncated: boolean;
+  exactCount: boolean;
+  evaluatedAt: string;
+  note: string;
+}
+
+export const leadSegmentsApi = {
+  list: () => request<LeadSegmentRegister>('/crm/workflow/segments'),
+  save: (register: LeadSegmentRegister) => request<LeadSegmentRegister>(
+    '/crm/workflow/segments',
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        expected_version: register.version,
+        segments: register.segments,
+      }),
+    },
+  ),
+  preview: (segmentId: string) => request<LeadSegmentPreview>(
+    '/crm/workflow/segments/' + encodeURIComponent(segmentId) + '/preview',
+  ),
+};
