@@ -29,6 +29,8 @@ SITE_CSS = (
     "a.site-action{display:inline-flex;align-items:center;justify-content:center;background:#1d4ed8;"
     "border-radius:10px;color:#fff;font-weight:650;padding:12px 24px;text-decoration:none;margin:8px 0}"
     "a.site-action:hover{background:#1e40af}"
+    ".site-footer{max-width:1100px;margin:auto;padding:22px 24px 64px;border-top:1px solid #cbd5e1;color:#475569}"
+    ".site-footer a{color:#1d4ed8;font-weight:650}"
     "@media(max-width:480px){main,.site-header{padding-left:14px;padding-right:14px}"
     "main>section{margin:14px 0;border-radius:15px}}"
     "@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}"
@@ -67,12 +69,17 @@ def _render_node(node: BuilderNode) -> str:
     return f'<{tag} data-builder-id="{_attr(node.id)}">{children}</{tag}>'
 
 
-def render_page(document: BuilderPageDocument) -> str:
+def render_page(document: BuilderPageDocument, *, privacy_path: str | None = None) -> str:
     """Render only validated builder data, never arbitrary user-provided markup."""
     if not isinstance(document, BuilderPageDocument):
         raise TypeError("Expected validated BuilderPageDocument")
     sections = "".join(_render_node(node) for node in document.nodes)
     title = escape(document.title)
+    privacy_footer = (
+        '<footer class="site-footer"><a href="' + _attr(privacy_path) +
+        '">Privacy and tracking preferences</a></footer>'
+        if privacy_path else ""
+    )
     return (
         "<!doctype html>\n"
         '<html lang="en"><head><meta charset="utf-8">'
@@ -82,5 +89,6 @@ def render_page(document: BuilderPageDocument) -> str:
         '<a class="skip-link" href="#site-main">Skip to content</a>'
         f'<header class="site-header"><p class="site-eyebrow">Welcome</p><h1>{title}</h1></header>'
         f'<main id="site-main">{sections}</main>'
+        f"{privacy_footer}"
         "</body></html>"
     )
