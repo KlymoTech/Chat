@@ -4,6 +4,7 @@ import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { ApiError, apiConfig, request } from '@/lib/api';
 import { compareDraftDocuments, duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
+import { WebsiteContentPreflight } from './WebsiteContentPreflight';
 import { WebsiteFormsPanel } from './WebsiteFormsPanel';
 import './WebsiteCMSPage.css';
 
@@ -730,6 +731,7 @@ export function WebsiteCMSPage() {
           </form>
         </div></Card>
         <div className="site-cms-workspace">
+          <WebsiteContentPreflight />
           <WebsiteFormsPanel key={activeWorkspace.id} workspaceId={activeWorkspace.id}
             onFormsChanged={() => { void refreshEmbeddableForms(); }} />
           <Card>
