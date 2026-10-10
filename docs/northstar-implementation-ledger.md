@@ -816,3 +816,13 @@ do not merge without explicit instruction.
   requeue requests include the active workspace header and bearer context.
   No duplicate selection state or production API behavior was added.
 - The wider frontend suite and live channel-provider qualification remain open.
+
+## Increment: current workspace context in API client tests (2026-10-10)
+
+- Lead CRM, channel health history, channel operations, and notifications API
+  tests now select their workspace through the existing session-scoped API
+  instead of the obsolete localStorage key. All eight focused tests pass and
+  retain their bearer-token and workspace-header assertions. No production
+  behavior or second selection mechanism was added.
+- This does not resolve other stale tests, repo-wide lint findings, or live
+  provider and deployment qualification.

@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { channelOperationsApi } from '@/lib/channel-operations-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearActiveWorkspaceSelection();
   localStorage.clear();
 });
 
 describe('channel operations health API client', () => {
   it('loads the active Workspace channel operations summary with auth context', async () => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     const health = {
       overall_status: 'attention',
       connection_count: 1,

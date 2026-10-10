@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { channelHealthHistoryApi } from '@/lib/channel-health-history-api';
+import { clearActiveWorkspaceSelection, persistActiveWorkspace } from '@/lib/workspace-api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearActiveWorkspaceSelection();
   localStorage.clear();
 });
 
 describe('channel health history API client', () => {
   it('loads Workspace-scoped channel health history with the active auth context', async () => {
     localStorage.setItem('northstar.session', JSON.stringify({ accessToken: 'access-token' }));
-    localStorage.setItem('northstar.active-workspace-id', JSON.stringify('workspace-1'));
+    persistActiveWorkspace('workspace-1');
     const snapshot = {
       id: 'snapshot-1',
       connection_id: 'channel-1',
