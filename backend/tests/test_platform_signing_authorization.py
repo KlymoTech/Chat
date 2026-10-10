@@ -116,3 +116,32 @@ def test_missing_expected_issuer_signature_rejected():
             expected_audience="private-test-signer",
             plan=plan, now=at,
         )
+
+
+@pytest.mark.parametrize("change", [
+    {"release_id": 123}, {"run_id": None}, {"branch": True},
+    {"source_commit": ["a" * 40]}, {"target_digest": {"value": "c" * 64}},
+    {"issuer": ["protected-issuer"]}, {"audience": None},
+])
+def test_signed_authorization_with_wrong_field_types_is_rejected(change):
+    key, at, plan, public = _fixture()
+    with pytest.raises(SigningAuthorizationRejected):
+        verify_protected_signing_authorization(
+            _token(key, plan, at, **change),
+            pinned_issuer_public_key_pem=public,
+            expected_issuer="protected-issuer",
+            expected_audience="private-test-signer",
+            plan=plan, now=at,
+        )
+
+
+def test_invalid_signing_clock_fails_closed():
+    key, at, plan, public = _fixture()
+    with pytest.raises(SigningAuthorizationRejected, match="timezone-aware"):
+        verify_protected_signing_authorization(
+            _token(key, plan, at),
+            pinned_issuer_public_key_pem=public,
+            expected_issuer="protected-issuer",
+            expected_audience="private-test-signer",
+            plan=plan, now="invalid",
+        )
