@@ -70,6 +70,9 @@ async def test_help_support_request_filters_diagnostics_and_uses_workspace_desti
     changed = await client.patch('/api/v1/workspace', headers=auth_headers, json={'whiteLabel': branded})
     assert changed.status_code == 200, changed.text
     try:
+        help_home = await client.get('/api/v1/help', headers=auth_headers)
+        assert help_home.status_code == 200, help_home.text
+        assert help_home.json()['support']['externalUrl'] == 'https://example.com/support'
         created = await client.post(
             '/api/v1/help/support-requests',
             headers=auth_headers,
