@@ -70,14 +70,13 @@ jobs:
           src/northstar_api/workers/channel_event_consumer.py
       - name: Verify education migration is present in Alembic history
         run: |
-          uv run alembic history | grep -E '0021_education_conversation_context'
           uv run python - <<'PY'
           from alembic.config import Config
           from alembic.script import ScriptDirectory
 
           script = ScriptDirectory.from_config(Config("alembic.ini"))
           revision = script.get_revision("0021_education_conversation_context")
-          if revision is None:
+          if revision is None or revision.revision != "0021_education_conversation_context":
               raise SystemExit("Education migration is missing from Alembic history")
           heads = set(script.get_heads())
           if not heads:
