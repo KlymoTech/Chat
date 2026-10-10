@@ -104,3 +104,10 @@
 .site-cms-form-embed select{min-width:0;width:100%;padding:10px;border:1px solid #94a3b8;border-radius:7px;background:#fff}
 .site-cms-form-placeholder{border:1px dashed #64748b;border-radius:10px;background:#f1f5f9;padding:18px;color:#334155;font-size:.9rem}
 .site-cms-form-embed :is(select,button):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+
+/* Reconciliation is a separate transactional ledger, not inferred web analytics. */
+.site-cms-form-health{padding-top:16px;margin-top:20px;border-top:1px solid #cbd5e1}
+.site-cms-form-health h4{margin:0 0 8px}
+.site-cms-form-health>p{font-size:.9rem;color:#475569;max-width:70ch}
+.site-cms-form-health .site-cms-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px}
+.site-cms-reconciliation-warning{color:#9a3412!important;border-left:4px solid #c2410c;background:#fff7ed;padding:9px 12px}
