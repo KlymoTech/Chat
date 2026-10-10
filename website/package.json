@@ -1,0 +1,39 @@
+{
+  "name": "@northstar/marketing-website",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lead:deliver:once": "node scripts/lead-outbox-worker.mjs",
+    "test:postgres": "node scripts/verify-postgres.mjs",
+    "cms:revalidate:once": "node scripts/cms-outbox-worker.mjs",
+    "media:inspect:once": "node scripts/media-inspection-once.mjs",
+    "test:e2e": "playwright test",
+    "test:security-db": "node scripts/verify-security-grants.mjs",
+    "automation:internal:once": "node scripts/automation-internal-once.mjs",
+    "test:imports": "node scripts/verify-imports.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "pg": "^8.13.0",
+    "server-only": "^0.0.1",
+    "jose": "^6.1.0",
+    "@aws-sdk/client-s3": "^3.800.0",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0",
+    "@types/pg": "^8.11.0",
+    "vitest": "^2.1.9",
+    "@playwright/test": "^1.56.1"
+  }
+}

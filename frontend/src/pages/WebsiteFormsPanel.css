@@ -1,0 +1,48 @@
+/* The form editor is part of the existing Website CMS owner workspace. */
+.site-forms-heading{display:flex;align-items:start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.site-forms-heading h3{margin:0 0 6px}
+.site-forms-heading p{margin:0 0 16px;color:#475569;max-width:72ch}
+.site-forms-heading button{flex-shrink:0}
+.site-forms-notice{padding:10px 12px;background:#ecfdf5;border-left:3px solid #047857;color:#065f46}
+.site-forms-status,.site-forms-subtitle{color:#475569;font-size:.9rem}
+.site-forms-new,.site-forms-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.site-forms-new>label,.site-forms-details>label{display:grid;gap:6px}
+.site-forms-new>p{grid-column:1/-1}
+.site-forms-details>label:nth-last-child(-n+2){grid-column:1/-1}
+.site-forms-field{border:1px solid #cbd5e1;border-radius:10px;padding:14px;margin:12px 0}
+.site-forms-field>legend{font-weight:700;padding:0 6px}
+.site-forms-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.site-forms-field-grid label{display:grid;gap:6px}
+.site-forms-field-grid .site-forms-checkbox{display:flex;align-items:center;gap:8px}
+.site-forms-checkbox input{width:18px;height:18px}
+.site-forms-wide{grid-column:1/-1}
+.site-forms-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin:15px 0}
+.site-forms-actions>label{display:grid;gap:6px;min-width:160px}
+.site-forms-warning{color:#9a3412}
+.site-forms-public{display:grid;gap:8px;padding:14px;background:#f0f9ff;border:1px solid #93c5fd;border-radius:9px;margin:16px 0}
+.site-forms-public>a{overflow-wrap:anywhere;color:#1d4ed8;display:flex;align-items:center;gap:6px}
+.site-forms-public>button{justify-self:start}
+.site-forms-receipts p{font-size:.85rem;overflow-wrap:anywhere;color:#475569}
+.site-forms-receipts a{color:#1d4ed8}
+.site-forms-field input:not([type=checkbox]),.site-forms-field select,.site-forms-field textarea,
+.site-forms-new input,.site-forms-new select,.site-forms-details input,.site-forms-details textarea,
+.site-forms-actions select{display:block;width:100%;min-width:0;border:1px solid #cbd5e1;border-radius:7px;padding:10px;background:#fff;font:inherit}
+.site-forms-field :is(input,select,textarea,button):focus-visible,
+.site-forms-new :is(input,select):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+@media(max-width:640px){.site-forms-new,.site-forms-details,.site-forms-field-grid{grid-template-columns:1fr}.site-forms-details>label:nth-last-child(-n+2){grid-column:auto}}
+
+/* Progressive, versioned steps and conditional eligibility are edited in place. */
+.site-forms-steps{margin:22px 0 15px;padding:14px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
+.site-forms-steps h4{margin-top:0}
+.site-forms-steps p{font-size:.9rem;color:#475569}
+.site-forms-step-labels{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.site-forms-step-labels label{display:grid;gap:6px;font-weight:600}
+.site-forms-step-labels input{width:100%;min-width:0;padding:10px;border:1px solid #94a3b8;border-radius:7px;background:#fff;font:inherit}
+.site-forms-steps :is(input,button):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+
+/* A separate, optional marketing purpose is never bundled with enquiry consent. */
+.site-forms-marketing-opt-in{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:15px;border:1px solid #93c5fd;border-radius:10px;background:#eff6ff;margin:12px 0}
+.site-forms-marketing-opt-in strong{color:#1e3a8a}
+.site-forms-marketing-opt-in p{color:#334155;margin:5px 0 0;max-width:66ch;font-size:.9rem}
+.site-forms-marketing-opt-in button{flex-shrink:0}
+@media(max-width:600px){.site-forms-marketing-opt-in{align-items:stretch;flex-direction:column}}

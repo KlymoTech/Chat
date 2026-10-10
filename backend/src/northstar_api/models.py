@@ -1017,3 +1017,28 @@ class EventQuarantine(Base, UUIDPrimaryKeyMixin):
     payload_excerpt: Mapped[str] = mapped_column(Text)
     error: Mapped[str] = mapped_column(String(500))
     quarantined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# Import the additive website CMS tables into the shared ORM metadata so
+# schema creation/tests observe the same database model set.
+from northstar_api.website_cms_models import (  # noqa: E402,F401
+    WebsiteAudit, WebsitePage, WebsiteRevision,
+    WebsiteSiteMenu, WebsiteSiteMenuRevision, WebsiteSiteMenuAudit,
+    WebsiteRedirect, WebsiteRedirectAudit,
+)
+
+# Include anonymous site consent receipts in ORM metadata/schema creation.
+from northstar_api.website_consent_models import WebsiteConsentReceipt  # noqa: E402,F401
+
+# Register consent-gated page events in shared model metadata.
+from northstar_api.website_event_models import WebsitePageEvent  # noqa: E402,F401
+
+# First-party forms extend the same authoritative Lead and workspace persistence.
+from northstar_api.website_form_models import (  # noqa: E402,F401
+    WebsiteForm, WebsiteFormRevision, WebsiteFormSubmission,
+)
+
+# Website journeys reuse the same workspace/Lead metadata and audit pipeline.
+from northstar_api.website_automation_models import (  # noqa: E402,F401
+    WebsiteAutomation, WebsiteAutomationRevision, WebsiteAutomationRun,
+)

@@ -1,0 +1,18 @@
+.website-campaigns-grid{display:grid;grid-template-columns:minmax(300px,1.2fr) minmax(270px,1fr);gap:16px;align-items:start}
+.website-campaigns-grid>.card,.website-campaigns-results .card{min-width:0}
+.website-campaigns-form{display:grid;gap:16px;margin-top:18px}
+.website-campaigns-form label,.website-campaigns-output-label{display:grid;gap:6px;font-size:.9rem;font-weight:650}
+.website-campaigns-form input,.website-campaigns-form select,.website-campaigns-results textarea{display:block;width:100%;padding:11px 12px;border:1px solid #cbd5e1;border-radius:9px;color:#0f172a;background:#fff;font:inherit}
+.website-campaigns-form input:focus-visible,.website-campaigns-form select:focus-visible,.website-campaigns-results textarea:focus-visible{outline:3px solid #bfdbfe;outline-offset:2px}
+.website-campaigns-double{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.website-campaigns-results{display:grid;gap:16px}
+.website-campaigns-results textarea{margin-top:7px;line-height:1.6;resize:vertical;overflow-wrap:anywhere}
+.website-campaigns-actions{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-top:14px}
+.website-campaigns-visit{display:inline-flex;align-items:center;gap:6px;color:#1d4ed8;font-weight:650}
+.website-campaigns-help{font-size:.88rem;color:#475569}
+.website-campaigns-error{padding:12px 14px;border-radius:9px;background:#fef2f2;color:#991b1b}
+.website-campaigns-success{display:flex;align-items:center;gap:6px;color:#166534;font-weight:650}
+.website-campaigns-advice-heading{display:flex;gap:10px;align-items:center}
+.website-campaigns-advice-heading h3{margin:0}
+@media(max-width:980px){.website-campaigns-grid{grid-template-columns:1fr}}
+@media(max-width:620px){.website-campaigns-double{grid-template-columns:1fr}}

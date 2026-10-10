@@ -1,0 +1,26 @@
+.site-report-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.site-report-heading h3{margin:0 0 8px}
+.site-report-heading p{margin:0;color:#475569;max-width:65ch}
+.site-report-actions{display:flex;align-items:end;flex-wrap:wrap;gap:10px}
+.site-report-actions>label{display:grid;gap:6px;font-size:.875rem;font-weight:600}
+.site-report-actions select{padding:9px;border:1px solid #94a3b8;border-radius:7px;background:#fff}
+.site-report-actions :is(select,button):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
+.site-report-placeholder,.site-report-window,.site-report-limits{font-size:.875rem;color:#475569}
+.site-report-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:18px 0}
+.site-report-summary>div{border:1px solid #cbd5e1;border-radius:9px;padding:12px;background:#f8fafc;display:grid;gap:5px}
+.site-report-summary strong{font-size:1.5rem;font-variant-numeric:tabular-nums}
+.site-report-summary span{font-size:.8rem;color:#475569}
+.site-report-warning{display:flex;align-items:flex-start;gap:9px;color:#9a3412;padding:12px;border-left:3px solid #c2410c;background:#fff7ed}
+.site-report-plot{display:grid;gap:6px;max-height:320px;overflow:auto;padding:10px;border:1px solid #cbd5e1;border-radius:9px}
+.site-report-plot-row{display:grid;grid-template-columns:100px minmax(80px,1fr) 48px;align-items:center;gap:9px;font-size:.8rem;font-variant-numeric:tabular-nums}
+.site-report-plot-row strong{text-align:right}
+.site-report-track{height:12px;background:#e2e8f0;border-radius:6px;overflow:hidden}
+.site-report-bar{background:#2563eb;height:100%;min-width:0}
+.site-report-table-wrap{max-height:420px;overflow:auto;margin:16px 0}
+.site-report-table{border-collapse:collapse;width:100%;min-width:680px;font-size:.82rem;font-variant-numeric:tabular-nums}
+.site-report-table caption{text-align:left;font-weight:700;margin:10px 0}
+.site-report-table :is(td,th){border:1px solid #cbd5e1;padding:8px;text-align:right}
+.site-report-table th:first-child{text-align:left}
+.site-report-table thead{position:sticky;top:0;background:#e2e8f0}
+.site-report-limits{border-left:3px solid #b45309;background:#fffbeb;padding:11px}
+@media(max-width:560px){.site-report-actions{width:100%}.site-report-plot-row{grid-template-columns:88px minmax(70px,1fr) 38px}}

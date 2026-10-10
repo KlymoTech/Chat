@@ -25,6 +25,10 @@ import {
   type CRMWorkflowStageStatus,
 } from '@/lib/crm-workflow-api';
 import { relativeTime } from '@/lib/format';
+import { LeadScoringPanel } from '@/pages/LeadScoringPanel';
+import { CRMSegmentsPanel } from '@/pages/CRMSegmentsPanel';
+import { CRMInternalAutomationsPanel } from '@/pages/CRMInternalAutomationsPanel';
+import { MarketingPreferencesPanel } from '@/pages/MarketingPreferencesPanel';
 import '@/pages/CRMWorkflowPage.css';
 
 interface PipelineStep {
@@ -293,6 +297,11 @@ export function CRMWorkflowPage() {
         {visibleStatuses.map(([status, count]) => <div key={status}><strong>{count}</strong><span>{statusLabel(status)}</span></div>)}
       </div> : <EmptyState icon={Clock3} title="No CRM deliveries yet" description="Resolve a Lead Generation conversation or manually sync a local Lead to start the durable delivery workflow." />}
     </Card>
+
+    <LeadScoringPanel key={workflow.workspaceId} journeys={workflow.recentJourneys} onApplied={() => { void load(true); }} />
+    <MarketingPreferencesPanel key={workflow.workspaceId + '-marketing'} journeys={workflow.recentJourneys} />
+    <CRMSegmentsPanel key={workflow.workspaceId + '-segments'} />
+    <CRMInternalAutomationsPanel key={workflow.workspaceId + '-internal-automations'} />
 
     <Card className="crm-workflow-journeys">
       <div className="crm-workflow-section-heading">

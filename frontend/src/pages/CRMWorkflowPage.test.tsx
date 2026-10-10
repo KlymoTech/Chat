@@ -6,6 +6,17 @@ import { CRMWorkflowPage } from '@/pages/CRMWorkflowPage';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
+  scoringPolicy: vi.fn(),
+  scoringSave: vi.fn(),
+  scoringPreview: vi.fn(),
+  scoringApply: vi.fn(),
+  segmentsList: vi.fn(),
+  segmentsSave: vi.fn(),
+  segmentsPreview: vi.fn(),
+  automationList: vi.fn(),
+  automationSave: vi.fn(),
+  automationPreview: vi.fn(),
+  automationExecute: vi.fn(),
 }));
 
 vi.mock('@/lib/crm-workflow-api', async () => {
@@ -15,6 +26,23 @@ vi.mock('@/lib/crm-workflow-api', async () => {
   return {
     ...actual,
     crmWorkflowApi: { get: mocks.get },
+    leadScoringApi: {
+      policy: mocks.scoringPolicy,
+      savePolicy: mocks.scoringSave,
+      preview: mocks.scoringPreview,
+      apply: mocks.scoringApply,
+    },
+    leadSegmentsApi: {
+      list: mocks.segmentsList,
+      save: mocks.segmentsSave,
+      preview: mocks.segmentsPreview,
+    },
+    internalAutomationsApi: {
+      list: mocks.automationList,
+      save: mocks.automationSave,
+      preview: mocks.automationPreview,
+      execute: mocks.automationExecute,
+    },
   };
 });
 
@@ -128,6 +156,12 @@ const readyWorkflow = {
 describe('CRMWorkflowPage', () => {
   beforeEach(() => {
     mocks.get.mockResolvedValue(readyWorkflow);
+    mocks.scoringPolicy.mockResolvedValue({
+      version: 0, enabled: false, base_points: 0,
+      review_threshold: 60, rules: [],
+    });
+    mocks.segmentsList.mockResolvedValue({ version: 0, segments: [] });
+    mocks.automationList.mockResolvedValue({ version: 0, automations: [] });
   });
 
   afterEach(() => {
@@ -144,6 +178,8 @@ describe('CRMWorkflowPage', () => {
 
     expect(await screen.findByText('CRM full workflow')).toBeInTheDocument();
     expect(screen.getByText('Automatic flow ready')).toBeInTheDocument();
+    expect(await screen.findByText('Consent-aware Lead segments')).toBeInTheDocument();
+    expect(await screen.findByText('Internal lead-review automations')).toBeInTheDocument();
     expect(screen.getByText('1. Conversation captured')).toBeInTheDocument();
     expect(screen.getByText('2. Resolve and qualify')).toBeInTheDocument();
     expect(screen.getByText('4. Durable CRM routing')).toBeInTheDocument();

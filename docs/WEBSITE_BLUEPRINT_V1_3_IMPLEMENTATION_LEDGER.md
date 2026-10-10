@@ -1,0 +1,306 @@
+# Website v1.3 implementation and acceptance ledger
+
+Source: Website Master Blueprint v1.3, 7 October 2026 (273 pages).
+This ledger records only **verified** implementation evidence; presence of a
+domain contract does not imply that the UI, API, persistence or end-to-end flow works.
+
+## Branch and scope
+- Development branch: `feature/website-blueprint-v1-3-20261010`
+- Do not merge into `main` without explicit user instruction.
+- Preserve existing CMS, CRM, auth, routing and integrations.
+- All blueprint-listed capabilities are requested, including external CRM provider integration and conditional modules. Provider activation still requires authorized credentials, account access, lawful basis and project-specific configuration; do not misrepresent unconfigured integrations as operational.
+- Keep the existing Python/FastAPI backend unless an approved architecture
+  decision replaces it; blueprint NestJS is a reference default, not evidence
+  of a migration being necessary.
+
+## Work packages (implementation evidence required for each)
+
+| ID | Capability | Current verified evidence | Missing acceptance evidence |
+|---|---|---|---|
+| CMS-01 | Visual builder page contract | Document validator and `frontend/src/pages/WebsiteCMSPage.tsx` with section/block controls | Drag-and-drop editor, full owner journeys, browser/E2E checks |
+| CMS-02 | Public rendering and preview | Responsive hashed-CSP HTML, authenticated preview and public-published-revision route | Live host/domain integration, deployment smoke test, cache invalidation proof |
+| CMS-03 | Editorial publication | API, revision history/restore, owner UI, admin-only RBAC, audit, transactional outbox | Separate approval roles, scheduling worker, published content indexing/rollback smoke tests |
+| WEB-01 | Public pages and navigation | Existing public routes and CMS HTML output partially integrated | Responsive real-business site brief, public navigation, forms, route checks, and accessibility testing remain |
+| CMS-04 | Blog, media and preservation | Not audited | Manual-only deletion, restore, rights, authoring, export |
+| MKT-01 | Campaign link builder | Protected `site-campaigns/url` API, React owner UI, validation and API tests committed | CI test evidence missing; visual automation, durable campaigns and provider reporting remain |
+| EVT-01 | Consent-gated website page events | `website_analytics.py`, `website_page_events` migration, nonce-scoped first-party SDK, owner summary | Event/consent integration tests committed but not passed; broader attribution, destination egress and reconciliation remain |
+| PRIV-01 | Website consent choices | Policy engine, public React preference center, append-only receipts migration, GPC and withdrawal, analytics ingestion gate | Full banner, retention/rights, all third-party integrations, legal review, cross-browser/E2E tests remain |
+| SEC-01 | Production admin auth | Existing auth routes identified | Admin UI, RBAC, MFA, cookie/CSRF/session E2E security |
+| DB-01 | Database integrity | Additive migration `0079_website_cms_pages.py` | Upgrade/downgrade on PostgreSQL, tenant isolation proof, backup/restore |
+| QA-01 | End-to-end verification | API integration tests added; branch CI workflow added | All tests unverified: GitHub Actions runs failed before exposing job steps/logs; re-run in accessible CI environment |
+
+## Definition of done for every capability
+1. Frontend owner/public journey is usable, accessible and responsive.
+2. Backend API validates requests and enforces authorization server-side.
+3. Durable database migrations, consistency and rollback behavior are tested.
+4. Audit and background delivery are implemented where the blueprint requires.
+5. Unit, integration and browser end-to-end tests pass in CI with evidence links.
+6. Operational instructions, errors, recovery and monitoring are documented.
+7. Mark as verified only when evidence exists; never count a stub as complete.
+
+## Blueprint release blockers
+- No falsely acknowledged or lost leads.
+- No unauthorized admin access, secret leaks or prohibited tracking.
+- No broken primary journeys or untested recovery.
+- No automatic deletion of blog/source/trash content.
+- No green release sign-off without passing acceptance evidence.
+
+## Scope clarification (2026-10-10)
+The owner explicitly requests no deferred blueprint features. Implement all documented capability families and their working frontend/backend/database paths. External provider credentials, approvals, legal decisions, and live payment/ad transactions remain environment-dependent release prerequisites, not reasons to claim implementation completion. Maintain per-capability implementation, activation, and verification status separately.
+
+## Next integration milestone
+Implement a real CMS page create/edit/preview/publish workflow with migrations,
+admin authorization, immutable revisions, public read model and end-to-end tests.
+Do not claim it is complete until frontend, backend and database all work together.
+
+## Implementation checkpoint — 2026-10-10
+- Browser-accessible CMS route: `/site-cms` inside existing authenticated React workspace.
+- New API family: `/api/v1/site-cms` with tenant-scoped page creation and updating, private revision history, restore, admin preview and public published revision.
+- New durable tables: `website_cms_pages`, `website_cms_revisions`, `website_cms_audit`.
+- Publication emits `website.page.published` via the existing outbox in the database transaction.
+- New frontend page editor supports approved blocks and keyboard-operable reorder controls. It is **not** an advanced drag-and-drop editor yet.
+- No new CRM provider credentials or live ad/payment activity have been configured. All remain requested in scope but are not verified.
+- Automated branch-check workflows exist but current GitHub runs have no executable job step records; no passing tests or release certification can be claimed.
+
+
+## Privacy and analytics integration checkpoint — 2026-10-10
+- Public consent page: \`/privacy/site/:workspaceId\`; preference API: \`/api/v1/site-consent/:workspaceId\`.
+- Consent choices are denied by default and saved as append-only, pseudonymous workspace-scoped receipts; no names/emails/IPs are stored in these receipts.
+- Explicit opt-in/opt-out/withdrawal and conservative Global Privacy Control suppression are supported for the new website module; the UI does not claim jurisdictional legal certification.
+- Public site renderer offers a permanent preference-entry link and a nonce-authorized, server-owned JavaScript SDK.
+- The SDK asks the consent API first. It only collects allowlisted page views and CTA clicks when analytics is allowed, with no free-text event parameters.
+- Website event collector enforces the latest consent again server-side, validates slugs, block IDs, event IDs, origin and scope, rate limits writes and deduplicates event IDs.
+- CMS owner dashboard shows 30-day counts from consent-eligible website events, separate from business conversions.
+- New migrations: \`0080_website_consent_receipts\`, \`0081_website_page_events\`. New API regression tests and CI workflow gates have been committed.
+- This is not full site measurement, ad-platform conversion delivery, privacy rights automation, or complete cross-module consent enforcement. Those are **unverified and remaining**.
+- CI workflow executions currently report failure without job step evidence. Do not classify any of these tests as passed until actual results are obtainable.
+
+
+## Implementation checkpoint — 2026-10-10, continued
+
+- The newest uploaded blueprint file matches the prior v1.3 document by SHA-256; its CAP-001–CAP-120 register is preserved in \`docs/WEBSITE_BLUEPRINT_120_CAPABILITY_TRACEABILITY.md\`.
+- Corrected a consent cookie path that prevented first-party analytics requests from receiving the consent token. Corrected the published-page CSP to allow same-origin event requests. Regression assertions added.
+- Added role-protected campaign-link API \`POST /api/v1/site-campaigns/url\` and owner React route \`/site-campaigns\`. This validates/encodes UTM parameters, provides copy/preview actions, and preserves non-UTM query parameters.
+- Extended CMS revision JSON with explicit search metadata: meta description, approved HTTPS canonical URL and indexability flag. Missing approval defaults to \`noindex\`.
+- Published-page HTML emits escaped description/canonical/robots metadata. A public sitemap at \`/api/v1/site-discovery/sitemap/{workspace_id}.xml\` includes only current published revisions with explicit indexing enabled; the owner dashboard links to it.
+- Added backend regression tests for campaign links, SEO metadata, and sitemap published/draft isolation. These tests are **committed but not yet demonstrated passing**.
+- Still unverified: a complete deployable public website with approved business content, CI, browser E2E, worker processing, full marketing automation, advanced builder, data/privacy rights, specialist transactions, live provider integrations, audits, backup/restore and production owner sign-off.
+- Github Actions branch jobs were failing before usable test logs/steps were available in this environment. Do not label this implementation release-ready.
+
+
+## No-duplicate implementation checkpoint — 2026-10-10
+
+Scope rule: audit existing routes, components and services before adding anything. Prefer modifying the established module over implementing a competing subsystem. The blueprint's native page-duplication operation is not a duplicate architectural implementation; it creates a separate draft on explicit owner request.
+
+- Reused `backend/src/northstar_api/routers/website_cms.py` for authenticated page duplication, owner JSON export/import, editorial change requests, safe archiving and restoration. No parallel CMS router was introduced.
+- Refactored the shared draft create/duplicate/import operation through `_create_draft_page` so page metadata, immutable first revision, audit attribution, rollback and conflict handling use **one** transaction implementation.
+- Reused the existing React CMS editor instead of adding an alternative admin dashboard. It now exposes copying, exporting, importing, approval changes and manual archive/restore controls.
+- Extended existing `WebsitePage` and `WebsiteRevision` storage. No new tables or migrations were required for these operations.
+- Manual archive makes the page unavailable publicly and emits a transactional `website.page.unpublished` event; original revisions and audit entries remain stored. Restoration requires authenticated owner/admin action and routes through editorial review before public publishing.
+- The **last published revision remains live while a new draft is edited**. Do not require editorial status `published` in public/sitemap/analytics reads: use `published_version` as the authority; archive clears that pointer.
+- Added backend tests for duplication identity, import validation/authorization, archival, restoration, changed-content review and published/draft separation. They are **committed, not demonstrated passing**.
+- No existing CRM, lead-management, auth or media modules were replaced or removed.
+- CI/runner remains a release blocker. GitHub Actions reported jobs failing without assignment to runners and without execution steps; user/repository Actions policy or billing may need investigation. Do not count this as a passed code or deployment validation.
+- All 120 capability IDs remain in scope and **not verified** until repeatable acceptance evidence exists.
+
+## Implementation checkpoint — blog and visual-builder integration (2026-10-10)
+
+- Audited existing page CRUD, revisions, import/export, duplication, archive/restore, and CMS editor before extending them; no second CMS/page model was introduced.
+- Existing editor now has section/block rearrangement, duplication, removal, and cross-section moves; editor regression tests have been committed. Drag-and-drop is an enhancement to the same page document API, not a new source of truth.
+- Extended versioned `BuilderPageDocument` with `content_type=article` and validated `BlogMetadata` (real author, category, summary, reviewer, locale).
+- Updated the existing CMS owner screen to create/edit article metadata. No fictitious author is silently assigned; the owner must enter author, category, and summary.
+- Updated the existing duplication/import helper to preserve article metadata, while regenerating node IDs and resetting search-indexing approval.
+- Added a public, tenant-isolated blog resource index using the existing published revision table, with server rendering, category-filtered paginated JSON, HTML pagination, and escaped output. This does not invent a separate blogging database.
+- Public CMS renderer now displays article byline, category, summary and locale with escaped metadata; unpublished revisions remain private.
+- Added backend regression tests covering blog validation, copy behavior, draft exclusion, published-revision isolation and pagination, plus a React authoring test. CI was updated to include the new API tests.
+- **Not yet verified passing:** full browser E2E, database migration exercise, production auth, publisher/approval role separation, manual trash/purge controls, SEO edge cases, 120-capability acceptance.
+- GitHub Actions may fail before job steps; a passing release certificate is not available. Existing core website and CRM functionality must continue to be regression-tested before release.
+
+
+## CAP-005 integration increment — 2026-10-10
+
+- Audited Chapter 44 before editing: the existing `WebsiteCMSPage` had manual Save and `site-cms/pages/{page_id}` already implemented optimistic `expected_version` checks. No parallel editor, API, database table or worker was created for autosave.
+- Extended `frontend/src/pages/websiteBuilderOperations.ts` with bounded, pure undo/redo history, content-stable draft comparisons and a readable local/server difference summary.
+- Extended the **same** `WebsiteCMSPage` with a 3-second debounced save, accurate pending/saved/error status, browser-unload guard, keyboard-accessible Undo/Redo and explicit retry.
+- Server acknowledgement updates the saved revision but does not overwrite edits typed while the request was in flight.
+- The existing API returns 409 for a stale editor version; autosave pauses and retains local content. The owner can inspect the latest server revision, export their unsaved JSON, load the server copy only after explicit confirmation, or preserve local edits as a **separate unpublished draft** through the existing validated `site-cms/pages/import` endpoint.
+- Conflict comparison is a review aid, **not** an automatic merge and never claims a stale write succeeded.
+- Existing JSON import/export helper and existing backend transaction are reused, with no duplicate page-persistence subsystem.
+- `websiteBuilderOperations.test.ts` now covers undo/redo, branching, limits, reordered JSON properties and readable diff; `WebsiteCMSPage.autosave.test.tsx` adds debounced save, 409 recovery and independent draft tests.
+- CI still has not produced trusted passing executions, so CAP-005 stays **not verified**. Offline local persistence with a reviewed device-sharing/expiry/logout-clearing policy and browser accessibility acceptance remain missing.
+
+
+## No-duplicate gap-closure increment — 2026-10-10, public navigation and redirects
+
+Source requirements: Chapter 04.1 (task-oriented routes and working navigation), Chapter 07.1–07.4 (owner-managed menus and redirects) and Chapter 08.3 (published revision integrity). Reused the **existing** `website_cms.py` router, owner `WebsiteCMSPage.tsx`, page status model, shared ORM metadata, transaction/outbox helpers and public renderer. No parallel CMS, route-service application or duplicate owner console was added.
+
+### First-party public navigation
+- Additive migration `0082_website_site_navigation.py` adds a workspace-scoped navigation document, immutable versions and actor-attributed audit records in existing CMS model code.
+- GET/PUT `/api/v1/site-cms/menu`; POST `/api/v1/site-cms/menu/publish`; GET `/api/v1/site-cms/menu/revisions`; POST `/api/v1/site-cms/menu/restore/{version}`.
+- Validates stable IDs, labels, internal slugs, bounded item counts, unique destinations and optimistic versions. Publication checks every target is a currently published page. Publishing is idempotent and records an outbox event.
+- Public page renderer outputs a responsive, semantic primary navigation landmark, escaping text/attributes. It filters destination links which later become unpublished, while keeping the immutable published menu revision.
+- Existing CMS owner screen provides published-page selection, editable labels, keyboard-operable ordering/removal, draft save, explicit publish and history-based restore.
+- `test_website_navigation_api.py`, `WebsiteCMSPage.navigation.test.tsx` and renderer tests cover authorization, public/draft isolation, stale versions, unsafe inputs and archival safety.
+
+### Controlled URL redirects
+- Searched for existing owner website redirect managers and data models before implementation; none were found. Added `0083_website_cms_redirects.py` to the same CMS model family.
+- GET/POST `/api/v1/site-cms/redirects` and PUT `/api/v1/site-cms/redirects/{redirect_id}` are role- and tenant-scoped, require published internal targets, preserve revisions and actor history, and reject stale writes.
+- Public page resolver may return a same-origin 307 or 308 on an old/archived slug. Active pages and unfinished drafts cannot be displaced, source slug reservation prevents collisions, and redirects to archived targets fail closed.
+- Changes emit existing transactional outbox records; the public route returns `Cache-Control: no-store`.
+- Existing CMS screen now includes creation, target changes, 307/308 selection, audited disable/enable and visible errors. Disabling never erases the previous rule.
+- `test_website_redirects_api.py` and `WebsiteCMSPage.redirects.test.tsx` include recovery, open-redirect rejection, version conflict, retired URL, and active-page protection.
+
+### Release evidence limits
+- No live environment migration, frontend compilation, DB integration execution, end-to-end browser run or owner acceptance is certified by this ledger.
+- GitHub-hosted workflow jobs still fail without assignment to a runner or execution steps; investigate repository/org Actions billing, availability and policy before a release gate can pass.
+- CAP-002, CAP-004, CAP-007, CAP-011 and CAP-012 remain **not verified**. The rest of the 120-capability catalogue remains in scope and cannot be considered delivered solely because adjacent components now exist.
+
+### Additional correctness safeguards
+- The existing shared page-creation function and new redirect-creation operation both lock the workspace URL namespace before checking source/target collisions, preventing a concurrent page/redirect claim on separate tables in PostgreSQL.
+- Redirect creation, updates and disabling now append existing transactional outbox messages, with tests asserting audit/outbox evidence.
+- Tests use the existing **session-scoped** backend workspace fixture. Navigation tests derive their expected versions from the live fixture and check publication retries against previous side-effect counts instead of assuming an empty database.
+- The isolated branch workflow now includes Python source and migration syntax checks plus `alembic heads`, and explicitly includes the menu/redirect API test files. These checks remain configured but **not executed successfully** due to the GitHub runner issue.
+
+
+## CAP-041 lead scoring implementation increment — 2026-10-10
+
+- Repository audit found existing CRM Workflow APIs/UI, Lead/LeadProfile, attribution metadata, qualification status/score, LeadActivityEvent and a deduplicated workspace notification service. None was copied into a competing CRM/lead pipeline.
+- Added allowlisted rule validation and a bounded, explainable scoring policy in `lead_crm/website_lead_scoring.py`; rules use only source channel and UTM source/medium/campaign with casefolded exact matching.
+- Existing `/api/v1/crm/workflow` router now also exposes `GET/PUT /scoring-policy`, `GET /leads/{id}/score-preview` and `POST /leads/{id}/apply-score`.
+- Policy is stored in the **existing Workspace.settings_json**, version checked under a workspace row lock. No new lead, CRM, event, queue or settings table was introduced. The existing integration audit records policy changes.
+- Scoring is disabled by default, rejects unknown/withdrawn purpose consent and archived leads, and cannot initiate automatic customer messaging or CRM delivery.
+- Preview reports matched rules, bounded proposed score and **human review** recommendation without changing any lead data.
+- Explicit apply revalidates current tenant/workspace/agent access, policy version, processing consent and expected lead score, then changes only the existing LeadProfile qualification_score. Human qualification status and explanation/reason are preserved; the scoring explanation is appended to existing LeadActivityEvent.
+- Threshold-crossing scores reuse `notify_workspace_admins` to create an idempotent in-app **human review** notification. No outbound emails, WhatsApp messages, CRM upserts or spend are triggered.
+- Existing CRM Workflow page now includes the scoring policy editor, rule configuration, preview, and confirmed apply button. The existing CRM API client was extended rather than replaced.
+- Committed `test_website_lead_scoring.py`, `test_website_lead_scoring_api.py`, and `LeadScoringPanel.test.tsx`, and updated existing `CRMWorkflowPage.test.tsx` and branch CI gates.
+- **Verification is incomplete.** The GitHub Actions branch jobs have been failing without running on a runner; these tests cannot be marked passed. CAP-040 automation timers/simulations and CAP-041 batch scoring/manual overrides remain open.
+
+
+## CAP-038 first-party forms increment — 2026-10-10
+
+Source: Blueprint v1.3 Chapter 20.1–20.3 and Chapter 21.1–21.3. Audit found an existing authoritative Lead, LeadProfile, LeadConsent, agent-purpose guard, transactional outbox, Redis rate limiter and Website CMS page builder. There was no existing first-party website forms module or published form owner UI. Rather than adding another Lead or CRM store, the implementation reuses those existing services.
+
+### Committed integration
+- `services/website_form_contracts.py`: strict field schema, stable keys, label/purpose/required state, allowed choices, retention/sensitivity declarations and server-authoritative checks. Activated controls: text/long answer, email, phone, select, radio, checkbox, date and affirmative processing consent. Unicode names are not restricted to English.
+- `website_form_models.py` and additive Alembic migration `0084_website_forms.py`: workspace-scoped form definition, immutable numbered revisions and transactional submission/receipt with a unique form-scoped idempotency key. The shared ORM metadata is extended; no parallel Leads or agent schema created.
+- `routers/website_forms.py`: authenticated owner form list/create/update/publish/unpublish and safe submission receipt listing; unauthenticated public same-origin HTML form and native URL-encoded submission. The public page is noindex and includes an accessible error summary, strict CSP, anti-spam honeypot and scoped Redis request budget.
+- New public submissions reject unknown inputs and unsupported types, require purpose consent and active lead-generation ownership, and commit submission, existing Lead/LeadProfile, LeadConsent, first-party conversion event and existing CRM-routing outbox messages as one unit. The public receipt contains only opaque IDs. Identical repeated keys return the same receipt; changed bodies under a reused key are rejected.
+- Replayed identical receipts remain recoverable after safe form unpublication, while new submissions are blocked. Published form revisions remain live while later drafts are edited.
+- `WebsiteFormsPanel.tsx` mounts inside the **existing WebsiteCMSPage**, reuses authenticated `request` and existing agent enumeration, and offers field editing, revision save, explicit publication, accessible public URL, and restricted receipt metadata.
+- Existing `BuilderNode` and renderer gained one `form` node kind. The page editor inserts an already-published form with an allowlisted same-origin URL. Page publishing verifies that the form exists, is published and belongs to the same tenant/workspace. Public HTML uses a sandboxed, no-referrer iframe and a constrained `frame-src 'self'` CSP. The private builder preview shows a non-submitting placeholder.
+- Tests committed: `test_website_form_contracts.py`, `test_website_forms_api.py`, `WebsiteFormsPanel.test.tsx`, `WebsiteCMSPage.forms.test.tsx`, plus builder document/renderer tests. Existing CMS tests were updated for the new panel's read-only owner load.
+- CI branch workflow now includes new form contract/router/model lint and new API tests. The form editor and embed UI are covered by the existing frontend `npm test` command.
+
+### Not claimed complete or verified
+- Actual GitHub Actions executions still fail at runner assignment, with no steps/logs. No production database migration, browser end-to-end acceptance, real notification delivery, CRM provider write/read-back or recovery drill has passed for this increment.
+- File uploads need the existing upload-quarantine and object-authorization pipeline before field activation; conditional/multi-step forms, retention deletion jobs, abuse false-positive review, advanced contact deduplication and owner acceptance remain incomplete.
+- Blueprint CAP-038 and all other 120 traceability IDs remain **not verified** until observable acceptance evidence is recorded.
+
+### Audit and purpose-consent correctness review
+- Accepted public form submissions now create a dedicated, PII-minimized `IntegrationAuditEvent` in the **same transaction** as the submission, existing Lead/LeadProfile, processing consent, conversion receipt and outbox messages. Receipt IDs, approved schema version and conversion IDs are recorded; visitor contact details are not copied into the audit.
+- The consent control must use the stable `processing_consent` key and explicit required affirmative input. Arbitrary "consent" controls cannot be silently reinterpreted as processing permission. This prevents ambiguous owner-selected labels from granting a broader purpose accidentally.
+- Regression tests assert that a submission audit exists without contact PII and the processing-consent key is enforced.
+
+
+## Website content preflight increment — 2026-10-10
+
+**Source scope:** CAP-004, CAP-090 and Blueprint Chapters 20, 30, 64–65. Existing `website_cms.py` plus owner `WebsiteCMSPage.tsx` were extended. No new CMS, deployment framework, navigation system, or database table was introduced.
+
+- Fixed two pre-existing regression assertions: the consent fixture now checks `processing_consent`, and the multi-line choice editor test supplies an actual newline separator.
+- Added tenant/workspace-scoped `GET /api/v1/site-cms/preflight`, authorized only for existing OWNER/ADMIN CMS principals. The response is `private, no-store` and contains no draft document bodies, visitor identities, tokens or secrets.
+- Checks actual currently published website pages, associated immutable revisions and builder document validity, and reports empty-page warnings.
+- Checks currently published forms have valid revision contracts, active same-workspace agents and the existing lead-generation purpose setting. Detects pages with embedded forms that are no longer published or no longer eligible.
+- Checks published navigation target slugs and active redirect destinations against currently published pages and flags collisions. Absence of a navigation menu yields a warning, not an invented pass.
+- Reports structured blockers and warnings with `contentReady` meaning **content integrity only**. `releaseCertified` is always false. The response explicitly excludes DB migration execution, third-party delivery, backup/recovery, security, accessibility and actual production deployment.
+- Mounted `WebsiteContentPreflight` within the existing `WebsiteCMSPage`. Owner manually runs/re-runs preflight after publication; results display actionable descriptions, resource slugs, severities and the separate production release limitation.
+- Backend integration regressions were added to `test_website_forms_api.py` and `test_website_navigation_api.py`. Frontend component regressions were added in `WebsiteContentPreflight.test.tsx`. Both are picked up by the existing branch CI test commands.
+- **Not verified:** GitHub Actions still has failed job records with zero executed steps and no retrievable job logs. A content preflight cannot stand in for E2E browser tests, app migrations or verified production releases; CAP-090 remains **Not verified**.
+
+
+## Consolidated branch: bounded responsive design-token inspector — 2026-10-10
+
+- The **only** target branch for this increment is `feature/website-consolidated-20261010`. No files on `main` or the three source branches were mutated.
+- Audited the active React/FastAPI visual builder: it already has authenticated drafts, block/section reordering, duplication, history, autosave and public HTML rendering. No parallel page builder, database or UI shell was introduced.
+- Existing Pydantic `BuilderNode` now accepts an **optional** frozen, extra-forbidden `NodeAppearance` contract with three bounded enums: alignment (start/center/end), spacing (compact/normal/spacious) and color tone (default/muted/accent). Existing unstyled documents remain valid. The schema rejects raw CSS, event handlers, HTML and arbitrary appearance fields.
+- Existing public renderer emits static class names derived only from validated design tokens. Corresponding responsive static CSS is covered by the renderer's existing SHA-256 style CSP hash; no inline untrusted styles/scripts are accepted.
+- Existing `WebsiteCMSPage` renders a shared `WebsiteNodeStyleEditor` for the selected section and each block. Changes flow through the **existing** draft change operation and version-guarded save, so undo/redo, published revisions, conflict handling and autosave are reused rather than recreated.
+- The private page preview mirrors the safe styling presets. Accent/soft tones use fixed contrast-conscious choices; arbitrary customer CSS remains blocked until a governed theme editor exists.
+- Added Pydantic contract tests, public HTML/legacy compatibility tests, builder undo/redo preservation tests, dedicated inspector tests, and an existing CMS integration test confirming versioned save with appearance metadata.
+- **Verification remains incomplete:** GitHub Actions branch jobs continue failing before runner assignment with no executed steps. The styling increment is committed, **not independently build-/browser-/production-certified**. CAP-003 and CAP-004 remain `Not verified` in the capability register.
+- The rest of the blueprint remains in scope: component/template design system, breakpoint-specific controls, media/CDN, marketing journeys, consent/privacy rights, analytics reconciliation, external provider integrations and full release acceptance.
+
+
+## CAP-044 marketing consent/suppression increment — 2026-10-10 (consolidated branch)
+
+**Canonical runtime:** existing FastAPI `backend/` and React `frontend/` CRM Workflow. The alternate `website/` and `website-platform/` source trees remain preserved, not activated as duplicate live services.
+
+- Existing source audit: `LeadConsent` is already the authoritative purpose-specific consent history, and the existing CRM segment preview requires a latest marketing grant. No first-party signed unsubscribe implementation existed in the canonical runtime.
+- Added `lead_crm/website_marketing_suppression.py`, a purpose-specific HMAC-SHA256 signature with a domain-separated key, 30-day validity and opaque UUID scopes. The token is **not** a login JWT and exposes no email/contact fields.
+- Added existing-API-router `site-marketing` endpoints for owner preference read, signed link creation, explicit opt-out and signed public GET/POST. GET never mutates consent, preventing mail link scanners from unsubscribing recipients. POST accepts an authenticated-in-the-token one-click unsubscribe and is replay-safe.
+- The marketing withdrawal reuses `LeadConsent` and locks the existing `Lead` row during consent evaluation. A single database transaction persists a new withdrawal receipt, a PII-minimized integration audit and `lead.marketing.consent.withdrawn.v1` outbox event. Replaying a withdrawal does not generate duplicate receipts/events. Existing lead enquiry-processing consent is not modified.
+- Existing CRM segments treat both marketing-withdrawal status and `withdrawn_at` timestamps as a suppression signal, without treating ordinary enquiry-processing consent as marketing permission.
+- Extended the existing CRM Workflow API client and owner dashboard with `MarketingPreferencesPanel`, including scoped lead selection, explicit confirmation, link creation/copy, meaningful warnings and no automatic customer messaging.
+- Unit/API/UI tests committed: `test_website_marketing_suppression.py`, extensions to `test_website_lead_scoring_api.py`, `MarketingPreferencesPanel.test.tsx`. The existing branch CI now includes the new Python module/router lint and pure unit tests; the frontend test command already discovers the React test.
+- **Deployment prerequisites:** strong `JWT_SECRET` (32+ characters), no URL/bearer-token logging in public proxies, stable redirect/HTTPS domain and configured authenticated staff access. Do not embed signed links in analytics/query strings, and do not enable outbound marketing merely because a link can be generated.
+- **Not verified:** GitHub Actions jobs on the consolidated branch still fail before execution. No successful production migration, browser acceptance or email-provider List-Unsubscribe header integration is certified.
+- **Remaining CAP-044 scope:** secure subscription and double opt-in for new signups, linked contact/global suppression across channels, live dispatch-time suppression in every approved sender, complaint/bounce ingestion, brand preference center, provider acknowledgement and production tests. CAP-044 remains **Not verified**.
+
+## Consolidation CI branch routing — 2026-10-10
+
+The three preserved website workflows `website-blueprint-branch.yml`, `website-blueprint.yml` and `website-platform.yml` now include `feature/website-consolidated-20261010` as a validation branch. This **does not** deploy any of the three applications, switch runtime selection or change `main`. The runner-assignment failure remains an operational release blocker.
+
+
+## CAP-040 owner automation workflow integration — 10 October 2026
+
+Audit established that `backend/src/northstar_api/routers/crm_workflow.py` already implements version-guarded `/crm/workflow/internal-automations` list/save/preview/execute and uses the existing Workspace.settings_json register, Lead/LeadProfile, purpose-limited operational segments, LeadActivityEvent, IntegrationAuditEvent and deduplicated workspace administrator notifications. No parallel automation table, CRM or notification queue was introduced.
+
+### Committed work
+- Added `frontend/src/pages/CRMInternalAutomationsPanel.tsx` and CSS to the **existing CRMWorkflowPage**. It provides operations-segment selection, rule name and bounded maximum-per-run editing, enable/disable, remove-as-draft, versioned save, read-only preview, and separately confirmed execution.
+- The frontend uses the **existing** `internalAutomationsApi` and `leadSegmentsApi` clients. It never calls an outbound provider; saving a definition does not queue notifications, and previewing it is read-only.
+- Running requires a saved, enabled operation with a currently enabled **operations** segment. Unsaved rules, stale previews, excessive (truncated) scans, zero eligible leads or missing confirmation all block the UI. The backend independently enforces tenant/workspace/agent boundaries, processing-consent eligibility, version guards, scan cap and per-version deduplication.
+- Added `CRMInternalAutomationsPanel.test.tsx` and updated existing `CRMWorkflowPage.test.tsx` to mock and verify the new shared panel without changing older workflows.
+- Added `test_website_internal_automations.py` contract tests and `test_website_internal_automations_api.py` integration checks covering bounded actions, ineligible/withdrawn leads, idempotent review requests, operational-segment isolation, actor history and no external CRM delivery events.
+- Updated `.github/workflows/website-blueprint-branch.yml` to include new Python tests and linting for the existing automation schema; the current frontend test glob automatically includes the new React tests.
+- Strengthened the existing execution path with a deterministic **eligible-cohort fingerprint**. New UI previews contain an opaque SHA-256 fingerprint of the exact eligible Lead IDs, and execution now rejects cohort substitution even when the total eligible count remains unchanged. The extra request field is optional for backward compatibility with existing API consumers; newer UI calls require it. Tests include same-count membership swaps.
+- CAP-040 stays **Not verified**. Full marketing automation remains a separate, unimplemented scope: visual rule graph/conditional journeys, durable timers, delayed jobs, consent-controlled external dispatch, sender-domain authentication, delivery retries/observability, simulation parity for those actions, and browser/production evidence.
+
+### Verification limit
+The implementation is committed to `feature/website-consolidated-20261010` only. At the time of writing the consolidated branch has no GitHub Actions execution records, and other website branches have exhibited runner assignment failures. There is no claim that these new tests have run or that all blueprint acceptance gates pass.
+
+
+## CAP-051/052 UTC daily analytics increment — 2026-10-10
+
+**No duplicate subsystem.** After auditing `website_analytics.py`, the existing consent-first browser collector, `WebsitePageEvent`, `WebsiteFormSubmission`, `OutboxEvent` and Website CMS owner dashboard were extended. No new lead, visitor, marketing, warehouse, or reporting tables were created.
+
+### Delivered code
+- Authenticated OWNER/ADMIN `GET /api/v1/site-analytics/report?days={1..90}` produces workspace- and tenant-scoped, UTC-calendar daily counts for consent-eligible page views and CTA clicks, committed form submission receipts, conversion events published to the broker, queued events and retrying events.
+- The PostgreSQL query explicitly converts timestamptz to UTC before per-day grouping; local SQLite fixtures use `date()`. Window boundaries, timezone, and generated timestamp are returned. Requests are bounded to 90 calendar days.
+- Every day's unmatched receipt count is `max(0, accepted forms - published broker events - queued events - retrying events)`. This reports an operational exception, **not proof** of a missing lead; the repair action is investigation, never another lead creation.
+- Response aggregates do not include raw visitor hashes, IP addresses, contact details, leads, individual event IDs or attribution profiles. Owner responses are `private, no-store`; `deliveryConfirmed` is explicitly false, because broker publication is **not** provider acceptance.
+- `WebsiteAnalyticsReport.tsx` mounts inside the **existing WebsiteCMSPage**. Owners select a 7-, 30- or 90-day UTC reporting period, generate a daily trend and table, see reconciliation warnings and download an aggregate CSV manually.
+- `websiteAnalyticsReportCsv.ts` provides stable CSV columns, a totals row, UTC-date file naming and formula-injection escaping. It never serializes contact information, visitor identities, arbitrary segment membership, or generated raw SQL.
+- Added regressions in `test_website_analytics_api.py`, `WebsiteAnalyticsReport.test.tsx` and `websiteAnalyticsReportCsv.test.ts` covering owner access, invalid date ranges, daily totals, privacy, contract mismatch, stale-report clearing and safe CSV serialization.
+
+### Remaining acceptance work
+- Source-of-truth verification has not been completed: the latest GitHub Actions jobs on `feature/website-consolidated-20261010` still fail **before any runner or test step**, so backend integration tests, browser tests and migrations remain unexecuted by CI.
+- Scheduled delivery, a permission-approved export queue, warehouses/advertising spend, external provider acknowledgement, real attribution lift, reconciliation to independently read back CRM records and E2E operational drills remain out of scope for **this increment**, not marked complete in the blueprint.
+- `CAP-051` and `CAP-052` remain **Not verified**. Their traceability rows have been updated with implemented evidence and honest remaining gaps.
+
+
+## Optional marketing opt-in and workspace-wide suppression — 2026-10-10
+
+Source: Website Master Blueprint v1.3 Chapter 20.5, Chapter 47.1–47.5 and CAP-038/044/061. Audited existing `LeadConsent`, `website_marketing.py`, `MarketingPreferencesPanel.tsx`, `website_marketing_suppression.py`, `WebsiteFormsPanel.tsx` and form submission transaction **before** adding features. No duplicate marketing preference center, Lead store, suppression table, notification queue or mail sender was created.
+
+### Changes in canonical React/FastAPI runtime
+- Form contracts now support the stable `marketing_opt_in` checkbox ONLY when optional, unconditional and labeled/purposed specifically for marketing. It requires an unconditional required email input and cannot replace the required `processing_consent` field. Checkbox is not preselected.
+- Existing CMS form editor gained one optional action to insert the marketing checkbox. It remains editable for compliant label/purpose, while the stable key, type and optional status cannot silently change.
+- Public website form POST records a marketing `LeadConsent` **only** for an explicit checked answer; an unchecked/missing box creates no marketing grant. The receipt carries existing form ID and immutable version and is written in the existing Lead/consent/outbox transaction, with actor-independent audit and an internal consent-capture event. Processing consent remains separate.
+- Reuses the existing marketing-unsubscribe module's status vocabulary and adds one scoped email suppression lookup across the authoritative Lead and LeadConsent records. A previous withdrawal for the same tenant/workspace/email prevents re-grant after a new form submission; the attempted new opt-in remains `pending_verification` for explicit re-confirmation. The existing owner preference endpoint also fails closed for a previously granted Lead if another same-address Lead later withdraws. No marketing provider message is dispatched.
+- Existing CRM marketing preference UI displays suppression/reverification context; a suppressed lead is not offered another redundant unsubscribe action.
+- New unit, API, and React regression tests cover optional marketing purpose separation, no-consent default, previous-withdrawal protection, cross-lead suppression, signed link GET read-only / POST idempotency, and untouched processing consent.
+
+### Evidence and gaps
+- Source changes and tests were committed only to `feature/website-consolidated-20261010`; `main` remains unchanged.
+- Existing GitHub Actions runs continue to fail before any job receives an executable runner, preventing credible pass/fail evidence for new tests or the current application.
+- There is **no claim of full CAP-044 delivery**: real provider send-time suppression/List-Unsubscribe headers, bounce/complaint reconciliation, domain verification, all-channel consent, verified multi-step browser acceptance, protected retention deletion, and production rollout remain unfinished.
