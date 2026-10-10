@@ -6,6 +6,10 @@ import { CRMWorkflowPage } from '@/pages/CRMWorkflowPage';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
+  scoringPolicy: vi.fn(),
+  scoringSave: vi.fn(),
+  scoringPreview: vi.fn(),
+  scoringApply: vi.fn(),
 }));
 
 vi.mock('@/lib/crm-workflow-api', async () => {
@@ -15,6 +19,12 @@ vi.mock('@/lib/crm-workflow-api', async () => {
   return {
     ...actual,
     crmWorkflowApi: { get: mocks.get },
+    leadScoringApi: {
+      policy: mocks.scoringPolicy,
+      savePolicy: mocks.scoringSave,
+      preview: mocks.scoringPreview,
+      apply: mocks.scoringApply,
+    },
   };
 });
 
@@ -128,6 +138,10 @@ const readyWorkflow = {
 describe('CRMWorkflowPage', () => {
   beforeEach(() => {
     mocks.get.mockResolvedValue(readyWorkflow);
+    mocks.scoringPolicy.mockResolvedValue({
+      version: 0, enabled: false, base_points: 0,
+      review_threshold: 60, rules: [],
+    });
   });
 
   afterEach(() => {
