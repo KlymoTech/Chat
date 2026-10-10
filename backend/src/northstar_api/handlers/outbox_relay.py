@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from northstar_api.config import get_settings
 from northstar_api.database import build_engine, sleeping_job_database_settings
+from northstar_api.handlers.domain_events import ROUTED_TYPES
 from northstar_api.models import OutboxEvent
 from northstar_api.services.outbox import send_outbox_nudge
 
@@ -35,16 +36,51 @@ class EventProducer(Protocol):
 class SnsFifoProducer:
     """Opt-in Stage 0 publisher; SNS acknowledgements are not consumer ACKs."""
 
-    def __init__(self, topic_arn: str) -> None:
+    def __init__(self, topic_arn: str, subscription_arn: str, queue_arn: str) -> None:
         if not topic_arn.startswith(("arn:aws:sns:", "arn:aws-us-gov:sns:")) or not topic_arn.endswith(".fifo"):
             raise ValueError("PLATFORM_DOMAIN_EVENTS_TOPIC_ARN must be an SNS FIFO topic ARN")
+        if not subscription_arn.startswith(f"{topic_arn}:"):
+            raise ValueError("PLATFORM_DOMAIN_EVENTS_SUBSCRIPTION_ARN must belong to the topic")
+        if not queue_arn.startswith(("arn:aws:sqs:", "arn:aws-us-gov:sqs:")) or not queue_arn.endswith(".fifo"):
+            raise ValueError("PLATFORM_DOMAIN_EVENTS_QUEUE_ARN must be an SQS FIFO queue ARN")
         self.topic_arn = topic_arn
+        self.subscription_arn = subscription_arn
+        self.queue_arn = queue_arn
         self.client = boto3.client(
             "sns", config=Config(connect_timeout=2, read_timeout=10, retries={"max_attempts": 2})
         )
 
     async def start(self) -> None:
-        return None
+        response = await asyncio.to_thread(
+            self.client.get_subscription_attributes, SubscriptionArn=self.subscription_arn
+        )
+        attributes = response.get("Attributes") if isinstance(response, dict) else None
+        if not isinstance(attributes, dict):
+            raise ValueError("SNS subscription attributes are unavailable")
+        try:
+            filter_policy = orjson.loads(attributes["FilterPolicy"])
+            redrive_policy = orjson.loads(attributes["RedrivePolicy"])
+        except (KeyError, TypeError, orjson.JSONDecodeError) as exc:
+            raise ValueError("SNS subscription filter or redrive policy is unavailable") from exc
+        if (
+            attributes.get("SubscriptionArn") != self.subscription_arn
+            or attributes.get("TopicArn") != self.topic_arn
+            or attributes.get("Protocol") != "sqs"
+            or attributes.get("Endpoint") != self.queue_arn
+            or attributes.get("PendingConfirmation", "false") != "false"
+            or attributes.get("FilterPolicyScope") != "MessageAttributes"
+            or attributes.get("RawMessageDelivery") != "false"
+            or not isinstance(filter_policy, dict)
+            or not isinstance(filter_policy.get("eventType"), list)
+            or len(filter_policy["eventType"]) != len(ROUTED_TYPES)
+            or set(filter_policy["eventType"]) != ROUTED_TYPES
+            or not isinstance(redrive_policy, dict)
+            or not isinstance(redrive_policy.get("deadLetterTargetArn"), str)
+            or not redrive_policy["deadLetterTargetArn"].startswith(self.queue_arn.rsplit(":", 1)[0] + ":")
+            or not redrive_policy["deadLetterTargetArn"].endswith(".fifo")
+            or redrive_policy["deadLetterTargetArn"] == self.queue_arn
+        ):
+            raise ValueError("SNS subscription is not an approved domain-event delivery path")
 
     async def stop(self) -> None:
         return None
@@ -68,7 +104,11 @@ class SnsFifoProducer:
 def make_producer(settings: Any) -> EventProducer:
     backend = os.environ.get("PLATFORM_EVENTS_BACKEND", "kafka").lower()
     if backend == "sns":
-        return SnsFifoProducer(os.environ.get("PLATFORM_DOMAIN_EVENTS_TOPIC_ARN", ""))
+        return SnsFifoProducer(
+            os.environ.get("PLATFORM_DOMAIN_EVENTS_TOPIC_ARN", ""),
+            os.environ.get("PLATFORM_DOMAIN_EVENTS_SUBSCRIPTION_ARN", ""),
+            os.environ.get("PLATFORM_DOMAIN_EVENTS_QUEUE_ARN", ""),
+        )
     if backend != "kafka":
         raise ValueError("PLATFORM_EVENTS_BACKEND must be kafka or sns")
     if not settings.kafka_enabled:
@@ -133,18 +173,20 @@ async def publish_batch(session: AsyncSession, producer: EventProducer) -> int:
 async def run_once() -> int:
     settings = get_settings()
     producer = make_producer(settings)
-    engine = build_engine(sleeping_job_database_settings(settings))
+    engine = None
     started = False
     try:
         await producer.start()
         started = True
+        engine = build_engine(sleeping_job_database_settings(settings))
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             return await publish_batch(session, producer)
     finally:
         if started:
             await producer.stop()
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, int]:

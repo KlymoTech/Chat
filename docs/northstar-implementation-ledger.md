@@ -548,3 +548,15 @@ do not merge without explicit instruction.
 - Alert-topic policy, human subscription/delivery, live metric behavior, and a
   supervised redrive remain external qualification gates. The alarms do not
   certify the complete platform.
+
+## Increment: fail-closed SNS publisher preflight (2026-10-10)
+
+- The opt-in SNS relay now requires a subscription ARN and target FIFO queue
+  ARN. Before opening PostgreSQL, it queries live SNS subscription attributes
+  and rejects absent/drifted topic, queue, message-attribute filter, envelope
+  mode, or redrive policy. The default-off Terraform plan returns no
+  subscription ARN and therefore cannot silently publish into an unsubscribed
+  topic. The relay IAM policy includes read access only when activated.
+- Local checks: 24 focused Python tests and two mocked Terraform plans pass.
+  This is a preflight guard, not proof of live queue delivery or production
+  qualification; AWS cutover remains disabled and untested.

@@ -29,10 +29,16 @@ the API writer and on both Lambda functions as appropriate:
 - `PLATFORM_OUTBOX_NUDGE_QUEUE_URL` = `nudge_queue_url` output.
 - `PLATFORM_ACTIVITY_TABLE` = `activity_table_name` output.
 - `PLATFORM_ACTIVITY_KEY` = a stable, environment-specific key shared by all three.
-- `PLATFORM_EVENTS_BACKEND=sns` and `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` =
-  `domain_events_topic_arn` output on the relay Lambda. Set that topic ARN and
-  `PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` = `domain_events_queue_arn` on the
-  domain-event Lambda. Existing Kafka
+- `PLATFORM_EVENTS_BACKEND=sns`, `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` =
+  `domain_events_topic_arn`, `PLATFORM_DOMAIN_EVENTS_SUBSCRIPTION_ARN` =
+  `domain_events_subscription_arn`, and `PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` =
+  `domain_events_queue_arn` on the relay Lambda. Set the topic and queue ARNs
+  on the domain-event Lambda as well. The subscription ARN output is null until
+  explicit activation, so the SNS relay cannot publish in the default-off plan.
+  At startup it checks the live subscription's topic, endpoint, filter, wrapper
+  mode, and delivery DLQ before opening PostgreSQL. Attach the generated relay
+  IAM policy after activation so `sns:GetSubscriptionAttributes` is authorized.
+  Existing Kafka
   deployments retain `PLATFORM_EVENTS_BACKEND=kafka` by default.
 
 The relay Lambda must package `northstar_api.handlers.outbox_relay:lambda_handler`,

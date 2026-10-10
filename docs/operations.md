@@ -31,7 +31,10 @@ The queue must be wired to the relay with a retry/DLQ policy and the schedule
 must be deployed before disabling the legacy worker. Consumers must deduplicate
 by `eventId` because broker acknowledgement can precede the database commit.
 For the planned Stage 0 event path, configure `PLATFORM_EVENTS_BACKEND=sns` and
-`PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` to an approved SNS FIFO topic; the existing
+`PLATFORM_DOMAIN_EVENTS_TOPIC_ARN`, `PLATFORM_DOMAIN_EVENTS_SUBSCRIPTION_ARN`,
+and `PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` to the approved outputs. The relay checks
+the live subscription configuration before opening PostgreSQL or publishing;
+missing or drifted subscriptions fail closed. The existing
 Kafka path remains the default. SNS FIFO deduplication does not remove the need
 for consumer inbox idempotency. The optional
 `northstar_api.handlers.domain_events:lambda_handler` reuses the seven legacy

@@ -74,6 +74,11 @@ run "queue_and_gate_are_low_idle_cost" {
   }
 
   assert {
+    condition     = output.domain_events_subscription_arn == null
+    error_message = "Default-off plan must not expose a publishable subscription ARN."
+  }
+
+  assert {
     condition     = aws_sqs_queue.domain_events.visibility_timeout_seconds >= 6 * var.domain_event_timeout_seconds
     error_message = "Domain event queue visibility must cover six Lambda timeouts."
   }

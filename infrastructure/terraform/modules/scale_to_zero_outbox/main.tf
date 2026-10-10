@@ -305,6 +305,13 @@ data "aws_iam_policy_document" "relay" {
     actions   = ["sns:Publish"]
     resources = [aws_sns_topic.domain_events.arn]
   }
+  dynamic "statement" {
+    for_each = aws_sns_topic_subscription.domain_events
+    content {
+      actions   = ["sns:GetSubscriptionAttributes"]
+      resources = [statement.value.arn]
+    }
+  }
   statement {
     actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
     resources = [var.sns_kms_key_arn]

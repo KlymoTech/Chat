@@ -22,6 +22,10 @@ output "domain_events_topic_arn" {
   value = aws_sns_topic.domain_events.arn
 }
 
+output "domain_events_subscription_arn" {
+  value = one(aws_sns_topic_subscription.domain_events[*].arn)
+}
+
 output "domain_events_queue_arn" {
   value = aws_sqs_queue.domain_events.arn
 }
