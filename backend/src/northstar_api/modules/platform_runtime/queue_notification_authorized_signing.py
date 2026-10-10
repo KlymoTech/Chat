@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from .queue_notification_custody_attestation_signer import sign_custodied_jenkins_test_result
 from .queue_notification_custody_signing_claims import CommittedPostgresSigningClaims
 from .queue_notification_signing_authorization_replay import CommittedAuthorizationConsumption
@@ -53,6 +56,17 @@ async def sign_with_protected_authorization(
         raise PermissionError("committed authorization consumption service required")
     if not isinstance(signing_claims, CommittedPostgresSigningClaims):
         raise PermissionError("committed signing claim service required")
+    # Validate fixed signing dependencies before irreversibly consuming the grant.
+    # The custody reader still independently verifies both keys and its evidence.
+    if not callable(getattr(signing_identity, "retrieve_for_isolated_service", None)):
+        raise PermissionError("protected signing identity unavailable")
+    for public_key in (witness_public_key_pem, test_signer_public_key_pem):
+        try:
+            key = serialization.load_pem_public_key(public_key)
+        except (TypeError, ValueError) as exc:
+            raise PermissionError("invalid pinned custody key") from exc
+        if not isinstance(key, Ed25519PublicKey):
+            raise PermissionError("pinned custody keys must use Ed25519")
     grant_id = verify_protected_signing_authorization(
         authorization_token,
         pinned_issuer_public_key_pem=authorization_public_key_pem,
