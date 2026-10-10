@@ -608,3 +608,14 @@ do not merge without explicit instruction.
   custody across subsequent reads, malware scanning, quarantine isolation,
   quota reservation, orphan reconciliation, retention and bucket policy
   remain outstanding.
+
+## Increment: staged-upload type screening (2026-10-10)
+
+- The upload API already checks filename extension against declared MIME type,
+  and ingestion already limits DOCX archive expansion. Promotion now compares
+  the staged bytes against PDF, PNG, JPEG and TIFF signatures, checks DOCX ZIP
+  package members, and rejects NUL-containing text before copying to the
+  knowledge prefix. Checksum and size verification still happen first.
+- This is a narrow format gate, not antivirus, full file validation, safe
+  parsing, isolated scanning, quarantine authorization or an upload-session
+  quota reservation. Those controls and live object-store tests remain open.

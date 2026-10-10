@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import re
 import secrets
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePath
 from typing import Any
@@ -33,6 +35,29 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {
     "image/jpeg",
     "image/tiff",
 }
+
+
+def _matches_upload_signature(content_type: str, data: bytes) -> bool:
+    if content_type == "application/pdf":
+        return data.startswith(b"%PDF-")
+    if content_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff")
+    if content_type == "image/tiff":
+        return data.startswith((b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+"))
+    if content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        if not data.startswith(b"PK\x03\x04"):
+            return False
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                names = set(archive.namelist())
+                return {"[Content_Types].xml", "word/document.xml"}.issubset(names)
+        except (OSError, ValueError, zipfile.BadZipFile):
+            return False
+    if content_type in {"text/plain", "text/markdown"}:
+        return b"\x00" not in data[:8192]
+    return False
 
 
 class ObjectStore:
@@ -174,6 +199,8 @@ class ObjectStore:
             checksum = hashlib.sha256(data).hexdigest()
             if not secrets.compare_digest(expected_checksum, checksum):
                 raise InvalidUpload("Uploaded object checksum does not match")
+            if not _matches_upload_signature(content_type, data):
+                raise InvalidUpload("Uploaded object bytes do not match the declared file type")
             del data
 
             permanent_key = key.replace("staging/", "knowledge/", 1)

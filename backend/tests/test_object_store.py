@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import zipfile
 from typing import Any
 from unittest.mock import Mock
 from uuid import uuid4
@@ -9,7 +11,12 @@ import pytest
 from botocore.exceptions import NoCredentialsError
 
 from northstar_api.config import Settings, get_settings
-from northstar_api.services.object_store import InvalidUpload, ObjectStore, ObjectStoreUnavailable
+from northstar_api.services.object_store import (
+    InvalidUpload,
+    ObjectStore,
+    ObjectStoreUnavailable,
+    _matches_upload_signature,
+)
 
 
 def test_aws_default_s3_client_uses_sdk_identity_without_static_keys_or_custom_endpoint(
@@ -104,6 +111,7 @@ class _FakeS3:
         copied_version_id: str | None = "copy-version-1",
         source_version_id: str | None = "version-1",
         copied_data: bytes | None = None,
+        content_type: str = "text/plain",
     ) -> None:
         self.data = data
         self.declared_size = len(data) if declared_size is None else declared_size
@@ -112,6 +120,7 @@ class _FakeS3:
         self.copied_version_id = copied_version_id
         self.source_version_id = source_version_id
         self.copied_data = copied_data
+        self.content_type = content_type
         self.read_arguments: list[dict[str, Any]] = []
         self.head_arguments: list[dict[str, Any]] = []
         self.copied_to: str | None = None
@@ -131,7 +140,7 @@ class _FakeS3:
             "ContentLength": (
                 self.copied_size if Key == self.copied_to and self.copied_size is not None else len(self.data)
             ),
-            "ContentType": "text/plain",
+            "ContentType": self.content_type,
             "Metadata": {"declared-size": str(self.declared_size), "sha256": self.checksum},
             "VersionId": self.source_version_id,
         }
@@ -331,6 +340,49 @@ async def test_aws_promotion_rejects_unversioned_destination_and_cleans_copy(
         await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.txt")
 
     assert client.deleted == [client.copied_to]
+
+
+@pytest.mark.parametrize(
+    ("content_type", "data", "accepted"),
+    [
+        ("application/pdf", b"%PDF-1.7\nbody", True),
+        ("application/pdf", b"not a pdf", False),
+        ("image/png", b"\x89PNG\r\n\x1a\nbody", True),
+        ("image/png", b"not a png", False),
+        ("image/jpeg", b"\xff\xd8\xffbody", True),
+        ("image/jpeg", b"\xff\xd8not-jpeg", False),
+        ("image/tiff", b"II*\x00body", True),
+        ("image/tiff", b"not a tiff", False),
+        ("text/plain", b"hello world", True),
+        ("text/plain", b"hello\x00world", False),
+    ],
+)
+def test_upload_signature_matches_declared_type(content_type: str, data: bytes, accepted: bool) -> None:
+    assert _matches_upload_signature(content_type, data) is accepted
+
+
+def test_docx_signature_requires_package_members() -> None:
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "types")
+        archive.writestr("word/document.xml", "document")
+    docx_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert _matches_upload_signature(docx_type, stream.getvalue())
+    assert not _matches_upload_signature(docx_type, b"PK\x03\x04fake zip")
+
+
+async def test_promotion_rejects_misdeclared_bytes_before_copy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = uuid4()
+    client = _FakeS3(b"not a PDF", content_type="application/pdf")
+    store = ObjectStore(get_settings())
+    monkeypatch.setattr(store, "_client", lambda **_: client)
+
+    with pytest.raises(InvalidUpload, match="declared file type"):
+        await store.promote_staged(tenant_id, f"staging/{tenant_id}/2026/09/example.pdf")
+
+    assert client.copied_to is None
 
 
 @pytest.mark.parametrize("etag", [None, "", "unquoted", '"contains\nnewline"'])
