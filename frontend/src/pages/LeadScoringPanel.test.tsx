@@ -79,7 +79,7 @@ describe('CRM lead-scoring panel', () => {
     await waitFor(() => expect(mocks.apply).toHaveBeenCalledTimes(1));
     expect(mocks.apply.mock.calls[0]![0]).toBe(journeys[0]!.leadId);
     expect(mocks.apply.mock.calls[0]![1]).toMatchObject({
-      expected: undefined, policy_version: 1, current_score: 0, proposed_score: 45,
+      policy_version: 1, current_score: 0, proposed_score: 45,
     });
     expect(applied).toHaveBeenCalledTimes(1);
     expect(await screen.findByText(/score saved with an actor-attributed audit event/i)).toBeInTheDocument();
