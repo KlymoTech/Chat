@@ -501,3 +501,83 @@ async def test_marketing_opt_in_records_a_distinct_purpose_and_honors_prior_supp
     )
     assert checked_again.status_code == 200
     assert checked_again.json()["marketingAllowed"] is False
+
+
+
+async def test_signed_unsubscribe_is_read_only_on_get_and_idempotent_on_post(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    document = _document()
+    document["fields"].append({
+        "key": "marketing_opt_in",
+        "label": "I agree to receive marketing email messages",
+        "kind": "checkbox", "required": False,
+        "purpose": "Receive optional marketing emails",
+    })
+    form_id, scope, slug = await _create_form(
+        client, auth_headers, document=document,
+    )
+    assert (await client.post(
+        f"/api/v1/site-forms/{form_id}/publish",
+        headers=auth_headers, json={"expected_version": 1},
+    )).status_code == 200
+    sent = await client.post(
+        f"/api/v1/site-forms/public/{scope}/{slug}",
+        data={
+            **_values(str(uuid4())),
+            "email": f"confirm-{uuid4().hex[:12]}@example.org",
+            "marketing_opt_in": "on",
+        },
+        headers={"Accept": "application/json"},
+    )
+    assert sent.status_code == 201, sent.text
+    async with SessionFactory() as session:
+        receipt = await session.scalar(select(WebsiteFormSubmission).where(
+            WebsiteFormSubmission.id == UUID(sent.json()["receiptId"]),
+        ))
+        assert receipt is not None and receipt.lead_id is not None
+        lead_id = receipt.lead_id
+    owner_path = f"/api/v1/site-marketing/leads/{lead_id}"
+    signed = await client.post(
+        owner_path + "/unsubscribe-link", headers=auth_headers,
+    )
+    assert signed.status_code == 200, signed.text
+    path = signed.json()["path"]
+    assert path.startswith("/api/v1/site-marketing/unsubscribe/")
+    assert str(lead_id) not in path
+    opened = await client.get(path)
+    assert opened.status_code == 200
+    assert "Stop marketing messages" in opened.text
+    assert "no-store" in opened.headers["cache-control"]
+
+    before = await client.get(owner_path + "/preferences", headers=auth_headers)
+    assert before.status_code == 200 and before.json()["marketingAllowed"] is True
+    clicked = await client.post(path)
+    assert clicked.status_code == 200, clicked.text
+    repeated = await client.post(path)
+    assert repeated.status_code == 200, repeated.text
+    after = await client.get(owner_path + "/preferences", headers=auth_headers)
+    assert after.status_code == 200
+    assert after.json()["marketingAllowed"] is False
+    assert after.json()["marketingStatus"] == "withdrawn"
+    assert after.json()["processingConsentPreserved"] is True
+    owner_repeat = await client.post(owner_path + "/withdraw", headers=auth_headers)
+    assert owner_repeat.status_code == 200 and owner_repeat.json()["changed"] is False
+
+    async with SessionFactory() as session:
+        changes = await session.scalar(select(func.count()).select_from(LeadConsent).where(
+            LeadConsent.lead_id == lead_id,
+            LeadConsent.consent_type == "marketing",
+            LeadConsent.status == "withdrawn",
+        ))
+        processing = await session.scalar(select(LeadConsent).where(
+            LeadConsent.lead_id == lead_id,
+            LeadConsent.consent_type == "processing",
+        ))
+        events = await session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.aggregate_type == "lead",
+            OutboxEvent.aggregate_id == str(lead_id),
+            OutboxEvent.event_type == "lead.marketing.consent.withdrawn.v1",
+        ))
+    assert changes == 1 and events == 1
+    assert processing is not None and processing.status == "granted"
