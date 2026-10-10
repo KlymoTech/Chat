@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from northstar_api.agent_purpose import AgentPurpose, get_agent_purpose
@@ -23,6 +23,7 @@ from northstar_api.dependencies import DBSession, require_roles
 from northstar_api.lead_crm.audit import record_audit_event
 from northstar_api.lead_crm.domain import LeadLifecycleStatus
 from northstar_api.lead_crm.models import LeadConsent
+from northstar_api.lead_crm.website_marketing_suppression import MARKETING_STOP_STATUSES
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.models import Agent, AgentStatus, Lead, Role, Workspace, WorkspaceStatus
 from northstar_api.routers.website_consent import _same_origin
@@ -629,6 +630,67 @@ async def submit_public_form(
             "fieldKey":consent_field.key, "purpose":consent_field.purpose,
         },
     ))
+    if answers.get("marketing_opt_in") is True:
+        # A checked optional box is the only possible source of an email
+        # marketing grant here. Required enquiry-processing consent never
+        # grants marketing permission. Preserve suppression across duplicate
+        # Lead records with the same workspace and normalized email.
+        earlier_suppression = await session.scalar(
+            select(LeadConsent.id)
+            .join(Lead, Lead.id == LeadConsent.lead_id)
+            .where(
+                Lead.tenant_id == workspace.tenant_id,
+                Lead.workspace_id == workspace_id,
+                Lead.id != lead.id,
+                func.lower(Lead.email) == (lead.email or "").strip().lower(),
+                LeadConsent.tenant_id == workspace.tenant_id,
+                LeadConsent.consent_type == "marketing",
+                func.lower(LeadConsent.status).in_(MARKETING_STOP_STATUSES),
+            )
+            .limit(1)
+        )
+        marketing_status = "pending_verification" if earlier_suppression is not None else "granted"
+        marketing_field = next(
+            field for field in document.fields if field.key == "marketing_opt_in"
+        )
+        session.add(LeadConsent(
+            tenant_id=workspace.tenant_id, lead_id=lead.id,
+            consent_type="marketing", status=marketing_status,
+            source="website_form", channel="email",
+            text_version=f"{form.id}:{version}",
+            captured_at=datetime.now(UTC),
+            metadata_json={
+                "formId": str(form.id), "formVersion": version,
+                "fieldKey": marketing_field.key,
+                "purpose": marketing_field.purpose,
+                "requiresReview": marketing_status != "granted",
+            },
+        ))
+        record_audit_event(
+            session,
+            tenant_id=workspace.tenant_id, workspace_id=workspace_id,
+            actor_user_id=None,
+            action="website.marketing.opt_in_captured",
+            entity_type="lead", entity_id=str(lead.id), category="lead",
+            after={
+                "marketingConsent": marketing_status,
+                "formId": str(form.id), "formVersion": version,
+            },
+            metadata={"method": "explicit_optional_checkbox"},
+        )
+        marketing_event = enqueue_event(
+            session, tenant_id=workspace.tenant_id,
+            aggregate_type="lead", aggregate_id=lead.id,
+            event_type="lead.marketing.opt_in_recorded.v1",
+            payload={
+                "leadId": str(lead.id),
+                "workspaceId": str(workspace_id),
+                "marketingStatus": marketing_status,
+                "formId": str(form.id),
+                "formVersion": version,
+            },
+        )
+        marketing_event.workspace_id = workspace_id
     event_payload = {
         "leadId":str(lead.id), "workspaceId":str(workspace_id),
         "agentId":str(form.agent_id), "formId":str(form.id),
