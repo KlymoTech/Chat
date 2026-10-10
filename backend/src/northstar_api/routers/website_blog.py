@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
+from northstar_api.config import get_settings
 from northstar_api.dependencies import DBSession
 from northstar_api.models import Workspace, WorkspaceStatus
 from northstar_api.services.website_builder_document import BuilderPageDocument
@@ -96,19 +97,34 @@ async def published_articles(
 
 
 @router.get("/{workspace_id}", response_class=HTMLResponse)
-async def public_blog_index(workspace_id: UUID, session: DBSession) -> HTMLResponse:
+async def public_blog_index(
+    workspace_id: UUID,
+    session: DBSession,
+    page: Annotated[int, Query(ge=1, le=1000)] = 1,
+) -> HTMLResponse:
     """Server-rendered resource landing page that requires no browser JavaScript."""
     articles = await _published_articles(workspace_id, session)
+    page_size = 24
+    first = (page - 1) * page_size
+    visible_articles = articles[first:first + page_size]
+    api_prefix = get_settings().app_api_prefix.rstrip("/")
+    blog_url = f"{api_prefix}/site-blog/{workspace_id}"
     cards = "".join(
         '<article><small>' + escape(item["category"]) + ' · ' + escape(item["author"])
-        + '</small><h2><a href="/api/v1/site-cms/public/' + str(workspace_id)
+        + '</small><h2><a href="' + api_prefix + '/site-cms/public/' + str(workspace_id)
         + '/' + escape(item["slug"], quote=True) + '">'
         + escape(item["title"]) + '</a></h2><p>'
         + escape(item["summary"]) + '</p></article>'
-        for item in articles[:24]
+        for item in visible_articles
     )
     if not cards:
-        cards = "<p>No articles have been published yet.</p>"
+        cards = "<p>No articles are available on this page.</p>"
+    navigation = '<nav aria-label="Articles pagination">'
+    if page > 1:
+        navigation += '<a href="' + blog_url + '?page=' + str(page - 1) + '">Previous page</a>'
+    if first + page_size < len(articles):
+        navigation += '<a href="' + blog_url + '?page=' + str(page + 1) + '">Next page</a>'
+    navigation += '</nav>'
     body = (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -116,7 +132,7 @@ async def public_blog_index(workspace_id: UUID, session: DBSession) -> HTMLRespo
         '<title>Articles and resources</title><style>' + _INDEX_CSS
         + '</style></head><body><a class="skip" href="#articles">Skip to articles</a>'
         '<main class="wrap" id="articles"><h1>Articles and resources</h1>'
-        '<div class="articles">' + cards + '</div></main></body></html>'
+        '<div class="articles">' + cards + '</div>' + navigation + '</main></body></html>'
     )
     import base64
     import hashlib
