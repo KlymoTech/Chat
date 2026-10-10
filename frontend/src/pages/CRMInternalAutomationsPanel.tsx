@@ -124,7 +124,8 @@ export function CRMInternalAutomationsPanel() {
     setBusy(true); setError(''); setNotice(''); setPreview(null); setLastRun(null);
     try {
       const result = await internalAutomationsApi.preview(selected.id);
-      if (result.automationId !== selected.id || result.externalDelivery !== false) {
+      if (result.automationId !== selected.id || result.externalDelivery !== false
+        || !/^[0-9a-f]{64}$/.test(result.eligibleFingerprint)) {
         throw new Error('The server returned an unexpected automation preview.');
       }
       setPreview(result);
@@ -139,7 +140,8 @@ export function CRMInternalAutomationsPanel() {
     if (!selected || !preview || busy || dirty
       || preview.automationId !== selected.id
       || preview.truncated || preview.remainingEligible <= 0
-      || preview.externalDelivery !== false) return;
+      || preview.externalDelivery !== false
+      || !/^[0-9a-f]{64}$/.test(preview.eligibleFingerprint)) return;
     if (!window.confirm(
       'Queue up to ' + selected.max_per_run
       + ' in-app lead-review notifications for workspace administrators?'
