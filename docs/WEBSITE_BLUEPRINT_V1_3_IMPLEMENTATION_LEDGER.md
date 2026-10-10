@@ -86,3 +86,19 @@ Do not claim it is complete until frontend, backend and database all work togeth
 - Added backend regression tests for campaign links, SEO metadata, and sitemap published/draft isolation. These tests are **committed but not yet demonstrated passing**.
 - Still unverified: a complete deployable public website with approved business content, CI, browser E2E, worker processing, full marketing automation, advanced builder, data/privacy rights, specialist transactions, live provider integrations, audits, backup/restore and production owner sign-off.
 - Github Actions branch jobs were failing before usable test logs/steps were available in this environment. Do not label this implementation release-ready.
+
+
+## No-duplicate implementation checkpoint — 2026-10-10
+
+Scope rule: audit existing routes, components and services before adding anything. Prefer modifying the established module over implementing a competing subsystem. The blueprint's native page-duplication operation is not a duplicate architectural implementation; it creates a separate draft on explicit owner request.
+
+- Reused `backend/src/northstar_api/routers/website_cms.py` for authenticated page duplication, owner JSON export/import, editorial change requests, safe archiving and restoration. No parallel CMS router was introduced.
+- Refactored the shared draft create/duplicate/import operation through `_create_draft_page` so page metadata, immutable first revision, audit attribution, rollback and conflict handling use **one** transaction implementation.
+- Reused the existing React CMS editor instead of adding an alternative admin dashboard. It now exposes copying, exporting, importing, approval changes and manual archive/restore controls.
+- Extended existing `WebsitePage` and `WebsiteRevision` storage. No new tables or migrations were required for these operations.
+- Manual archive makes the page unavailable publicly and emits a transactional `website.page.unpublished` event; original revisions and audit entries remain stored. Restoration requires authenticated owner/admin action and routes through editorial review before public publishing.
+- The **last published revision remains live while a new draft is edited**. Do not require editorial status `published` in public/sitemap/analytics reads: use `published_version` as the authority; archive clears that pointer.
+- Added backend tests for duplication identity, import validation/authorization, archival, restoration, changed-content review and published/draft separation. They are **committed, not demonstrated passing**.
+- No existing CRM, lead-management, auth or media modules were replaced or removed.
+- CI/runner remains a release blocker. GitHub Actions reported jobs failing without assignment to runners and without execution steps; user/repository Actions policy or billing may need investigation. Do not count this as a passed code or deployment validation.
+- All 120 capability IDs remain in scope and **not verified** until repeatable acceptance evidence exists.
