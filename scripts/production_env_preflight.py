@@ -105,6 +105,8 @@ def valid_postgres_url(value: str) -> bool:
         allowed_options = {"sslmode", "ssl"}
         if len({key for key, _ in options}) != len(options):
             return False
+        if {key for key, _ in options} == {"ssl", "sslmode"}:
+            return False
         if any(key not in allowed_options or not option for key, option in options):
             return False
         if any(key == "sslmode" and option not in {"require", "verify-ca", "verify-full"} for key, option in options):

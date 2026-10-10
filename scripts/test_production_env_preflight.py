@@ -164,5 +164,10 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertTrue(validate(self.valid))
 
 
+    def test_postgres_ambiguous_tls_options_rejected(self):
+        self.valid["DATABASE_URL"] += "?ssl=true&sslmode=require"
+        self.assertTrue(validate(self.valid))
+
+
 if __name__ == "__main__":
     unittest.main()
