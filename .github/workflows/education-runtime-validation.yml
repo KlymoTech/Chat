@@ -68,8 +68,22 @@ jobs:
           src/northstar_api/education_conversation_context.py
           src/northstar_api/services/education_runtime_authorization.py
           src/northstar_api/workers/channel_event_consumer.py
-      - name: Verify migration head
-        run: alembic heads | grep '0021_education_conversation_context (head)'
+      - name: Verify education migration is present in Alembic history
+        run: |
+          uv run alembic history | grep -E '0021_education_conversation_context'
+          uv run python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          revision = script.get_revision("0021_education_conversation_context")
+          if revision is None:
+              raise SystemExit("Education migration is missing from Alembic history")
+          heads = set(script.get_heads())
+          if not heads:
+              raise SystemExit("Alembic has no migration heads")
+          print(f"Education migration {revision.revision} is present; current heads: {sorted(heads)}")
+          PY
       - name: Run Education runtime authorization regressions
         run: >-
           uv run pytest
