@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -61,8 +62,13 @@ def main(arguments: list[str] | None = None) -> int:
         help="Require a disposable local PostgreSQL DSN and execute database checks",
     )
     options = parser.parse_args(arguments)
-    if options.postgres and not os.environ.get("PLATFORM_TEST_POSTGRES_DSN"):
-        parser.error("--postgres requires PLATFORM_TEST_POSTGRES_DSN for disposable PostgreSQL")
+    if options.postgres:
+        dsn = os.environ.get("PLATFORM_TEST_POSTGRES_DSN")
+        if not dsn:
+            parser.error("--postgres requires PLATFORM_TEST_POSTGRES_DSN for disposable PostgreSQL")
+        parsed = urlsplit(dsn.replace("postgresql+asyncpg://", "postgresql://", 1))
+        if parsed.hostname not in {"localhost", "127.0.0.1", "postgres"}:
+            parser.error("--postgres refuses nonlocal database hosts")
     for command in (
         ["ruff", "check", *LINT_PATHS, *OFFLINE_TESTS, *POSTGRES_TESTS],
         ["pytest", "-q", *OFFLINE_TESTS],
