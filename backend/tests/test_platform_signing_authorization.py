@@ -162,3 +162,21 @@ def test_falsey_clock_never_falls_back_to_current_time(bad_clock):
             plan=plan,
             now=bad_clock,
         )
+
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_signed_nonstandard_json_constants_are_rejected(constant):
+    key, at, plan, public = _fixture()
+    token = _token(key, plan, at)
+    body_segment, _ = token.split(".")
+    body = base64.urlsafe_b64decode(body_segment + "=" * (-len(body_segment) % 4))
+    amended = body[:-1] + b',"extra":' + constant.encode("ascii") + b"}"
+    encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+    signed = encode(amended) + "." + encode(key.sign(amended))
+    with pytest.raises(SigningAuthorizationRejected):
+        verify_protected_signing_authorization(
+            signed, pinned_issuer_public_key_pem=public,
+            expected_issuer="protected-issuer",
+            expected_audience="private-test-signer", plan=plan, now=at,
+        )
