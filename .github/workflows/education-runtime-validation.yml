@@ -38,6 +38,21 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - name: Resolve backend environment
         run: uv sync --all-groups
+      - name: Verify clean application import
+        run: |
+          uv run python - <<'PY'
+          import importlib
+          from northstar_api.main import app
+
+          for module in (
+              "northstar_api.routers.help",
+              "northstar_api.services.education_runtime_authorization",
+              "northstar_api.workers.channel_event_consumer",
+          ):
+              importlib.import_module(module)
+          assert app is not None, "FastAPI app import returned None"
+          print("Production router and education modules import without source modification")
+          PY
       - name: Lint Education runtime surface
         run: >-
           uv run ruff check
