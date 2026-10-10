@@ -46,10 +46,15 @@ async def sign_with_protected_authorization(
         raise PermissionError("timezone-aware signing time required")
     if authorization_consumption is None or signing_claims is None:
         raise PermissionError("committed authorization and signing replay guards are required")
-    if not callable(getattr(authorization_consumption, "consume", None)):
-        raise PermissionError("authorization consumption service unavailable")
-    if not callable(getattr(signing_claims, "claim", None)):
-        raise PermissionError("signing claim service unavailable")
+    # Production requests must use the committed, independent database ledgers.
+    # Duck-typed substitutes are reserved for isolated unit tests.
+    from .queue_notification_signing_authorization_replay import CommittedAuthorizationConsumption
+    from .queue_notification_custody_signing_claims import CommittedPostgresSigningClaims
+
+    if not isinstance(authorization_consumption, CommittedAuthorizationConsumption):
+        raise PermissionError("committed authorization consumption service required")
+    if not isinstance(signing_claims, CommittedPostgresSigningClaims):
+        raise PermissionError("committed signing claim service required")
     grant_id = verify_protected_signing_authorization(
         authorization_token,
         pinned_issuer_public_key_pem=authorization_public_key_pem,
