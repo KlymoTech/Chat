@@ -18,10 +18,10 @@
 | CAP-001 | Business brief, audience, outcomes, evidence and scope | F | 02, 42, 43 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-002 | Sitemap, navigation, page/route families and customer journeys | F | 04, 50 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-003 | Responsive design, semantic HTML, design tokens and accessible components | F | 05, 06, 44 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-004 | CMS, page/section builder, navigation, forms and media ownership | F | 07–09, 44 | CMS page API, revision tables and editor (partial) | **Not verified** |
+| CAP-004 | CMS, page/section builder, navigation, forms and media ownership | F | 07–09, 44 | Existing CMS editor + page import/export and duplication; shared draft persistence (partial; no E2E pass) | **Not verified** |
 | CAP-005 | Autosave, draft recovery, undo/redo and edit conflict resolution | F | 44 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-006 | Collection/schema builder with approved fields and templates | G | 44, 63 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-007 | Editorial review, revisions, previews, scheduling and releases | F | 08, 44 | CMS review/approval, restore and public publication (partial) | **Not verified** |
+| CAP-007 | Editorial review, revisions, previews, scheduling and releases | F | 08, 44 | Existing editorial API extended with manual archive, restore, change requests; live revision stays available while draft edited (partial; tests committed) | **Not verified** |
 | CAP-008 | Import/export, dry runs, manifests, partial failures and migration | F | 44, 62 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-009 | Manual-only blog retention, no-expiry trash and controlled purge | F | 09, 38 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-010 | Media rights, quarantine, derivatives, alt text and private downloads | F | 08, 09, 50 | No capability-specific verification evidence assigned | **Not verified** |
@@ -78,7 +78,7 @@
 | CAP-061 | Data inventory, purpose/consent policy engine, GPC where applicable | F | 17, 59 | Consent policy/API, preference page, receipts (partial) | **Not verified** |
 | CAP-062 | Rights requests, retention, holds, processor deletion and restore reconciliation | F | 17, 38, 59 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-063 | Children/sensitive-business and jurisdiction activation review | F | 02, 59, 61 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-064 | Protected comprehensive audit, actor attribution and integrity | F | 39 | CMS audit records and existing audit service (partial) | **Not verified** |
+| CAP-064 | Protected comprehensive audit, actor attribution and integrity | F | 39 | CMS audit for create, import, duplicate, review, publication, archive and restore (partial; integrity not certified) | **Not verified** |
 | CAP-065 | PostgreSQL constraints, migrations, pooling, indexes and analytical isolation | F | 22, 60, 63 | Additive migrations 0079–0081 (not migration-tested) | **Not verified** |
 | CAP-066 | Object storage/CDN, private media, caching and invalidation | F | 06, 08, 28, 60 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-067 | REST/OpenAPI and versioned events | F | 23, 62, 63 | FastAPI API routers and validation (partial) | **Not verified** |
