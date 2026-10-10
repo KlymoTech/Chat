@@ -65,8 +65,8 @@
 | CAP-048 | QR, offline/partner campaigns and declared-source attribution | G | 35, 48 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-049 | Feedback/surveys, calculators/quizzes and governed lead magnets | G | 56 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-050 | Popups/announcements/sticky CTAs with accessibility and frequency controls | G | 05, 56 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-051 | Reporting/warehouse, metrics, spend, freshness and reconciliation | G | 19, 55 | No capability-specific verification evidence assigned | **Not verified** |
-| CAP-052 | Scheduled reports and permission-safe exports | G | 55 | No capability-specific verification evidence assigned | **Not verified** |
+| CAP-051 | Reporting/warehouse, metrics, spend, freshness and reconciliation | G | 19, 55 |  Existing consent-gated analytics API now adds tenant/workspace-scoped UTC daily aggregation of browser events, committed form submissions and event-bus states, with explicit reconciliation exceptions. No spend/warehouse freshness validation or confirmed CRM delivery; tests committed, execution unverified | **Not verified** |
+| CAP-052 | Scheduled reports and permission-safe exports | G | 55 |  Existing Website CMS now has owner-only 7/30/90-day daily report view, bounded CSV download with spreadsheet formula protection and no visitor/contact identifiers. Scheduling, approval-based exports and production authorization tests remain open | **Not verified** |
 | CAP-053 | Incrementality, lift, marketing-mix and predictive-value analysis | B | 34, 55 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-054 | Domain/registrar/DNS/TLS ownership, renewal and recovery | F | 28, 32, 57 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-055 | Authentication, staff MFA, scoped roles, sessions and recovery | F | 24, 58 | Existing authentication routes and MFA code (not audited) | **Not verified** |
