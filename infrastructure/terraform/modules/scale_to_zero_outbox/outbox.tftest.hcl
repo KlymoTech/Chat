@@ -21,6 +21,7 @@ variables {
   aws_region            = "us-east-1"
   relay_lambda_arn      = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-relay"
   recovery_lambda_arn   = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-recovery"
+  sns_kms_key_arn       = "arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"
   relay_timeout_seconds = 60
 }
 
@@ -50,5 +51,10 @@ run "queue_and_gate_are_low_idle_cost" {
   assert {
     condition     = aws_lambda_event_source_mapping.nudge.batch_size == 1
     error_message = "Each SQS nudge must trigger one bounded relay invocation."
+  }
+
+  assert {
+    condition     = aws_sns_topic.domain_events.fifo_topic && !aws_sns_topic.domain_events.content_based_deduplication
+    error_message = "Domain events require an explicit-ID SNS FIFO topic."
   }
 }

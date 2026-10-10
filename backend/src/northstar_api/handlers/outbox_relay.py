@@ -7,11 +7,14 @@ An SQS trigger invokes this handler; a single invocation never sleeps or polls.
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
+import boto3
 import orjson
 from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
+from botocore.config import Config
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,6 +24,64 @@ from northstar_api.models import OutboxEvent
 from northstar_api.services.outbox import send_outbox_nudge
 
 BATCH_SIZE = 100
+
+
+class EventProducer(Protocol):
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def send_and_wait(self, topic: str, envelope: dict[str, Any], *, key: str) -> Any: ...
+
+
+class SnsFifoProducer:
+    """Opt-in Stage 0 publisher; SNS acknowledgements are not consumer ACKs."""
+
+    def __init__(self, topic_arn: str) -> None:
+        if not topic_arn.startswith(("arn:aws:sns:", "arn:aws-us-gov:sns:")) or not topic_arn.endswith(".fifo"):
+            raise ValueError("PLATFORM_DOMAIN_EVENTS_TOPIC_ARN must be an SNS FIFO topic ARN")
+        self.topic_arn = topic_arn
+        self.client = boto3.client(
+            "sns", config=Config(connect_timeout=2, read_timeout=10, retries={"max_attempts": 2})
+        )
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def send_and_wait(self, topic: str, envelope: dict[str, Any], *, key: str) -> Any:
+        group = f"{envelope['tenantId']}:{key}"
+        if len(group) > 128:
+            raise ValueError("SNS FIFO message group exceeds 128 characters")
+        return await asyncio.to_thread(
+            self.client.publish,
+            TopicArn=self.topic_arn,
+            Message=orjson.dumps(envelope).decode("utf-8"),
+            MessageGroupId=group,
+            MessageDeduplicationId=envelope["eventId"],
+            MessageAttributes={
+                "eventType": {"DataType": "String", "StringValue": topic},
+            },
+        )
+
+
+def make_producer(settings: Any) -> EventProducer:
+    backend = os.environ.get("PLATFORM_EVENTS_BACKEND", "kafka").lower()
+    if backend == "sns":
+        return SnsFifoProducer(os.environ.get("PLATFORM_DOMAIN_EVENTS_TOPIC_ARN", ""))
+    if backend != "kafka":
+        raise ValueError("PLATFORM_EVENTS_BACKEND must be kafka or sns")
+    if not settings.kafka_enabled:
+        raise ValueError("KAFKA_ENABLED must be true for the Kafka outbox relay")
+    return AIOKafkaProducer(
+        bootstrap_servers=settings.kafka_bootstrap_servers,
+        acks="all",
+        enable_idempotence=True,
+        compression_type="gzip",
+        value_serializer=orjson.dumps,
+        key_serializer=lambda value: value.encode(),
+        client_id="northstar-outbox-once",
+    )
 
 
 def event_envelope(event: OutboxEvent) -> dict[str, Any]:
@@ -36,7 +97,7 @@ def event_envelope(event: OutboxEvent) -> dict[str, Any]:
     }
 
 
-async def publish_batch(session: AsyncSession, producer: AIOKafkaProducer) -> int:
+async def publish_batch(session: AsyncSession, producer: EventProducer) -> int:
     """Publish one locked batch; raise on failure so the queue can retry.
 
     A broker acknowledgement can precede a failed database commit. Consumers must
@@ -71,18 +132,8 @@ async def publish_batch(session: AsyncSession, producer: AIOKafkaProducer) -> in
 
 async def run_once() -> int:
     settings = get_settings()
-    if not settings.kafka_enabled:
-        raise ValueError("KAFKA_ENABLED must be true for the outbox relay")
+    producer = make_producer(settings)
     engine = build_engine(sleeping_job_database_settings(settings))
-    producer = AIOKafkaProducer(
-        bootstrap_servers=settings.kafka_bootstrap_servers,
-        acks="all",
-        enable_idempotence=True,
-        compression_type="gzip",
-        value_serializer=orjson.dumps,
-        key_serializer=lambda value: value.encode(),
-        client_id="northstar-outbox-once",
-    )
     started = False
     try:
         await producer.start()

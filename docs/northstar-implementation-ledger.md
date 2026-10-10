@@ -39,14 +39,20 @@ implementation master plan.
   Rollbacks do not signal. The relay handles one bounded batch; the recovery
   schedule checks the marker before constructing a PostgreSQL engine. Full
   batches enqueue continuations. The existing polling worker is retained.
+- The one-shot relay now has an opt-in SNS FIFO publisher using stable event IDs
+  for broker deduplication and tenant/aggregate message groups. Kafka remains
+  the default for existing deployments. Neither a topic nor a publisher proves
+  downstream subscriptions, consumer idempotency or data parity.
 - The isolated `scale_to_zero_outbox` Terraform module defines SQS + encrypted
-  DLQ, an on-demand DynamoDB marker, SQS event mapping, 15-minute recovery rule
+  DLQ, an on-demand DynamoDB marker, an encrypted SNS FIFO domain-event topic,
+  SQS event mapping, 15-minute recovery rule
   and least-privilege policy outputs. It is not instantiated or applied. Local
   Terraform validate and one mocked topology test passed; live AWS and CI
   evidence remain absent. Terraform 1.16.5 reports a deprecation warning in
   the account/region precondition inherited from the module style.
 - Remaining outbox cutover gates: create/review the Lambda images and IAM roles,
-  wire network and broker access, deploy the module in an approved account,
+  wire network and broker access, create SNS-to-SQS subscriptions and replace
+  the seven Kafka consumer paths, deploy the module in an approved account,
   qualify retry/DLQ/marker-failure behavior and consumer `eventId`
   deduplication, then stop the legacy relay before enabling the event mapping.
   No such cutover has occurred.

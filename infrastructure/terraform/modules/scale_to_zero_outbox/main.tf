@@ -11,6 +11,7 @@ locals {
     ManagedBy   = "terraform"
   })
   lambda_arn_prefix = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:lambda:${var.aws_region}:${var.aws_account_id}:function:"
+  kms_arn_prefix    = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:kms:${var.aws_region}:${var.aws_account_id}:key/"
 }
 
 resource "aws_sqs_queue" "dead_letter" {
@@ -26,7 +27,8 @@ resource "aws_sqs_queue" "dead_letter" {
         data.aws_caller_identity.current.account_id == var.aws_account_id &&
         data.aws_region.current.name == var.aws_region &&
         startswith(var.relay_lambda_arn, local.lambda_arn_prefix) &&
-        startswith(var.recovery_lambda_arn, local.lambda_arn_prefix)
+        startswith(var.recovery_lambda_arn, local.lambda_arn_prefix) &&
+        startswith(var.sns_kms_key_arn, local.kms_arn_prefix)
       )
       error_message = "Provider and both Lambda ARNs must match the approved AWS account and region."
     }
@@ -64,6 +66,18 @@ resource "aws_dynamodb_table" "activity" {
     enabled = true
   }
   tags = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_sns_topic" "domain_events" {
+  name                        = "${local.name}-events.fifo"
+  fifo_topic                  = true
+  content_based_deduplication = false
+  kms_master_key_id           = var.sns_kms_key_arn
+  tags                        = local.tags
 
   lifecycle {
     prevent_destroy = true
@@ -120,6 +134,14 @@ data "aws_iam_policy_document" "relay" {
   statement {
     actions   = ["dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.activity.arn]
+  }
+  statement {
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.domain_events.arn]
+  }
+  statement {
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
+    resources = [var.sns_kms_key_arn]
   }
 }
 

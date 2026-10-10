@@ -18,6 +18,10 @@ output "activity_table_arn" {
   value = aws_dynamodb_table.activity.arn
 }
 
+output "domain_events_topic_arn" {
+  value = aws_sns_topic.domain_events.arn
+}
+
 output "writer_iam_policy_json" {
   value = data.aws_iam_policy_document.writer.json
 }

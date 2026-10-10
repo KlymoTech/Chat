@@ -44,6 +44,11 @@ variable "recovery_lambda_arn" {
   description = "Already-approved Lambda function ARN for the gated recovery handler."
 }
 
+variable "sns_kms_key_arn" {
+  type        = string
+  description = "Approved regional KMS key ARN used for SNS FIFO encryption."
+}
+
 variable "relay_timeout_seconds" {
   type        = number
   description = "Configured relay Lambda timeout; queue visibility is at least six times this value."

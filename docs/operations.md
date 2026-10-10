@@ -15,6 +15,9 @@
 | `worker` | Celery background jobs | Required stores/broker healthy |
 | `job-dispatcher` | Publishes persisted queued-ingestion jobs to RabbitMQ | Database migration and RabbitMQ ready |
 | `outbox-relay` | Publishes committed outbox events | Database migration and Kafka ready |
+| `analytics-consumer` | Consumes Kafka and updates projections | Database migration and Kafka ready |
+| `object-cleaner` | Purges deleted knowledge-object versions from storage | Database migration, Kafka, and bucket initialization ready |
+| `web` | Nginx + React application | API healthy and `/healthz` succeeds |
 
 The planned scale-to-zero queue handler is `northstar_api.handlers.outbox_relay:lambda_handler`.
 It processes at most 100 committed rows per invocation, performs no idle polling,
@@ -27,11 +30,13 @@ Both handlers enqueue a continuation when a full batch may leave more rows.
 The queue must be wired to the relay with a retry/DLQ policy and the schedule
 must be deployed before disabling the legacy worker. Consumers must deduplicate
 by `eventId` because broker acknowledgement can precede the database commit.
+For the planned Stage 0 event path, configure `PLATFORM_EVENTS_BACKEND=sns` and
+`PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` to an approved SNS FIFO topic; the existing
+Kafka path remains the default. SNS FIFO deduplication does not remove the need
+for consumer inbox idempotency. SNS-to-SQS subscriptions and the seven Kafka
+consumer migrations are not included in the outbox foundation module.
 Do not run both relays simultaneously for the same outbox. AWS deployment and
 production qualification of this cutover remain outstanding.
-| `analytics-consumer` | Consumes Kafka and updates projections | Database migration and Kafka ready |
-| `object-cleaner` | Purges deleted knowledge-object versions from storage | Database migration, Kafka, and bucket initialization ready |
-| `web` | Nginx + React application | API healthy and `/healthz` succeeds |
 
 `docker compose up --build --detach` starts the entire integration topology. Dependencies use health or successful-completion conditions. The API is gated on migration and Redis, while queue, event, and object-storage processes have their own gates; this preserves the documented degradation boundary when an asynchronous subsystem is unavailable. The worker receives a dedicated non-internal `egress` bridge so URL ingestion and NVIDIA embedding calls work locally; production must replace unrestricted outbound access with DNS/IP-aware proxy or network policy controls.
 
