@@ -41,6 +41,8 @@ class CommittedPostgresSigningClaims:
     """
 
     def __init__(self, session_factory):
+        if not callable(session_factory):
+            raise TypeError("independent database session factory required")
         self._factory = session_factory
 
     async def claim(
@@ -51,7 +53,7 @@ class CommittedPostgresSigningClaims:
             not isinstance(release_id, str) or _RELEASE.fullmatch(release_id) is None
             or not isinstance(run_id, str) or _RUN.fullmatch(run_id) is None
             or not isinstance(witness_sha256, str) or _SHA.fullmatch(witness_sha256) is None
-            or not isinstance(now, datetime) or now.tzinfo is None
+            or not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None
         ):
             raise PermissionError("invalid custody signing claim")
         try:
