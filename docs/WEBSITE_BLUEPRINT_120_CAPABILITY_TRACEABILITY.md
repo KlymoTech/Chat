@@ -19,7 +19,7 @@
 | CAP-002 | Sitemap, navigation, page/route families and customer journeys | F | 04, 50 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-003 | Responsive design, semantic HTML, design tokens and accessible components | F | 05, 06, 44 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-004 | CMS, page/section builder, navigation, forms and media ownership | F | 07–09, 44 | Existing CMS builder/edit/archive/import/export plus article authoring and public index (partial; not tested) | **Not verified** |
-| CAP-005 | Autosave, draft recovery, undo/redo and edit conflict resolution | F | 44 | No capability-specific verification evidence assigned | **Not verified** |
+| CAP-005 | Autosave, draft recovery, undo/redo and edit conflict resolution | F | 44 | Existing CMS page editor adds bounded undo/redo, 3s acknowledged API autosave, optimistic 409 pause, explicit export/reload recovery and browser-unload warning; tests committed (partial) | **Not verified** |
 | CAP-006 | Collection/schema builder with approved fields and templates | G | 44, 63 | No capability-specific verification evidence assigned | **Not verified** |
 | CAP-007 | Editorial review, revisions, previews, scheduling and releases | F | 08, 44 | Existing editorial API extended with manual archive, restore, change requests; live revision stays available while draft edited (partial; tests committed) | **Not verified** |
 | CAP-008 | Import/export, dry runs, manifests, partial failures and migration | F | 44, 62 | No capability-specific verification evidence assigned | **Not verified** |
