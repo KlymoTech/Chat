@@ -9,11 +9,10 @@ import hashlib
 import re
 import secrets
 from datetime import UTC, datetime
-from typing import Annotated
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
@@ -173,7 +172,7 @@ async def save_choices(
         analytics=choices.analytics,
         marketing=choices.marketing and not gpc,
         personalization=choices.personalization and not gpc,
-        gpc_override=gpc, source="preferences",
+        gpc_override=gpc, source="preferences", created_at=datetime.now(UTC),
     )
     session.add(record)
     await session.commit()
