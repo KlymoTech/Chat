@@ -4,6 +4,7 @@ import { useWorkspace } from '@/components/providers';
 import { Button, Card, Badge } from '@/components/ui';
 import { ApiError, apiConfig, request } from '@/lib/api';
 import { appearanceClass, compareDraftDocuments, duplicateSibling, moveBlockBetweenSections, redoDraftHistory, removeChild, reorderNodes, reviseDraftHistory, sameDraftContent, startDraftHistory, undoDraftHistory, type BuilderNode } from './websiteBuilderOperations';
+import { WebsiteAnalyticsReport } from './WebsiteAnalyticsReport';
 import { WebsiteContentPreflight } from './WebsiteContentPreflight';
 import { WebsiteNodeStyleEditor } from './WebsiteNodeStyleEditor';
 import { WebsiteFormsPanel } from './WebsiteFormsPanel';
@@ -877,6 +878,7 @@ export function WebsiteCMSPage() {
               </div> : null}
             </>}
           </Card>
+          <WebsiteAnalyticsReport />
           <Card><h3>Website engagement</h3><p>First-party, consent-eligible events from published pages (last 30 days).</p>
             <div className="site-cms-metrics">
               <div><strong>{metrics?.pageViews ?? '—'}</strong><span>Page views</span></div>
