@@ -161,9 +161,14 @@ export function WebsiteCMSPage() {
     if (!sourceSection) return;
     const targetIndex = (currentSection.children ?? []).findIndex((node) => node.id === targetId);
     if (targetIndex < 0) return;
+    const fromIndex = sourceSection.id === currentSection.id
+      ? (currentSection.children ?? []).findIndex((node) => node.id === draggedItem.id)
+      : -1;
+    // Dropping onto the following block places it after that block, not back in the old slot.
+    const insertionIndex = fromIndex >= 0 && fromIndex < targetIndex ? targetIndex + 1 : targetIndex;
     setDraft({
       ...draft,
-      nodes: moveBlockBetweenSections(draft.nodes, draggedItem.id, currentSection.id, targetIndex),
+      nodes: moveBlockBetweenSections(draft.nodes, draggedItem.id, currentSection.id, insertionIndex),
     });
     setDraggedItem(null);
   };
