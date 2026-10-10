@@ -22,6 +22,18 @@ output "domain_events_topic_arn" {
   value = aws_sns_topic.domain_events.arn
 }
 
+output "domain_events_queue_arn" {
+  value = aws_sqs_queue.domain_events.arn
+}
+
+output "domain_events_queue_url" {
+  value = aws_sqs_queue.domain_events.url
+}
+
+output "domain_events_dead_letter_queue_arn" {
+  value = aws_sqs_queue.domain_event_dead_letter.arn
+}
+
 output "writer_iam_policy_json" {
   value = data.aws_iam_policy_document.writer.json
 }
@@ -32,4 +44,8 @@ output "relay_iam_policy_json" {
 
 output "recovery_iam_policy_json" {
   value = data.aws_iam_policy_document.recovery.json
+}
+
+output "domain_event_consumer_iam_policy_json" {
+  value = data.aws_iam_policy_document.domain_event_consumer.json
 }

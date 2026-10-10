@@ -515,3 +515,19 @@ do not merge without explicit instruction.
   readback and protected test-run identity validation, plus a real
   PostgreSQL integration test and replay prevention policy. No Jodo,
   main-branch merge or production worker activation.
+
+## Increment: planned SNS-to-SQS domain-event consumer (2026-10-10)
+
+- Added a one-shot Lambda handler covering the topic set of all seven existing
+  Kafka consumers. It reuses their projection/cleanup/routing helpers and
+  existing inbox keys, with SNS topic/queue/attribute validation, one-record
+  FIFO processing, and partial-batch failure responses.
+- Added a FIFO event queue, DLQ, least-privilege consumer policy, filtered SNS
+  subscription and Lambda mapping in the outbox Terraform module. The filter
+  includes only currently consumed event types. Subscription and mapping are
+  **off by default**; the existing Kafka path remains untouched.
+- Local checks: 20 targeted Python tests passed, including exact legacy-topic
+  and Terraform-filter parity; two mocked Terraform plan tests passed.
+- **Not complete:** no live AWS deployment or test of permissions, networking,
+  SNS delivery, retries/DLQ, external Zoho idempotency, throughput, or cutover.
+  This does not establish complete implementation of the source documents.

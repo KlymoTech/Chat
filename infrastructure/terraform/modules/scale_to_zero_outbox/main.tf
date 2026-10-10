@@ -12,6 +12,22 @@ locals {
   })
   lambda_arn_prefix = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:lambda:${var.aws_region}:${var.aws_account_id}:function:"
   kms_arn_prefix    = "arn:${startswith(var.aws_region, "us-gov-") ? "aws-us-gov" : "aws"}:kms:${var.aws_region}:${var.aws_account_id}:key/"
+  # Keep in sync with northstar_api.handlers.domain_events.ROUTED_TYPES.
+  # Other outbox events have no legacy subscriber and must not fill the DLQ.
+  domain_event_types = [
+    "channel.event.received.v1",
+    "chat.response.completed.v1",
+    "conversation.state.changed.v1",
+    "crm.connection.backfill.requested.v1",
+    "crm.webhook.received.v1",
+    "education.conversation.resolution.context_missing.v1",
+    "feedback.recorded.v1",
+    "knowledge.source.deleted.v1",
+    "lead.created.v1",
+    "lead.crm.delivery.failed.v1",
+    "lead.crm.sync.requested.v1",
+    "lead.updated.v1",
+  ]
 }
 
 resource "aws_sqs_queue" "dead_letter" {
@@ -28,6 +44,7 @@ resource "aws_sqs_queue" "dead_letter" {
         data.aws_region.current.name == var.aws_region &&
         startswith(var.relay_lambda_arn, local.lambda_arn_prefix) &&
         startswith(var.recovery_lambda_arn, local.lambda_arn_prefix) &&
+        startswith(var.domain_event_lambda_arn, local.lambda_arn_prefix) &&
         startswith(var.sns_kms_key_arn, local.kms_arn_prefix)
       )
       error_message = "Provider and both Lambda ARNs must match the approved AWS account and region."
@@ -82,6 +99,83 @@ resource "aws_sns_topic" "domain_events" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+resource "aws_sqs_queue" "domain_event_dead_letter" {
+  name                      = "${local.name}-events-dlq.fifo"
+  fifo_queue                = true
+  message_retention_seconds = 1209600
+  sqs_managed_sse_enabled   = true
+  tags                      = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_sqs_queue" "domain_events" {
+  name                       = "${local.name}-events.fifo"
+  fifo_queue                 = true
+  visibility_timeout_seconds = var.domain_event_timeout_seconds * 6
+  message_retention_seconds  = 345600
+  sqs_managed_sse_enabled    = true
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.domain_event_dead_letter.arn
+    maxReceiveCount     = 5
+  })
+  tags = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+data "aws_iam_policy_document" "domain_event_queue_delivery" {
+  statement {
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.domain_events.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["sns.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_sns_topic.domain_events.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.aws_account_id]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "domain_event_delivery" {
+  queue_url = aws_sqs_queue.domain_events.id
+  policy    = data.aws_iam_policy_document.domain_event_queue_delivery.json
+}
+
+# Subscription and trigger are deliberately absent until an explicit reviewed
+# cutover. Applying the foundation alone cannot start a second event path.
+resource "aws_sns_topic_subscription" "domain_events" {
+  count                = var.activate_domain_event_subscription ? 1 : 0
+  topic_arn            = aws_sns_topic.domain_events.arn
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.domain_events.arn
+  raw_message_delivery = false
+  filter_policy        = jsonencode({ eventType = local.domain_event_types })
+  depends_on           = [aws_sqs_queue_policy.domain_event_delivery]
+}
+
+resource "aws_lambda_event_source_mapping" "domain_events" {
+  count                   = var.activate_domain_event_subscription ? 1 : 0
+  event_source_arn        = aws_sqs_queue.domain_events.arn
+  function_name           = var.domain_event_lambda_arn
+  batch_size              = 1
+  function_response_types = ["ReportBatchItemFailures"]
+  enabled                 = true
+  depends_on              = [aws_sns_topic_subscription.domain_events]
 }
 
 resource "aws_lambda_event_source_mapping" "nudge" {
@@ -153,5 +247,14 @@ data "aws_iam_policy_document" "recovery" {
   statement {
     actions   = ["sqs:SendMessage"]
     resources = [aws_sqs_queue.nudge.arn]
+  }
+}
+
+data "aws_iam_policy_document" "domain_event_consumer" {
+  statement {
+    actions = [
+      "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"
+    ]
+    resources = [aws_sqs_queue.domain_events.arn]
   }
 }

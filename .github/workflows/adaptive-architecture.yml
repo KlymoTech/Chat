@@ -22,6 +22,9 @@ on:
       - 'scripts/audit-platform-conformance.py'
       - 'backend/tests/test_platform_conformance_audit.py'
       - 'backend/tests/test_outbox_relay_sns.py'
+      - 'backend/tests/test_domain_event_sqs_handler.py'
+      - 'backend/src/northstar_api/handlers/domain_events.py'
+      - 'infrastructure/terraform/modules/scale_to_zero_outbox/**'
       - 'backend/src/northstar_api/handlers/outbox_relay.py'
       - 'backend/src/northstar_api/modules/super_admin/api/runtime.py'
       - 'backend/tests/test_*platform*.py'
@@ -191,7 +194,8 @@ jobs:
       - name: Conformance auditor regression tests
         run: uv run pytest -q tests/test_platform_conformance_audit.py
       - name: Bounded outbox relay and recovery contracts
-        run: uv run pytest -q tests/test_outbox_relay_once.py tests/test_outbox_relay_sns.py tests/test_outbox_recovery.py
+        run: uv run pytest -q tests/test_outbox_relay_once.py tests/test_outbox_relay_sns.py tests/test_outbox_recovery.py tests/test_domain_event_sqs_handler.py
+      - run: uv run ruff check src/northstar_api/handlers/domain_events.py tests/test_domain_event_sqs_handler.py
       - name: Report unresolved hosting rules (not a qualification gate)
         working-directory: .
         run: uv run --project backend python scripts/audit-platform-conformance.py --report-only

@@ -44,6 +44,27 @@ variable "recovery_lambda_arn" {
   description = "Already-approved Lambda function ARN for the gated recovery handler."
 }
 
+variable "domain_event_lambda_arn" {
+  type        = string
+  description = "Pre-existing bounded SNS/SQS event dispatcher Lambda ARN."
+}
+
+variable "activate_domain_event_subscription" {
+  type        = bool
+  description = "Explicit cutover gate; default false prevents dual Kafka/SNS delivery."
+  default     = false
+}
+
+variable "domain_event_timeout_seconds" {
+  type        = number
+  description = "Configured event-dispatcher Lambda timeout."
+  default     = 900
+  validation {
+    condition     = var.domain_event_timeout_seconds >= 1 && var.domain_event_timeout_seconds <= 900 && floor(var.domain_event_timeout_seconds) == var.domain_event_timeout_seconds
+    error_message = "domain_event_timeout_seconds must be a whole number from 1 to 900."
+  }
+}
+
 variable "sns_kms_key_arn" {
   type        = string
   description = "Approved regional KMS key ARN used for SNS FIFO encryption."

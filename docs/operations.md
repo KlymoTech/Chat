@@ -33,8 +33,16 @@ by `eventId` because broker acknowledgement can precede the database commit.
 For the planned Stage 0 event path, configure `PLATFORM_EVENTS_BACKEND=sns` and
 `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` to an approved SNS FIFO topic; the existing
 Kafka path remains the default. SNS FIFO deduplication does not remove the need
-for consumer inbox idempotency. SNS-to-SQS subscriptions and the seven Kafka
-consumer migrations are not included in the outbox foundation module.
+for consumer inbox idempotency. The optional
+`northstar_api.handlers.domain_events:lambda_handler` reuses the seven legacy
+Kafka consumers' processing paths behind an SNS-to-SQS FIFO subscription. That
+subscription and its Lambda trigger are disabled by default
+(`activate_domain_event_subscription=false`). Its filter admits only the
+legacy consumer topic set; unexpected messages received by the handler fail
+closed to the queue DLQ. Set `PLATFORM_DOMAIN_EVENTS_TOPIC_ARN` and
+`PLATFORM_DOMAIN_EVENTS_QUEUE_ARN` on that Lambda and attach the module's
+consumer IAM policy before a coordinated cutover. The handler has unit tests,
+but no live AWS delivery, retry, idempotency, or load qualification yet.
 Do not run both relays simultaneously for the same outbox. AWS deployment and
 production qualification of this cutover remain outstanding.
 

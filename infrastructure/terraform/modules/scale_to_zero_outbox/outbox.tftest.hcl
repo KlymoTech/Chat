@@ -15,14 +15,15 @@ override_data {
 }
 
 variables {
-  name_prefix           = "northstar"
-  environment           = "qualification"
-  aws_account_id        = "123456789012"
-  aws_region            = "us-east-1"
-  relay_lambda_arn      = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-relay"
-  recovery_lambda_arn   = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-recovery"
-  sns_kms_key_arn       = "arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"
-  relay_timeout_seconds = 60
+  name_prefix             = "northstar"
+  environment             = "qualification"
+  aws_account_id          = "123456789012"
+  aws_region              = "us-east-1"
+  relay_lambda_arn        = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-relay"
+  recovery_lambda_arn     = "arn:aws:lambda:us-east-1:123456789012:function:northstar-outbox-recovery"
+  domain_event_lambda_arn = "arn:aws:lambda:us-east-1:123456789012:function:northstar-domain-events"
+  sns_kms_key_arn         = "arn:aws:kms:us-east-1:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+  relay_timeout_seconds   = 60
 }
 
 run "queue_and_gate_are_low_idle_cost" {
@@ -56,5 +57,38 @@ run "queue_and_gate_are_low_idle_cost" {
   assert {
     condition     = aws_sns_topic.domain_events.fifo_topic && !aws_sns_topic.domain_events.content_based_deduplication
     error_message = "Domain events require an explicit-ID SNS FIFO topic."
+  }
+
+  assert {
+    condition     = length(aws_sns_topic_subscription.domain_events) == 0 && length(aws_lambda_event_source_mapping.domain_events) == 0
+    error_message = "Domain event delivery must be off until explicit cutover approval."
+  }
+
+  assert {
+    condition     = aws_sqs_queue.domain_events.visibility_timeout_seconds >= 6 * var.domain_event_timeout_seconds
+    error_message = "Domain event queue visibility must cover six Lambda timeouts."
+  }
+}
+
+run "explicit_cutover_filters_to_legacy_consumer_topics" {
+  command = plan
+
+  variables {
+    activate_domain_event_subscription = true
+  }
+
+  assert {
+    condition     = length(aws_sns_topic_subscription.domain_events) == 1 && length(aws_lambda_event_source_mapping.domain_events) == 1
+    error_message = "Explicit activation must create one subscription and one consumer trigger."
+  }
+
+  assert {
+    condition     = jsondecode(aws_sns_topic_subscription.domain_events[0].filter_policy).eventType == local.domain_event_types
+    error_message = "Subscription must filter out events without an existing consumer."
+  }
+
+  assert {
+    condition     = aws_lambda_event_source_mapping.domain_events[0].batch_size == 1 && contains(aws_lambda_event_source_mapping.domain_events[0].function_response_types, "ReportBatchItemFailures")
+    error_message = "Consumer must use one-message batches with partial failure reporting."
   }
 }
