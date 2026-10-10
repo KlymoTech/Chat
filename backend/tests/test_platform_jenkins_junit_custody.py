@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -25,6 +25,11 @@ from northstar_api.modules.platform_runtime.queue_notification_jenkins_junit_cus
 from northstar_api.modules.platform_runtime.queue_notification_jenkins_test_provenance import (
     VerifiedJenkinsProvenance,
 )
+
+class NoOffsetTZ(tzinfo):
+    def utcoffset(self, dt):
+        return None
+
 
 NOW = datetime(2026, 10, 10, 12, tzinfo=UTC)
 RELEASE = "release-123456"
@@ -258,3 +263,17 @@ async def test_database_suite_receipt_substitution_denied_before_s3():
     with pytest.raises(JenkinsJunitCustodyRejected):
         await load_and_reconcile_witnessed_junit_custody(**reader_options(options))
     assert options["index_reconciler"].reconcile.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_clock", [0, False, "", [], {}, datetime(2026, 10, 10), datetime(2026, 10, 10, tzinfo=NoOffsetTZ())])
+async def test_invalid_custody_clock_cannot_read_or_stage_evidence(bad_clock):
+    options, _ = setup()
+    options["now"] = bad_clock
+    with pytest.raises(JenkinsJunitCustodyRejected, match="timezone-aware"):
+        await load_and_reconcile_witnessed_junit_custody(**reader_options(options))
+    options["session"].get.assert_not_awaited()
+    with pytest.raises(JenkinsJunitCustodyRejected, match="timezone-aware"):
+        await stage_witnessed_junit_custody(**options)
+    options["index_reconciler"].reconcile.assert_not_awaited()
+    options["session"].flush.assert_not_awaited()
