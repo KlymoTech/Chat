@@ -114,7 +114,9 @@ export async function advanceDueInternalAutomations():Promise<{
       const planned=revision.rowCount===1?
         planInternalAutomationStep(revision.rows[0].definition,run.current_node_id,
           run.context,new Date().toISOString(),run.processed_steps):null;
-      const expired=Date.parse(run.expires_at)<=Date.now();
+      const expiresAt=Date.parse(run.expires_at);
+      const expired=!Number.isFinite(expiresAt)||expiresAt<=Date.now()||
+        Boolean(planned&&Date.parse(planned.dueAt)>expiresAt);
       if(!planned||expired){
         await client.query(
           `UPDATE website_cms.automation_internal_runs
