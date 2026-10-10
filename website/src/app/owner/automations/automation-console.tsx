@@ -23,6 +23,7 @@ async function api(path:string,method:"GET"|"POST"="GET",body?:unknown):Promise<
 }
 export default function AutomationConsole(){
   const [graph,setGraph]=useState<AutomationDefinition>(starter);
+  const [acknowledgedGraph,setAcknowledgedGraph]=useState(JSON.stringify(starter));
   const [drafts,setDrafts]=useState<Summary[]>([]);
   const [runs,setRuns]=useState<StoredRun[]>([]);
   const [tasks,setTasks]=useState<InternalTask[]>([]);
@@ -91,7 +92,8 @@ export default function AutomationConsole(){
     finally{setBusy(false);}
   }
   async function choose(id:string){
-    if(!id){setActiveId("");setVersion(0);setGraph(starter);setRuns([]);setTasks([]);return;}
+    if(!id){setActiveId("");setVersion(0);setGraph(starter);
+      setAcknowledgedGraph(JSON.stringify(starter));setRuns([]);setTasks([]);return;}
     setBusy(true);setError("");setMessage("");
     try{
       const result=await api("/api/owner/automations/"+encodeURIComponent(id)) as {
@@ -99,6 +101,7 @@ export default function AutomationConsole(){
       };
       if(!validateAutomation(result.definition))throw new Error("Stored graph invalid");
       setActiveId(id);setVersion(result.version);setGraph(result.definition);
+      setAcknowledgedGraph(JSON.stringify(result.definition));
       await Promise.all([loadRuns(id),loadTasks(id)]);
     }catch(err){setError(err instanceof Error?err.message:"Cannot load draft");}
     finally{setBusy(false);}
@@ -116,6 +119,7 @@ export default function AutomationConsole(){
       if(!result||typeof result!=="object"||!("id" in result)||!("version" in result))
         throw new Error("Unexpected draft receipt");
       setActiveId(String(result.id));setVersion(Number(result.version));
+      setAcknowledgedGraph(JSON.stringify(value));
       await Promise.all([loadRuns(String(result.id)),loadTasks(String(result.id))]);
       setMessage("Immutable draft saved. No workflow was published or executed.");
       await refresh();
@@ -136,6 +140,7 @@ export default function AutomationConsole(){
     finally{setBusy(false);}
   }
   const valid=validateAutomation(graph);
+  const graphHasUnsavedChanges=JSON.stringify(graph)!==acknowledgedGraph;
   const steps=valid?simulateAutomation(valid,{sourceCategory:source,
     marketingConsent:consent,at:Number.isFinite(Date.parse(clock))?
       new Date(clock).toISOString():"invalid"}):null;
@@ -158,7 +163,7 @@ export default function AutomationConsole(){
         <input value={graph.title} maxLength={120}
           onChange={e=>setGraph(g=>({...g,title:e.target.value}))}/>
       </label>
-      <p>Version: {version||"unsaved"} · status: draft · live execution: disabled</p>
+      <p role="status">Version: {version||"unsaved"} · status: draft · live execution: disabled · {graphHasUnsavedChanges?"Unsaved graph edits":"Server-acknowledged graph"}</p>
       <div className="owner-actions">
         <button className="button secondary" onClick={()=>addNode("condition")}>Add condition</button>
         <button className="button secondary" onClick={()=>addNode("delay")}>Add delay</button>
@@ -220,7 +225,7 @@ export default function AutomationConsole(){
           A separate authenticated internal runner advances due nodes and stores internal tasks.
           All processing remains disabled until the operator enables staging verification.</p>
         <button className="button secondary" type="button"
-          disabled={busy||!activeId||!valid} onClick={()=>void queueSyntheticRun()}>
+          disabled={busy||!activeId||!valid||graphHasUnsavedChanges} onClick={()=>void queueSyntheticRun()}>
           Enqueue synthetic workflow run</button>
         <button className="button secondary" type="button"
           disabled={busy||!activeId} onClick={()=>void Promise.all([loadRuns(activeId),loadTasks(activeId)])}>
