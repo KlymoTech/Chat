@@ -232,3 +232,27 @@ These additions still require real PostgreSQL, IdP/session, CI/Playwright and se
 - `npm run test:imports` now checks relative imports across the app, scripts and unit tests without network access; it runs before Vitest in the dedicated website CI workflow. Isolated fixture tests verify that missing imports cause a non-zero exit. These checks are additive, not a substitute for TypeScript, Next build, PostgreSQL or Playwright verification.
   
 **Not production-ready:** the last GitHub Actions jobs failed before executing any steps; no successful automated build or integration tests can currently be asserted. Complete visual-builder releases and collections, approved campaign runtime, consent/data rights, accountable marketing analytics, actual OIDC provider, least-privilege RLS and end-to-end/load/security acceptance still need completion. External CRM integration remains explicitly deferred. All commits are on `feature/website-blueprint-v1-3`; no merge into `main`.
+
+
+## Chapter 59 privacy rights processing milestone — case workflow only
+
+Implemented `website/db/018_privacy_rights_cases.sql`, a minimal no-PII rights
+case ledger, and `/owner/privacy/rights`. The separate `cms:privacy`
+permission is checked from verified OIDC claims, not JSON-supplied user roles.
+Cases track request type, state, revision and immutable transition history.
+Sensitive states require a second actor and external evidence reference for
+verification, denial and completion; transitions are validated and
+stale-version saves are refused. There is no on-line destructive erasure,
+rights data export, third-party processor dispatch, or approval bypass.
+The feature is OFF by default pending actual law/identity/database review.
+Added case progression, service, migration integrity and grant-preflight tests;
+these are not claimed passing because GitHub Actions runner failures prevent
+execution.
+
+Broader completion remains pending: custom collections and coordinated
+publishing in the visual builder; authentic production automation enrollment,
+consent rechecks and dispatch governance; lawful retention, data inventory and
+cross-system rights execution; real OIDC provider and tenant RLS grants; E2E,
+browser/accessibility/load/security/recovery evidence. CRM remains deferred.
+All changes are isolated on `feature/website-blueprint-v1-3`; `main` was
+not modified or merged.
