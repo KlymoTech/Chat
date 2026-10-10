@@ -7,7 +7,8 @@ import {existsSync,readdirSync,statSync,readFileSync} from "node:fs";
 import {dirname,extname,join,relative,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-const root=resolve(dirname(fileURLToPath(import.meta.url)),"..");
+const root=process.argv[2]?resolve(process.argv[2]):
+  resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sources=["src","tests","scripts"];
 const extensions=[".ts",".tsx",".js",".jsx",".mjs",".cjs",".json",".css"];
 const scanned=new Set([".ts",".tsx",".js",".jsx",".mjs",".cjs"]);
