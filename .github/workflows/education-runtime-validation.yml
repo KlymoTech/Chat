@@ -134,5 +134,5 @@ jobs:
         with:
           name: education-validation-diagnostics
           path: backend/education-ci-diagnostics.txt
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
