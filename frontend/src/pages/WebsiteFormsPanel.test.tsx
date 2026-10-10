@@ -148,7 +148,7 @@ describe('Website CMS site forms editor', () => {
     const controlTypes = screen.getAllByLabelText('Control type');
     fireEvent.change(controlTypes[0]!, { target: { value: 'select' } });
     fireEvent.change(screen.getByLabelText('Choices (one per line)'),
-      { target: { value: 'Sales\\nSupport' } });
+      { target: { value: 'Sales\nSupport' } });
     const keys = screen.getAllByLabelText('Stable key');
     const lastKey = keys[keys.length - 1]!;
     const newFieldKey = (lastKey as HTMLInputElement).value;
