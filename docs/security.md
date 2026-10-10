@@ -77,13 +77,13 @@ Retrieved documents and user messages can contain prompt injection. They are dat
 - Require the client SHA-256 for the exact bytes before issuing a presigned form. Bind the staging key, media type, declared size/checksum metadata, and content-length range in the multipart policy; returned form fields are not HTTP headers.
 - On source creation, pin the staged object version when available, verify actual size/type/SHA-256 from the bytes, conditionally copy the exact ETag/version to the durable `knowledge/` key, verify the copy, and delete staging. Never ingest directly from an unpromoted or caller-invented key.
 - Validate supported container/file structure and extraction limits. Knowledge upload promotion now has an optional local ClamAV INSTREAM integration.
-The staging and production promotion paths fail closed when it is unconfigured,
-unavailable, or does not return an explicit clean verdict; configure the local
-sidecar with `KNOWLEDGE_CLAMAV_ENABLED=true`, `KNOWLEDGE_CLAMAV_PORT` (default 3310),
-and `KNOWLEDGE_CLAMAV_TIMEOUT_SECONDS` (default 120). Development/test leave
-this disabled by default. The scanner must run in the same private network
-namespace/sidecar (loopback only); its availability, signature freshness, size limits,
-operational alerts, and real detection evidence still require deployment qualification.
+  The staging and production promotion paths fail closed when it is unconfigured,
+  unavailable, or does not return an explicit clean verdict; configure the local
+  sidecar with `KNOWLEDGE_CLAMAV_ENABLED=true`, `KNOWLEDGE_CLAMAV_PORT` (default 3310),
+  and `KNOWLEDGE_CLAMAV_TIMEOUT_SECONDS` (default 120). Development/test leave
+  this disabled by default. The scanner must run in the same private network
+  namespace/sidecar (loopback only); its availability, signature freshness, size limits,
+  operational alerts, and real detection evidence still require deployment qualification.
 - Store objects privately under generated tenant-prefixed keys; never trust a user-supplied storage key.
 - Restrict object-store CORS to exact deployed web origins and methods. The current browser upload uses multipart `POST`, not presigned `PUT`; allow `GET`/`HEAD` only if a deployed browser download path needs them. Community MinIO's Compose setting is cluster-wide through `MINIO_API_CORS_ALLOW_ORIGIN`; use bucket-scoped CORS on production object stores that support it.
 - Strip active document content and do not execute macros, scripts, or embedded binaries.
