@@ -11,8 +11,6 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from northstar_api.modules.platform_runtime import (
     queue_notification_authorized_signing as orchestration,
-)
-from northstar_api.modules.platform_runtime import (
     queue_notification_custody_attestation_signer as custody_signer,
 )
 from northstar_api.modules.platform_runtime.queue_notification_jenkins_test_provenance import (
