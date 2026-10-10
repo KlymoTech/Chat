@@ -100,6 +100,8 @@ def valid_https_origin(origin: object) -> bool:
 def valid_postgres_url(value: str) -> bool:
     """Require a usable PostgreSQL URL without embedded placeholder credentials."""
     try:
+        if len(value) > 4096:
+            return False
         parsed = urlparse(value)
         if re.search(r"%(?![0-9A-Fa-f]{2})", value):
             return False
