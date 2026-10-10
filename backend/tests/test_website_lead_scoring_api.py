@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
 from northstar_api.lead_crm.models import LeadActivityEvent, LeadProfile
+from northstar_api.notifications import Notification
 from northstar_api.models import (
     Lead, OutboxEvent, TenantMembership, User, Workspace, WorkspaceMembership,
     WorkspaceRole,
@@ -147,8 +148,16 @@ async def test_scoring_policy_preview_apply_audit_and_idempotent_noop(
             OutboxEvent.aggregate_type == "lead", OutboxEvent.aggregate_id == str(lead_id),
             OutboxEvent.event_type == "lead.crm.sync.requested.v1",
         ))
+        notifications = (await session.scalars(select(Notification).where(
+            Notification.workspace_id == workspace_id,
+            Notification.category == "lead",
+            Notification.title == "Lead scoring review requested",
+        ))).all()
     assert changes == 1
     assert deliveries == 0
+    assert len(notifications) == 1
+    assert notifications[0].metadata_json["leadId"] == str(lead_id)
+    assert notifications[0].action_url == "/leads"
 
 
 async def test_scoring_blocks_withdrawn_consent_and_foreign_workspace_leads(
