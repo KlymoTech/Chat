@@ -1,4 +1,5 @@
 """Dispatch lease outcomes: empty queue, retries, and bounded attempts."""
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -14,7 +15,7 @@ from northstar_api.modules.platform_runtime.queue_dispatch import (
 def sessions():
     session = MagicMock()
     session.scalar = AsyncMock(return_value=None)
-    session.execute = AsyncMock()
+    session.execute = AsyncMock(return_value=SimpleNamespace(rowcount=1))
     transaction = MagicMock()
     transaction.__aenter__ = AsyncMock()
     transaction.__aexit__ = AsyncMock()
@@ -68,3 +69,57 @@ def test_invalid_lease_configuration_fails_fast():
     factory, _ = sessions()
     with pytest.raises(ValueError):
         DurableDispatchService(factory, MagicMock(), lease_seconds=0)
+
+
+
+@pytest.mark.asyncio
+async def test_terminal_broker_rejection_is_dead_lettered_without_retry():
+    factory, session = sessions()
+    job = DurableJob(uuid4(), uuid4(), "knowledge.index", "db:source:1", "request-0001")
+    publisher = MagicMock()
+    publisher.publish = AsyncMock(
+        return_value=DispatchReceipt(job.job_id, DeliveryOutcome.REJECTED, "sqs")
+    )
+    service = DurableDispatchService(factory, publisher)
+    service.claim = AsyncMock(return_value=ClaimedJob(job, uuid4(), 1))
+
+    assert await service.dispatch_one() is True
+    statement = session.execute.await_args.args[0]
+    values = statement.compile().params.values()
+    assert "dead_letter" in values
+    assert "retrying" not in values
+
+
+@pytest.mark.asyncio
+async def test_expired_or_stolen_lease_cannot_report_successful_dispatch():
+    factory, session = sessions()
+    session.execute.return_value = SimpleNamespace(rowcount=0)
+    job = DurableJob(uuid4(), uuid4(), "knowledge.index", "db:source:1", "request-0001")
+    publisher = MagicMock()
+    publisher.publish = AsyncMock(
+        return_value=DispatchReceipt(
+            job.job_id, DeliveryOutcome.PUBLISHED, "sqs", "message-1"
+        )
+    )
+    service = DurableDispatchService(factory, publisher)
+    service.claim = AsyncMock(return_value=ClaimedJob(job, uuid4(), 1))
+
+    assert await service.dispatch_one() is False
+    session.execute.assert_awaited_once()
+    publisher.publish.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_result_retries_until_configured_attempt_limit():
+    factory, session = sessions()
+    job = DurableJob(uuid4(), uuid4(), "knowledge.index", "db:source:1", "request-0001")
+    publisher = MagicMock()
+    publisher.publish = AsyncMock(
+        return_value=DispatchReceipt(job.job_id, DeliveryOutcome.RETRYABLE, "sqs")
+    )
+    service = DurableDispatchService(factory, publisher, max_attempts=3)
+    service.claim = AsyncMock(return_value=ClaimedJob(job, uuid4(), 3))
+
+    assert await service.dispatch_one() is True
+    statement = session.execute.await_args.args[0]
+    assert "dead_letter" in statement.compile().params.values()
