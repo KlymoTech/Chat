@@ -5,9 +5,9 @@ Lead/LeadProfile/LeadConsent, audit and durable outbox commit together.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
-import secrets
 from datetime import UTC, datetime
 from html import escape
 from typing import Annotated, Any
@@ -48,7 +48,7 @@ _FORM_STYLE = (
     ".honeypot{position:absolute;left:-10000px}a:focus,input:focus,button:focus,select:focus{"
     "outline:3px solid #f59e0b;outline-offset:2px}small{display:block;color:#475569}"
 )
-_STYLE_HASH = __import__("base64").b64encode(hashlib.sha256(_FORM_STYLE.encode()).digest()).decode()
+_STYLE_HASH = base64.b64encode(hashlib.sha256(_FORM_STYLE.encode()).digest()).decode()
 
 
 def _html(content: str, *, status_code: int = 200) -> HTMLResponse:
