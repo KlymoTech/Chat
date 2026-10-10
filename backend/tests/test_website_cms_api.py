@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 
 from northstar_api.database import SessionFactory
 from northstar_api.website_cms_models import WebsiteAudit, WebsiteRevision
+from northstar_api.models import OutboxEvent
 
 
 def page_document(slug: str, text: str) -> dict:
@@ -99,5 +100,59 @@ async def test_cms_draft_review_publish_and_revision_isolation(
         audit_count = await session.scalar(
             select(func.count()).select_from(WebsiteAudit).where(WebsiteAudit.page_id == UUID(page_id))
         )
+        published_events = await session.scalar(
+            select(func.count()).select_from(OutboxEvent).where(
+                OutboxEvent.aggregate_type == "website_page",
+                OutboxEvent.aggregate_id == page_id,
+                OutboxEvent.event_type == "website.page.published",
+            )
+        )
     assert count == 2
     assert audit_count == 5
+    assert published_events == 1
+
+
+async def test_website_cms_revision_restore_and_authenticated_preview(
+    client: AsyncClient, auth_headers: dict[str, str],
+) -> None:
+    slug = "cms-restore-" + uuid4().hex[:12]
+    first = page_document(slug, "Original first version")
+    response = await client.post("/api/v1/site-cms/pages", headers=auth_headers, json=first)
+    assert response.status_code == 201, response.text
+    page_id = response.json()["id"]
+
+    other = page_document(slug, "Second version")
+    revised = await client.put("/api/v1/site-cms/pages/" + page_id, headers=auth_headers,
+                               json={"expected_version": 1, "document": other})
+    assert revised.status_code == 200, revised.text
+    assert revised.json()["draftVersion"] == 2
+
+    revisions = await client.get("/api/v1/site-cms/pages/" + page_id + "/revisions", headers=auth_headers)
+    assert revisions.status_code == 200, revisions.text
+    assert [row["version"] for row in revisions.json()] == [2, 1]
+
+    anonymous_preview = await client.get("/api/v1/site-cms/pages/" + page_id + "/preview")
+    assert anonymous_preview.status_code == 401
+    preview = await client.get("/api/v1/site-cms/pages/" + page_id + "/preview",
+                               headers=auth_headers)
+    assert preview.status_code == 200, preview.text
+    assert "Second version" in preview.text
+    assert "noindex" in preview.headers["x-robots-tag"]
+    assert "private, no-store" in preview.headers["cache-control"]
+
+    restored = await client.post(
+        "/api/v1/site-cms/pages/" + page_id + "/restore/1",
+        headers=auth_headers, json={"expected_version": 2},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["draftVersion"] == 3
+    assert restored.json()["document"]["nodes"][0]["children"][0]["text"] == "Original first version"
+
+    history = await client.get("/api/v1/site-cms/pages/" + page_id + "/revisions",
+                               headers=auth_headers)
+    assert [item["version"] for item in history.json()] == [3, 2, 1]
+    stale_restore = await client.post(
+        "/api/v1/site-cms/pages/" + page_id + "/restore/1",
+        headers=auth_headers, json={"expected_version": 2},
+    )
+    assert stale_restore.status_code == 409
