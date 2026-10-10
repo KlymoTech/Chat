@@ -43,3 +43,8 @@
 .site-cms-page select{padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:white;color:#17202b;font:inherit}
 .site-cms-page :is(button,input,textarea,select):focus-visible{outline:3px solid #2563eb;outline-offset:2px}
 @media(max-width:740px){.site-cms-section-row{flex-wrap:wrap}.site-cms-section-row>button{flex-basis:100%}.site-cms-row-actions{justify-content:flex-start}}
+
+.site-cms-copy{display:grid;grid-template-columns:minmax(140px,1fr) minmax(130px,1fr) auto;gap:12px;align-items:end;margin-top:12px}
+.site-cms-copy label{min-width:0}
+.site-cms-copy button{align-self:end;min-height:43px}
+@media(max-width:820px){.site-cms-copy{grid-template-columns:1fr}}
