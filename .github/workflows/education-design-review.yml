@@ -1,0 +1,69 @@
+name: Education design export regression
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'scripts/figma-redesign/education_browser_review.py'
+      - 'scripts/figma-redesign/leads_browser_review.py'
+      - '.github/workflows/education-design-review.yml'
+permissions:
+  contents: read
+concurrency:
+  group: education-design-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: Exported Education UI and real isolated backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      FIGMA_LIVE_REVIEW: '1'
+      VITE_DEMO_MODE: 'false'
+      VITE_API_URL: '/api/v1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck && npm run build
+      - name: Education display, CRUD, deep links, permissions, shell and dashboard regression
+        run: >-
+          npm run test --workspace @northstar/web --
+          src/features/education src/pages/AcademyDashboards.test.tsx
+          src/pages/CoursesPage.test.tsx src/pages/BatchesPage.test.tsx
+          src/pages/StudentsPage.test.tsx src/pages/EducationEnrollmentsPage.test.tsx
+          src/components/materialm src/features/dashboard src/components/ModalFocus.test.tsx
+          --reporter=default --reporter=junit --outputFile=education-results.xml
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - name: Actual course, batch, student and dashboard API contracts
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./northstar-test.db
+          JWT_SECRET: ci-only-secret-with-at-least-32-characters
+          ALLOW_DETERMINISTIC_EMBEDDINGS: 'true'
+          RATE_LIMIT_FAIL_OPEN: 'true'
+          CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+        run: uv run pytest -q tests/test_education_courses.py tests/test_education_batches.py tests/test_education_students.py tests/test_dashboard_api_contract.py --junitxml=education-api-results.xml
+      - run: uv run python -m playwright install --with-deps chromium
+        working-directory: backend
+      - name: Live login, dashboard, course and batch workflows, responsiveness and isolation
+        working-directory: backend
+        run: uv run python ../scripts/figma-redesign/education_browser_review.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: education-design-review
+          path: |
+            review-results/education-browser/
+            frontend/education-results.xml
+            backend/education-api-results.xml
+          retention-days: 14
+          if-no-files-found: error

@@ -9,13 +9,14 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth, useToast, useWorkspace } from '@/components/providers';
 import { platformAdminApi } from '@/lib/platform-admin-api';
 import { dashboardTheme } from '@/lib/dashboard-theme';
-import { commandNavigation, materialmPageTitle, primaryNavigation, visibleNavigation } from '@/lib/materialm-navigation';
+import { commandNavigation, educationNavigation, materialmPageTitle, primaryNavigation, visibleNavigation } from '@/lib/materialm-navigation';
+import { canUseDashboardCapability } from '@/features/dashboard/dashboardPermissions';
 import { MaterialmSidebarLinks } from './MaterialmSidebar';
 import { MaterialmWorkspaceSwitcher } from './WorkspaceSwitcher';
 
 const COLLAPSED_KEY = 'northstar.academy.sidebar-collapsed';
 function savedCollapsed(): boolean {
-  try { return localStorage.getItem(COLLAPSED_KEY) !== 'false'; } catch { return true; }
+  try { return localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
 }
 
 /** Responsive academy shell sharing the existing business pages, providers and APIs. */
@@ -110,12 +111,12 @@ export function MaterialmAppShell() {
     catch (error) { pushToast(error instanceof Error ? error.message : 'Sign out failed', 'error'); }
   }
 
-  return <div className={`mm-shell academy-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
+  return <div className={`mm-shell academy-shell saas-bot-shell${collapsed ? ' mm-shell--compact' : ''}${location.pathname === '/conversations' ? ' mm-shell--inbox' : ''}`} style={theme}>
     <a className="mm-skip" href="#mm-main-content">Skip to content</a>
     {session?.impersonation ? <div role="status" className="support-impersonation-banner"><ShieldCheck aria-hidden="true" /><span><strong>Support session active</strong> · You are acting as {session.user.email}. This session expires automatically.</span><button type="button" onClick={() => void signOut()}>Exit support session</button></div> : null}
     <aside className="mm-sidebar" aria-label="Primary navigation">
-      <Link to="/" className="mm-sidebar__brand" aria-label="Northstar AI home"><Brand compact={collapsed} light /></Link>
-      <MaterialmSidebarLinks items={items} />
+      <Link to="/" className="mm-sidebar__brand" aria-label="talktobot home"><Brand compact={collapsed} animated /></Link>
+      <MaterialmSidebarLinks items={items} educationItems={educationNavigation.filter((item) => canUseDashboardCapability(scope, item.permission))} />
       <button type="button" className="mm-collapse" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>
         {collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}<span>{collapsed ? 'Expand' : 'Collapse sidebar'}</span>
       </button>
@@ -130,7 +131,7 @@ export function MaterialmAppShell() {
         </div>
         <div className="mm-topbar__actions">
           <button className="mm-search" type="button" aria-label="Search pages and workspaces" aria-haspopup="dialog" onClick={() => setCommandOpen(true)}><Search aria-hidden="true" /><span>Search</span><kbd>Ctrl / ⌘ K</kbd></button>
-          <NotificationBell />
+          <NotificationBell key={activeWorkspace?.id ?? 'no-workspace'} />
           <div className="account-menu" ref={account}>
             <button ref={accountTrigger} type="button" className="account-button" aria-label="Account menu" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}><span className="avatar">{initials}</span><span className="account-copy"><strong>{session?.user.name}</strong><small>{session?.user.role}</small></span><ChevronDown aria-hidden="true" /></button>
             {accountOpen ? <div className="account-popover"><div><strong>{session?.user.name}</strong><small>{session?.user.email}</small></div>
@@ -146,8 +147,8 @@ export function MaterialmAppShell() {
     </div>
     <dialog ref={drawer} id="mm-mobile-navigation" className="mm-drawer" aria-label="Main navigation" onCancel={() => setMobileOpen(false)} onClose={() => { setMobileOpen(false); menuTrigger.current?.focus(); }} onClick={(event) => { if (event.target === event.currentTarget) setMobileOpen(false); }}>
       <div className="mm-drawer__inner">
-        <div className="mm-drawer__header"><Brand /><button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X aria-hidden="true" /></button></div>
-        <MaterialmSidebarLinks items={items} onNavigate={() => setMobileOpen(false)} />
+        <div className="mm-drawer__header"><Brand animated /><button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)}><X aria-hidden="true" /></button></div>
+        <MaterialmSidebarLinks items={items} educationItems={educationNavigation.filter((item) => canUseDashboardCapability(scope, item.permission))} onNavigate={() => setMobileOpen(false)} />
       </div>
     </dialog>
     <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} navigation={commands} workspaces={workspaces} activeWorkspaceId={activeWorkspace?.id} onSelectWorkspace={selectWorkspace} canViewPlatformAdmin={platformAdmin} />

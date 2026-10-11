@@ -1,0 +1,57 @@
+name: Figma live frontend-backend regression
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'scripts/figma-redesign/live_browser_review.py'
+      - '.github/workflows/figma-live-integration.yml'
+permissions:
+  contents: read
+concurrency:
+  group: figma-live-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: Non-demo browser against real isolated FastAPI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      FIGMA_LIVE_REVIEW: '1'
+      VITE_DEMO_MODE: 'false'
+      VITE_API_URL: '/api/v1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck && npm run build
+      - name: Polling, scope, selection and dashboard regressions
+        run: >-
+          npm run test --workspace @northstar/web --
+          src/lib/use-polling-api src/pages/ConversationsSelection.test.tsx
+          src/pages/ConversationsEducationFilters.test.tsx
+          src/features/dashboard src/lib/attention-api.test.ts
+          --reporter=default --reporter=junit --outputFile=live-scope-results.xml
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - run: uv run python -m playwright install --with-deps chromium
+        working-directory: backend
+      - name: Real login, metrics, inbox, replies, workspace isolation and agent creation
+        run: uv run python ../scripts/figma-redesign/live_browser_review.py
+        working-directory: backend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: figma-live-integration
+          path: |
+            review-results/live-browser/
+            frontend/live-scope-results.xml
+          retention-days: 14
+          if-no-files-found: error

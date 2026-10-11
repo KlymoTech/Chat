@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, UploadFile
 from pydantic import EmailStr, Field, TypeAdapter, ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 
+from northstar_api.lead_crm.models import LeadProfile
 from northstar_api.lead_crm.normalization import normalize_identity
 from northstar_api.lead_crm.services import lead_domain_service
 from northstar_api.lead_layout import (
@@ -89,6 +90,8 @@ async def export_leads(
     format: Literal["csv", "xlsx"] = "csv",
     search: str = Query(default="", max_length=320),
     status: str = Query(default="", max_length=40),
+    agent_id: UUID | None = None,
+    channel: str = Query(default="", max_length=60),
 ):
     layout = stored_layout(await workspace_for(session, principal))
     conditions = [Lead.tenant_id == principal.tenant_id, Lead.workspace_id == principal.workspace_id, ~education_source(Lead)]
@@ -96,6 +99,13 @@ async def export_leads(
         conditions.append(Lead.agent_id.in_(principal.agent_ids))
     if status and status != "all":
         conditions.append(Lead.status == status)
+    if agent_id:
+        conditions.append(Lead.agent_id == agent_id)
+    if channel and channel != "all":
+        conditions.append(exists(select(LeadProfile.id).where(
+            LeadProfile.tenant_id == principal.tenant_id,
+            LeadProfile.lead_id == Lead.id, LeadProfile.source_channel == channel,
+        )))
     if search.strip():
         pattern = f"%{search.strip()}%"
         conditions.append(or_(Lead.name.ilike(pattern), Lead.email.ilike(pattern), Lead.phone.ilike(pattern)))

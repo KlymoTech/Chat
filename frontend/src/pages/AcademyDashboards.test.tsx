@@ -6,19 +6,27 @@ import { EducationHubPage } from './EducationHubPage';
 import { OverviewPage } from './OverviewPage';
 import { demoAgents, demoAnalytics } from '@/lib/demo-data';
 
-const mocks = vi.hoisted(() => ({ courses: vi.fn(), enrollments: vi.fn(), agents: vi.fn(), analytics: vi.fn(), conversations: vi.fn() }));
+const mocks = vi.hoisted(() => ({ batches: vi.fn(), students: vi.fn(), requests: vi.fn(), courses: vi.fn(), enrollments: vi.fn(), agents: vi.fn(), analytics: vi.fn(), conversations: vi.fn(), knowledge: vi.fn(), integrations: vi.fn() }));
 vi.mock('@/components/providers', () => ({ useAuth: () => ({ session: { user: { name: 'Sam Owner', role: 'owner' } } }), useWorkspace: () => ({ activeWorkspace: { id: 'academy' } }) }));
-vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: mocks.courses } } }));
+vi.mock('@/lib/education-api', () => ({ educationApi: { courses: { list: mocks.courses }, batches: { list: mocks.batches } } }));
+vi.mock('@/lib/education-student-api', () => ({ educationStudentApi: { list: mocks.students } }));
+vi.mock('@/lib/education-access-request-api', () => ({ educationAccessRequestApi: { list: mocks.requests } }));
 vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: mocks.enrollments } }));
-vi.mock('@/lib/api', () => ({ api: { agents: { list: mocks.agents }, analytics: { summary: mocks.analytics }, conversations: { list: mocks.conversations } } }));
+vi.mock('@/lib/api', () => ({ api: { agents: { list: mocks.agents }, analytics: { summary: mocks.analytics }, conversations: { list: mocks.conversations }, knowledge: { list: mocks.knowledge }, integrations: { list: mocks.integrations } } }));
+vi.mock('@/lib/attention-api', () => ({ loadAttentionConversations: mocks.conversations }));
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.batches.mockResolvedValue([]);
+  mocks.students.mockResolvedValue([]);
+  mocks.requests.mockResolvedValue([]);
+  mocks.knowledge.mockResolvedValue([]);
+  mocks.integrations.mockResolvedValue([]);
   mocks.courses.mockResolvedValue([
     { id: 'cma', code: 'CMA-P1', name: 'CMA', status: 'active', description: 'Accounting course', createdAt: new Date().toISOString() },
     { id: 'old', code: 'OLD', name: 'Archived course', status: 'archived', description: '', createdAt: '2020-01-01T00:00:00Z' },
   ]);
-  mocks.enrollments.mockResolvedValue([{ id: 'enrolled', courseId: 'cma', status: 'active', createdAt: new Date().toISOString() }]);
+  mocks.enrollments.mockResolvedValue([{ id: 'enrolled', studentId: 'student-1', courseId: 'cma', status: 'active', createdAt: new Date().toISOString() }]);
   mocks.agents.mockResolvedValue([{ ...structuredClone(demoAgents[0]!), id: 'live-agent', name: 'Live agent', status: 'active' }, { ...structuredClone(demoAgents[0]!), id: 'draft-agent', name: 'Draft agent', status: 'draft' }]);
   mocks.analytics.mockResolvedValue({ ...demoAnalytics, conversations: 23, chart: [{ label: 'Mon', conversations: 23, resolved: 12 }] });
   mocks.conversations.mockResolvedValue({ items: [], total: 0 });
@@ -28,13 +36,13 @@ describe('PDF dashboard interactions', () => {
   it('shows real courses, filters archived records, and changes chart periods', async () => {
     const user = userEvent.setup();
     render(<MemoryRouter><EducationHubPage /></MemoryRouter>);
-    expect(await screen.findByRole('link', { name: 'View course CMA' })).toHaveAttribute('href', '/education/courses?search=CMA-P1');
-    expect(screen.getByRole('heading', { name: 'Hello Sam!' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'View course CMA' })).toHaveAttribute('href', '/education/courses?selected=cma');
+    expect(screen.getByRole('heading', { name: 'Education Hub' })).toBeInTheDocument();
     await user.click(within(screen.getByRole('group', { name: 'Filter academy courses' })).getByRole('button', { name: 'Archived' }));
     expect(screen.queryByRole('link', { name: 'View course CMA' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View course Archived course' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Next course' }));
-    expect(screen.getByRole('link', { name: 'Continue with Archived course' })).toHaveAttribute('href', '/education/courses?search=OLD');
+    expect(screen.getByRole('link', { name: 'Continue with Archived course' })).toHaveAttribute('href', '/education/courses?selected=old');
     await user.selectOptions(screen.getByLabelText('Academy chart period'), '30');
     expect(screen.getByRole('img', { name: 'Enrollments created in the last 30 days' })).toBeInTheDocument();
     expect(mocks.enrollments).toHaveBeenCalledTimes(1);

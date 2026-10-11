@@ -6,7 +6,7 @@
 
   const agentId = script.dataset.agentId;
   if (!agentId || !/^[A-Za-z0-9_-]{3,80}$/.test(agentId)) {
-    console.error('[Northstar AI] A valid data-agent-id is required.');
+    console.error('[talktobot] A valid data-agent-id is required.');
     return;
   }
 
@@ -90,6 +90,19 @@
         image.alt = '';
         image.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
         launcher.append(image);
+        return;
+      }
+      if (launcherStyle === 'spark') {
+        const animation = document.createElement('video');
+        animation.src = `${platformOrigin}/bot-animations/sleep.mp4`;
+        animation.muted = true;
+        animation.loop = true;
+        animation.autoplay = true;
+        animation.playsInline = true;
+        animation.setAttribute('aria-hidden', 'true');
+        animation.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
+        animation.addEventListener('error', () => { animation.replaceWith(document.createTextNode('✦')); }, { once: true });
+        launcher.append(animation);
         return;
       }
       launcher.textContent = launcherStyle === 'bubble' ? '\u25a4' : launcherStyle === 'avatar' ? String(fallbackAvatar).slice(0, 2) : '\u2726';
@@ -183,6 +196,6 @@
   };
 
   void load().catch((error) => {
-    console.error('[Northstar AI] Unable to initialize the widget.', error instanceof Error ? error.message : 'Unknown error');
+    console.error('[talktobot] Unable to initialize the widget.', error instanceof Error ? error.message : 'Unknown error');
   });
 })();

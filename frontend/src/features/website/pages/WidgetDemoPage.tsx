@@ -129,6 +129,6 @@ function HostedWidgetPage() {
       </section>
       <section className="demo-widget-wrap"><ChatWidget agent={agent.data} embedded publicMode requestNewSession={requestNewSession} /></section>
     </main>
-    <footer>&copy; 2026 Northstar AI &middot; <a href="#privacy">Privacy</a> &middot; <a href="#terms">Terms</a></footer>
+    <footer>&copy; 2026 talktobot &middot; <a href="#privacy">Privacy</a> &middot; <a href="#terms">Terms</a></footer>
   </div>;
 }

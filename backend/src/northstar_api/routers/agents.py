@@ -91,6 +91,11 @@ PURPOSE_STARTER_INSTRUCTIONS: dict[AgentPurpose, str] = {
 }
 
 
+def agent_avatar_initial(name: str) -> str:
+    """Return the persisted, display-safe initial for a newly named agent."""
+    return name.strip()[:1].upper() or "N"
+
+
 class AgentCreateWithChannel(AgentCreate):
     # This endpoint intentionally widens the legacy AgentCreate channel contract with Telegram.
     deployment_channel: AgentChannelType = "website"  # type: ignore[assignment]
@@ -347,6 +352,7 @@ async def _create_agent(payload, principal, session, connection=None) -> AgentOu
         status=initial_status,
         tone=payload.tone,
         language=payload.language,
+        avatar=agent_avatar_initial(payload.name),
         appearance=appearance,
         security=security,
     )
@@ -490,7 +496,7 @@ async def duplicate_agent(
         status=AgentStatus.DRAFT,
         tone=source.tone,
         language=source.language,
-        avatar=source.avatar,
+        avatar=agent_avatar_initial(payload.name),
         appearance=appearance,
         model_profile=deepcopy(source.model_profile),
         security=deepcopy(source.security),

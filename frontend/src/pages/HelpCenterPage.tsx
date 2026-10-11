@@ -31,7 +31,7 @@ export function HelpCenterPage() {
 
   const home = result.data;
   return <div className="page help-page">
-    <section className="help-hero"><span className="page-kicker">Northstar support</span><h2>How can we help?</h2><p>Search official setup guides, product instructions, and troubleshooting for your workspace role.</p><HelpSearchBox /></section>
+    <section className="help-hero"><span className="page-kicker">talktobot support</span><h2>How can we help?</h2><p>Search official setup guides, product instructions, and troubleshooting for your workspace role.</p><HelpSearchBox /></section>
 
     {home.recommended.length ? <section className="help-section"><div className="help-section-heading"><div><h2>Popular for you</h2><p>Useful guides based on your role{context ? ' and current area' : ''}.</p></div><Link className="button button--secondary button--md" to="/help/ask"><Sparkles /> Ask Help AI</Link></div><div className="help-popular">{home.recommended.slice(0, 4).map((article) => <HelpArticleCard key={article.id} article={article} />)}</div></section> : null}
 

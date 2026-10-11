@@ -64,7 +64,12 @@ export function EducationEnrollmentsPage() {
   const [params, setParams] = useSearchParams();
   const agentId = params.get('agentId') || 'all';
   const setAgentId = (id: string) => setParams(id === 'all' ? {} : { agentId: id });
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [manualPickerOpen, setPickerOpen] = useState(false);
+  const pickerOpen = manualPickerOpen || params.get('create') === '1';
+  const closePicker = () => {
+    setPickerOpen(false);
+    if (params.has('create')) { const next = new URLSearchParams(params); next.delete('create'); setParams(next, { replace: true }); }
+  };
   const [pickerStudentId, setPickerStudentId] = useState('');
   const [pickerSearch, setPickerSearch] = useState('');
   const [managedStudent, setManagedStudent] = useState<EducationStudent | null>(null);
@@ -171,7 +176,7 @@ export function EducationEnrollmentsPage() {
   const managePickedStudent = () => {
     const student = studentById.get(pickerStudentId);
     if (!student) return;
-    setPickerOpen(false);
+    closePicker();
     setManagedStudent(student);
   };
 
@@ -200,7 +205,7 @@ export function EducationEnrollmentsPage() {
       <Button icon={Plus} onClick={openPicker}>Add enrollment</Button>
     </div>
 
-    <Card className="bot-enrollment-panel"><Field label="Enrollment bot" htmlFor="enrollment-bot-picker"><select id="enrollment-bot-picker" value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="all">All education bots</option>{educationAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} - {agent.whatsappNumber || 'No WhatsApp number'} - {agent.status}</option>)}</select></Field></Card>
+    <Card className="bot-enrollment-panel"><Field label="Enrollment bot" htmlFor="enrollment-bot-picker"><select className="education-picker-select" id="enrollment-bot-picker" value={agentId} onChange={(event) => setAgentId(event.target.value)} disabled={agents.loading}><option value="all">{agents.loading ? 'Loading education bots…' : 'All education bots'}</option>{educationAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} - {agent.whatsappNumber || 'No WhatsApp number'} - {agent.status}</option>)}</select></Field></Card>
     {educationAgents.filter((agent) => agent.id === agentId).map((agent) => <BotEnrollmentPanel key={agent.id} agent={agent} courses={courses.data ?? []} batches={batches.data ?? []} onSaved={reloadAll} />)}
     <div className="education-enrollment-stats" aria-label="Enrollment summary">
       <Card><ClipboardList /><div><strong>{summary.total}</strong><small>Total enrollments</small></div></Card>
@@ -289,11 +294,11 @@ export function EducationEnrollmentsPage() {
 
     <Modal
       open={pickerOpen}
-      onClose={() => setPickerOpen(false)}
+      onClose={closePicker}
       title="Choose student"
       description="Select an active Student. The existing enrollment manager will handle Course, Batch, Agent, dates, and status rules."
       footer={<>
-        <Button variant="secondary" onClick={() => setPickerOpen(false)}>Cancel</Button>
+        <Button variant="secondary" onClick={closePicker}>Cancel</Button>
         <Button onClick={managePickedStudent} disabled={!pickerStudentId}>Continue</Button>
       </>}
     >

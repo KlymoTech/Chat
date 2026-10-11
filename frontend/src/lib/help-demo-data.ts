@@ -5,7 +5,7 @@ const allRoles = ['owner', 'admin', 'member', 'analyst'] as const;
 const adminRoles = ['owner', 'admin'] as const;
 
 export const demoHelpCategories: HelpCategory[] = [
-  { id: 'help-cat-start', slug: 'getting-started', title: 'Getting Started', description: 'Start with Northstar and reach your first successful setup.', icon: 'Rocket', articleCount: 3, sortOrder: 10 },
+  { id: 'help-cat-start', slug: 'getting-started', title: 'Getting Started', description: 'Start with talktobot and reach your first successful setup.', icon: 'Rocket', articleCount: 3, sortOrder: 10 },
   { id: 'help-cat-agents', slug: 'agents', title: 'Agents', description: 'Create, configure, duplicate, and understand AI agents.', icon: 'Sparkles', articleCount: 4, sortOrder: 20 },
   { id: 'help-cat-knowledge', slug: 'knowledge', title: 'Knowledge', description: 'Add sources, understand processing, and improve grounded answers.', icon: 'BookOpen', articleCount: 4, sortOrder: 30 },
   { id: 'help-cat-conversations', slug: 'conversations', title: 'Conversations', description: 'Use the inbox, states, escalation, and human replies.', icon: 'MessagesSquare', articleCount: 3, sortOrder: 40 },
@@ -14,8 +14,8 @@ export const demoHelpCategories: HelpCategory[] = [
 ];
 
 const summaries: HelpArticleSummary[] = [
-  { id: 'help-welcome', slug: 'welcome-to-northstar', categorySlug: 'getting-started', categoryTitle: 'Getting Started', title: 'Welcome to Northstar AI', summary: 'Learn how the authenticated Northstar workspace is organized.', keywords: ['overview', 'workspace'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...allRoles] },
-  { id: 'help-create-agent', slug: 'create-agent', categorySlug: 'agents', categoryTitle: 'Agents', title: 'Create an agent', summary: 'Create a Northstar AI agent with the existing guided flow.', keywords: ['agent', 'create', 'template', 'channel'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...adminRoles] },
+  { id: 'help-welcome', slug: 'welcome-to-northstar', categorySlug: 'getting-started', categoryTitle: 'Getting Started', title: 'Welcome to talktobot', summary: 'Learn how the authenticated talktobot workspace is organized.', keywords: ['overview', 'workspace'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...allRoles] },
+  { id: 'help-create-agent', slug: 'create-agent', categorySlug: 'agents', categoryTitle: 'Agents', title: 'Create an agent', summary: 'Create a talktobot agent with the existing guided flow.', keywords: ['agent', 'create', 'template', 'channel'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...adminRoles] },
   { id: 'help-add-knowledge', slug: 'add-knowledge-source', categorySlug: 'knowledge', categoryTitle: 'Knowledge', title: 'Add a knowledge source', summary: 'Add a supported file, text, URL, or sitemap source to an agent.', keywords: ['knowledge', 'pdf', 'url', 'sitemap'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...adminRoles] },
   { id: 'help-processing', slug: 'knowledge-statuses', categorySlug: 'knowledge', categoryTitle: 'Knowledge', title: 'Understand Processing, Ready, and Failed states', summary: 'Know what knowledge processing states mean.', keywords: ['processing', 'ready', 'failed'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...allRoles] },
   { id: 'help-deploy', slug: 'deploy-website', categorySlug: 'deploy', categoryTitle: 'Deploy', title: 'Deploy an agent to a website', summary: 'Preview the widget and use the current installation information.', keywords: ['website', 'embed', 'widget'], readingMinutes: 2, updatedAt: now, featured: true, audienceRoles: [...adminRoles] },
@@ -23,12 +23,12 @@ const summaries: HelpArticleSummary[] = [
 ];
 
 const bodies: Record<string, string> = {
-  'welcome-to-northstar': '# Welcome to Northstar AI\n\nNorthstar brings your agents, knowledge, conversations, leads, analytics, integrations, deployment, workspace settings, and Help into one authenticated workspace.\n\n## Main navigation\n\n1. Open **Overview** for a summary.\n2. Open **Agents** for AI agents.\n3. Use **Conversations** and **Leads** for operational work.\n4. Use **Analytics** for performance.\n5. Use **Integrations** and **Deploy** for channels.\n6. Use **Workspace** for team and settings.\n7. Use **Help** for official guidance.',
+  'welcome-to-northstar': '# Welcome to talktobot\n\ntalktobot brings your agents, knowledge, conversations, leads, analytics, integrations, deployment, workspace settings, and Help into one authenticated workspace.\n\n## Main navigation\n\n1. Open **Overview** for a summary.\n2. Open **Agents** for AI agents.\n3. Use **Conversations** and **Leads** for operational work.\n4. Use **Analytics** for performance.\n5. Use **Integrations** and **Deploy** for channels.\n6. Use **Workspace** for team and settings.\n7. Use **Help** for official guidance.',
   'create-agent': '# Create an agent\n\n## Before you start\n\nYou need an **Owner** or **Admin** role.\n\n1. Open **Agents**.\n2. Select **Create agent**.\n3. Complete the guided setup.\n4. Choose the deployment channel.\n5. Review the new agent before publishing.',
   'add-knowledge-source': '# Add a knowledge source\n\n1. Open an agent.\n2. Open **Knowledge**.\n3. Select **Add source**.\n4. Choose file, text, URL, or sitemap where offered.\n5. Submit and wait for processing.\n\nDo not upload credentials or secrets.',
   'knowledge-statuses': '# Understand knowledge processing states\n\n- **Processing** means ingestion is running.\n- **Ready** means the source can be retrieved.\n- **Failed** means ingestion could not finish.\n\nIf many sources are stuck, verify the background ingestion services.',
   'deploy-website': '# Deploy an agent to a website\n\n1. Open **Deploy**.\n2. Select the website agent.\n3. Review the preview.\n4. Copy the current embed snippet.\n5. Confirm **Allowed domains** contains the real hostname.\n6. Test on the deployed site.',
-  'permission-error': '# I received a permission error\n\nNorthstar enforces workspace roles in the backend. Owner/Admin manage agents, knowledge, integrations, and workspace settings. Member supports permitted operations. Analyst is mainly read-oriented.\n\nIf an action should be available, sign in again and confirm your workspace role.',
+  'permission-error': '# I received a permission error\n\ntalktobot enforces workspace roles in the backend. Owner/Admin manage agents, knowledge, integrations, and workspace settings. Member supports permitted operations. Analyst is mainly read-oriented.\n\nIf an action should be available, sign in again and confirm your workspace role.',
 };
 
 export function demoHelpArticle(slug: string): HelpArticle | undefined {

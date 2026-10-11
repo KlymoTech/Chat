@@ -52,7 +52,7 @@ export function LoginPage() {
           {error ? <div className="form-error" role="alert">{error}</div> : null}
           <Button size="lg" type="submit" disabled={submitting}>{submitting ? <span className="button-spinner" /> : <>Sign in <ArrowRight /></>}</Button>
         </form>
-        <p className="signup-copy">New to {publicBrand?.companyName || 'Northstar'}? <Link className="text-button" to="/signup">Create an account</Link></p>
+        <p className="signup-copy">New to {publicBrand?.companyName || 'talktobot'}? <Link className="text-button" to="/signup">Create an account</Link></p>
         <p className="login-legal">By continuing, you agree to our <a href={authBrand?.termsUrl || '#terms'}>Terms</a> and <a href={authBrand?.privacyUrl || '#privacy'}>Privacy Policy</a>.</p>
         {authBrand?.supportUrl ? <p className="login-legal"><a href={authBrand.supportUrl}>Support</a></p> : null}
         {authBrand?.footer ? <p className="login-legal">{authBrand.footer}</p> : null}

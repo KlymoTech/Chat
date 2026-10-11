@@ -1,8 +1,6 @@
 import { Check, CornerDownLeft, Search, Settings2, ShieldCheck, Sparkles, Building2, CircleHelp } from 'lucide-react';
 import {
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type KeyboardEvent,
   type MouseEvent,
@@ -51,7 +49,6 @@ export function CommandPalette({
   canViewPlatformAdmin = false,
 }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -93,16 +90,15 @@ export function CommandPalette({
     return [...pages, ...workspaceResults];
   }, [activeWorkspaceId, canViewPlatformAdmin, navigation, query, workspaces]);
 
-  useEffect(() => {
-    if (!open) return;
+  // The highlighted row must always point to a current result, even when
+  // a workspace switch or a search term shortens the result list.
+  const highlightedIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
+
+  const closePalette = () => {
     setQuery('');
     setActiveIndex(0);
-    inputRef.current?.focus();
-  }, [open]);
-
-  useEffect(() => {
-    setActiveIndex((current) => Math.min(current, Math.max(results.length - 1, 0)));
-  }, [results.length]);
+    onClose();
+  };
 
   const execute = (result: PaletteResult | undefined) => {
     if (!result) return;
@@ -111,13 +107,13 @@ export function CommandPalette({
     } else if (!result.current) {
       onSelectWorkspace(result.workspaceId);
     }
-    onClose();
+    closePalette();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      onClose();
+      closePalette();
       return;
     }
     if (event.key === 'ArrowDown') {
@@ -132,12 +128,12 @@ export function CommandPalette({
     }
     if (event.key === 'Enter') {
       event.preventDefault();
-      execute(results[activeIndex]);
+      execute(results[highlightedIndex]);
     }
   };
 
   const closeFromBackdrop = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) onClose();
+    if (event.target === event.currentTarget) closePalette();
   };
 
   if (!open) return null;
@@ -154,7 +150,7 @@ export function CommandPalette({
         <div className="command-palette__search">
           <Search aria-hidden="true" />
           <input
-            ref={inputRef}
+            autoFocus
             value={query}
             onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
             placeholder="Search pages and workspaces…"
@@ -165,7 +161,7 @@ export function CommandPalette({
         </div>
         <div className="command-palette__results" role="listbox" aria-label="Command results">
           {results.length ? results.map((result, index) => {
-            const selected = index === activeIndex;
+            const selected = index === highlightedIndex;
             const Icon = result.kind === 'workspace'
               ? Building2
               : result.to === '/workspace'

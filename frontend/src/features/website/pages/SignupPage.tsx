@@ -71,7 +71,7 @@ export function SignupPage() {
         <div className="login-heading signup-heading">
           <span className="eyebrow-pill"><UserPlus /> {invited ? 'Workspace invitation' : 'Start your workspace'}</span>
           <h1>{signupTitle}</h1>
-          <p>{invited ? 'Create your account to accept the workspace invitation.' : (authBrand?.loginDescription || `Set up your ${publicBrand?.companyName || 'Northstar'} workspace and become its first owner.`)}</p>
+          <p>{invited ? 'Create your account to accept the workspace invitation.' : (authBrand?.loginDescription || `Set up your ${publicBrand?.companyName || 'talktobot'} workspace and become its first owner.`)}</p>
         </div>
         <form className="login-form signup-form" onSubmit={(event) => void submit(event)} noValidate>
           <div className={invited ? '' : 'signup-grid'}>
@@ -79,7 +79,7 @@ export function SignupPage() {
               <input id="signup-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Sakshee Jha" autoComplete="name" autoFocus />
             </Field>
             {!invited ? <Field label="Organization" htmlFor="signup-organization">
-              <input id="signup-organization" value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="NorthStar Academy" autoComplete="organization" />
+              <input id="signup-organization" value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="talktobot Academy" autoComplete="organization" />
             </Field> : null}
           </div>
           <Field label="Business email" htmlFor="signup-email">

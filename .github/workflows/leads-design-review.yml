@@ -1,0 +1,100 @@
+name: Leads design export regression
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'scripts/figma-redesign/leads_browser_review.py'
+      - 'scripts/figma-redesign/leads_migration_review.py'
+      - '.github/workflows/leads-design-review.yml'
+permissions:
+  contents: read
+concurrency:
+  group: leads-design-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: Non-demo browser against real isolated FastAPI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      FIGMA_LIVE_REVIEW: '1'
+      VITE_DEMO_MODE: 'false'
+      VITE_API_URL: '/api/v1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck && npm run build
+      - name: Leads, dialogs, calendar and existing dashboard regressions
+        run: >-
+          npm run test --workspace @northstar/web --
+          src/pages/LeadsPage.test.tsx src/features/leads src/features/dashboard
+          src/lib/lead-layout-api.test.ts src/components/lead-layout-editor.test.tsx
+          src/components/lead-details-editor.test.tsx src/components/ModalFocus.test.tsx
+          --reporter=default --reporter=junit --outputFile=leads-results.xml
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - name: Real Leads API, isolation, permissions, workflow persistence and export contracts
+        working-directory: backend
+        run: uv run pytest -q tests/test_lead_workspace.py tests/test_lead_layout.py tests/test_dashboard_api_contract.py --junitxml=leads-api-results.xml
+      - name: Record migration heads
+        working-directory: backend
+        run: uv run alembic heads
+      - run: uv run python -m playwright install --with-deps chromium
+        working-directory: backend
+      - name: Real login, lead list, stage, ownership, follow-up, CSV and workspace isolation
+        run: uv run python ../scripts/figma-redesign/leads_browser_review.py
+        working-directory: backend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: leads-design-review
+          path: |
+            review-results/leads-browser/
+            frontend/leads-results.xml
+            backend/leads-api-results.xml
+          retention-days: 14
+          if-no-files-found: error
+  migration:
+    name: PostgreSQL migration and row-level security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      LEADS_MIGRATION_REVIEW: '1'
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16@sha256:a132765ec351c65111b5b675928a3a0515a466a40f97277329db8b8209ad8bc9
+        env:
+          POSTGRES_DB: leads_review
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-isolated-only
+        ports: ['5544:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d leads_review"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - run: uv run python ../scripts/figma-redesign/leads_migration_review.py
+        working-directory: backend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: leads-postgresql-migration
+          path: review-results/leads-migration/
+          retention-days: 14
+          if-no-files-found: error

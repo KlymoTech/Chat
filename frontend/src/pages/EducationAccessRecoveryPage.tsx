@@ -206,7 +206,7 @@ export function EducationAccessRecoveryPage() {
           <Button size="lg" type="button" onClick={() => window.history.back()}>Return to Education Agent <ArrowRight /></Button>
         </div> : null}
 
-        <div className="verify-email-actions"><Link className="text-button" to="/login">Northstar admin sign in</Link></div>
+        <div className="verify-email-actions"><Link className="text-button" to="/login">talktobot admin sign in</Link></div>
       </div>
     </section>
     <section className="login-story" aria-label="Student access security overview">

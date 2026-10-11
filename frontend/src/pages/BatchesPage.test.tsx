@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from '@/components/providers';
 import { BatchesPage } from '@/pages/BatchesPage';
 import type {
@@ -29,6 +30,8 @@ vi.mock('@/lib/education-api', () => ({
     },
   },
 }));
+
+vi.mock('@/lib/education-enrollment-api', () => ({ educationEnrollmentApi: { list: async () => [] } }));
 
 describe('BatchesPage', () => {
   let courses: EducationCourse[];
@@ -120,11 +123,11 @@ describe('BatchesPage', () => {
 
   it('creates and edits a batch linked to an active course', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><BatchesPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><BatchesPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('CPA 2026 Cohort A')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create batch' }));
-    const createDialog = screen.getByRole('dialog');
+    const createDialog = screen.getByRole('region', { name: 'Create batch' });
     expect(within(createDialog).getByLabelText('Course')).toHaveValue('course-1');
     expect(within(createDialog).queryByRole('option', { name: /CMA-P1/ })).not.toBeInTheDocument();
     await user.type(within(createDialog).getByLabelText('Batch code'), 'cpa-2026-b');
@@ -146,7 +149,7 @@ describe('BatchesPage', () => {
 
     const editButtons = screen.getAllByRole('button', { name: 'Edit' });
     await user.click(editButtons.at(-1)!);
-    const editDialog = screen.getByRole('dialog');
+    const editDialog = screen.getByRole('region', { name: 'Edit batch' });
     expect(within(editDialog).getByLabelText('Course')).toBeDisabled();
     const nameInput = within(editDialog).getByLabelText('Batch name');
     await user.clear(nameInput);
@@ -165,7 +168,7 @@ describe('BatchesPage', () => {
 
   it('archives, filters, and reactivates a batch without deleting it', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><BatchesPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><BatchesPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('CPA 2026 Cohort A')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Archive' }));
@@ -195,11 +198,11 @@ describe('BatchesPage', () => {
 
   it('blocks an invalid date range before calling the API', async () => {
     const user = userEvent.setup();
-    render(<ToastProvider><BatchesPage /></ToastProvider>);
+    render(<MemoryRouter><ToastProvider><BatchesPage /></ToastProvider></MemoryRouter>);
 
     expect(await screen.findByText('CPA 2026 Cohort A')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Create batch' }));
-    const dialog = screen.getByRole('dialog');
+    const dialog = screen.getByRole('region', { name: 'Create batch' });
     fireEvent.change(within(dialog).getByLabelText('Batch code'), { target: { value: 'CPA-BAD-DATES' } });
     fireEvent.change(within(dialog).getByLabelText('Batch name'), { target: { value: 'Bad Date Batch' } });
     fireEvent.change(within(dialog).getByLabelText('Start date'), { target: { value: '2026-12-01' } });

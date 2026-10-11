@@ -209,7 +209,7 @@ export function SuperAdminPage() {
 
   return <div className="page">
     <div className="page-heading page-heading--split">
-      <div><span className="page-kicker">Northstar platform</span><h2>Control plane</h2><p>Tenant, billing, operational health, entitlements, support, and audit controls.</p></div>
+      <div><span className="page-kicker">talktobot platform</span><h2>Control plane</h2><p>Tenant, billing, operational health, entitlements, support, and audit controls.</p></div>
       <Badge tone={statusTone(operations?.status ?? 'unknown')}>{formatPlan(operations?.status ?? 'Loading')}</Badge>
     </div>
 

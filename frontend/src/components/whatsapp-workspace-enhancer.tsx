@@ -501,7 +501,7 @@ export function InteractiveChannelWorkspace({
       <header>
         <span style={{ background: appearance?.primaryColor ?? accent }}>{agent?.avatar ?? 'N'}</span>
         <div>
-          <strong>{agent?.name ?? 'Northstar agent'}</strong>
+          <strong>{agent?.name ?? 'talktobot agent'}</strong>
           <small>{channelNames[channel]} · {status}</small>
         </div>
         {!testOnly ? <div className="device-toggle" aria-label="Channel preview mode" style={{ flex: '0 0 auto' }}>

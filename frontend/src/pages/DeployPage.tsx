@@ -501,7 +501,7 @@ function DeployEditor({ section, agent, agents, setAgentId, updateAgent, updateA
   </Panel>;
 
   if (section === 'other') return <Panel title="Advanced options" description="Fine-grained identity and display controls.">
-    <Switch label="Northstar branding" description="Show Powered by Northstar AI below the composer." checked={agent.appearance.showBranding} onChange={(showBranding) => updateAppearance({ showBranding })} />
+    <Switch label="talktobot branding" description="Show Powered by talktobot below the composer." checked={agent.appearance.showBranding} onChange={(showBranding) => updateAppearance({ showBranding })} />
     <Field label="Internal widget name" htmlFor="widget-name"><input id="widget-name" maxLength={120} value={agent.appearance.widgetName ?? `${agent.name} widget`} onChange={(event) => updateAppearance({ widgetName: event.target.value })} /></Field>
     <NumberField label="Layer (z-index)" value={agent.appearance.zIndex ?? 99999} onChange={(zIndex) => updateAppearance({ zIndex })} min={1} max={2147483647} />
     <div className="readonly-field"><span><strong>Widget ID</strong><small>Immutable installation identifier</small></span><code>wdg_{agent.id.replace('agent-', '')}</code></div>

@@ -1,9 +1,10 @@
 import { Archive, GraduationCap, Link2, Pencil, Plus, RotateCcw, Search, Trash2, UserRound, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { StudentEnrollmentsModal } from '@/components/student-enrollments-modal';
 import { StudentIdentitiesModal } from '@/components/student-identities-modal';
-import { useToast } from '@/components/providers';
+import { useOptionalWorkspace, useToast } from '@/components/providers';
+import { canUseDashboardCapability } from '@/features/dashboard/dashboardPermissions';
 import { Badge, Button, Card, EmptyState, Field, Modal, PageLoader } from '@/components/ui';
 import {
   educationStudentApi,
@@ -68,9 +69,12 @@ function fieldsFromRows(rows: CustomFieldRow[]): StudentCustomFields {
 export function StudentsPage() {
   const students = useApi(() => educationStudentApi.list());
   const { pushToast } = useToast();
+  const canManage = canUseDashboardCapability({ permissions: useOptionalWorkspace()?.activeWorkspace?.permissions }, 'education.manage');
+  const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StudentFilter>('all');
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [manualEditorOpen, setEditorOpen] = useState(false);
+  const editorOpen = canManage && (manualEditorOpen || params.get('create') === '1');
   const [editing, setEditing] = useState<EducationStudent | null>(null);
   const [identityStudent, setIdentityStudent] = useState<EducationStudent | null>(null);
   const [enrollmentStudent, setEnrollmentStudent] = useState<EducationStudent | null>(null);
@@ -126,6 +130,7 @@ export function StudentsPage() {
 
   const closeEditor = () => {
     if (saving) return;
+    if (params.has('create')) { const next = new URLSearchParams(params); next.delete('create'); setParams(next, { replace: true }); }
     setEditorOpen(false);
     setEditing(null);
     setForm(emptyForm);
@@ -289,7 +294,7 @@ export function StudentsPage() {
         <h2>Students</h2>
         <p>Manage durable student profiles, verified channel identities, and Course/Batch/Agent enrollment access in the active workspace.</p>
       </div>
-      <Button icon={Plus} onClick={openCreate}>Add student</Button>
+      <Button icon={Plus} onClick={openCreate} disabled={!canManage}>Add student</Button>
     </div>
 
     <div className="student-stats" aria-label="Student summary">
@@ -344,15 +349,15 @@ export function StudentsPage() {
             <Link className="button button--secondary button--sm" to={`/education/students/${student.id}`}>Details</Link>
             <Button variant="secondary" size="sm" icon={Link2} onClick={() => setIdentityStudent(student)}>Identities</Button>
             <Button variant="secondary" size="sm" icon={GraduationCap} onClick={() => setEnrollmentStudent(student)}>Enrollments</Button>
-            <Button variant="secondary" size="sm" icon={Pencil} onClick={() => openEdit(student)}>Edit</Button>
-            <Button variant="danger" size="sm" icon={Trash2} onClick={() => setDeleteTarget(student)}>Delete</Button>
+            <Button variant="secondary" size="sm" icon={Pencil} disabled={!canManage} onClick={() => openEdit(student)}>Edit</Button>
+            <Button variant="danger" size="sm" icon={Trash2} disabled={!canManage} onClick={() => setDeleteTarget(student)}>Delete</Button>
             {student.status === 'active'
-              ? <Button variant="ghost" size="sm" icon={Archive} onClick={() => setArchiveTarget(student)}>Archive</Button>
+              ? <Button variant="ghost" size="sm" icon={Archive} disabled={!canManage} onClick={() => setArchiveTarget(student)}>Archive</Button>
               : <Button
                   variant="secondary"
                   size="sm"
                   icon={RotateCcw}
-                  disabled={reactivating === student.id}
+                  disabled={!canManage || reactivating === student.id}
                   onClick={() => void reactivateStudent(student)}
                 >Reactivate</Button>}
           </div></td>
@@ -363,7 +368,7 @@ export function StudentsPage() {
         description={students.data?.length
           ? 'Try another search or status filter.'
           : 'Create a durable Student profile, then link identities and assign Course/Batch/Agent enrollment access.'}
-        action={!students.data?.length ? <Button icon={Plus} onClick={openCreate}>Add student</Button> : undefined}
+        action={!students.data?.length ? <Button icon={Plus} onClick={openCreate} disabled={!canManage}>Add student</Button> : undefined}
       />}
     </Card>
 

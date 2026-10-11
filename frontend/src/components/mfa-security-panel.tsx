@@ -93,7 +93,7 @@ export function MFASecurityPanel() {
 
   return <section className="mfa-security" aria-labelledby="mfa-security-title">
     <div className="mfa-security__heading">
-      <div><span className="mfa-security__icon"><ShieldCheck /></span><span><strong id="mfa-security-title">Your multi-factor authentication</strong><small>Protect your Northstar account with a time-based authenticator and one-time recovery codes.</small></span></div>
+      <div><span className="mfa-security__icon"><ShieldCheck /></span><span><strong id="mfa-security-title">Your multi-factor authentication</strong><small>Protect your talktobot account with a time-based authenticator and one-time recovery codes.</small></span></div>
       <Badge tone={status?.enabled ? 'success' : 'neutral'}>{status?.enabled ? 'Enabled' : 'Not enabled'}</Badge>
     </div>
 
@@ -105,7 +105,7 @@ export function MFASecurityPanel() {
     </form> : null}
 
     {setup ? <div className="mfa-setup-flow">
-      <div className="mfa-setup-flow__step"><strong>1. Add Northstar to your authenticator app</strong><p>Scan this QR code, or enter the setup key manually.</p><div className="mfa-setup-flow__qr">{qrDataUrl ? <img src={qrDataUrl} alt="Authenticator setup QR code" /> : <span className="button-spinner" />}</div><div className="mfa-secret-row"><code>{setup.secret}</code><button type="button" className="icon-button" aria-label="Copy authenticator setup key" onClick={() => void navigator.clipboard.writeText(setup.secret).then(() => pushToast('Setup key copied'))}><Copy /></button></div></div>
+      <div className="mfa-setup-flow__step"><strong>1. Add talktobot to your authenticator app</strong><p>Scan this QR code, or enter the setup key manually.</p><div className="mfa-setup-flow__qr">{qrDataUrl ? <img src={qrDataUrl} alt="Authenticator setup QR code" /> : <span className="button-spinner" />}</div><div className="mfa-secret-row"><code>{setup.secret}</code><button type="button" className="icon-button" aria-label="Copy authenticator setup key" onClick={() => void navigator.clipboard.writeText(setup.secret).then(() => pushToast('Setup key copied'))}><Copy /></button></div></div>
       <div className="mfa-setup-flow__step"><strong>2. Save your recovery codes</strong><p>Each code works once. Store them somewhere safe outside this browser.</p><RecoveryCodes codes={setup.recoveryCodes} onCopy={() => pushToast('Recovery codes copied')} /><label className="mfa-recovery-check"><input type="checkbox" checked={savedRecoveryCodes} onChange={(event) => setSavedRecoveryCodes(event.target.checked)} /> I saved these recovery codes securely.</label></div>
       <form className="mfa-setup-flow__step" onSubmit={(event) => void confirm(event)}><strong>3. Confirm your authenticator</strong><Field label="6-digit code" htmlFor="mfa-confirm-code"><input id="mfa-confirm-code" inputMode="numeric" autoComplete="one-time-code" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" /></Field><Button type="submit" disabled={busy}>{busy ? 'Enabling…' : 'Enable MFA'}</Button></form>
     </div> : null}

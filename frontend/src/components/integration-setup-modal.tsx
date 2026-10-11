@@ -22,6 +22,7 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
   const isChannel = item.category === 'Channels';
   const connections = (isChannel ? channelConnections : crmConnections).filter(value => value.provider === item.id);
   const [connectionId, setConnectionId] = useState(connections[0]?.id ?? '');
+  const [selectedTelegramBotId, setSelectedTelegramBotId] = useState('');
   const [channelResult, setChannelResult] = useState<ChannelConnectionView | null>(null);
   const connection = connections.find(value => value.id === connectionId) ?? channelResult;
   const [editing, setEditing] = useState(!connection || connection.status === 'disabled');
@@ -45,6 +46,8 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
   // Telegram is a connection binding, not a legacy appearance value. Existing
   // agents may therefore use Telegram without changing their display channel.
   const availableAgents = (agents.data ?? []).filter(agent => item.id === 'telegram' || !agent.appearance.deploymentChannel || agent.appearance.deploymentChannel === canonicalChannel);
+  const telegramConnections = item.id === 'telegram' ? channelConnections.filter(value => value.provider === 'telegram') : [];
+  const selectedTelegramBot = telegramConnections.find(value => value.id === selectedTelegramBotId);
 
   useEffect(() => {
     const receive = (event: MessageEvent<CRMOAuthPopupMessage>) => {
@@ -116,12 +119,19 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
         if (!popup.current || popup.current.closed) throw new Error('Authorization window closed. Please try again.');
         popup.current.location.replace(result.authorizationUrl); setWaiting(true); onChanged();
       } else if (isChannel) {
-        const payload = channelSetupPayload(item.id, values);
-        const saved = connectionId ? await leadCrmApi.updateChannelConnection(connectionId, payload) : await leadCrmApi.createChannelConnection(payload);
+        const saved = selectedTelegramBot
+          ? await leadCrmApi.assignChannelConnectionAgent(selectedTelegramBot.id, values.agentId ?? '')
+          : await (connectionId
+            ? leadCrmApi.updateChannelConnection(connectionId, channelSetupPayload(item.id, values))
+            : leadCrmApi.createChannelConnection(channelSetupPayload(item.id, values)));
         setConnectionId(saved.id); setChannelResult(saved); clearSecrets();
-        const health = await leadCrmApi.testChannelConnection(saved.id);
-        if (health.status !== 'healthy') throw new Error(`Credentials could not be verified (${health.status?.replaceAll('_', ' ') ?? 'unknown'}). Enter corrected credentials and retry.`);
-        setEditing(false); setMessage('Credentials verified. Finish the webhook setup below to receive customer messages.'); onChanged();
+        if (selectedTelegramBot) {
+          setEditing(false); setMessage('Telegram bot assigned. Its saved credentials and webhook remain unchanged.'); onChanged();
+        } else {
+          const health = await leadCrmApi.testChannelConnection(saved.id);
+          if (health.status !== 'healthy') throw new Error(`Credentials could not be verified (${health.status?.replaceAll('_', ' ') ?? 'unknown'}). Enter corrected credentials and retry.`);
+          setEditing(false); setMessage('Credentials verified. Finish the webhook setup below to receive customer messages.'); onChanged();
+        }
       } else {
         const result = await crmOneClickApi.activateDirect(item.id as CRMProviderId, {
           name: values.name, base_url: values.baseUrl!, api_key: values.apiKey || undefined, token: values.token || undefined,
@@ -156,7 +166,7 @@ export function IntegrationSetupModal({ item, provider, crmConnections, channelC
             {provider?.configured && <label className="connection-checkbox"><input type="checkbox" checked={ownApp} onChange={event => setOwnApp(event.target.checked)} />Use my own OAuth app</label>}
             {ownApp && <div className="connection-app-fields"><h3>OAuth application</h3><p>Enter the app credentials from your {item.name} developer settings. You will sign in and approve access on {item.name}.</p>{input({ key: 'clientId', label: 'Client ID' })}{input({ key: 'clientSecret', label: 'Client secret', type: 'password' })}<Field label="Authorized redirect URL" htmlFor="connect-callback" hint="Copy this exact URL into your OAuth app's redirect settings."><input id="connect-callback" readOnly value={callbackUrl} onFocus={event => event.target.select()} /></Field></div>}
           </>}
-          {isChannel && <><Field label="Agent" htmlFor="connect-agent" hint="Choose the agent that will answer messages on this channel."><select id="connect-agent" required value={values.agentId ?? ''} onChange={event => update('agentId', event.target.value)}><option value="">Select an agent</option>{availableAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></Field>{agents.error && <p role="alert">Could not load agents: {agents.error}</p>}{!agents.loading && !agents.error && !availableAgents.length && <p className="catalog-notice">Create an agent for {item.name} first. <Link to="/agents" onClick={onClose}>Go to Agents</Link></p>}{channelFields[item.id]?.map(field => input(field))}</>}
+          {isChannel && <><Field label="Agent" htmlFor="connect-agent" hint="Choose the agent that will answer messages on this channel."><select id="connect-agent" required value={values.agentId ?? ''} onChange={event => update('agentId', event.target.value)}><option value="">Select an agent</option>{availableAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></Field>{item.id === 'telegram' && <Field label="Connected bot" htmlFor="connect-telegram-bot" hint="Choose a saved Telegram bot or connect another bot."><select id="connect-telegram-bot" value={selectedTelegramBotId} onChange={event => { const nextId = event.target.value; const next = telegramConnections.find(value => value.id === nextId); setSelectedTelegramBotId(nextId); if (next) { update('name', next.name); update('agentId', next.agent_id ?? ''); } }}><option value="">Connect another bot</option>{telegramConnections.filter(value => value.status !== 'disabled').map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></Field>}{agents.error && <p role="alert">Could not load agents: {agents.error}</p>}{!agents.loading && !agents.error && !availableAgents.length && <p className="catalog-notice">Create an agent for {item.name} first. <Link to="/agents" onClick={onClose}>Go to Agents</Link></p>}{channelFields[item.id]?.map(field => input(field, !selectedTelegramBot))}</>}
           {!isChannel && !oauth && <>{input({ key: 'baseUrl', label: item.id === 'freshsales' ? 'Freshsales account URL' : 'API base URL', type: 'url', placeholder: item.id === 'freshsales' ? 'https://your-company.myfreshworks.com/crm/sales' : 'https://crm.example.com/api' })}{item.id === 'freshsales' ? input({ key: 'apiKey', label: 'API key', type: 'password' }) : <><Field label="Authentication" htmlFor="connect-auth"><select id="connect-auth" value={values.authType} onChange={event => update('authType', event.target.value)}><option value="BEARER">Bearer token</option><option value="API_KEY_HEADER">API key header</option><option value="NONE">No authentication</option></select></Field>{values.authType === 'BEARER' && input({ key: 'token', label: 'Access token', type: 'password' })}{values.authType === 'API_KEY_HEADER' && <>{input({ key: 'apiKey', label: 'API key', type: 'password' })}{input({ key: 'apiKeyHeader', label: 'API key header name' })}</>}{input({ key: 'healthPath', label: 'Health check path', placeholder: '/health' }, false)}{input({ key: 'upsertPath', label: 'Lead upsert path', placeholder: '/leads/upsert' })}{input({ key: 'getPath', label: 'Lead read-back path', placeholder: '/leads/{id}', hint: 'Use {id} where the external record ID belongs. Responses must provide an id field.' })}</>}</>}
         </fieldset>
         {!isChannel && <p className="catalog-notice">Connecting enables lead sync for this workspace and prepares default field mapping. Review mapping and routing after authorization.</p>}

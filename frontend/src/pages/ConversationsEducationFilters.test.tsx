@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -186,6 +186,31 @@ describe('ConversationsPage Education filters', () => {
       batchId: undefined,
       studentId: undefined,
     }), expect.any(AbortSignal)));
+  });
+
+  it('keeps a focused filter mounted while new scoped rows are loading', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ConversationsPage /></MemoryRouter>);
+    const status = await screen.findByRole('combobox', { name: 'Filter conversations' });
+    expect(await screen.findByText('No conversations here')).toBeInTheDocument();
+    let resolve!: (value: PageResult<Conversation>) => void;
+    const pending = new Promise<PageResult<Conversation>>((done) => { resolve = done; });
+    mocks.conversationList.mockReturnValueOnce(pending);
+
+    await user.selectOptions(status, 'open');
+    expect(screen.getByRole('combobox', { name: 'Filter conversations' })).toBe(status);
+    expect(status).toHaveFocus();
+    expect(status).toHaveValue('open');
+    expect(screen.getByRole('region', { name: 'Conversation list' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Loading conversations…')).toBeInTheDocument();
+    expect(screen.queryByText('No conversations here')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 results')).not.toBeInTheDocument();
+
+    await act(async () => resolve(emptyPage));
+    expect(screen.getByRole('region', { name: 'Conversation list' })).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByRole('combobox', { name: 'Filter conversations' })).toBe(status);
+    expect(status).toHaveFocus();
+    expect(screen.getByText('No conversations here')).toBeInTheDocument();
   });
 
   it('lists registered messaging integrations and filters by the selected channel', async () => {

@@ -1,0 +1,93 @@
+name: Figma redesign review
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'scripts/figma-redesign/**'
+      - '.github/workflows/figma-redesign-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: figma-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Independent frontend diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - run: npm ci --no-audit --no-fund
+      - run: python3 scripts/figma-redesign/checks.py frontend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: figma-frontend-review
+          path: |
+            review-results/frontend/
+            frontend/test-results.xml
+          retention-days: 14
+          if-no-files-found: error
+  backend:
+    name: Independent backend diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      APP_ENV: test
+      DATABASE_URL: sqlite+aiosqlite:///./northstar-test.db
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      ALLOW_DETERMINISTIC_EMBEDDINGS: 'true'
+      RATE_LIMIT_FAIL_OPEN: 'true'
+      CRM_CREDENTIAL_ENCRYPTION_KEY: ci-only-crm-credential-encryption-key-32chars
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with: {enable-cache: true, cache-dependency-glob: backend/uv.lock}
+      - run: uv sync --all-groups --locked
+        working-directory: backend
+      - run: python3 scripts/figma-redesign/checks.py backend
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: figma-backend-review
+          path: |
+            review-results/backend/
+            backend/test-results.xml
+          retention-days: 14
+          if-no-files-found: error
+  browser:
+    name: Responsive browser review (demo fixtures, not backend E2E)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with: {node-version: '22', cache: npm}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - run: |
+          npm ci --no-audit --no-fund
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - run: npm run build
+        env: {VITE_DEMO_MODE: 'true'}
+      - run: python scripts/figma-redesign/browser_review.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: figma-browser-review
+          path: review-results/browser/
+          retention-days: 14
+          if-no-files-found: error

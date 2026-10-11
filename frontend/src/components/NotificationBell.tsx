@@ -34,7 +34,8 @@ export function NotificationBell() {
       return;
     }
     try {
-      setUnreadCount(await notificationsApi.unreadCount());
+      const count = await notificationsApi.unreadCount();
+      setUnreadCount(count);
     } catch {
       // The top bar should remain usable during an API outage. The full error is
       // surfaced when the user explicitly opens the inbox.
@@ -63,16 +64,10 @@ export function NotificationBell() {
   }, [activeWorkspace?.id, pushToast]);
 
   useEffect(() => {
-    setOpen(false);
-    setItems([]);
     void refreshCount();
     const timer = window.setInterval(() => { void refreshCount(); }, 60_000);
     return () => window.clearInterval(timer);
   }, [refreshCount]);
-
-  useEffect(() => {
-    if (open) void loadItems();
-  }, [open, loadItems]);
 
   const markRead = async (item: NotificationItem) => {
     if (item.readAt) return item;
@@ -86,7 +81,9 @@ export function NotificationBell() {
     try {
       await markRead(item);
       setOpen(false);
-      if (item.actionUrl?.startsWith('/')) navigate(item.actionUrl);
+      // Only navigate to an application-relative path; reject protocol-relative
+      // URLs and backslashes that browsers can interpret as external hosts.
+      if (item.actionUrl && /^\/(?!\/)[^\\\u0000-\u001f\u007f]*$/.test(item.actionUrl)) navigate(item.actionUrl);
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Notification could not be updated', 'error');
     }
@@ -111,7 +108,7 @@ export function NotificationBell() {
       aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'}
       aria-expanded={open}
       aria-haspopup="dialog"
-      onClick={() => setOpen((value) => !value)}
+      onClick={() => { if (!open) void loadItems(); setOpen((value) => !value); }}
     >
       <Bell />
       {unreadCount > 0 ? <span className="notification-center__badge">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}

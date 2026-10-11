@@ -41,7 +41,7 @@ export function MFAChallengePage() {
   return <div className="login-page" style={authBrand?.loginBackground ? { backgroundImage: `url(${authBrand.loginBackground})` } : undefined}>
     <section className="login-panel"><div className="login-panel__inner">
       <Brand />
-      <div className="login-heading"><span className="eyebrow-pill"><ShieldCheck /> Secure sign in</span><h1>{authBrand?.mfaTitle || 'Verify it’s you'}</h1><p>Complete multi-factor authentication before {brand?.companyName || 'Northstar'} creates your session.</p></div>
+      <div className="login-heading"><span className="eyebrow-pill"><ShieldCheck /> Secure sign in</span><h1>{authBrand?.mfaTitle || 'Verify it’s you'}</h1><p>Complete multi-factor authentication before {brand?.companyName || 'talktobot'} creates your session.</p></div>
       {!challengeToken ? <div className="form-error" role="alert">Your sign-in challenge is missing or expired. Sign in again.</div> : null}
       <form className="login-form" onSubmit={(event) => void submit(event)} noValidate>
         {mode === 'totp' ? <Field label="Authenticator code" htmlFor="mfa-code"><input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" autoFocus /></Field> : <Field label="Recovery code" htmlFor="mfa-recovery"><input id="mfa-recovery" autoComplete="off" value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value.toUpperCase())} placeholder="ABCD-EFGH-JKLM" autoFocus /></Field>}
@@ -50,6 +50,6 @@ export function MFAChallengePage() {
       <button type="button" className="text-button" onClick={() => { setMode((value) => value === 'totp' ? 'recovery' : 'totp'); setError(''); }}>{mode === 'totp' ? 'Use a recovery code instead' : 'Use authenticator code instead'}</button>
       <p className="signup-copy"><Link className="text-button" to="/login"><ArrowLeft /> Back to sign in</Link></p>{authBrand?.footer ? <p className="login-legal">{authBrand.footer}</p> : null}
     </div></section>
-    <section className="login-story" aria-label="Multi-factor authentication"><div className="login-glow login-glow--one" /><div className="login-glow login-glow--two" /><div className="story-copy"><span className="story-kicker"><span /> Account protection</span><h2>Your password is only the first step.</h2><p>{brand?.companyName || 'Northstar'} requires your authenticator or a one-time recovery code before issuing an authenticated workspace session.</p></div></section>
+    <section className="login-story" aria-label="Multi-factor authentication"><div className="login-glow login-glow--one" /><div className="login-glow login-glow--two" /><div className="story-copy"><span className="story-kicker"><span /> Account protection</span><h2>Your password is only the first step.</h2><p>{brand?.companyName || 'talktobot'} requires your authenticator or a one-time recovery code before issuing an authenticated workspace session.</p></div></section>
   </div>;
 }

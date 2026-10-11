@@ -1,214 +1,98 @@
+import { Bot, Check, ChevronDown, Download, Globe2, LayoutList, MessageCircle, MoreVertical, Plus, RefreshCw, Search, UsersRound, Webhook, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { LeadLayoutEditor } from '@/components/lead-layout-editor';
 import { LeadDetailsEditor } from '@/components/lead-details-editor';
-import { defaultLayout, leadColumnValue, leadLayoutApi, type LeadLayout } from '@/lib/lead-layout-api';
-import './LeadsPage.css';
-import { ChevronDown, Download, Filter, RefreshCw, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import { CRMDeliveryAttempts } from '@/components/crm-delivery-attempts';
-import { useToast } from '@/components/providers';
-import { Badge, Button, Card, EmptyState, PageLoader } from '@/components/ui';
+import { useAuth, useToast, useWorkspace } from '@/components/providers';
+import { Button, EmptyState } from '@/components/ui';
 import { api } from '@/lib/api';
-import { getVerificationView } from '@/lib/crm-delivery-status';
+import { defaultLayout, leadColumnValue, leadLayoutApi, type LeadLayout } from '@/lib/lead-layout-api';
 import { leadCrmApi } from '@/lib/lead-crm-api';
-import { relativeTime } from '@/lib/format';
+import { leadStatuses } from '@/lib/lead-status';
 import { useApi } from '@/lib/use-api';
+import { usePollingApi } from '@/lib/use-polling-api';
+import { canUseDashboardCapability } from '@/features/dashboard/dashboardPermissions';
+import { AddLeadDialog } from '@/features/leads/LeadDialogs';
+import { LeadDrawer } from '@/features/leads/LeadDrawer';
+import { leadWorkspaceApi, type LeadWorkspace } from '@/features/leads/leadWorkspaceApi';
+import { capturedAt, currentLeadWorkspace, displayName, initials, label, leadSource, sourceLabel } from '@/features/leads/presentation';
 import type { Lead, PageResult } from '@/types';
+import './LeadsPage.css';
+import '@/features/leads/leads.css';
 
-import { leadStatuses as commonStatuses } from '@/lib/lead-status';
-
-interface LeadFilters {
-  page: number;
-  pageSize: number;
-  search: string;
-  status: string;
+const PAGE_SIZE = 6;
+const DEMO = import.meta.env.VITE_DEMO_MODE === 'true';
+interface Filters { page: number; pageSize: number; search: string; status: string; agentId: string; channel: string }
+async function loadLeads(filters: Filters): Promise<PageResult<Lead>> {
+  if (!DEMO) return leadCrmApi.leads(filters);
+  const page = await api.leads.list();
+  const search = filters.search.trim().toLowerCase();
+  const items = page.items.filter((lead) => (!search || `${lead.name || ''} ${lead.email || ''} ${lead.phone || ''}`.toLowerCase().includes(search))
+    && (filters.status === 'all' || lead.status === filters.status) && (filters.agentId === 'all' || lead.agentId === filters.agentId)
+    && (filters.channel === 'all' || leadSource(lead) === filters.channel));
+  const start = (filters.page - 1) * filters.pageSize;
+  return { items: items.slice(start, start + filters.pageSize), total: items.length, page: filters.page, pageSize: filters.pageSize };
 }
-
-async function loadLeads(filters: LeadFilters): Promise<PageResult<Lead>> {
-  try {
-    return await leadCrmApi.leads(filters);
-  } catch {
-    // Keep the richer CRM query when the API is running, while preserving the
-    // application's configured demo fallback during standalone Vite previews.
-    const fallback = await api.leads.list();
-    const search = filters.search.trim().toLowerCase();
-    const filtered = fallback.items.filter((lead) => {
-      const matchesSearch = !search || `${lead.name ?? ''} ${lead.email ?? ''} ${lead.phone ?? ''}`.toLowerCase().includes(search);
-      const matchesStatus = filters.status === 'all' || lead.status === filters.status;
-      return matchesSearch && matchesStatus;
-    });
-    const start = (filters.page - 1) * filters.pageSize;
-    return {
-      items: filtered.slice(start, start + filters.pageSize),
-      total: filtered.length,
-      page: filters.page,
-      pageSize: filters.pageSize,
-    };
-  }
-}
-
-function statusTone(status: string): 'brand' | 'warning' | 'success' | 'purple' | 'neutral' {
-  if (status === 'new' || status === 'identified') return 'brand';
-  if (status === 'contacted' || status === 'engaged') return 'warning';
-  if (status === 'qualified') return 'purple';
-  if (status === 'converted') return 'success';
-  return 'neutral';
-}
-
-function deliveryTone(status: string): 'brand' | 'warning' | 'success' | 'purple' | 'neutral' {
-  if (status === 'verified') return 'success';
-  if (['failed', 'dead_letter', 'mapping_error', 'auth_required'].includes(status)) return 'warning';
-  if (['queued', 'processing', 'retrying', 'rate_limited'].includes(status)) return 'brand';
-  return 'neutral';
-}
-
+/** Scope remount also clears open profiles, editing state and prior-tenant data. */
 export function LeadsPage() {
-  const layoutResult = useApi(() => leadLayoutApi.get());
-  const [savedLayout, setSavedLayout] = useState<LeadLayout | null>(null);
-  const layout = savedLayout ?? layoutResult.data ?? defaultLayout;
-  const [customizing, setCustomizing] = useState(false);
-  const [editing, setEditing] = useState<Lead | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('all');
-  const [page, setPage] = useState(1);
-  const leads = useApi(() => loadLeads({ page, pageSize: 50, search, status }), [page, search, status]);
-  const agents = useApi(() => api.agents.list());
-  const [selected, setSelected] = useState<Lead | null>(null);
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
-  const [updating, setUpdating] = useState<string>();
-  const [retrying, setRetrying] = useState<string>();
-  const { pushToast } = useToast();
-
-  const deliveries = useApi(
-    () => selected ? leadCrmApi.deliveriesForLead(selected.id) : Promise.resolve([]),
-    [selected?.id],
-  );
-  const activity = useApi(
-    () => selected ? leadCrmApi.activityForLead(selected.id) : Promise.resolve([]),
-    [selected?.id],
-  );
-
-  const records = useMemo(
-    () => (leads.data?.items ?? []).map((lead) => ({ ...lead, status: overrides[lead.id] ?? lead.status })),
-    [leads.data, overrides],
-  );
-  const agentNames = useMemo(() => new Map((agents.data ?? []).map((agent) => [agent.id, agent.name])), [agents.data]);
-
-  const updateStatus = async (lead: Lead, nextStatus: string) => {
-    const previous = overrides[lead.id] ?? lead.status;
-    setOverrides((current) => ({ ...current, [lead.id]: nextStatus }));
-    setUpdating(lead.id);
-    try {
-      const saved = await api.leads.updateStatus(lead.id, nextStatus);
-      setOverrides((current) => ({ ...current, [lead.id]: saved.status }));
-      pushToast(saved.status === 'qualified'
-        ? `${lead.name || 'Lead'} marked Qualified. Resolved leads sync automatically using your CRM settings.`
-        : `${lead.name || 'Lead'} marked ${saved.status}`);
-      if (selected?.id === lead.id) { deliveries.reload(); activity.reload(); }
-    } catch (error) {
-      setOverrides((current) => ({ ...current, [lead.id]: previous }));
-      pushToast(error instanceof Error ? error.message : 'Could not update this lead', 'error');
-    } finally {
-      setUpdating(undefined);
-    }
-  };
-
-  const syncLead = async () => {
-    if (!selected) return;
-    try {
-      await leadCrmApi.syncLead(selected.id, 'manual-ui');
-      pushToast('CRM synchronization queued');
-      deliveries.reload();
-      activity.reload();
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Could not queue CRM synchronization', 'error');
-    }
-  };
-
-  const retryDelivery = async (deliveryId: string) => {
-    setRetrying(deliveryId);
-    try {
-      const result = await leadCrmApi.retryDelivery(deliveryId);
-      pushToast(result?.acknowledged_at ? 'CRM verification queued; the acknowledged write will not be resent' : 'CRM delivery queued for retry');
-      deliveries.reload();
-      activity.reload();
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : 'Could not retry delivery', 'error');
-    } finally {
-      setRetrying(undefined);
-    }
-  };
-
-  if ((leads.loading && !leads.data) || agents.loading) return <PageLoader />;
-  if (leads.error) return <div className="page leads-page"><Card><EmptyState icon={UsersRound} title="Leads are unavailable" description={leads.error} action={<Button onClick={leads.reload}>Try again</Button>} /></Card></div>;
-
-  const qualified = records.filter((lead) => lead.status === 'qualified').length;
-  const converted = records.filter((lead) => lead.status === 'converted').length;
-  const consented = records.filter((lead) => lead.consent).length;
-  const totalPages = Math.max(1, Math.ceil((leads.data?.total ?? 0) / (leads.data?.pageSize ?? 50)));
-
-  return <div className="page leads-page">
-    <div className="page-heading page-heading--split">
-      <div><h2>Leads</h2><p>Resolve the conversation and mark its lead Qualified to sync it automatically to your connected CRM.</p></div>
-      <div className="lead-export-actions"><Button variant="secondary" disabled={layoutResult.loading || Boolean(layoutResult.error)} onClick={() => setCustomizing(true)}>Customize columns</Button>{(['csv', 'xlsx'] as const).map((format) => <Button key={format} variant="secondary" icon={Download} disabled={exporting || !records.length || Boolean(layoutResult.error)} onClick={async () => { setExporting(true); try { await leadLayoutApi.export(format, search, status); pushToast('All matching leads exported'); } catch (e) { pushToast(e instanceof Error ? e.message : 'Export failed', 'error'); } finally { setExporting(false); } }}>Export {format === 'csv' ? 'CSV' : 'Excel'}</Button>)}</div>
-    </div>
-
-    {layoutResult.error && <p role="alert">Could not load your saved layout. <Button variant="secondary" onClick={layoutResult.reload}>Retry layout</Button></p>}
-    <div className="leads-stats">
-      <Card><span><UsersRound /></span><div><strong>{leads.data?.total ?? 0}</strong><small>Total leads</small></div></Card>
-      <Card><span><UserRound /></span><div><strong>{qualified}</strong><small>Qualified on page</small></div></Card>
-      <Card><span><ShieldCheck /></span><div><strong>{consented}</strong><small>Consented on page</small></div></Card>
-      <Card><span><Checkmark /></span><div><strong>{converted}</strong><small>Converted on page</small></div></Card>
-    </div>
-
-    <Card className="leads-card">
-      <div className="leads-toolbar">
-        <div><h3>Captured contacts</h3><p>{records.length} shown · {leads.data?.total ?? 0} total</p></div>
-        <div className="leads-toolbar__filters">
-          <div className="search-box"><Search /><input value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} placeholder="Search name, email, or phone" aria-label="Search leads" /></div>
-          <div className="filter-select leads-status-filter"><Filter /><select value={status} onChange={(event) => { setPage(1); setStatus(event.target.value); }} aria-label="Filter leads by status"><option value="all">All statuses</option>{commonStatuses.map((item) => <option key={item} value={item}>{item}</option>)}</select><ChevronDown /></div>
-        </div>
-      </div>
-
-      {records.length ? <div className="leads-table-wrap"><table className="leads-table">
-        <thead><tr>{layout.columns.filter((c) => c.visible).map((c) => <th key={c.id}>{c.label}</th>)}<th>Actions</th></tr></thead>
-        <tbody>{records.map((lead) => {
-          const statuses = commonStatuses.includes(lead.status) ? commonStatuses : [lead.status, ...commonStatuses];
-          return <tr key={lead.id}>{layout.columns.filter((c) => c.visible).map((column) => <td key={column.id}>{column.source === 'status' ? <label className={`lead-status lead-status--${statusTone(lead.status)}`}><span className="sr-only">Status for {lead.name || 'lead'}</span><select value={lead.status} disabled={updating === lead.id} onChange={(event) => void updateStatus(lead, event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{item}</option>)}</select><ChevronDown /></label> : column.source === 'name' ? <strong>{leadColumnValue(lead, column) || 'Anonymous visitor'}</strong> : leadColumnValue(lead, column, agentNames.get(lead.agentId)) || 'Not provided'}</td>)}
-          <td><div className="lead-export-actions"><Button variant="secondary" disabled={Boolean(layoutResult.error)} onClick={() => setEditing(lead)}>Edit details</Button><Button variant="secondary" onClick={() => setSelected(lead)}>View sync</Button></div></td></tr>;
-        })}</tbody>
-      </table></div> : <EmptyState icon={UsersRound} title="No leads found" description={search || status !== 'all' ? 'Try another search or status filter.' : 'New contacts captured by your channels will appear here.'} />}
-      <div className="page-heading page-heading--split"><small>Page {page} of {totalPages}</small><div><Button variant="secondary" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button> <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>Next</Button></div></div>
-    </Card>
-
-    {customizing && <LeadLayoutEditor initial={layout} records={records} agentNames={agentNames} onClose={() => setCustomizing(false)} onSaved={setSavedLayout} />}
-    {editing && <LeadDetailsEditor lead={editing} layout={layout} onClose={() => setEditing(null)} onSaved={() => { leads.reload(); pushToast("Lead details saved"); }} />}
-    {selected ? <Card>
-      <div className="page-heading page-heading--split">
-        <div><h3>{selected.name || selected.email || 'Lead'} · CRM delivery</h3><p>Provider ACK and read-back proof are separate. Identity verification proves the record ID; mapped-field verification additionally compares the configured fields. Verification retries never resend an acknowledged write.</p></div>
-        <div><Button icon={RefreshCw} onClick={() => void syncLead()}>Sync now</Button> <Button variant="secondary" onClick={() => { deliveries.reload(); activity.reload(); }}>Refresh status</Button> <Button variant="secondary" onClick={() => setSelected(null)}>Close</Button></div>
-      </div>
-      {deliveries.loading ? <p>Loading CRM deliveries…</p> : deliveries.error ? <p role="alert">Could not load CRM deliveries: {deliveries.error}</p> : deliveries.data?.length ? <div className="leads-table-wrap"><table className="leads-table">
-        <thead><tr><th>Provider</th><th>Status</th><th>External ID</th><th>Write attempts</th><th>Provider ACK</th><th>Read-back verification</th><th>Action</th></tr></thead>
-        <tbody>{deliveries.data.map((delivery) => {
-          const verification = getVerificationView(delivery);
-          return <tr key={delivery.id}>
-            <td>{delivery.provider}</td>
-            <td><Badge tone={deliveryTone(delivery.status)}>{delivery.status}</Badge>{delivery.last_error_message ? <small>{delivery.last_error_message}</small> : null}</td>
-            <td>{delivery.external_record_id ?? '—'}</td>
-            <td>{delivery.attempt_count}</td>
-            <td>{delivery.acknowledged_at ? relativeTime(delivery.acknowledged_at) : '—'}</td>
-            <td><Badge tone={verification.proved ? 'success' : verification.error ? 'warning' : 'neutral'}>{verification.label}</Badge><small>Read-back attempts: {verification.attempts}</small>{verification.proved && delivery.verified_at ? <small>{relativeTime(delivery.verified_at)}</small> : null}{verification.nextAttempt ? <small>Next check: {new Date(verification.nextAttempt).toLocaleString()}</small> : null}{verification.error ? <small>{verification.error}</small> : null}</td>
-            <td><div>{verification.retryable ? <Button variant="secondary" disabled={Boolean(retrying)} onClick={() => void retryDelivery(delivery.id)}>{verification.retryLabel}</Button> : null}<CRMDeliveryAttempts deliveryId={delivery.id} attemptCount={delivery.attempt_count} /></div></td>
-          </tr>;
-        })}</tbody>
-      </table></div> : <EmptyState icon={RefreshCw} title="No CRM deliveries yet" description="Use Sync now or qualify the lead to evaluate CRM routing rules." />}
-      <h3>Activity</h3>
-      {activity.loading ? <p>Loading activity…</p> : activity.error ? <p role="alert">Could not load activity: {activity.error}</p> : activity.data?.length ? <div>{activity.data.slice().reverse().map((item) => <p key={item.id}><strong>{item.event_type}</strong> · <time dateTime={item.occurred_at}>{relativeTime(item.occurred_at)}</time></p>)}</div> : <p>No activity recorded yet.</p>}
-    </Card> : null}
-  </div>;
+  const { activeWorkspace } = useWorkspace(); const { session } = useAuth();
+  const scope = { role: session?.user.role, permissions: activeWorkspace?.permissions };
+  return <LeadsWorkspacePage key={activeWorkspace?.id ?? 'no-workspace'}
+    canUpdate={canUseDashboardCapability(scope, 'leads.update')}
+    canSync={canUseDashboardCapability(scope, 'crm.manage')}
+    canConversation={canUseDashboardCapability(scope, 'conversations.view')} />;
 }
-
-function Checkmark() {
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+export function LeadsWorkspacePage({ canUpdate, canSync, canConversation }: { canUpdate: boolean; canSync: boolean; canConversation: boolean }) {
+  const [params, setParams] = useSearchParams(); const selectedId = params.get('lead');
+  const [search, setSearch] = useState(''); const [status, setStatus] = useState('all');
+  const [agentId, setAgentId] = useState('all'); const [channel, setChannel] = useState('all'); const [page, setPage] = useState(1);
+  const [customizing, setCustomizing] = useState(false); const [editing, setEditing] = useState<Lead | null>(null); const [adding, setAdding] = useState(false);
+  const [savedLayout, setSavedLayout] = useState<LeadLayout | null>(null); const [exporting, setExporting] = useState(false); const [updating, setUpdating] = useState('');
+  const [workspaceOverride, setWorkspaceOverride] = useState<LeadWorkspace | null>(null);
+  const layoutResult = useApi(() => leadLayoutApi.get()); const layout = savedLayout ?? layoutResult.data ?? defaultLayout;
+  const leads = usePollingApi(() => loadLeads({ page, pageSize: PAGE_SIZE, search, status, agentId, channel }), [page, search, status, agentId, channel], 60000);
+  const agents = useApi(() => api.agents.list()); const summary = useApi(() => leadWorkspaceApi.summary());
+  const detail = usePollingApi(() => selectedId ? leadWorkspaceApi.detail(selectedId) : Promise.resolve(null), [selectedId], 60000);
+  const selected = currentLeadWorkspace(selectedId, detail.data, workspaceOverride);
+  const records = leads.data?.items ?? []; const total = leads.data?.total ?? 0; const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const { pushToast } = useToast(); const agentNames = useMemo(() => new Map((agents.data ?? []).map((agent) => [agent.id, agent.name])), [agents.data]);
+  const customColumns = layout.version > 0;
+  function select(id: string | null) { setWorkspaceOverride(null); const next = new URLSearchParams(params); if (id) next.set('lead', id); else next.delete('lead'); setParams(next, { replace: true }); }
+  function savedWorkspace(value: LeadWorkspace) { setWorkspaceOverride(value); detail.reload(); }
+  function refresh() { setWorkspaceOverride(null); leads.reload(); summary.reload(); detail.reload(); }
+  function filter(setter: (value: string) => void, value: string) { setPage(1); setter(value); }
+  async function updateStatus(lead: Lead, next: string) {
+    setUpdating(lead.id); try { const saved = await api.leads.updateStatus(lead.id, next); pushToast(saved.status === 'qualified' ? `${displayName(lead)} marked Qualified. Resolved leads sync automatically using your CRM settings.` : `${displayName(lead)} marked ${saved.status}`); refresh(); }
+    catch (e) { pushToast(e instanceof Error ? e.message : 'Could not update lead', 'error'); } finally { setUpdating(''); }
+  }
+  async function exportLeads(format: 'csv' | 'xlsx') { setExporting(true); try { await leadLayoutApi.export(format, search, status, { agentId, channel }); pushToast('All matching leads exported'); } catch (e) { pushToast(e instanceof Error ? e.message : 'Export failed', 'error'); } finally { setExporting(false); } }
+  const statusControl = (lead: Lead) => <label className={`ld-status-control ld-stage--${lead.status}`}><span className="sr-only">Status for {displayName(lead)}</span><select value={lead.status} disabled={!canUpdate || updating === lead.id} onChange={(e) => void updateStatus(lead, e.target.value)}>{[...new Set([lead.status, ...leadStatuses])].map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></label>;
+  const metricItems = [ ['Total captured leads', summary.data?.total, 'Workspace total'], ['New leads', summary.data?.new, 'Requires review'], ['Qualified', summary.data?.qualified, 'Current stage'], ['Converted', summary.data?.converted, summary.data ? `${summary.data.total ? ((summary.data.converted / summary.data.total) * 100).toFixed(1) : '0.0'}% of total` : 'Workspace total'] ] as const;
+  return <div className="page leads-page ld-page">
+    <header className="ld-heading"><div className="ld-heading__top"><span className="ld-eyebrow">Live Pipeline</span><div><Button icon={Download} disabled={exporting || !total || Boolean(layoutResult.error)} onClick={() => void exportLeads('csv')}>{exporting ? 'Exporting…' : 'Export CSV'}</Button><Button icon={Plus} disabled={!canUpdate || agents.loading || Boolean(agents.error)} onClick={() => setAdding(true)}>Add Lead</Button></div></div><h2>Leads</h2><p>Track, score, and push inbound prospects captured autonomously across your conversational AI fleet.</p></header>
+    <section className="ld-metrics" aria-label="Workspace lead totals">{metricItems.map(([name, value, hint], index) => <article key={name} className="ld-metric"><h3>{name}</h3><strong>{summary.loading || summary.error ? '—' : value}</strong><small className={`ld-metric__hint ld-metric__hint--${index}`}>{hint}</small></article>)}</section>
+    {summary.error && <p className="ld-inline-error" role="alert">Lead totals are unavailable. <button onClick={summary.reload}>Retry totals</button></p>}
+    <section className="ld-list" aria-label="Captured leads"><div className="ld-list-heading"><h3>All Captured Leads</h3><p>Review conversation context, consent logs, and lead routing.</p></div>
+      <div className="ld-toolbar"><div className="ld-search"><Search /><input aria-label="Search leads" placeholder="Search name, email, or phone" value={search} onChange={(e) => filter(setSearch, e.target.value)} />{search && <button type="button" aria-label="Clear lead search" onClick={() => filter(setSearch, '')}><X /></button>}</div>
+        <div className="ld-filters"><label className="ld-filter ld-filter--primary"><span>Status:</span><select aria-label="Filter leads by status" value={status} onChange={(e) => filter(setStatus, e.target.value)}><option value="all">All</option>{leadStatuses.map((value) => <option key={value} value={value}>{label(value)}</option>)}</select><ChevronDown /></label>
+        <label className="ld-filter"><span>Agent:</span><select aria-label="Filter leads by agent" value={agentId} onChange={(e) => filter(setAgentId, e.target.value)} disabled={agents.loading || Boolean(agents.error)}><option value="all">All</option>{agents.data?.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown /></label>
+        <label className="ld-filter"><span>Source:</span><select aria-label="Filter leads by source" value={channel} onChange={(e) => filter(setChannel, e.target.value)}><option value="all">All</option>{['widget', 'whatsapp', 'telegram', 'api'].map((value) => <option key={value} value={value}>{sourceLabel(value)}</option>)}</select><ChevronDown /></label></div>
+        <button type="button" className="ld-tool-button" aria-label="Customize columns" title="Customize columns" disabled={layoutResult.loading || Boolean(layoutResult.error) || !canUpdate} onClick={() => setCustomizing(true)}><LayoutList /></button><button type="button" className="ld-tool-button" aria-label="Refresh leads" title="Refresh leads" onClick={refresh} disabled={leads.loading}><RefreshCw /></button>
+      </div>
+      {layoutResult.error && <p role="alert" className="ld-inline-error">Could not load your saved layout. <button onClick={layoutResult.reload}>Retry layout</button></p>}{agents.error && <p role="alert" className="ld-inline-error">Agent names could not be loaded. <button onClick={agents.reload}>Retry agents</button></p>}
+      {leads.loading && !leads.data ? <div className="ld-list-loading" role="status">Loading captured leads…</div> : leads.error ? <EmptyState icon={UsersRound} title="Leads are unavailable" description={leads.error} action={<Button onClick={leads.reload}>Try again</Button>} /> : records.length ? <div className="ld-table-scroll" tabIndex={0} role="region" aria-label="Lead records"><table className="ld-table"><thead><tr>{customColumns ? layout.columns.filter((column) => column.visible).map((column) => <th scope="col" key={column.id}>{column.label}</th>) : ['Lead', 'Contact', 'Source', 'Agent', 'Status', 'Consent', 'Captured'].map((column) => <th scope="col" key={column}>{column}</th>)}<th scope="col">Actions</th></tr></thead><tbody>{records.map((lead) => {
+        const source = leadSource(lead); const SourceIcon = source === 'widget' || source === 'website' ? Globe2 : source === 'api' ? Webhook : MessageCircle;
+        return <tr key={lead.id} className={selectedId === lead.id ? 'is-selected' : ''}>{customColumns ? layout.columns.filter((column) => column.visible).map((column) => <td key={column.id}>{column.source === 'status' ? statusControl(lead) : column.source === 'name' ? <button type="button" className="ld-name" aria-label={displayName(lead)} onClick={() => select(lead.id)}><span className="ld-avatar">{initials(displayName(lead))}</span><strong>{displayName(lead)}</strong></button> : leadColumnValue(lead, column, agentNames.get(lead.agentId)) || 'Not provided'}</td>) : <>
+          <td><button type="button" className="ld-name" aria-label={displayName(lead)} onClick={() => select(lead.id)}><span className="ld-avatar">{initials(displayName(lead))}</span><strong>{displayName(lead)}</strong></button></td><td className="ld-contact"><strong>{lead.email || 'Email not provided'}</strong><small>{lead.phone || 'Phone not provided'}</small></td><td><span className={`ld-source ld-source--${source}`}><SourceIcon />{sourceLabel(source)}</span></td><td><span className="ld-agent"><Bot />{agentNames.get(lead.agentId) || 'Not available'}</span></td><td>{statusControl(lead)}</td><td><span className={lead.consent ? 'ld-consent-yes' : 'ld-consent-no'}>{lead.consent ? <Check /> : '–'}{lead.consent ? 'Yes' : 'No'}</span></td><td className="ld-captured"><time dateTime={lead.createdAt} title={new Date(lead.createdAt).toLocaleString()}>{capturedAt(lead.createdAt)}</time></td></>}
+          <td><details className="ld-row-menu"><summary aria-label={`Actions for ${displayName(lead)}`}><MoreVertical /></summary><div><button type="button" onClick={() => select(lead.id)}>View details</button><button type="button" onClick={() => select(lead.id)}>View sync</button><button type="button" disabled={!canUpdate || Boolean(layoutResult.error)} onClick={() => setEditing(lead)}>Edit details</button></div></details></td></tr>;
+      })}</tbody></table></div> : <EmptyState icon={UsersRound} title="No leads found" description={search || status !== 'all' || agentId !== 'all' || channel !== 'all' ? 'Try another search or filter.' : 'New contacts captured by your channels will appear here.'} action={canUpdate ? <Button icon={Plus} onClick={() => setAdding(true)}>Add Lead</Button> : undefined} />}
+      <footer className="ld-pagination"><small>{leads.loading ? 'Loading…' : `Showing ${total ? (page - 1) * PAGE_SIZE + 1 : 0} – ${Math.min(page * PAGE_SIZE, total)} of ${total} leads`}</small><div><Button variant="secondary" size="sm" disabled={page <= 1 || leads.loading} onClick={() => setPage((value) => value - 1)}>Previous</Button>{Array.from({ length: Math.min(5, totalPages) }, (_, index) => Math.max(1, Math.min(page - 2, totalPages - 4)) + index).map((number) => <button type="button" key={number} aria-current={page === number ? 'page' : undefined} aria-label={`Page ${number}`} disabled={leads.loading} onClick={() => setPage(number)}>{number}</button>)}<Button variant="secondary" size="sm" disabled={page >= totalPages || leads.loading} onClick={() => setPage((value) => value + 1)}>Next</Button></div></footer>
+      <details className="ld-export-options"><summary>Additional export options</summary><Button variant="secondary" icon={Download} disabled={exporting || !total || Boolean(layoutResult.error)} onClick={() => void exportLeads('xlsx')}>Export Excel</Button><span>Saved custom columns and all active filters are respected.</span></details>
+    </section>
+    {selectedId && (!selected || selected.lead.id !== selectedId) && <aside className="ld-drawer ld-drawer--loading" role="dialog" aria-label="Lead details"><button type="button" className="icon-button" aria-label="Close lead details" onClick={() => select(null)}><X /></button>{detail.error ? <div role="alert"><h3>Lead is unavailable</h3><p>{detail.error}</p><Button onClick={detail.reload}>Try again</Button></div> : <p role="status">Loading lead details…</p>}</aside>}
+    {selectedId && selected?.lead.id === selectedId && <LeadDrawer key={selectedId} workspace={selected} agent={agents.data?.find((agent) => agent.id === selected.lead.agentId)} canUpdate={canUpdate} canSync={canSync} canConversation={canConversation} onClose={() => select(null)} onSaved={savedWorkspace} onLeadSaved={(lead) => { setWorkspaceOverride({ ...selected, lead }); detail.reload(); leads.reload(); summary.reload(); pushToast('Lead status updated'); }} onEdit={() => setEditing(selected.lead)} />}
+    {customizing && <LeadLayoutEditor initial={layout} records={records} agentNames={agentNames} onClose={() => setCustomizing(false)} onSaved={setSavedLayout} />}
+    {editing && <LeadDetailsEditor lead={editing} layout={layout} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); pushToast('Lead details saved'); }} />}
+    {adding && <AddLeadDialog agents={agents.data ?? []} onClose={() => setAdding(false)} onSaved={(lead) => { setAdding(false); refresh(); select(lead.id); pushToast('Lead added'); }} />}
+  </div>;
 }

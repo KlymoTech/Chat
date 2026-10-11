@@ -6,7 +6,7 @@ import { OrganizationLayout } from './guards/OrganizationLayout';
 import { ProtectedLayout } from './guards/ProtectedLayout';
 
 const AgentBuilderPage = lazy(() => import('@/pages/AgentBuilderPage').then((module) => ({ default: module.AgentBuilderPage })));
-const AgentsPage = lazy(() => import('@/pages/AgentsPage').then((module) => ({ default: module.AgentsPage })));
+const AgentsPage = lazy(() => import('@/features/dashboard/AgentsRoutePage').then((module) => ({ default: module.AgentsRoutePage })));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
 const AuditPage = lazy(() => import('@/pages/AuditPage').then((module) => ({ default: module.AuditPage })));
 const BatchesPage = lazy(() => import('@/pages/BatchesPage').then((module) => ({ default: module.BatchesPage })));

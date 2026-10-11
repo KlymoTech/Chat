@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
+import { TalkToBotAnimatedLogo, type TalkToBotLogoState } from '@/components/talktobot-animated-logo';
 import { getChatUiLocale, getWidgetLocale, localizeAgentAppearance } from '@/lib/widget-localization';
 import type { Agent, ChatMessage, WidgetSession } from '@/types';
 
@@ -81,6 +82,7 @@ export function ChatWidget({
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [logoState, setLogoState] = useState<TalkToBotLogoState>('idle');
   const [resetting, setResetting] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [conversationCopied, setConversationCopied] = useState(false);
@@ -136,6 +138,12 @@ export function ChatWidget({
   }, []);
 
   useEffect(() => {
+    if (logoState === 'idle' || logoState === 'thinking') return;
+    const resetLogo = window.setTimeout(() => setLogoState('idle'), 3500);
+    return () => window.clearTimeout(resetLogo);
+  }, [logoState]);
+
+  useEffect(() => {
     if (!moreMenuOpen) return;
 
     const closeMenu = (event: MouseEvent) => {
@@ -167,6 +175,7 @@ export function ChatWidget({
     setConversationId(undefined);
     setWidgetToken(undefined);
     setStreaming(false);
+    setLogoState('idle');
 
     setFeedbackOpen(false);
     setFeedbackMessageId(null);
@@ -303,7 +312,9 @@ export function ChatWidget({
     }
 
     setStreaming(true);
+    setLogoState('thinking');
     controller.current = new AbortController();
+    let responseFailed = false;
 
     try {
       let activeConversationId = conversationId;
@@ -410,6 +421,7 @@ export function ChatWidget({
   }
 
   if (event.type === 'error') {
+    responseFailed = true;
     setMessages((current) =>
       current.map((message) =>
         message.id === currentResponseId
@@ -425,6 +437,7 @@ export function ChatWidget({
   }
 }
     } catch (error) {
+      responseFailed = true;
       setMessages((current) =>
         current.map((message) =>
           message.id === responseId
@@ -439,6 +452,7 @@ export function ChatWidget({
       );
     } finally {
       setStreaming(false);
+      setLogoState(responseFailed ? 'confused' : 'delighted');
     }
   };
 
@@ -488,7 +502,7 @@ export function ChatWidget({
             {agent.avatar.slice(0, 2)}
           </span>
         ) : (
-          <Sparkles />
+          <TalkToBotAnimatedLogo state={logoState} size={34} />
         )}
       </button>
     );
@@ -522,10 +536,10 @@ export function ChatWidget({
       <header className="widget-header">
         <div className="widget-wordmark">
           <span className="widget-logo">
-            {widgetLogo ? <img src={widgetLogo} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <Sparkles />}
+            {widgetLogo ? <img src={widgetLogo} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /> : <TalkToBotAnimatedLogo state={logoState} size="100%" />}
           </span>
 
-          {brandedWidgetName ? <strong>{brandedWidgetName}</strong> : <strong>northstar<span>ai</span></strong>}
+          {brandedWidgetName ? <strong>{brandedWidgetName}</strong> : <strong>talktobot</strong>}
         </div>
 
         <div className="widget-header-actions">
@@ -594,7 +608,7 @@ export function ChatWidget({
         {messages.length === 0 ? (
           <div className="widget-welcome">
             <span className="widget-orb">
-              {agentAvatar ? <img src={agentAvatar} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <Sparkles />}
+              {agentAvatar ? <img src={agentAvatar} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <TalkToBotAnimatedLogo state={logoState} size="100%" />}
             </span>
 
             <h2>
@@ -644,6 +658,11 @@ export function ChatWidget({
           </div>
         ) : (
           <div className="message-list">
+            {logoState !== 'idle' ? (
+              <div className="widget-expression" role="status" aria-label={logoState === 'thinking' ? 'Assistant is thinking' : logoState === 'delighted' ? 'Assistant is ready to help' : 'Assistant needs another moment'}>
+                <TalkToBotAnimatedLogo state={logoState} size={112} onStateComplete={() => setLogoState('idle')} />
+              </div>
+            ) : null}
             <div className="message-day">
               <span>{locale.today}</span>
             </div>
@@ -655,7 +674,7 @@ export function ChatWidget({
               >
                 {message.role === 'assistant' ? (
                   <span className="message-avatar">
-                    {agentAvatar ? <img src={agentAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <Sparkles />}
+                    {agentAvatar ? <img src={agentAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : <TalkToBotAnimatedLogo state={logoState} size="100%" />}
                   </span>
                 ) : null}
 
@@ -834,7 +853,7 @@ export function ChatWidget({
 
         {agent.appearance.showBranding ? (
           <small>
-            {poweredByLabel || <>{locale.poweredBy}{' '}<strong><Sparkles /> Northstar AI</strong></>}
+            {poweredByLabel || <>{locale.poweredBy}{' '}<strong><Sparkles /> talktobot</strong></>}
           </small>
         ) : null}
       </footer>

@@ -2,7 +2,7 @@
 export interface NavigationItem {
   to: string;
   label: string;
-  icon: 'overview' | 'agents' | 'inbox' | 'leads' | 'integrations' | 'education' | 'analytics' | 'audit' | 'deploy' | 'students' | 'courses' | 'batches' | 'enrollments' | 'imports' | 'access' | 'activity';
+  icon: 'overview' | 'agents' | 'inbox' | 'leads' | 'integrations' | 'workflows' | 'crm-workflow' | 'education' | 'analytics' | 'audit' | 'deploy' | 'students' | 'courses' | 'batches' | 'enrollments' | 'imports' | 'access' | 'activity';
   section: 'Workspace' | 'Engagement' | 'Learning' | 'Operations';
   permission: string;
   description?: string;
@@ -18,9 +18,9 @@ export const primaryNavigation: NavigationItem[] = [
   { to: '/', label: 'Overview', icon: 'overview', section: 'Workspace', permission: 'workspace.view', end: true },
   { to: '/agents', label: 'Agents', icon: 'agents', section: 'Workspace', permission: 'agents.view' },
   { to: '/conversations', label: 'Conversations', icon: 'inbox', section: 'Engagement', permission: 'conversations.view' },
-  { to: '/workflows', label: 'Bot Workflows', icon: 'integrations', section: 'Engagement', permission: 'agents.view' },
+  { to: '/workflows', label: 'Bot Workflows', icon: 'workflows', section: 'Engagement', permission: 'agents.view' },
   { to: '/leads', label: 'Leads', icon: 'leads', section: 'Engagement', permission: 'leads.view' },
-  { to: '/crm-workflow', label: 'CRM Workflow', icon: 'integrations', section: 'Engagement', permission: 'crm.view' },
+  { to: '/crm-workflow', label: 'CRM Workflow', icon: 'crm-workflow', section: 'Engagement', permission: 'crm.view' },
   { to: '/integrations', label: 'Integrations', icon: 'integrations', section: 'Engagement', permission: 'integrations.view' },
   { to: '/education', label: 'Education', icon: 'education', section: 'Learning', permission: 'education.view' },
   { to: '/site-cms', label: 'Website CMS', icon: 'deploy', section: 'Workspace', permission: 'workspace.manage' },
@@ -38,6 +38,7 @@ export const educationNavigation: NavigationItem[] = [
   { to: '/education/enrollments', label: 'Enrollments', icon: 'enrollments', section: 'Learning', permission: 'education.view', description: 'Review student access, assigned agents and enrollment status.' },
   { to: '/education/students/import', label: 'Imports', icon: 'imports', section: 'Learning', permission: 'education.manage', description: 'Use the existing student import, preview and validation workflow.' },
   { to: '/education/access-requests', label: 'Access requests', icon: 'access', section: 'Learning', permission: 'education.view', description: 'Review academy access requests and identity recovery.' },
+  { to: '/education/knowledge', label: 'Course knowledge', icon: 'courses', section: 'Learning', permission: 'knowledge.view', description: 'Manage approved sources and course access.' },
   { to: '/education/activity', label: 'Activity', icon: 'activity', section: 'Learning', permission: 'education.view', description: 'Browse student activity and links to education conversations.' },
 ];
 
